@@ -1,0 +1,118 @@
+/**
+ * Tool Executor — calls the bridge server or external APIs
+ */
+
+import "dotenv/config";
+
+const BRIDGE = process.env.BRIDGE_URL || "http://127.0.0.1:5010";
+
+async function callBridge(tool, args) {
+  const resp = await fetch(`${BRIDGE}/tools/call`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tool, args }),
+  });
+  if (!resp.ok) throw new Error(`Bridge ${resp.status}: ${await resp.text()}`);
+  return await resp.json();
+}
+
+// ── Delivery handlers (direct API calls) ──
+
+async function sendEmail(to, subject, body, transcript) {
+  const { google } = await import("googleapis");
+  const { OAuth2Client } = await import("google-auth-library");
+  const oauth = new OAuth2Client(process.env.GMAIL_CLIENT_ID, process.env.GMAIL_CLIENT_SECRET);
+  oauth.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
+  const gmail = google.gmail({ version: "v1", auth: oauth });
+  const full = transcript ? `${body}\n\n---\nFull Transcript:\n${transcript}` : body;
+  const email = [
+    `From: ${process.env.GMAIL_USER || "me"}`,
+    `To: ${to}`,
+    `Subject: ${subject}`,
+    "MIME-Version: 1.0",
+    "Content-Type: text/plain; charset=utf-8",
+    "",
+    full,
+  ].join("\r\n");
+  const res = await gmail.users.messages.send({
+    userId: process.env.GMAIL_USER || "me",
+    requestBody: { raw: Buffer.from(email).toString("base64url") },
+  });
+  return { ok: true, tool: "send_delivery_email", result: { id: res.data.id } };
+}
+
+async function createTrelloCards(listId, items) {
+  const cards = [];
+  for (const item of items) {
+    const desc = [item.description, item.assignee && `Assignee: ${item.assignee}`, item.deadline && `Deadline: ${item.deadline}`]
+      .filter(Boolean)
+      .join("\n");
+    const url = `https://api.trello.com/1/lists/${listId}/cards?key=${process.env.TRELLO_KEY}&token=${process.env.TRELLO_TOKEN}`;
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: (item.description || "Action Item").slice(0, 100), desc }),
+    });
+    if (resp.ok) cards.push(await resp.json());
+  }
+  return { ok: true, tool: "create_trello_action_items", result: { cardsCreated: cards.length } };
+}
+
+async function saveToDrive(folder, title, transcript, summary) {
+  const { google } = await import("googleapis");
+  const { OAuth2Client } = await import("google-auth-library");
+  const oauth = new OAuth2Client(process.env.GMAIL_CLIENT_ID, process.env.GMAIL_CLIENT_SECRET);
+  oauth.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
+  const drive = google.drive({ version: "v3", auth: oauth });
+
+  const folderName = folder || "Meeting Transcripts";
+  const search = await drive.files.list({
+    q: `name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+    fields: "files(id)",
+  });
+  let folderId = search.data.files?.[0]?.id;
+  if (!folderId) {
+    const created = await drive.files.create({ requestBody: { name: folderName, mimeType: "application/vnd.google-apps.folder" } });
+    folderId = created.data.id;
+  }
+
+  const safe = title.replace(/[^a-zA-Z0-9 _-]/g, "");
+  const doc = await drive.files.create({
+    requestBody: { name: `${safe} — Summary`, mimeType: "application/vnd.google-apps.document", parents: [folderId] },
+  });
+  const txt = await drive.files.create({
+    requestBody: { name: `${safe} — Transcript.txt`, mimeType: "text/plain", parents: [folderId] },
+    media: { mimeType: "text/plain", body: transcript || "" },
+  });
+
+  return { ok: true, tool: "save_to_drive", result: { folderId, summaryDocId: doc.data.id, transcriptFileId: txt.data.id } };
+}
+
+// ── Handler registry ──
+
+const HANDLERS = {
+  transcribe_refine: (a) => callBridge("transcribe_refine", a),
+  transcribe_get_transcript: (a) => callBridge("transcribe_get_transcript", a),
+  transcribe_get_summary: (a) => callBridge("transcribe_get_summary", a),
+  transcribe_summarize: (a) => callBridge("transcribe_summarize", a),
+  transcribe_label_speaker: (a) => callBridge("transcribe_label_speaker", a),
+  transcribe_list_voiceprints: () => callBridge("transcribe_list_voiceprints", {}),
+  transcribe_prepare_delivery: (a) => callBridge("transcribe_prepare_delivery", a),
+  send_delivery_email: (a) => sendEmail(a.to, a.subject, a.body, a.transcript),
+  create_trello_action_items: (a) => createTrelloCards(a.listId, a.actionItems),
+  save_to_drive: (a) => saveToDrive(a.folderName, a.title, a.transcript, a.summary),
+};
+
+export async function executeToolCall(toolName, args) {
+  const handler = HANDLERS[toolName];
+  if (!handler) return { ok: false, tool: toolName, error: `No handler for "${toolName}"` };
+  console.log(`   🔧 [EXECUTOR] ${toolName}...`);
+  try {
+    const result = await handler(args || {});
+    console.log(`   ✅ [EXECUTOR] ${toolName} succeeded`);
+    return result;
+  } catch (err) {
+    console.error(`   ❌ [EXECUTOR] ${toolName} failed: ${err.message}`);
+    return { ok: false, tool: toolName, error: err.message };
+  }
+}

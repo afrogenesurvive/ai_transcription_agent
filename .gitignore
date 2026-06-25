@@ -1,0 +1,77 @@
+# Node.js
+node_modules/
+npm-debug.log*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+
+# Environment
+.env
+
+
+# ── Node.js ──
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ── Environment files ──
+.env
+.env.local
+.env.*.local
+webapp/.env
+
+# ── Logs ──
+logs/
+*.log
+
+# ── Build output & local data ──
+safe/
+dist/
+build/
+
+# ── Transcription Agent Service (self-contained, gitignored) ──
+transcription-agent/
+.next/
+
+# ── Runner ──
+mcp/agent-runner/README.md
+mcp/agent-runner/system-prompt.md
+mcp/agent-runner/.runner.pid
+
+# ── Transcription Agent Runtime ──
+storage/
+queue/transcription.jsonl
+agent-runner/.runner.pid
+
+# ── Editor / IDE ──
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ── OS files ──
+Thumbs.db
+Desktop.ini
+
+# ── Personal notes ──
+notes.txt
+
+# ── MCP dependencies (each mcp/* has its own node_modules) ──
+mcp/*/node_modules/
+
+# ── README files (exclude root README) ──
+**/README.md
+!/README.md
+README_local.md
+
+AGENTS.md
+copilot-instructions.md
+
+assets/private
