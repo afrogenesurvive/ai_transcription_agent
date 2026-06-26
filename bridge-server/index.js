@@ -76,6 +76,37 @@ async function dispatch(tool, args) {
         email_recipients: args.emailRecipients || [],
       });
 
+    case "transcribe_search_memory":
+      return await callPython("POST", "/memory/search", {
+        query: args.query,
+        n_results: args.nResults || 5,
+      });
+
+    case "transcribe_save_ephemeral":
+      return await callPython("POST", "/memory/ephemeral/save", {
+        table: args.table || "notes",
+        data: args.data || {},
+      });
+
+    case "transcribe_query_ephemeral":
+      return await callPython("POST", "/memory/ephemeral/query", {
+        table: args.table || "notes",
+        query: args.query || "",
+        limit: args.limit || 10,
+      });
+
+    case "transcribe_save_context":
+      return await callPython("POST", "/memory/save_context", {
+        job_id: args.jobId,
+        title: args.title || "",
+        attendees: args.attendees || [],
+        transcript_text: args.transcriptText || "",
+        summary: args.summary || {},
+        action_items: args.actionItems || [],
+        budgets: args.budgets || [],
+        decisions: args.decisions || [],
+      });
+
     default:
       throw new Error(`Unknown tool: ${tool}`);
   }

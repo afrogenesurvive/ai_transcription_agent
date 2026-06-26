@@ -56,6 +56,10 @@ export async function callModel(context, toolDefs) {
     "- For refinement: call transcribe_refine first",
     "- For summary: call transcribe_summarize with the generated summary",
     "- For delivery: call transcribe_prepare_delivery then use send_delivery_email, create_trello_action_items, or save_to_drive",
+    "- After summarization, call transcribe_save_context to persist meeting to semantic + ephemeral memory",
+    "- Use transcribe_search_memory to find past meetings by topic (e.g. 'budget discussions')",
+    "- Use transcribe_query_ephemeral to retrieve stored action items, contacts, budgets, or decisions",
+    "- Use transcribe_save_ephemeral to store cross-meeting context like contact details or budget figures",
     "- Never make up job IDs or speaker names",
     "- Respond only with a tool call",
   ].join("\n");

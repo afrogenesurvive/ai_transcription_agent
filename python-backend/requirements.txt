@@ -11,10 +11,26 @@ numpy>=1.26.0
 # Machine Learning
 torch>=2.3.0
 pyannote.audio>=3.1.0
-whisper>=1.1.0
 
-# macOS-specific (Apple Neural Engine): pip install mlx-whisper
-# Windows-specific (CUDA): pip install faster-whisper
+# ── Whisper ASR variants ──
+# Install ONE of the following depending on your platform.
+# The setup script (npm run transcribe:setup) auto-detects and installs the right one.
+#
+#   macOS (Apple Silicon):    mlx-whisper   (fastest on ANE, ~4x real-time)
+#   Windows / Linux (CUDA):  faster-whisper (~6x real-time with GPU)
+#   Any platform (fallback): openai-whisper  (slowest but guaranteed to work)
+#
+# The runtime code in transcription.py auto-selects the correct variant.
+# See: scripts/setup-transcription.sh for the auto-detection logic.
+
+# Vector Search & Memory
+chromadb>=1.9.0
+sentence-transformers>=3.0.0
 
 # Utility
 python-dotenv>=1.0.0
+
+# ── OS-specific extras (installed automatically by setup script) ──
+# mlx-whisper
+# faster-whisper
+# openai-whisper

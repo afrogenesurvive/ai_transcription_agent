@@ -125,6 +125,67 @@ const TOOLS = [
     },
   },
   {
+    name: "transcribe_search_memory",
+    description:
+      "Semantic search across past meeting transcripts and summaries using natural language. Returns matching meetings with relevance scores.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Natural language search query, e.g. 'budget discussion Q4'" },
+        nResults: { type: "number", default: 5 },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "transcribe_save_ephemeral",
+    description: "Save structured data to ephemeral memory: action items, contacts, budgets, decisions, or notes.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        table: { type: "string", enum: ["action_items", "contacts", "budgets", "decisions", "notes"] },
+        data: {
+          type: "object",
+          description:
+            "Data payload. For action_items: {job_id, items: [{description, assignee, deadline, priority}], meeting_title}. For contacts: {name, email, org, role, phone, meeting}. For budgets: {job_id, items: [{description, amount, currency, category}], meeting_title}. For decisions: {job_id, items: [{description, rationale, made_by}], meeting_title}. For notes: {job_id, topic, content}.",
+        },
+      },
+      required: ["table", "data"],
+    },
+  },
+  {
+    name: "transcribe_query_ephemeral",
+    description: "Query ephemeral memory for action items, contacts, budgets, decisions, or notes. Optionally filter by keyword.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        table: { type: "string", enum: ["action_items", "contacts", "budgets", "decisions", "notes"], default: "notes" },
+        query: { type: "string", default: "", description: "Optional keyword to filter results" },
+        limit: { type: "number", default: 10 },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "transcribe_save_context",
+    description:
+      "Save full meeting context to both semantic and ephemeral memory at once. Call this after summarization to make the meeting searchable.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        jobId: { type: "string" },
+        title: { type: "string" },
+        attendees: { type: "array", items: { type: "string" } },
+        transcriptText: { type: "string", description: "Full transcript as plain text" },
+        summary: { type: "object", description: "Summary object with executive_summary, key_decisions, discussion_points" },
+        actionItems: { type: "array", items: { type: "object" }, description: "List of {description, assignee, deadline, priority}" },
+        budgets: { type: "array", items: { type: "object" }, description: "List of {description, amount, currency, category}" },
+        decisions: { type: "array", items: { type: "object" }, description: "List of {description, rationale, made_by}" },
+      },
+      required: ["jobId", "title"],
+    },
+  },
+  {
     name: "send_delivery_email",
     description: "Send email with meeting summary and transcript via Gmail.",
     inputSchema: {

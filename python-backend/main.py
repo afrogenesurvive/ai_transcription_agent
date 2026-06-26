@@ -4,6 +4,7 @@ FastAPI application — transcription backend
 Endpoints:
   ML Pipeline: /transcribe/upload, /transcribe/status/{id}, /transcribe/transcript/{id}
   Agent-facing: /agent/refine, /agent/summarize, /agent/label_speakers, /agent/deliver
+  Memory:       /memory/search, /memory/ephemeral/query, /memory/ephemeral/save, /memory/save_context
 """
 
 import os
@@ -16,23 +17,36 @@ from config import config
 from upload import AudioUploader
 from voiceprint import VoiceprintManager
 from transcription import TranscriptionEngine, detect_device
-from models import RefineRequest, SummarizeRequest, LabelRequest, Deliverable
+from models import (
+    RefineRequest, SummarizeRequest, LabelRequest, Deliverable,
+    MemorySearchRequest, MemorySearchResult,
+    EphemeralMemoryItem, EphemeralMemoryQuery, EphemeralMemoryActionResult,
+    SaveMeetingContextRequest,
+)
 from agent_bridge import AgentBridge
+from semantic_memory import SemanticMemory
+from ephemeral_memory import EphemeralMemory
 
 uploader: AudioUploader = None
 vp_manager: VoiceprintManager = None
 agent_bridge: AgentBridge = None
+semantic_memory: SemanticMemory = None
+ephemeral_memory: EphemeralMemory = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global uploader, vp_manager, agent_bridge
+    global uploader, vp_manager, agent_bridge, semantic_memory, ephemeral_memory
     uploader = AudioUploader()
     vp_manager = VoiceprintManager()
     agent_bridge = AgentBridge()
+    semantic_memory = SemanticMemory()
+    ephemeral_memory = EphemeralMemory()
     os.makedirs(config.STORAGE_PATH, exist_ok=True)
     os.makedirs(config.QUEUE_DIR, exist_ok=True)
     print(f"[startup] Backend on {config.HOST}:{config.PORT} | device={detect_device()}")
+    print(f"[startup] Semantic memory: {semantic_memory.persist_dir}")
+    print(f"[startup] Ephemeral memory: {ephemeral_memory.db_path}")
     yield
 
 
@@ -156,6 +170,87 @@ async def agent_deliver(req: Deliverable):
     with open(os.path.join(config.STORAGE_PATH, req.job_id, "delivery.json"), "w") as f:
         json.dump(package, f, indent=2)
     return package
+
+
+# ── Memory Endpoints ──
+
+@app.post("/memory/search")
+async def memory_search(req: MemorySearchRequest):
+    """Semantic search across past meeting transcripts and summaries."""
+    try:
+        results = semantic_memory.search(req.query, n_results=req.n_results)
+        return {"results": results}
+    except Exception as e:
+        raise HTTPException(500, f"Memory search failed: {e}")
+
+
+@app.post("/memory/ephemeral/save")
+async def memory_ephemeral_save(req: EphemeralMemoryItem):
+    """Save an item to ephemeral memory (action_items, contacts, budgets, decisions, notes)."""
+    try:
+        table = req.table
+        data = req.data
+        if table == "action_items":
+            ephemeral_memory.save_action_items(
+                data.get("job_id", ""), data.get("items", []), data.get("meeting_title", "")
+            )
+        elif table == "contacts":
+            ephemeral_memory.upsert_contact(
+                data.get("name", ""), data.get("email", ""), data.get("org", ""),
+                data.get("role", ""), data.get("phone", ""), data.get("meeting", ""),
+            )
+        elif table == "budgets":
+            ephemeral_memory.save_budgets(
+                data.get("job_id", ""), data.get("items", []), data.get("meeting_title", "")
+            )
+        elif table == "decisions":
+            ephemeral_memory.save_decisions(
+                data.get("job_id", ""), data.get("items", []), data.get("meeting_title", "")
+            )
+        elif table == "notes":
+            ephemeral_memory.save_note(
+                data.get("job_id", ""), data.get("topic", ""), data.get("content", "")
+            )
+        else:
+            raise HTTPException(400, f"Unknown table: {table}")
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(500, f"Ephemeral memory save failed: {e}")
+
+
+@app.post("/memory/ephemeral/query")
+async def memory_ephemeral_query(req: EphemeralMemoryQuery):
+    """Query ephemeral memory by table and optional keyword."""
+    try:
+        data = ephemeral_memory.query_all(req.table, req.query, req.limit)
+        return {"results": data}
+    except Exception as e:
+        raise HTTPException(500, f"Ephemeral memory query failed: {e}")
+
+
+@app.post("/memory/save_context")
+async def memory_save_context(req: SaveMeetingContextRequest):
+    """Save full meeting context to both semantic and ephemeral memory at once.
+    Called by the agent runner after summarization completes."""
+    try:
+        # Semantic memory — searchable vector store
+        semantic_memory.store_meeting(
+            job_id=req.job_id,
+            title=req.title,
+            transcript_text=req.transcript_text,
+            summary=req.summary,
+            metadata={"date": "", "attendees": req.attendees},
+        )
+        # Ephemeral memory — structured data
+        if req.action_items:
+            ephemeral_memory.save_action_items(req.job_id, req.action_items, req.title)
+        if req.budgets:
+            ephemeral_memory.save_budgets(req.job_id, req.budgets, req.title)
+        if req.decisions:
+            ephemeral_memory.save_decisions(req.job_id, req.decisions, req.title)
+        return {"success": True, "semantic_count": semantic_memory.count()}
+    except Exception as e:
+        raise HTTPException(500, f"Save context failed: {e}")
 
 
 @app.get("/health")

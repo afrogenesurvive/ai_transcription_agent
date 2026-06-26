@@ -10,6 +10,8 @@ ai_transcription_agent/
 │   ├── main.py           Routes + pipeline orchestration
 │   ├── transcription.py  Platform-aware ASR + diarization
 │   ├── voiceprint.py     Speaker embedding storage + matching
+│   ├── semantic_memory.py  ChromaDB vector store (semantic search)
+│   ├── ephemeral_memory.py SQLite structured memory (actions, contacts, budgets)
 │   ├── agent_bridge.py   Queue writer + trigger file
 │   ├── upload.py         Audio validation + standardization
 │   ├── config.py         Environment-based configuration
@@ -27,7 +29,11 @@ ai_transcription_agent/
 │
 ├── docs/                 Architecture docs
 ├── queue/                Runtime: job event queue files
-└── storage/              Runtime: audio, voiceprints, transcripts
+└── storage/              Runtime: audio, voiceprints, transcripts, vector index, memory DB
+    ├── <job_id>/         Per-job artifacts
+    ├── chroma/           ChromaDB vector index (semantic memory)
+    ├── ephemeral_memory.db  SQLite (action items, contacts, budgets, decisions)
+    └── voiceprints.db    SQLite (speaker embeddings)
 ```
 
 ### Push-Trigger Flow
@@ -98,6 +104,7 @@ npm run transcribe:runner    # Agent runner (interactive prompt)
 | Alignment        | Map words to speaker segments       | Labeled transcript                          |
 | Agent Refine     | LLM redacts PII, cleans formatting  | Clean transcript                            |
 | Agent Summarize  | LLM extracts summary + action items | Summary JSON                                |
+| Memory Save      | Embed + store in ChromaDB + SQLite  | Searchable vector index + structured tables |
 | Delivery         | Email / Trello / Drive              | Sent via Gmail API / Trello API / Drive API |
 
 ## Agent Runner Commands
@@ -110,13 +117,32 @@ trigger  — Manually touch trigger file to process now
 stop     — Shut down the runner
 ```
 
+## Memory Systems
+
+### Semantic Memory (Vector Search)
+
+- **Engine**: ChromaDB — persisted at `storage/chroma/`
+- **Embedding**: `sentence-transformers/all-MiniLM-L6-v2` (local, ~80MB, no API key)
+- **What's stored**: Meeting title + summary + key decisions + transcript
+- **How to search**: Agent calls `transcribe_search_memory(query="budget Q4")`
+- **Auto-save**: Agent calls `transcribe_save_context` after summarization
+
+### Ephemeral Memory (Structured Data)
+
+- **Engine**: SQLite — persisted at `storage/ephemeral_memory.db`
+- **Tables**: `action_items`, `contacts`, `budgets`, `decisions`, `notes`
+- **How to save**: Agent calls `transcribe_save_ephemeral(table, data)`
+- **How to query**: Agent calls `transcribe_query_ephemeral(table, query)`
+
 ## Dependencies
 
-- **Python**: fastapi, uvicorn, pyannote.audio, whisper, torch, numpy
-- **Node.js**: openai (for DeepSeek/Ollama SDK), dotenv
+- **Python**: fastapi, uvicorn, pyannote.audio, whisper, torch, numpy, chromadb, sentence-transformers
+- **Node.js**: openai (for DeepSeek/Ollama SDK), googleapis, google-auth-library, dotenv
 
 ### Platform-Specific
 
 - **macOS (Apple Silicon)**: `pip install mlx-whisper` for Neural Engine acceleration
 - **Windows (NVIDIA GPU)**: `pip install faster-whisper` for CUDA acceleration
 - **Linux**: Standard Whisper (PyTorch) or faster-whisper with CUDA
+
+The setup script (`npm run transcribe:setup`) auto-detects your platform and installs the correct Whisper variant.

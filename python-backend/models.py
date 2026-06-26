@@ -65,3 +65,42 @@ class Deliverable(BaseModel):
     attendees: List[str] = Field(default_factory=list)
     destinations: List[str] = Field(default_factory=list)
     email_recipients: List[str] = Field(default_factory=list)
+
+
+# ── Memory Models ──
+
+class MemorySearchRequest(BaseModel):
+    query: str
+    n_results: int = 5
+
+
+class MemorySearchResult(BaseModel):
+    results: list
+
+
+class EphemeralMemoryItem(BaseModel):
+    table: str = "notes"  # action_items, contacts, budgets, decisions, notes
+    data: dict
+
+
+class EphemeralMemoryQuery(BaseModel):
+    table: str = "notes"
+    query: str = ""
+    limit: int = 10
+
+
+class EphemeralMemoryActionResult(BaseModel):
+    success: bool
+    message: str = ""
+    data: list = Field(default_factory=list)
+
+
+class SaveMeetingContextRequest(BaseModel):
+    job_id: str
+    title: str = ""
+    attendees: List[str] = Field(default_factory=list)
+    transcript_text: str = ""
+    summary: dict = Field(default_factory=dict)
+    action_items: List[dict] = Field(default_factory=list)
+    budgets: List[dict] = Field(default_factory=list)
+    decisions: List[dict] = Field(default_factory=list)

@@ -36,7 +36,7 @@
     "transcribe:bridge": "cd bridge-server && npm start",
     "transcribe:runner": "cd agent-runner && npm start",
     "transcribe:all": "concurrently \"npm run transcribe:backend\" \"npm run transcribe:bridge\" \"npm run transcribe:runner\"",
-    "transcribe:setup": "cd python-backend && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt && cd ../agent-runner && npm install && cd ../bridge-server && npm install"
+    "transcribe:setup": "bash scripts/setup-transcription.sh"
   },
   "dependencies": {
     "@google-cloud/local-auth": "^3.0.1",
