@@ -6,6 +6,12 @@
  */
 
 import OpenAI from "openai";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PROMPT_FILE = path.resolve(__dirname, "system-prompt.md");
 
 const PROVIDER = process.env.LLM_PROVIDER || "deepseek";
 
@@ -44,25 +50,19 @@ export async function callModel(context, toolDefs) {
   }
 
   const tools = mapTools(toolDefs);
-  const systemMessage = [
-    "You are an AI meeting transcription assistant. Process completed transcription jobs:",
-    "refine transcripts, extract action items, generate summaries, and deliver results.",
-    "",
-    "Available tools:",
-    ...toolDefs.map((t) => `  - ${t.name}: ${t.description}`),
-    "",
-    "Rules:",
-    "- Choose ONE tool and provide ALL required parameters",
-    "- For refinement: call transcribe_refine first",
-    "- For summary: call transcribe_summarize with the generated summary",
-    "- For delivery: call transcribe_prepare_delivery then use send_delivery_email, create_trello_action_items, or save_to_drive",
-    "- After summarization, call transcribe_save_context to persist meeting to semantic + ephemeral memory",
-    "- Use transcribe_search_memory to find past meetings by topic (e.g. 'budget discussions')",
-    "- Use transcribe_query_ephemeral to retrieve stored action items, contacts, budgets, or decisions",
-    "- Use transcribe_save_ephemeral to store cross-meeting context like contact details or budget figures",
-    "- Never make up job IDs or speaker names",
-    "- Respond only with a tool call",
-  ].join("\n");
+
+  // Load system prompt from external file, inject tool list
+  let promptTemplate =
+    "You are an AI meeting transcription assistant. Process completed transcription jobs: refine transcripts, extract action items, generate summaries, and deliver results.";
+  try {
+    if (fs.existsSync(PROMPT_FILE)) {
+      promptTemplate = fs.readFileSync(PROMPT_FILE, "utf8");
+    }
+  } catch {
+    /* fallback to default */
+  }
+  const toolLines = toolDefs.map((t) => `  - ${t.name}: ${t.description}`).join("\n");
+  const systemMessage = promptTemplate.replace("{{TOOL_LIST}}", toolLines);
 
   console.log(`   🤖 [MODEL] Calling ${PROVIDER}/${MODEL}...`);
 

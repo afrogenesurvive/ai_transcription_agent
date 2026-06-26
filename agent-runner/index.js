@@ -24,6 +24,7 @@ import { callModel } from "./model-client.js";
 import { executeToolCall } from "./tool-executor.js";
 import { logAction } from "./logger.js";
 import { readPending, markCleared, acquireLock, releaseLock } from "./poller.js";
+import { sanitizeTranscriptSegments, sanitizeContextString } from "./sanitize.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PID_FILE = path.resolve(__dirname, ".runner.pid");
@@ -250,12 +251,19 @@ async function processEvent(event) {
 
   acquireLock(eventId);
   const jobData = event.data || {};
-  const transcript = jobData.transcript || [];
+  const rawTranscript = jobData.transcript || [];
+
+  // Sanitize transcript data before building LLM context (Tier 2 — optional)
+  const transcript = sanitizeTranscriptSegments(rawTranscript);
+
+  // Sanitize context strings (Tier 2 — optional)
+  const safeTitle = sanitizeContextString(jobData.title || "");
+  const safeAttendees = (jobData.attendees || []).map((a) => sanitizeContextString(a));
 
   // Build context
   const lines = [
-    `Transcription job: "${jobData.title}"`,
-    `Attendees: ${(jobData.attendees || []).join(", ") || "none"}`,
+    `Transcription job: "${safeTitle}"`,
+    `Attendees: ${safeAttendees.join(", ") || "none"}`,
     `Type: ${jobData.eventType || "unknown"}`,
     `Job ID: ${jobData.jobId || eventId}`,
     ``,

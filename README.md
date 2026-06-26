@@ -117,6 +117,48 @@ trigger  — Manually touch trigger file to process now
 stop     — Shut down the runner
 ```
 
+## Sanitization Architecture
+
+All data flowing through the transcription agent is sanitized in two tiers:
+
+### Tier 1 — Mandatory (always active)
+
+Applied to ALL responses from third-party services (Gmail, Trello, Drive) and ALL data proxied through the bridge server from the Python backend.
+
+| What                       | Where                    | Strips                                                                                                          |
+| -------------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| Gmail API responses        | `tool-executor.js`       | API keys, tokens, `<script>` tags, deep nesting, known sensitive fields (`access_token`, `client_secret`, etc.) |
+| Trello API responses       | `tool-executor.js`       | Same — credentials, injection patterns                                                                          |
+| Drive API responses        | `tool-executor.js`       | Same                                                                                                            |
+| Bridge server proxied data | `bridge-server/index.js` | All responses from Python backend are stripped of secrets and truncated at 2000 chars / 5 levels depth          |
+
+### Tier 2 — Optional (set `TRANSCRIPTION_SANITIZE_PROMPT=true`)
+
+Applied to transcript text and metadata (title, attendees) before building the LLM prompt.
+
+```
+TRANSCRIPTION_SANITIZE_PROMPT=true
+```
+
+| Pattern stripped   | Example                                                 |
+| ------------------ | ------------------------------------------------------- |
+| Prompt injection   | "ignore all previous instructions", "forget everything" |
+| System override    | "you are now", "new system message:"                    |
+| Code blocks        | ` ``` ` blocks in transcript text                       |
+| Control characters | Non-printable chars except newlines/tabs                |
+
+### Data flow
+
+```
+Audio → ASR → transcript ──┬── optional sanitize ──▶ LLM
+                            │  (Tier 2, if enabled)
+                            │
+Third-party API response ───┴── mandatory sanitize ──▶ Runner log
+                           (Tier 1, always active)
+```
+
+See `agent-runner/sanitize.js` for the full implementation.
+
 ## Memory Systems
 
 ### Semantic Memory (Vector Search)

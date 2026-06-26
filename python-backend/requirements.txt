@@ -24,7 +24,7 @@ pyannote.audio>=3.1.0
 # See: scripts/setup-transcription.sh for the auto-detection logic.
 
 # Vector Search & Memory
-chromadb>=1.9.0
+chromadb>=1.5.0
 sentence-transformers>=3.0.0
 
 # Utility

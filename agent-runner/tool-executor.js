@@ -1,8 +1,13 @@
 /**
  * Tool Executor — calls the bridge server or external APIs
+ *
+ * ALL responses from third-party services (Gmail, Trello, Drive) are
+ * sanitized via sanitizeApiResponse() before being returned to the runner.
+ * This prevents credentials, tokens, or injection payloads from leaking.
  */
 
 import "dotenv/config";
+import { sanitizeApiResponse } from "./sanitize.js";
 
 const BRIDGE = process.env.BRIDGE_URL || "http://127.0.0.1:5010";
 
@@ -38,7 +43,7 @@ async function sendEmail(to, subject, body, transcript) {
     userId: process.env.GMAIL_USER || "me",
     requestBody: { raw: Buffer.from(email).toString("base64url") },
   });
-  return { ok: true, tool: "send_delivery_email", result: { id: res.data.id } };
+  return { ok: true, tool: "send_delivery_email", result: sanitizeApiResponse({ id: res.data.id }) };
 }
 
 async function createTrelloCards(listId, items) {
@@ -53,9 +58,9 @@ async function createTrelloCards(listId, items) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: (item.description || "Action Item").slice(0, 100), desc }),
     });
-    if (resp.ok) cards.push(await resp.json());
+    if (resp.ok) cards.push(sanitizeApiResponse(await resp.json()));
   }
-  return { ok: true, tool: "create_trello_action_items", result: { cardsCreated: cards.length } };
+  return { ok: true, tool: "create_trello_action_items", result: sanitizeApiResponse({ cardsCreated: cards.length }) };
 }
 
 async function saveToDrive(folder, title, transcript, summary) {
@@ -85,7 +90,7 @@ async function saveToDrive(folder, title, transcript, summary) {
     media: { mimeType: "text/plain", body: transcript || "" },
   });
 
-  return { ok: true, tool: "save_to_drive", result: { folderId, summaryDocId: doc.data.id, transcriptFileId: txt.data.id } };
+  return { ok: true, tool: "save_to_drive", result: sanitizeApiResponse({ folderId, summaryDocId: doc.data.id, transcriptFileId: txt.data.id }) };
 }
 
 // ── Handler registry ──

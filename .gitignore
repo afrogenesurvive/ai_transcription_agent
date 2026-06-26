@@ -49,6 +49,13 @@ storage/
 queue/transcription.jsonl
 agent-runner/.runner.pid
 
+# ── Legacy MCP (reference only, not part of transcription system) ──
+legacy_mcp/
+
+# ── Agent Instructions (user-generated, not committed) ──
+AGENTS.md
+agent-runner/system-prompt.md
+
 # ── Editor / IDE ──
 .vscode/
 .idea/

@@ -15,6 +15,35 @@ import http from "http";
 const PYTHON_API = process.env.PYTHON_API_URL || "http://127.0.0.1:5001";
 const BRIDGE_PORT = parseInt(process.env.BRIDGE_PORT || "5010", 10);
 
+// ── Sanitize (Tier 1 — mandatory for all proxied responses) ──
+
+const MAX_STRING_LENGTH = 2000;
+const MAX_NESTING_DEPTH = 5;
+const SENSITIVE_PATTERNS = [
+  /\b(?:sk-[A-Za-z0-9]{20,})\b/g,
+  /\b(?:ghp_|gho_|ghu_|ghs_|ghr_)[A-Za-z0-9]{36,}\b/g,
+  /<script[\s>][\s\S]*?<\/script\s*>/gi,
+];
+
+function sanitizeValue(data, depth = 0) {
+  if (depth > MAX_NESTING_DEPTH) return "[truncated]";
+  if (typeof data === "string") {
+    let s = data.slice(0, MAX_STRING_LENGTH);
+    for (const p of SENSITIVE_PATTERNS) s = s.replace(p, "[REDACTED]");
+    return s;
+  }
+  if (typeof data === "number" || typeof data === "boolean" || data === null || data === undefined) return data;
+  if (Array.isArray(data)) return data.slice(0, 100).map((v) => sanitizeValue(v, depth + 1));
+  if (typeof data === "object") {
+    const result = {};
+    for (const [k, v] of Object.entries(data).slice(0, 200)) {
+      result[k] = sanitizeValue(v, depth + 1);
+    }
+    return result;
+  }
+  return data;
+}
+
 // ── Python API proxy ──
 
 async function callPython(method, path, body = null) {
@@ -135,7 +164,7 @@ const server = http.createServer(async (req, res) => {
     let result;
     if (req.method === "POST" && url.pathname === "/tools/call") {
       const { tool, args } = JSON.parse(body);
-      result = await dispatch(tool, args || {});
+      result = sanitizeValue(await dispatch(tool, args || {}));
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(result));
     } else if (req.method === "GET" && url.pathname === "/health") {
