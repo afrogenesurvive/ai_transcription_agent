@@ -59,6 +59,11 @@ class SummarizeRequest(BaseModel):
     summary: dict = Field(default_factory=dict)
 
 
+class AnalysisRequest(BaseModel):
+    job_id: str
+    analysis: dict = Field(default_factory=dict)
+
+
 class Deliverable(BaseModel):
     job_id: str
     title: str = ""

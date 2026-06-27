@@ -18,7 +18,7 @@ from upload import AudioUploader
 from voiceprint import VoiceprintManager
 from transcription import TranscriptionEngine, detect_device
 from models import (
-    RefineRequest, SummarizeRequest, LabelRequest, Deliverable,
+    RefineRequest, SummarizeRequest, LabelRequest, AnalysisRequest, Deliverable,
     MemorySearchRequest, MemorySearchResult,
     EphemeralMemoryItem, EphemeralMemoryQuery, EphemeralMemoryActionResult,
     SaveMeetingContextRequest,
@@ -134,6 +134,31 @@ async def agent_summarize(req: SummarizeRequest):
     uploader.save_summary(req.job_id, req.summary)
     uploader.update_status(req.job_id, {"status": "summarized"})
     return {"summary": req.summary}
+
+
+@app.post("/agent/analyze")
+async def agent_analyze(req: AnalysisRequest):
+    """Store LLM-generated analysis of the transcript.
+
+    The analysis can include:
+      - topics: list of topics discussed
+      - sentiment: overall sentiment or per-speaker sentiment
+      - key_entities: names, dates, amounts mentioned
+      - effectiveness: meeting effectiveness score/notes
+      - follow_ups: questions or items that need future discussion
+    """
+    uploader.save_analysis(req.job_id, req.analysis)
+    uploader.update_status(req.job_id, {"status": "analyzed"})
+    return {"analysis": req.analysis}
+
+
+@app.get("/transcribe/analysis/{job_id}")
+async def get_analysis(job_id: str):
+    p = os.path.join(config.STORAGE_PATH, job_id, "analysis.json")
+    if not os.path.exists(p):
+        raise HTTPException(404, "Analysis not ready")
+    with open(p) as f:
+        return json.load(f)
 
 
 @app.post("/agent/label_speakers")

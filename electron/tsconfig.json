@@ -13,5 +13,5 @@
     "noEmit": true
   },
   "include": ["src/renderer/**/*"],
-  "references": [{ "path": "./tsconfig.main.json", "composite": true }]
+  "references": [{ "path": "./tsconfig.main.json" }, {"composite": true}]
 }

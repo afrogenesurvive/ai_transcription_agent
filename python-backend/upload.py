@@ -81,6 +81,10 @@ class AudioUploader:
         with open(os.path.join(self.storage_path, job_id, "summary.json"), "w") as f:
             json.dump(summary, f, indent=2)
 
+    def save_analysis(self, job_id: str, analysis: dict):
+        with open(os.path.join(self.storage_path, job_id, "analysis.json"), "w") as f:
+            json.dump(analysis, f, indent=2)
+
     def _write_status(self, job_id: str, status: dict):
         d = os.path.join(self.storage_path, job_id)
         os.makedirs(d, exist_ok=True)

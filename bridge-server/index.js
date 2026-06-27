@@ -81,6 +81,12 @@ async function dispatch(tool, args) {
         rules: args.rules || [],
       });
 
+    case "transcribe_analyze":
+      return await callPython("POST", "/agent/analyze", {
+        job_id: args.jobId,
+        analysis: args.analysis || {},
+      });
+
     case "transcribe_summarize":
       return await callPython("POST", "/agent/summarize", {
         job_id: args.jobId,

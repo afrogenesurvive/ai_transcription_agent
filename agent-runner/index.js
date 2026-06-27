@@ -47,6 +47,28 @@ const TOOLS = [
     },
   },
   {
+    name: "transcribe_analyze",
+    description:
+      "Store LLM-generated analysis of the transcript: topics discussed, sentiment, key entities (names, dates, amounts), meeting effectiveness, and follow-up items.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        jobId: { type: "string" },
+        analysis: {
+          type: "object",
+          properties: {
+            topics: { type: "array", items: { type: "string" }, description: "List of topics discussed" },
+            sentiment: { type: "string", description: "Overall sentiment or per-speaker sentiment summary" },
+            key_entities: { type: "array", items: { type: "string" }, description: "Names, dates, amounts, project names mentioned" },
+            effectiveness: { type: "string", description: "Meeting effectiveness score/notes" },
+            follow_ups: { type: "array", items: { type: "string" }, description: "Questions or items needing future discussion" },
+          },
+        },
+      },
+      required: ["jobId"],
+    },
+  },
+  {
     name: "transcribe_get_transcript",
     description: "Get the current speaker-labeled transcript.",
     inputSchema: {
@@ -240,6 +262,30 @@ const TOOLS = [
 
 // ── Processing ──
 
+/**
+ * Pipeline state keys — appended to context between LLM calls to
+ * guide the LLM toward the next logical step.
+ */
+const PIPELINE_HINTS = {
+  transcribe_refine:
+    `Next: Call transcribe_get_transcript to read the refined transcript, ` +
+    `then call transcribe_analyze to analyze topics/sentiment/entities, ` +
+    `then call transcribe_summarize with a structured summary.`,
+  transcribe_get_transcript:
+    `Next: Analyze the transcript for topics, sentiment, and key entities, ` + `then call transcribe_analyze to store the analysis results.`,
+  transcribe_analyze: `Next: Generate a structured summary from the transcript and analysis, ` + `then call transcribe_summarize to store it.`,
+  transcribe_summarize: `Next: Call transcribe_save_context to persist the meeting to semantic + ephemeral memory.`,
+  transcribe_save_context: `Next: Call transcribe_prepare_delivery to package results for delivery.`,
+  transcribe_prepare_delivery: `Next: Deliver results using send_delivery_email, save_to_drive, or create_trello_action_items.`,
+  transcribe_label_speaker: `Next: If more unknown speakers remain, call transcribe_label_speaker again; ` + `otherwise the pipeline is complete.`,
+};
+
+/** Terminal tools — once called, the pipeline ends. */
+const TERMINAL_TOOLS = new Set(["send_delivery_email", "save_to_drive", "create_trello_action_items"]);
+
+/** Maximum number of LLM rounds per event (safety limit). */
+const MAX_PIPELINE_STEPS = 15;
+
 async function processEvent(event) {
   const eventId = event.id;
   const tag = eventId?.slice(0, 8) || "???";
@@ -260,7 +306,78 @@ async function processEvent(event) {
   const safeTitle = sanitizeContextString(jobData.title || "");
   const safeAttendees = (jobData.attendees || []).map((a) => sanitizeContextString(a));
 
-  // Build context
+  // Build initial context with job info + transcript preview
+  let context = buildInitialContext(event, transcript, safeTitle, safeAttendees, eventId);
+
+  // ── Multi-step pipeline loop ──
+  // Each iteration: LLM picks one tool → executes it → result appended to context
+  // Loop ends when a terminal tool is called, LLM returns nothing, or max steps hit.
+  let pipelineComplete = false;
+
+  for (let step = 1; step <= MAX_PIPELINE_STEPS && !pipelineComplete; step++) {
+    console.log(`   🤖 [RUNNER] Asking LLM (step ${step})...`);
+    const decision = await callModel(context, TOOLS);
+
+    if (!decision) {
+      console.log(`   ⏭️  [RUNNER] No decision — pipeline complete`);
+      logAction({ eventId, eventType: event.type, action: "complete", detail: `ended at step ${step}, no LLM decision` });
+      pipelineComplete = true;
+      break;
+    }
+
+    console.log(`   🎯 [RUNNER] ${decision.name}`);
+    const result = await executeToolCall(decision.name, decision.arguments);
+
+    // Check for errors (bridge calls return raw JSON, so check for thrown exceptions)
+    const ok = result && result.ok !== false;
+    const errorMsg = !ok && result?.error ? result.error : null;
+
+    logAction({
+      eventId,
+      eventType: event.type,
+      toolName: decision.name,
+      step,
+      toolResult: ok ? "success" : "failed",
+      error: errorMsg,
+    });
+
+    if (!ok) {
+      console.log(`   ❌ [RUNNER] ${errorMsg || "Unknown error"}`);
+      logAction({ eventId, eventType: event.type, action: "failed", detail: errorMsg });
+      pipelineComplete = true;
+      break;
+    }
+
+    console.log(`   ✅ [RUNNER] ${decision.name} succeeded`);
+
+    // Check if this was a terminal delivery tool — pipeline ends
+    if (TERMINAL_TOOLS.has(decision.name)) {
+      console.log(`   📬 [RUNNER] Delivery complete — pipeline finished`);
+      logAction({ eventId, eventType: event.type, action: "complete", detail: `delivered via ${decision.name}` });
+      pipelineComplete = true;
+      break;
+    }
+
+    // Append result summary to context so the LLM knows what happened
+    const resultSummary =
+      result && typeof result === "object" && !Array.isArray(result) ? JSON.stringify(result).slice(0, 500) : String(result || "ok").slice(0, 500);
+    context += `\n\n[Step ${step} Complete] Tool: ${decision.name}\nResult: ${resultSummary}`;
+
+    // Add a hint about the next logical pipeline step
+    const hint = PIPELINE_HINTS[decision.name];
+    if (hint) context += `\n${hint}`;
+  }
+
+  console.log(`   ✅ [RUNNER] Pipeline finished for job ${tag}`);
+  markCleared(eventId);
+}
+
+/**
+ * Build the initial LLM context for a queue event.
+ * Includes job metadata, transcript preview, and pipeline instructions.
+ */
+function buildInitialContext(event, transcript, safeTitle, safeAttendees, eventId) {
+  const jobData = event.data || {};
   const lines = [
     `Transcription job: "${safeTitle}"`,
     `Attendees: ${safeAttendees.join(", ") || "none"}`,
@@ -285,31 +402,7 @@ async function processEvent(event) {
     lines.push(`Processing failed. Notify the user. Error: ${jobData.error || "unknown"}`);
   }
 
-  console.log(`   🤖 [RUNNER] Asking LLM...`);
-  const decision = await callModel(lines.join("\n"), TOOLS);
-
-  if (!decision) {
-    console.log(`   ⏭️  [RUNNER] No decision — skipped`);
-    logAction({ eventId, eventType: event.type, action: "skipped" });
-    markCleared(eventId);
-    return;
-  }
-
-  console.log(`   🎯 [RUNNER] ${decision.name}`);
-  const result = await executeToolCall(decision.name, decision.arguments);
-
-  logAction({
-    eventId,
-    eventType: event.type,
-    toolName: decision.name,
-    toolResult: result.ok ? "success" : "failed",
-    error: result.error || null,
-  });
-
-  if (result.ok) console.log(`   ✅ [RUNNER] Done`);
-  else console.log(`   ❌ [RUNNER] ${result.error}`);
-
-  markCleared(eventId);
+  return lines.join("\n");
 }
 
 // ── Main loop ──
