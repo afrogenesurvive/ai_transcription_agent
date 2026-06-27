@@ -33,10 +33,16 @@ class AgentBridge:
             "queuedAt": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
         }
 
+        job_id = data.get("jobId", "?")
+        print(f"[agent_bridge] Enqueueing event: id={event_id[:8]} type={event_type} job={job_id}")
+        print(f"[agent_bridge] Queue file: {self.queue_file}")
+
         with open(self.queue_file, "a") as f:
             f.write(json.dumps(event) + "\n")
+        print(f"[agent_bridge] Event written to queue")
 
         self._touch_trigger()
+        print(f"[agent_bridge] Trigger file touched — agent runner will pick up")
         return event_id
 
     def enqueue_ready(self, job_id: str, transcript: list, metadata: dict,

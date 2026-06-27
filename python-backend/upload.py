@@ -32,19 +32,25 @@ class AudioUploader:
 
         original_path = os.path.join(job_dir, f"original{ext}")
         self._copy_file(file_path, original_path)
+        print(f"[upload] Copied original file ({size} bytes) to {original_path}")
 
         wav_path = os.path.join(job_dir, "standardized.wav")
+        print(f"[upload] Standardizing audio to 16kHz mono WAV...")
         self._standardize_audio(original_path, wav_path)
+        wav_size = os.path.getsize(wav_path)
+        print(f"[upload] Standardized WAV ready ({wav_size} bytes) at {wav_path}")
 
         meta_path = os.path.join(job_dir, "metadata.json")
         with open(meta_path, "w") as f:
             json.dump(metadata, f, indent=2)
+        print(f"[upload] Metadata written to {meta_path}")
 
         self._write_status(job_id, {
             "job_id": job_id, "status": "uploaded", "progress": 0.0,
             "error": "", "unknown_speakers": [], "transcript": [],
             "summary": None, "metadata": metadata,
         })
+        print(f"[upload] Job {job_id} registered — status=uploaded")
 
         return {"job_id": job_id, "audio_path": wav_path, "metadata": metadata}
 

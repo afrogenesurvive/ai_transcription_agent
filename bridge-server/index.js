@@ -51,9 +51,16 @@ async function callPython(method, path, body = null) {
   const opts = { method, headers: { "Content-Type": "application/json" } };
   if (body) opts.body = JSON.stringify(body);
 
+  console.log(`[bridge]   → Python ${method} ${path}`);
+  const startTime = Date.now();
   const resp = await fetch(url, opts);
   const data = await resp.json();
-  if (!resp.ok) throw new Error(`Python ${resp.status}: ${JSON.stringify(data)}`);
+  const elapsed = Date.now() - startTime;
+  if (!resp.ok) {
+    console.error(`[bridge]   ← Python ${resp.status} (${elapsed}ms): ${JSON.stringify(data)}`);
+    throw new Error(`Python ${resp.status}: ${JSON.stringify(data)}`);
+  }
+  console.log(`[bridge]   ← Python ${resp.status} (${elapsed}ms)`);
   return data;
 }
 
@@ -170,17 +177,25 @@ const server = http.createServer(async (req, res) => {
     let result;
     if (req.method === "POST" && url.pathname === "/tools/call") {
       const { tool, args } = JSON.parse(body);
+      const jobId = args?.jobId || args?.job_id || "?";
+      console.log(`[bridge] → ${tool} (job=${jobId})`);
+      const startTime = Date.now();
       result = sanitizeValue(await dispatch(tool, args || {}));
+      const elapsed = Date.now() - startTime;
+      console.log(`[bridge] ← ${tool} OK (${elapsed}ms)`);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(result));
     } else if (req.method === "GET" && url.pathname === "/health") {
+      console.log(`[bridge] GET /health`);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ status: "ok", pythonApi: PYTHON_API }));
     } else {
+      console.log(`[bridge] 404 ${req.method} ${url.pathname}`);
       res.writeHead(404);
       res.end(JSON.stringify({ error: "Not found" }));
     }
   } catch (err) {
+    console.error(`[bridge] Error: ${err.message}`);
     res.writeHead(500, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: err.message }));
   }

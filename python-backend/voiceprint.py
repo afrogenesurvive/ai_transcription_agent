@@ -74,11 +74,14 @@ class VoiceprintManager:
             from pyannote.audio import Inference
             # Inference model: takes audio → outputs embedding vector
             # window="whole" means process the full segment at once (not sliding)
+            print(f"[voiceprint] Loading embedding model ({config.EMBEDDING_MODEL})...")
             self._embedding_model = Inference(config.EMBEDDING_MODEL, window="whole")
+            print(f"[voiceprint] Embedding model loaded")
 
         if segment:
             start, end = segment
-            return self._embedding_model(audio_path, start=start, end=end)
+            emb = self._embedding_model(audio_path, start=start, end=end)
+            return emb
         return self._embedding_model(audio_path)
 
     def match_against_attendees(
@@ -112,6 +115,7 @@ class VoiceprintManager:
 
         # Step 1: Load stored embeddings for attendees who have voiceprints enrolled
         known_embeddings = self._get_known_embeddings(attendees)
+        print(f"[voiceprint] Found {len(known_embeddings)} stored voiceprints for attendees: {list(known_embeddings.keys())}")
         results = {"known": {}, "unknown": []}
 
         # Step 2-5: Match each speaker cluster
@@ -130,6 +134,7 @@ class VoiceprintManager:
             if best_match:
                 # Known speaker — assign all their segments
                 results["known"][best_match] = segments
+                print(f"[voiceprint] ✅ {speaker_id} → matched '{best_match}' (score={best_score:.3f})")
             else:
                 # Unknown speaker — record metadata for agent labeling
                 results["unknown"].append({
@@ -137,6 +142,7 @@ class VoiceprintManager:
                     "segments": [{"start": s.start, "end": s.end} for s in segments],
                     "sample_segment": {"start": first.start, "end": first.end},
                 })
+                print(f"[voiceprint] ❓ {speaker_id} → unknown (best score={best_score:.3f}, threshold={threshold})")
 
         return results
 

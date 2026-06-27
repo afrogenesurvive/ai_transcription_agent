@@ -89,6 +89,7 @@ class TranscriptionEngine:
           - Voiceprint matching (in VoiceprintManager) later maps these to names.
           - Requires huggingface access to pyannote/speaker-diarization-3.1.
         """
+        print(f"[transcription] Loading diarization model ({config.DIARIZATION_MODEL}) on {self.device}...")
         if self._diarization is None:
             from pyannote.audio import Pipeline
             import torch
@@ -96,12 +97,16 @@ class TranscriptionEngine:
                 config.DIARIZATION_MODEL, use_auth_token=None,
             )
             self._diarization.to(torch.device(self.device))
+            print(f"[transcription] Diarization model loaded")
 
+        print(f"[transcription] Running diarization on {audio_path}...")
         diarization = self._diarization(audio_path)
-        return [
+        result = [
             {"speaker": s, "start": t.start, "end": t.end, "duration": t.end - t.start}
             for t, _, s in diarization.itertracks(yield_label=True)
         ]
+        print(f"[transcription] Diarization done: {len(result)} segments")
+        return result
 
     # ── Step 2: ASR (what was said) ──
 
@@ -118,17 +123,24 @@ class TranscriptionEngine:
           Windows → faster_whisper (CTranslate2 w/ INT8 or FP16)
           Linux   → openai-whisper (PyTorch baseline)
         """
+        print(f"[transcription] Running ASR on {audio_path} (platform={self.platform}, model={self.model_size}, device={self.device})...")
         if self.platform == "mac":
-            return self._transcribe_mac(audio_path)
+            result = self._transcribe_mac(audio_path)
         elif self.platform == "windows":
-            return self._transcribe_windows(audio_path)
-        return self._transcribe_standard(audio_path)
+            result = self._transcribe_windows(audio_path)
+        else:
+            result = self._transcribe_standard(audio_path)
+        print(f"[transcription] ASR complete: {len(result.get('words', []))} words, {len(result.get('segments', []))} segments")
+        return result
 
     def _transcribe_standard(self, audio_path: str) -> dict:
         """Transcribe using openai-whisper (PyTorch). Works on any platform."""
+        print(f"[transcription] Using openai-whisper (PyTorch)...")
         import whisper
         if self._whisper is None:
+            print(f"[transcription] Loading whisper model '{self.model_size}' on {self.device}...")
             self._whisper = whisper.load_model(self.model_size, device=self.device)
+            print(f"[transcription] Whisper model loaded")
         result = self._whisper.transcribe(audio_path, word_timestamps=True)
         return self._extract_words(result)
 
@@ -138,6 +150,7 @@ class TranscriptionEngine:
         Uses a community-converted MLX model from HuggingFace
         (mlx-community/whisper-{size}). Much faster than PyTorch on Mac.
         """
+        print(f"[transcription] Using mlx-whisper (Apple Silicon)...")
         import mlx_whisper
         result = mlx_whisper.transcribe(
             audio_path,
@@ -151,14 +164,18 @@ class TranscriptionEngine:
 
         Up to 4x faster than openai-whisper on CUDA. Falls back to INT8 on CPU.
         """
+        print(f"[transcription] Using faster-whisper (CTranslate2)...")
         from faster_whisper import WhisperModel
         ct = "float16" if self.device == "cuda" else "int8"
+        print(f"[transcription] Loading faster-whisper model '{self.model_size}' (compute_type={ct})...")
         model = WhisperModel(self.model_size, device=self.device, compute_type=ct)
-        segs, _ = model.transcribe(audio_path, beam_size=5, word_timestamps=True)
+        print(f"[transcription] Transcribing...")
+        segs, info = model.transcribe(audio_path, beam_size=5, word_timestamps=True)
         words = []
         for s in segs:
             for w in s.words:
                 words.append({"text": w.word, "start": w.start, "end": w.end})
+        print(f"[transcription] faster-whisper done: language={info.language}, duration={info.duration:.1f}s")
         return {"text": "", "segments": list(segs), "words": words}
 
     def _extract_words(self, result: dict) -> dict:
@@ -202,6 +219,7 @@ class TranscriptionEngine:
         """
         aligned, word_index = [], 0
         words = transcription.get("words", [])
+        print(f"[transcription] Aligning {len(words)} words with {len(diarization)} diarization segments...")
 
         for diar_seg in diarization:
             spk, start, end = diar_seg["speaker"], diar_seg["start"], diar_seg["end"]
@@ -228,6 +246,8 @@ class TranscriptionEngine:
                     "start": start,
                     "end": end,
                 })
+
+        print(f"[transcription] Alignment done: {len(aligned)} merged segments")
         return aligned
 
     def process_full(self, audio_path: str) -> dict:

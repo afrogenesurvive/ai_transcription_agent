@@ -78,15 +78,20 @@ async def upload_audio(
         if os.path.exists(temp_path):
             os.remove(temp_path)
 
-    threading.Thread(target=_run_pipeline, args=(result["job_id"],), daemon=True).start()
-    return {"job_id": result["job_id"], "status": "uploaded"}
+    job_id = result["job_id"]
+    print(f"[upload] Received file '{file.filename}' ({len(content)} bytes) → job_id={job_id}")
+    print(f"[upload] Metadata: title='{title}', attendees={attendees}, event_type='{event_type}'")
+    threading.Thread(target=_run_pipeline, args=(job_id,), daemon=True).start()
+    return {"job_id": job_id, "status": "uploaded"}
 
 
 @app.get("/transcribe/status/{job_id}")
 async def get_status(job_id: str):
     s = uploader.get_status(job_id)
     if s["status"] == "not_found":
+        print(f"[api] GET /transcribe/status/{job_id} → not_found")
         raise HTTPException(404, "Job not found")
+    print(f"[api] GET /transcribe/status/{job_id} → {s['status']} (progress={s.get('progress', '?')})")
     return s
 
 
@@ -95,9 +100,11 @@ async def get_transcript(job_id: str, format: str = "json"):
     s = uploader.get_status(job_id)
     p = os.path.join(config.STORAGE_PATH, job_id, "transcript.json")
     if not os.path.exists(p):
+        print(f"[api] GET /transcribe/transcript/{job_id} → not_found")
         raise HTTPException(404, "Transcript not ready")
     with open(p) as f:
         transcript = json.load(f)
+    print(f"[api] GET /transcribe/transcript/{job_id} → {len(transcript)} segments (format={format})")
     if format == "text":
         lines = [f"[{s['start']:.1f}s] {s['speaker']}: {s['text']}" for s in transcript]
         return {"text": "\n".join(lines)}
@@ -108,15 +115,19 @@ async def get_transcript(job_id: str, format: str = "json"):
 async def get_summary(job_id: str):
     p = os.path.join(config.STORAGE_PATH, job_id, "summary.json")
     if not os.path.exists(p):
+        print(f"[api] GET /transcribe/summary/{job_id} → not_found")
         raise HTTPException(404, "Summary not ready")
     with open(p) as f:
-        return json.load(f)
+        data = json.load(f)
+    print(f"[api] GET /transcribe/summary/{job_id} → OK")
+    return data
 
 
 # ── Agent-facing endpoints ──
 
 @app.post("/agent/refine")
 async def agent_refine(req: RefineRequest):
+    print(f"[api] POST /agent/refine job_id={req.job_id} rules={req.rules}")
     transcript = [s.dict() for s in req.transcript]
     refined = []
     for seg in transcript:
@@ -126,13 +137,18 @@ async def agent_refine(req: RefineRequest):
         refined.append({**seg, "text": text})
     uploader.save_transcript(req.job_id, refined)
     uploader.update_status(req.job_id, {"status": "refined"})
+    print(f"[api] POST /agent/refine → refined {len(refined)} segments")
     return {"transcript": refined}
 
 
 @app.post("/agent/summarize")
 async def agent_summarize(req: SummarizeRequest):
+    print(f"[api] POST /agent/summarize job_id={req.job_id}")
     uploader.save_summary(req.job_id, req.summary)
     uploader.update_status(req.job_id, {"status": "summarized"})
+    summary_type = type(req.summary).__name__
+    items = len(req.summary.get("action_items", [])) if isinstance(req.summary, dict) else 0
+    print(f"[api] POST /agent/summarize → summary saved ({summary_type}, {items} action items)")
     return {"summary": req.summary}
 
 
@@ -147,8 +163,11 @@ async def agent_analyze(req: AnalysisRequest):
       - effectiveness: meeting effectiveness score/notes
       - follow_ups: questions or items that need future discussion
     """
+    print(f"[api] POST /agent/analyze job_id={req.job_id}")
     uploader.save_analysis(req.job_id, req.analysis)
     uploader.update_status(req.job_id, {"status": "analyzed"})
+    topics = req.analysis.get("topics", [])
+    print(f"[api] POST /agent/analyze → analysis saved (topics: {len(topics)})")
     return {"analysis": req.analysis}
 
 
@@ -156,13 +175,18 @@ async def agent_analyze(req: AnalysisRequest):
 async def get_analysis(job_id: str):
     p = os.path.join(config.STORAGE_PATH, job_id, "analysis.json")
     if not os.path.exists(p):
+        print(f"[api] GET /transcribe/analysis/{job_id} → not_found")
         raise HTTPException(404, "Analysis not ready")
     with open(p) as f:
-        return json.load(f)
+        data = json.load(f)
+    print(f"[api] GET /transcribe/analysis/{job_id} → OK")
+    return data
 
 
 @app.post("/agent/label_speakers")
 async def agent_label_speakers(req: LabelRequest):
+    names = [f"{l.name} ({l.speaker_id})" for l in req.labels]
+    print(f"[api] POST /agent/label_speakers job_id={req.job_id} labels={names}")
     for label in req.labels:
         vp_manager.save_voiceprint(label.name, label.email or "", None)
 
@@ -175,18 +199,23 @@ async def agent_label_speakers(req: LabelRequest):
             if seg["speaker"] in mapping:
                 seg["speaker"] = mapping[seg["speaker"]]
         uploader.save_transcript(req.job_id, transcript)
+        print(f"[api] Applied {len(names)} speaker label(s) to transcript")
 
     uploader.update_status(req.job_id, {"status": "labeled", "unknown_speakers": []})
+    print(f"[api] POST /agent/label_speakers → done")
     return {"success": True, "applied_labels": len(req.labels)}
 
 
 @app.get("/agent/voiceprints")
 async def agent_list_voiceprints():
-    return {"voiceprints": vp_manager.list_voiceprints()}
+    vps = vp_manager.list_voiceprints()
+    print(f"[api] GET /agent/voiceprints → {len(vps)} enrolled")
+    return {"voiceprints": vps}
 
 
 @app.post("/agent/deliver")
 async def agent_deliver(req: Deliverable):
+    print(f"[api] POST /agent/deliver job_id={req.job_id} destinations={req.destinations} emails={req.email_recipients}")
     package = {
         "job_id": req.job_id, "title": req.title,
         "attendees": req.attendees, "destinations": req.destinations,
@@ -194,6 +223,7 @@ async def agent_deliver(req: Deliverable):
     }
     with open(os.path.join(config.STORAGE_PATH, req.job_id, "delivery.json"), "w") as f:
         json.dump(package, f, indent=2)
+    print(f"[api] POST /agent/deliver → delivery.json written")
     return package
 
 
@@ -202,54 +232,70 @@ async def agent_deliver(req: Deliverable):
 @app.post("/memory/search")
 async def memory_search(req: MemorySearchRequest):
     """Semantic search across past meeting transcripts and summaries."""
+    print(f"[api] POST /memory/search query='{req.query}' n_results={req.n_results}")
     try:
         results = semantic_memory.search(req.query, n_results=req.n_results)
+        print(f"[api] POST /memory/search → {len(results.get('results', results))} result(s)")
         return {"results": results}
     except Exception as e:
+        print(f"[api] POST /memory/search ERROR: {e}")
         raise HTTPException(500, f"Memory search failed: {e}")
 
 
 @app.post("/memory/ephemeral/save")
 async def memory_ephemeral_save(req: EphemeralMemoryItem):
     """Save an item to ephemeral memory (action_items, contacts, budgets, decisions, notes)."""
+    print(f"[api] POST /memory/ephemeral/save table={req.table}")
     try:
         table = req.table
         data = req.data
         if table == "action_items":
+            items = data.get("items", [])
             ephemeral_memory.save_action_items(
-                data.get("job_id", ""), data.get("items", []), data.get("meeting_title", "")
+                data.get("job_id", ""), items, data.get("meeting_title", "")
             )
+            print(f"[api] Saved {len(items)} action items to ephemeral memory")
         elif table == "contacts":
             ephemeral_memory.upsert_contact(
                 data.get("name", ""), data.get("email", ""), data.get("org", ""),
                 data.get("role", ""), data.get("phone", ""), data.get("meeting", ""),
             )
+            print(f"[api] Upserted contact '{data.get('name')}'")
         elif table == "budgets":
+            items = data.get("items", [])
             ephemeral_memory.save_budgets(
-                data.get("job_id", ""), data.get("items", []), data.get("meeting_title", "")
+                data.get("job_id", ""), items, data.get("meeting_title", "")
             )
+            print(f"[api] Saved {len(items)} budget items")
         elif table == "decisions":
+            items = data.get("items", [])
             ephemeral_memory.save_decisions(
-                data.get("job_id", ""), data.get("items", []), data.get("meeting_title", "")
+                data.get("job_id", ""), items, data.get("meeting_title", "")
             )
+            print(f"[api] Saved {len(items)} decisions")
         elif table == "notes":
             ephemeral_memory.save_note(
                 data.get("job_id", ""), data.get("topic", ""), data.get("content", "")
             )
+            print(f"[api] Saved note topic='{data.get('topic')}'")
         else:
             raise HTTPException(400, f"Unknown table: {table}")
         return {"success": True}
     except Exception as e:
+        print(f"[api] POST /memory/ephemeral/save ERROR: {e}")
         raise HTTPException(500, f"Ephemeral memory save failed: {e}")
 
 
 @app.post("/memory/ephemeral/query")
 async def memory_ephemeral_query(req: EphemeralMemoryQuery):
     """Query ephemeral memory by table and optional keyword."""
+    print(f"[api] POST /memory/ephemeral/query table={req.table} query='{req.query}' limit={req.limit}")
     try:
         data = ephemeral_memory.query_all(req.table, req.query, req.limit)
+        print(f"[api] POST /memory/ephemeral/query → {len(data)} result(s)")
         return {"results": data}
     except Exception as e:
+        print(f"[api] POST /memory/ephemeral/query ERROR: {e}")
         raise HTTPException(500, f"Ephemeral memory query failed: {e}")
 
 
@@ -257,8 +303,10 @@ async def memory_ephemeral_query(req: EphemeralMemoryQuery):
 async def memory_save_context(req: SaveMeetingContextRequest):
     """Save full meeting context to both semantic and ephemeral memory at once.
     Called by the agent runner after summarization completes."""
+    print(f"[api] POST /memory/save_context job_id={req.job_id} title='{req.title}'")
     try:
         # Semantic memory — searchable vector store
+        print(f"[memory] Storing meeting in semantic (ChromaDB)...")
         semantic_memory.store_meeting(
             job_id=req.job_id,
             title=req.title,
@@ -266,34 +314,51 @@ async def memory_save_context(req: SaveMeetingContextRequest):
             summary=req.summary,
             metadata={"date": "", "attendees": req.attendees},
         )
+        print(f"[memory] Semantic memory stored OK")
         # Ephemeral memory — structured data
         if req.action_items:
             ephemeral_memory.save_action_items(req.job_id, req.action_items, req.title)
+            print(f"[memory] Saved {len(req.action_items)} action items to ephemeral memory")
         if req.budgets:
             ephemeral_memory.save_budgets(req.job_id, req.budgets, req.title)
+            print(f"[memory] Saved {len(req.budgets)} budget items")
         if req.decisions:
             ephemeral_memory.save_decisions(req.job_id, req.decisions, req.title)
-        return {"success": True, "semantic_count": semantic_memory.count()}
+            print(f"[memory] Saved {len(req.decisions)} decisions")
+        count = semantic_memory.count()
+        print(f"[memory] Save context complete — semantic count: {count}")
+        return {"success": True, "semantic_count": count}
     except Exception as e:
+        print(f"[api] POST /memory/save_context ERROR: {e}")
         raise HTTPException(500, f"Save context failed: {e}")
 
 
 @app.get("/health")
 async def health():
+    print(f"[api] GET /health")
     return {"status": "ok", "device": detect_device()}
 
 
 # ── Internal pipeline ──
 
 def _run_pipeline(job_id: str):
+    print(f"\n{'='*60}")
+    print(f"   🎬 [PIPELINE] Starting pipeline for job {job_id}")
+    print(f"{'='*60}")
     try:
         uploader.update_status(job_id, {"status": "initializing", "progress": 0.05})
         engine = TranscriptionEngine()
         metadata = uploader.get_metadata(job_id)
         audio_path = uploader.get_audio_path(job_id)
+        print(f"[pipeline] Audio path: {audio_path}")
+        print(f"[pipeline] Metadata: title='{metadata.get('title')}', attendees={metadata.get('attendees')}")
 
+        # ── Step 1: Diarization ──
+        print(f"\n   🔬 [PIPELINE] Step 1/5: Diarization (identifying speakers)...")
         uploader.update_status(job_id, {"status": "processing_diarization", "progress": 0.2})
         diarization = engine.run_diarization(audio_path)
+        speakers_found = set(s["speaker"] for s in diarization)
+        print(f"   ✅ [pipeline] Diarization complete: {len(diarization)} segments, {len(speakers_found)} speakers: {', '.join(sorted(speakers_found))}")
 
         # Group by speaker
         from types import SimpleNamespace
@@ -302,32 +367,54 @@ def _run_pipeline(job_id: str):
             spk = seg["speaker"]
             speaker_segments.setdefault(spk, []).append(SimpleNamespace(**seg))
 
-        # Voiceprint matching
+        # ── Step 2: Voiceprint matching ──
+        print(f"\n   🧬 [PIPELINE] Step 2/5: Voiceprint matching...")
         uploader.update_status(job_id, {"status": "matching_voiceprints", "progress": 0.35})
         attendees = metadata.get("attendees", [])
-        match_result = vp_manager.match_against_attendees(
-            audio_path, speaker_segments, attendees
-        ) if attendees else {"known": {}, "unknown": [
-            {"speaker_id": spk, "segments": segs, "sample_segment": segs[0]}
-            for spk, segs in speaker_segments.items()
-        ]}
+        if attendees:
+            print(f"[pipeline] Matching against {len(attendees)} known attendees: {attendees}")
+            match_result = vp_manager.match_against_attendees(
+                audio_path, speaker_segments, attendees
+            )
+        else:
+            print(f"[pipeline] No known attendees — all speakers will be unknown")
+            match_result = {"known": {}, "unknown": [
+                {"speaker_id": spk, "segments": segs, "sample_segment": segs[0]}
+                for spk, segs in speaker_segments.items()
+            ]}
+        print(f"[pipeline] Voiceprint result: {len(match_result['known'])} known, {len(match_result.get('unknown', []))} unknown")
+        if match_result['known']:
+            print(f"[pipeline] Matched speakers: {list(match_result['known'].keys())}")
 
+        # ── Step 3: ASR Transcription ──
+        print(f"\n   🎤 [PIPELINE] Step 3/5: ASR transcription (Whisper)...")
         uploader.update_status(job_id, {"status": "processing_transcription", "progress": 0.5})
         transcription = engine.run_transcription(audio_path)
+        print(f"   ✅ [pipeline] ASR complete: {len(transcription.get('words', []))} words, {len(transcription.get('segments', []))} segments")
 
+        # ── Step 4: Alignment ──
+        print(f"\n   🔗 [PIPELINE] Step 4/5: Aligning diarization with transcript...")
         uploader.update_status(job_id, {"status": "aligning", "progress": 0.7})
         aligned = engine.align_transcript(transcription, diarization)
+        print(f"   ✅ [pipeline] Alignment complete: {len(aligned)} transcript segments")
 
         # Apply known speaker labels
+        label_count = 0
         for seg in aligned:
             for name, segs in match_result["known"].items():
                 for s in segs:
                     if abs(seg["start"] - s.start) < 0.5:
                         seg["speaker"] = name
+                        label_count += 1
+                        break
+        if label_count:
+            print(f"[pipeline] Applied {label_count} speaker label(s) from voiceprint matching")
 
         uploader.save_transcript(job_id, aligned)
         uploader.update_status(job_id, {"status": "transcribed", "progress": 0.85})
 
+        # ── Step 5: Enqueue for agent ──
+        print(f"\n   📨 [PIPELINE] Step 5/5: Enqueueing for agent runner...")
         unknown = match_result.get("unknown", [])
         if unknown:
             for u in unknown:
@@ -336,13 +423,21 @@ def _run_pipeline(job_id: str):
                         u["sample_text"] = seg["text"][:200]
                         break
             uploader.update_status(job_id, {"status": "labeling_needed", "progress": 0.9, "unknown_speakers": unknown})
+            print(f"[pipeline] {len(unknown)} unknown speaker(s) — enqueueing labeling_needed")
             agent_bridge.enqueue_labeling_needed(job_id, unknown, aligned, metadata)
         else:
             uploader.update_status(job_id, {"status": "ready_for_agent", "progress": 0.95})
+            print(f"[pipeline] All speakers known — enqueueing ready_for_processing")
             agent_bridge.enqueue_ready(job_id, aligned, metadata)
 
+        print(f"\n{'='*60}")
+        print(f"   ✅ [PIPELINE] Pipeline complete for job {job_id}")
+        print(f"{'='*60}\n")
+
     except Exception as e:
-        print(f"[pipeline] Error {job_id}: {e}")
+        print(f"\n   ❌ [pipeline] ERROR in job {job_id}: {e}")
+        import traceback
+        traceback.print_exc()
         uploader.update_status(job_id, {"status": "failed", "error": str(e)})
         agent_bridge.enqueue_failed(job_id, str(e), {})
 

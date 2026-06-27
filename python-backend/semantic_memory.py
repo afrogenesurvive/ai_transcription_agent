@@ -69,6 +69,7 @@ class SemanticMemory:
     ):
         """Embed and store a completed meeting for future semantic search."""
         self._ensure_loaded()
+        print(f"[semantic_memory] Storing meeting '{title}' (job_id={job_id})...")
 
         # Build searchable text from summary fields
         summary_text = summary.get("executive_summary", "") if isinstance(summary, dict) else ""
@@ -89,6 +90,7 @@ class SemanticMemory:
         doc_id = f"meeting_{job_id}"
         chunk_id = f"{doc_id}_summary"
 
+        print(f"[semantic_memory] Generating embedding for summary ({len(search_text)} chars)...")
         embedding = self._embed([search_text])[0]
         meta = {
             "job_id": job_id,
@@ -105,11 +107,13 @@ class SemanticMemory:
             documents=[search_text],
             metadatas=[meta],
         )
+        print(f"[semantic_memory] Summary chunk stored (id={chunk_id})")
 
         # Also store a shorter chunk for the transcript itself (different chunk_id)
         transcript_chunk_id = f"{doc_id}_transcript"
         transcript_trimmed = transcript_text[:MAX_CHARS] if len(transcript_text) > MAX_CHARS else transcript_text
         if transcript_trimmed.strip():
+            print(f"[semantic_memory] Generating embedding for transcript ({len(transcript_trimmed)} chars)...")
             trans_embedding = self._embed([transcript_trimmed])[0]
             self._collection.upsert(
                 ids=[transcript_chunk_id],
@@ -117,10 +121,13 @@ class SemanticMemory:
                 documents=[transcript_trimmed],
                 metadatas=[{**meta, "type": "transcript"}],
             )
+            print(f"[semantic_memory] Transcript chunk stored (id={transcript_chunk_id})")
+        print(f"[semantic_memory] Meeting '{title}' stored successfully")
 
     def search(self, query: str, n_results: int = 5) -> List[dict]:
         """Search past meetings by semantic similarity. Returns top matches."""
         self._ensure_loaded()
+        print(f"[semantic_memory] Searching for: '{query}' (n_results={n_results})")
 
         query_embedding = self._embed([query])[0]
         results = self._collection.query(
@@ -137,6 +144,7 @@ class SemanticMemory:
                     "document": results["documents"][0][i][:500] if results.get("documents") else "",
                     "metadata": results["metadatas"][0][i] if results.get("metadatas") else {},
                 })
+        print(f"[semantic_memory] Search returned {len(output)} result(s)")
         return output
 
     def get_meeting_context(self, job_id: str) -> Optional[dict]:

@@ -30,7 +30,7 @@ function createClient() {
 
 function getModel() {
   if (PROVIDER === "ollama") return process.env.OLLAMA_MODEL || "llama3.1:8b";
-  return process.env.AGENT_MODEL || "deepseek-v4-flash";
+  return process.env.API_AGENT_MODEL || "deepseek-v4-flash";
 }
 
 const client = createClient();
