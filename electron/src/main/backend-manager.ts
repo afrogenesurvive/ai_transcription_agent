@@ -9,6 +9,7 @@
 import { spawn, ChildProcess } from "child_process";
 import path from "path";
 import { app } from "electron";
+import { addLog } from "./logger";
 
 const isProd = app.isPackaged;
 
@@ -54,11 +55,15 @@ export async function startPythonBackend(port = 5001): Promise<void> {
   });
 
   pythonProcess.stdout?.on("data", (d: Buffer) => {
-    console.log(`[python] ${d.toString().trim()}`);
+    const msg = d.toString().trim();
+    console.log(`[python] ${msg}`);
+    addLog("python", "info", msg);
   });
 
   pythonProcess.stderr?.on("data", (d: Buffer) => {
-    console.error(`[python:err] ${d.toString().trim()}`);
+    const msg = d.toString().trim();
+    console.error(`[python:err] ${msg}`);
+    addLog("python", "error", msg);
   });
 
   pythonProcess.on("exit", (code) => {
@@ -100,11 +105,15 @@ export async function startBridgeServer(bridgePort = 5010, pythonPort = 5001): P
   });
 
   bridgeProcess.stdout?.on("data", (d: Buffer) => {
-    console.log(`[bridge] ${d.toString().trim()}`);
+    const msg = d.toString().trim();
+    console.log(`[bridge] ${msg}`);
+    addLog("bridge", "info", msg);
   });
 
   bridgeProcess.stderr?.on("data", (d: Buffer) => {
-    console.error(`[bridge:err] ${d.toString().trim()}`);
+    const msg = d.toString().trim();
+    console.error(`[bridge:err] ${msg}`);
+    addLog("bridge", "error", msg);
   });
 
   bridgeProcess.on("exit", (code) => {
@@ -149,11 +158,15 @@ export async function startAgentRunner(): Promise<void> {
   });
 
   agentProcess.stdout?.on("data", (d: Buffer) => {
-    console.log(`[agent] ${d.toString().trim()}`);
+    const msg = d.toString().trim();
+    console.log(`[agent] ${msg}`);
+    addLog("agent", "info", msg);
   });
 
   agentProcess.stderr?.on("data", (d: Buffer) => {
-    console.error(`[agent:err] ${d.toString().trim()}`);
+    const msg = d.toString().trim();
+    console.error(`[agent:err] ${msg}`);
+    addLog("agent", "error", msg);
   });
 
   agentProcess.on("exit", (code) => {

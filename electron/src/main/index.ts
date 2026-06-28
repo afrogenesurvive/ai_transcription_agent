@@ -23,6 +23,7 @@ import {
   stopAgentRunner,
   isAgentRunning,
 } from "./backend-manager";
+import { subscribe, getLogs, clearLogs } from "./logger";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -187,7 +188,24 @@ ipcMain.handle("service:restart", async (_event, service: string) => {
   return { success: true };
 });
 
+// ── Log IPC ──
+
+ipcMain.handle("logs:get", () => {
+  return getLogs(500);
+});
+
+ipcMain.handle("logs:clear", () => {
+  clearLogs();
+  return { success: true };
+});
+
 // ── App Lifecycle ──
+
+const unsubscribeLogs = subscribe((entry) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("log", entry);
+  }
+});
 
 app.whenReady().then(async () => {
   // Create window first (so user sees something while backend starts)
@@ -212,6 +230,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", async () => {
+  unsubscribeLogs();
   await stopAll();
 });
 

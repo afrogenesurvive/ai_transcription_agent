@@ -18,7 +18,12 @@ const SERVICE_LABELS: Record<Service, string> = {
   agent: "Agent",
 };
 
-export default function StatusBar() {
+interface StatusBarProps {
+  devPanelOpen: boolean;
+  onToggleDevPanel: () => void;
+}
+
+export default function StatusBar({ devPanelOpen, onToggleDevPanel }: StatusBarProps) {
   const [status, setStatus] = useState<Record<Service, ServiceStatus>>({
     python: null,
     bridge: null,
@@ -207,6 +212,12 @@ export default function StatusBar() {
         <div className="status-actions">
           <button className="action-btn" onClick={handleCheckServers} disabled={checking || anyBusy} title="Check all servers">
             {checking ? "⟳ Checking…" : "↻ Check All"}
+          </button>
+          <button
+            className={`action-btn dev-btn ${devPanelOpen ? "dev-btn--active" : ""}`}
+            onClick={onToggleDevPanel}
+            title="Toggle developer log panel">
+            {devPanelOpen ? "Dev ✕" : "Dev"}
           </button>
         </div>
       </div>

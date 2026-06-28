@@ -19,6 +19,7 @@ import UploadPanel from "./components/UploadPanel";
 import ProgressPanel from "./components/ProgressPanel";
 import TranscriptView from "./components/TranscriptView";
 import StatusBar from "./components/StatusBar";
+import DevPanel from "./components/DevPanel";
 import { useApi } from "./hooks/useApi";
 import { useJobStatus } from "./hooks/useJobStatus";
 import type { JobStatus } from "./types";
@@ -32,6 +33,7 @@ export default function App() {
   const [transcript, setTranscript] = useState<any>(null);
   const [uploading, setUploading] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
+  const [devPanelOpen, setDevPanelOpen] = useState(false);
 
   // Listen for Electron notifications
   React.useEffect(() => {
@@ -129,7 +131,8 @@ export default function App() {
         </div>
       </main>
 
-      <StatusBar />
+      <StatusBar devPanelOpen={devPanelOpen} onToggleDevPanel={() => setDevPanelOpen((v) => !v)} />
+      <DevPanel visible={devPanelOpen} onClose={() => setDevPanelOpen(false)} />
     </div>
   );
 }

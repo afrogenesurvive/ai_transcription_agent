@@ -27,6 +27,13 @@ export interface JobStatus {
   };
 }
 
+export interface LogEntry {
+  timestamp: number;
+  source: "python" | "bridge" | "agent" | "main";
+  level: "info" | "warn" | "error";
+  message: string;
+}
+
 export interface MemorySearchResult {
   id: string;
   score: number;
@@ -44,6 +51,9 @@ export interface ElectronAPI {
   restartService: (service: string) => Promise<{ success: boolean }>;
   getAppVersion: () => Promise<string>;
   onNotification: (cb: (msg: string) => void) => () => void;
+  getLogs: () => Promise<LogEntry[]>;
+  clearLogs: () => Promise<{ success: boolean }>;
+  onLog: (cb: (entry: LogEntry) => void) => () => void;
   platform: string;
 }
 

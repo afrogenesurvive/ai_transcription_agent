@@ -6,6 +6,7 @@
  */
 
 import { contextBridge, ipcRenderer } from "electron";
+import type { LogEntry } from "./logger";
 
 contextBridge.exposeInMainWorld("electronAPI", {
   // ── File dialogs ──
@@ -38,6 +39,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onNotification: (callback: (message: string) => void) => {
     ipcRenderer.on("notification", (_event, message) => callback(message));
     return () => ipcRenderer.removeAllListeners("notification");
+  },
+
+  // ── Developer logs ──
+  getLogs: (): Promise<LogEntry[]> => ipcRenderer.invoke("logs:get"),
+  clearLogs: (): Promise<{ success: boolean }> => ipcRenderer.invoke("logs:clear"),
+  onLog: (callback: (entry: LogEntry) => void) => {
+    ipcRenderer.on("log", (_event, entry) => callback(entry));
+    return () => ipcRenderer.removeAllListeners("log");
   },
 
   // ── Platform ──
