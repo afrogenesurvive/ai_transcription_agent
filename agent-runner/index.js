@@ -489,7 +489,18 @@ function buildInitialContext(event, transcript, safeTitle, safeAttendees, eventI
 }
 
 // ── Main loop ──
-
+// The shared entry point for all three activation paths:
+//   1. fs.watch push event (primary)
+//   2. setInterval fallback poll (safety net)
+//   3. Startup check (catch up after restart)
+//
+// isProcessing acts as a concurrency gate — if a trigger fires while a job
+// is already being processed, the subsequent call returns immediately.
+// This prevents overlapping pipeline runs for different events.
+//
+// watchTimer is used by fs.watch's debounce (declared in scope so the
+// closure inside the watch handler can clear/reset it). It is NOT a poll
+// interval.
 let isProcessing = false;
 let watchTimer = null;
 
@@ -519,24 +530,41 @@ console.log(`${"─".repeat(50)}\n`);
 
 fs.writeFileSync(PID_FILE, String(process.pid));
 
-// Ensure trigger file exists
+// ── Ensure trigger file exists ──
+// The Python backend (agent_bridge.py) touches this file via os.utime()
+// after writing an event to queue/transcription.jsonl. If the file doesn't
+// exist yet (first run), create it so fs.watch has something to observe.
 try {
   if (!fs.existsSync(TRIGGER_FILE)) fs.writeFileSync(TRIGGER_FILE, "");
 } catch {
   /* */
 }
 
-// Watch for trigger
+// ── PRIMARY TRIGGER: Push-based via fs.watch ──
+// fs.watch is a native OS-level file change notification. When the Python
+// backend calls os.utime() on .transcription-trigger, the kernel pushes a
+// change event to this Node.js process — no polling required.
+//
+// The watchTimer (100ms debounce) coalesces rapid multiple firings that
+// can occur on macOS (fs.watch often fires 2-3 times per single utime).
+// This is NOT a polling interval — it's a guard against duplicate processing.
 const watcher = fs.watch(TRIGGER_FILE, () => {
   if (watchTimer) clearTimeout(watchTimer);
   watchTimer = setTimeout(() => mainLoop(), 100);
 });
 
-// Fallback timer
+// ── FALLBACK: Timer-based polling ──
+// TASK_CHECK_INTERVAL (default: 60000ms = 1 minute) acts as a safety net.
+// fs.watch can silently fail on network filesystems, Docker-mounted volumes,
+// or when rapid file replacements occur. This fallback ensures the queue
+// is never stranded even if the push mechanism misses an event.
+// Set TASK_CHECK_INTERVAL=0 in environment to disable polling entirely.
 let taskTimer = null;
 if (TASK_CHECK_INTERVAL > 0) taskTimer = setInterval(mainLoop, TASK_CHECK_INTERVAL);
 
-// Run once on startup
+// ── Initial startup check ──
+// If a job was enqueued while the runner was offline, pick it up immediately
+// without waiting for the next fs.watch event or poll interval.
 mainLoop();
 
 // ── Interactive terminal ──

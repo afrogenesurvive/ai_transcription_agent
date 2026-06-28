@@ -447,6 +447,7 @@ def _run_pipeline(job_id: str):
             print(f"[pipeline] Applied {label_count} speaker label(s) from voiceprint matching")
 
         uploader.save_transcript(job_id, aligned)
+        uploader.save_transcript_text(job_id, aligned)
         uploader.update_status(job_id, {"status": "transcribed", "progress": 0.85})
 
         # ── Step 5: Enqueue for agent ──

@@ -83,6 +83,15 @@ class AudioUploader:
         with open(os.path.join(self.storage_path, job_id, "transcript.json"), "w") as f:
             json.dump(transcript, f, indent=2)
 
+    def save_transcript_text(self, job_id: str, transcript: list):
+        """Save the transcript as a plain-text .txt file (readable, no JSON)."""
+        lines = [f"[{s['start']:.1f}s] {s['speaker']}: {s['text']}" for s in transcript]
+        text = "\n".join(lines)
+        path = os.path.join(self.storage_path, job_id, "transcript.txt")
+        with open(path, "w") as f:
+            f.write(text + "\n")
+        print(f"[upload] Text transcript saved ({len(lines)} lines) to {path}")
+
     def save_summary(self, job_id: str, summary: dict):
         with open(os.path.join(self.storage_path, job_id, "summary.json"), "w") as f:
             json.dump(summary, f, indent=2)
