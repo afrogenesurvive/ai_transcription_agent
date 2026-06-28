@@ -5,7 +5,7 @@
   "description": "Electron desktop UI for AI Meeting Transcription Agent",
   "main": "dist/main/index.js",
   "scripts": {
-    "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:main\"",
+    "dev": "npm run build:main && concurrently \"npm run dev:renderer\" \"npm run dev:main\"",
     "dev:renderer": "vite",
     "dev:main": "wait-on http://localhost:5173 && electron .",
     "build": "tsc && vite build",
