@@ -6,6 +6,19 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 
 
+class UploadByPathRequest(BaseModel):
+    """Upload an audio file by local filesystem path.
+
+    Works cross-platform — accepts both POSIX (/Users/...) and
+    Windows (C:\\Users\\...) paths. The path is resolved via
+    os.path.abspath() and os.path.expanduser() before use.
+    """
+    file_path: str = Field(..., description="Absolute or relative path to an audio file")
+    title: str = "Untitled Meeting"
+    attendees: List[str] = Field(default_factory=list)
+    event_type: str = "internal"
+
+
 class MeetingMetadata(BaseModel):
     title: str
     date: str = ""

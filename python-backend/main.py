@@ -21,7 +21,7 @@ from models import (
     RefineRequest, SummarizeRequest, LabelRequest, AnalysisRequest, Deliverable,
     MemorySearchRequest, MemorySearchResult,
     EphemeralMemoryItem, EphemeralMemoryQuery, EphemeralMemoryActionResult,
-    SaveMeetingContextRequest,
+    SaveMeetingContextRequest, UploadByPathRequest,
 )
 from agent_bridge import AgentBridge
 from semantic_memory import SemanticMemory
@@ -83,6 +83,42 @@ async def upload_audio(
     print(f"[upload] Metadata: title='{title}', attendees={attendees}, event_type='{event_type}'")
     threading.Thread(target=_run_pipeline, args=(job_id,), daemon=True).start()
     return {"job_id": job_id, "status": "uploaded"}
+
+
+@app.post("/transcribe/upload_by_path")
+async def upload_audio_by_path(req: UploadByPathRequest):
+    """Upload an audio file by local filesystem path.
+
+    Accepts a file path instead of multipart upload. Handles both
+    POSIX (macOS/Linux) and Windows paths via os.path.
+    """
+    file_path = os.path.abspath(os.path.expanduser(req.file_path))
+
+    if not os.path.exists(file_path):
+        raise HTTPException(404, f"File not found: {file_path}")
+    if not os.path.isfile(file_path):
+        raise HTTPException(400, f"Path is not a file: {file_path}")
+
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext not in config.ALLOWED_EXTENSIONS:
+        raise HTTPException(400, f"Unsupported format: {ext}. Allowed: {', '.join(sorted(config.ALLOWED_EXTENSIONS))}")
+
+    metadata = {
+        "title": req.title,
+        "attendees": req.attendees,
+        "event_type": req.event_type,
+    }
+    try:
+        result = uploader.upload(file_path, metadata)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    job_id = result["job_id"]
+    file_size = os.path.getsize(file_path)
+    print(f"[upload_by_path] File '{file_path}' ({file_size} bytes) → job_id={job_id}")
+    print(f"[upload_by_path] Metadata: title='{req.title}', attendees={req.attendees}")
+    threading.Thread(target=_run_pipeline, args=(job_id,), daemon=True).start()
+    return {"job_id": job_id, "status": "uploaded", "file_path": file_path}
 
 
 @app.get("/transcribe/status/{job_id}")

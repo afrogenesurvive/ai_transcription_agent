@@ -72,6 +72,14 @@ async function dispatch(tool, args) {
       // For URL-based uploads only; file uploads use multipart directly
       return await callPython("POST", "/transcribe/upload_url", args);
 
+    case "transcribe_upload_by_path":
+      return await callPython("POST", "/transcribe/upload_by_path", {
+        file_path: args.filePath,
+        title: args.title || "Untitled Meeting",
+        attendees: args.attendees || [],
+        event_type: args.eventType || "internal",
+      });
+
     case "transcribe_status":
       return await callPython("GET", `/transcribe/status/${args.jobId}`);
 

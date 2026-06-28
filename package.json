@@ -32,7 +32,7 @@
     "runner:start": "node mcp/agent-runner/index.js",
     "runner:stop": "kill $(cat mcp/agent-runner/.runner.pid 2>/dev/null) 2>/dev/null; echo 'Runner stopped'",
     "runner:status": "ps aux | grep 'agent-runner' | grep -v grep || echo 'Runner not running'",
-    "transcribe:backend": "cd python-backend && python3 main.py",
+    "transcribe:backend": "cd python-backend && source venv/bin/activate && python3 main.py",
     "transcribe:bridge": "cd bridge-server && npm start",
     "transcribe:runner": "cd agent-runner && npm start",
     "transcribe:all": "concurrently \"npm run transcribe:backend\" \"npm run transcribe:bridge\" \"npm run transcribe:runner\"",
