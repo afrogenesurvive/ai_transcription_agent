@@ -41,8 +41,8 @@ export async function startPythonBackend(port = 5001): Promise<void> {
   const backendDir = resourcePath("python-backend");
   const venvPython = path.join(backendDir, "venv", "bin", "python3");
 
-  // In dev, use system python if no venv
-  const pythonBin = isProd ? venvPython : "python3";
+  // Prefer venv Python if it exists (dev or prod), fall back to system python3
+  const pythonBin = isProd || require("fs").existsSync(venvPython) ? venvPython : "python3";
 
   console.log(`[backend] Starting Python backend at ${backendDir}`);
   console.log(`[backend] Using: ${pythonBin} main.py`);
@@ -145,7 +145,7 @@ export async function startAgentRunner(): Promise<void> {
       ...process.env,
       BRIDGE_URL: "http://127.0.0.1:5010",
     },
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
   });
 
   agentProcess.stdout?.on("data", (d: Buffer) => {
@@ -163,9 +163,13 @@ export async function startAgentRunner(): Promise<void> {
 
   // Agent runner doesn't have an HTTP health endpoint — it
   // starts listening for trigger file changes immediately.
-  // Give it a moment to initialize.
+  // Give it a moment to initialize and check it's still alive.
   await new Promise((r) => setTimeout(r, 1000));
-  console.log(`[agent] Agent runner started (PID: ${agentProcess.pid})`);
+  if (agentProcess) {
+    console.log(`[agent] Agent runner started (PID: ${agentProcess.pid})`);
+  } else {
+    throw new Error("Agent runner exited immediately after starting — check agent-runner/index.js for errors");
+  }
 }
 
 export async function stopAgentRunner(): Promise<void> {
@@ -174,6 +178,32 @@ export async function stopAgentRunner(): Promise<void> {
     agentProcess = null;
     await new Promise((r) => setTimeout(r, 1000));
   }
+}
+
+// ── Per-service restart ──
+
+export async function restartPythonBackend(): Promise<void> {
+  console.log(`[backend] Restarting Python backend...`);
+  await stopPythonBackend();
+  await new Promise((r) => setTimeout(r, 1000));
+  await startPythonBackend();
+  console.log(`[backend] Python backend restarted`);
+}
+
+export async function restartBridgeServer(): Promise<void> {
+  console.log(`[bridge] Restarting bridge server...`);
+  await stopBridgeServer();
+  await new Promise((r) => setTimeout(r, 1000));
+  await startBridgeServer();
+  console.log(`[bridge] Bridge server restarted`);
+}
+
+export async function restartAgentRunner(): Promise<void> {
+  console.log(`[agent] Restarting agent runner...`);
+  await stopAgentRunner();
+  await new Promise((r) => setTimeout(r, 1000));
+  await startAgentRunner();
+  console.log(`[agent] Agent runner restarted`);
 }
 
 // ── Combined ──
@@ -188,4 +218,12 @@ export async function stopAll(): Promise<void> {
   await stopAgentRunner();
   await stopBridgeServer();
   await stopPythonBackend();
+}
+
+export async function restartAll(): Promise<void> {
+  console.log(`[backend] Restarting all services...`);
+  await stopAll();
+  await new Promise((r) => setTimeout(r, 2000));
+  await startAll();
+  console.log(`[backend] All services restarted`);
 }

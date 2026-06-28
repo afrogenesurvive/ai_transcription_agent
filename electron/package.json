@@ -5,7 +5,7 @@
   "description": "Electron desktop UI for AI Meeting Transcription Agent",
   "main": "dist/main/index.js",
   "scripts": {
-    "dev": "concurrently -n renderer,main,electron \"npm run dev:renderer\" \"npm run watch:main\" \"npm run dev:electron\"",
+    "dev": "concurrently -n renderer,main,electron --kill-others \"npm run dev:renderer\" \"npm run watch:main\" \"npm run dev:electron\"",
     "dev:renderer": "vite",
     "watch:main": "tsc -p tsconfig.main.json --watch",
     "dev:electron": "wait-on http://localhost:5173 dist/main/index.js && nodemon --watch dist/main --ext js --exec \"electron .\"",

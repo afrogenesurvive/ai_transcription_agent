@@ -1,40 +1,60 @@
 /**
  * Status Bar — shows individual Python, Bridge, and Agent status
- * with a manual "Check Servers" button that auto-recovers on timeout.
+ * with per-service stop/restart controls and a check-all button.
  */
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 
 type ServiceStatus = boolean | null; // null = unknown/checking
+type FeedbackMsg = { text: string; type: "checking" | "success" | "error" } | null;
+type BusyService = string | null; // which service is being acted on, or null
+
+const SERVICES = ["python", "bridge", "agent"] as const;
+type Service = (typeof SERVICES)[number];
+
+const SERVICE_LABELS: Record<Service, string> = {
+  python: "Python",
+  bridge: "Bridge",
+  agent: "Agent",
+};
 
 export default function StatusBar() {
-  const [python, setPython] = useState<ServiceStatus>(null);
-  const [bridge, setBridge] = useState<ServiceStatus>(null);
-  const [agent, setAgent] = useState<ServiceStatus>(null);
+  const [status, setStatus] = useState<Record<Service, ServiceStatus>>({
+    python: null,
+    bridge: null,
+    agent: null,
+  });
   const [version, setVersion] = useState("1.0.0");
   const [checking, setChecking] = useState(false);
+  const [busy, setBusy] = useState<BusyService>(null);
+  const [feedback, setFeedback] = useState<FeedbackMsg>(null);
+  const feedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const checkTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const allReady = python && bridge && agent;
+  const allReady = SERVICES.every((s) => status[s]);
+  const anyBusy = busy !== null;
 
-  // Poll all three services via IPC every 5 seconds
+  const showFeedback = (msg: FeedbackMsg, duration = 4000) => {
+    setFeedback(msg);
+    if (feedbackTimeoutRef.current) clearTimeout(feedbackTimeoutRef.current);
+    if (msg) feedbackTimeoutRef.current = setTimeout(() => setFeedback(null), duration);
+  };
+
+  // Poll all services via IPC every 5 seconds
   const pollStatus = useCallback(async () => {
     if (window.electronAPI) {
       try {
-        const status = await window.electronAPI.getBackendStatus();
-        setPython(status.python);
-        setBridge(status.bridge);
-        setAgent(status.agent);
+        const s = await window.electronAPI.getBackendStatus();
+        setStatus({ python: s.python, bridge: s.bridge, agent: s.agent });
       } catch {
-        // IPC failed — likely Electron API not available
+        // IPC failed
       }
     } else {
-      // Fallback: direct bridge health check only
       try {
         const res = await fetch("http://127.0.0.1:5010/health");
-        setBridge(res.ok);
+        setStatus((prev) => ({ ...prev, bridge: res.ok }));
       } catch {
-        setBridge(false);
+        setStatus((prev) => ({ ...prev, bridge: false }));
       }
     }
   }, []);
@@ -52,43 +72,49 @@ export default function StatusBar() {
       .catch(() => {});
   }, []);
 
-  // Cleanup timeout on unmount
   useEffect(() => {
     return () => {
       if (checkTimeoutRef.current) clearTimeout(checkTimeoutRef.current);
+      if (feedbackTimeoutRef.current) clearTimeout(feedbackTimeoutRef.current);
     };
   }, []);
 
+  // ── Check all ──
+
   const handleCheckServers = useCallback(async () => {
     setChecking(true);
-    setPython(null);
-    setBridge(null);
-    setAgent(null);
+    setStatus({ python: null, bridge: null, agent: null });
+    showFeedback({ text: "Checking…", type: "checking" });
 
-    // Safety timeout — reset after 5s if IPC hangs
     checkTimeoutRef.current = setTimeout(() => {
       setChecking(false);
-      // Re-run poll to get actual current state
+      showFeedback({ text: "Check timed out — servers unreachable", type: "error" });
       pollStatus();
-    }, 5000);
+    }, 6000);
 
     try {
       if (window.electronAPI) {
-        const status = await window.electronAPI.checkServers();
-        setPython(status.python);
-        setBridge(status.bridge);
-        setAgent(status.agent);
+        const s = await window.electronAPI.checkServers();
+        setStatus({ python: s.python, bridge: s.bridge, agent: s.agent });
+
+        const parts: string[] = [];
+        for (const svc of SERVICES) {
+          parts.push(`${SERVICE_LABELS[svc]}: ${s[svc] ? "✓" : "✗"}`);
+        }
+        const ok = s.python && s.bridge && s.agent;
+        showFeedback({ text: parts.join("  ·  "), type: ok ? "success" : "error" }, 5000);
       } else {
-        // Fallback: direct bridge check
         try {
           const res = await fetch("http://127.0.0.1:5010/health");
-          setBridge(res.ok);
+          setStatus((prev) => ({ ...prev, bridge: res.ok }));
+          showFeedback({ text: res.ok ? "Bridge: ✓" : "Bridge: ✗", type: res.ok ? "success" : "error" });
         } catch {
-          setBridge(false);
+          setStatus((prev) => ({ ...prev, bridge: false }));
+          showFeedback({ text: "Bridge: ✗ — unreachable", type: "error" });
         }
       }
     } catch {
-      // Error handled by safety timeout
+      showFeedback({ text: "Check failed — unexpected error", type: "error" });
     } finally {
       if (checkTimeoutRef.current) {
         clearTimeout(checkTimeoutRef.current);
@@ -98,26 +124,91 @@ export default function StatusBar() {
     }
   }, [pollStatus]);
 
+  // ── Per-service actions ──
+
+  const handleStopService = useCallback(async (svc: Service) => {
+    setBusy(svc);
+    showFeedback({ text: `Stopping ${SERVICE_LABELS[svc]}…`, type: "checking" });
+    try {
+      if (window.electronAPI) {
+        await window.electronAPI.stopService(svc);
+        setStatus((prev) => ({ ...prev, [svc]: false }));
+        showFeedback({ text: `${SERVICE_LABELS[svc]} stopped`, type: "error" });
+      }
+    } catch {
+      showFeedback({ text: `Failed to stop ${SERVICE_LABELS[svc]}`, type: "error" });
+    } finally {
+      setBusy(null);
+    }
+  }, []);
+
+  const handleRestartService = useCallback(
+    async (svc: Service) => {
+      setBusy(svc);
+      showFeedback({ text: `Restarting ${SERVICE_LABELS[svc]}…`, type: "checking" });
+      try {
+        if (window.electronAPI) {
+          await window.electronAPI.restartService(svc);
+          showFeedback({ text: `${SERVICE_LABELS[svc]} restarted ✓`, type: "success" });
+        }
+      } catch {
+        showFeedback({ text: `Failed to restart ${SERVICE_LABELS[svc]}`, type: "error" });
+      } finally {
+        setBusy(null);
+        pollStatus();
+      }
+    },
+    [pollStatus],
+  );
+
   return (
     <div className="status-bar">
-      <div className="status-item-group">
-        <span className="status-item">
-          <span className={`status-dot ${python === null ? "unknown" : python ? "online" : "offline"}`} />
-          Python
-        </span>
-        <span className="status-item">
-          <span className={`status-dot ${bridge === null ? "unknown" : bridge ? "online" : "offline"}`} />
-          Bridge
-        </span>
-        <span className="status-item">
-          <span className={`status-dot ${agent === null ? "unknown" : agent ? "online" : "offline"}`} />
-          Agent
-        </span>
-        {!allReady && (
-          <button className="retry-btn" onClick={handleCheckServers} disabled={checking} title="Check if servers are running">
-            {checking ? "Checking…" : "Check Servers"}
+      <div className="status-bar-left">
+        <div className="status-item-group">
+          {SERVICES.map((svc) => (
+            <span key={svc} className="status-item">
+              <span className={`status-dot ${status[svc] === null ? "unknown" : status[svc] ? "online" : "offline"}`} />
+              <span className="service-label">{SERVICE_LABELS[svc]}</span>
+              <span className="service-actions">
+                {status[svc] === true && (
+                  <button
+                    className="micro-btn stop-btn"
+                    onClick={() => handleStopService(svc)}
+                    disabled={anyBusy}
+                    title={`Stop ${SERVICE_LABELS[svc]}`}>
+                    ■
+                  </button>
+                )}
+                {status[svc] === false && (
+                  <button
+                    className="micro-btn start-btn"
+                    onClick={() => handleRestartService(svc)}
+                    disabled={anyBusy}
+                    title={`Start ${SERVICE_LABELS[svc]}`}>
+                    ▶
+                  </button>
+                )}
+                {status[svc] === true && (
+                  <button
+                    className="micro-btn restart-btn"
+                    onClick={() => handleRestartService(svc)}
+                    disabled={anyBusy}
+                    title={`Restart ${SERVICE_LABELS[svc]}`}>
+                    ↻
+                  </button>
+                )}
+              </span>
+            </span>
+          ))}
+        </div>
+
+        {feedback && <span className={`status-feedback status-feedback--${feedback.type}`}>{feedback.text}</span>}
+
+        <div className="status-actions">
+          <button className="action-btn" onClick={handleCheckServers} disabled={checking || anyBusy} title="Check all servers">
+            {checking ? "⟳ Checking…" : "↻ Check All"}
           </button>
-        )}
+        </div>
       </div>
       <span className="status-item version">v{version}</span>
     </div>

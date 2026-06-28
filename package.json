@@ -40,7 +40,7 @@
     "electron:dev": "cd electron && npm run dev",
     "electron:build": "cd electron && npm run build",
     "electron:start": "cd electron && npm start",
-    "electron:install": "cd electron && npm install"
+    "electron:install": "cd agent-runner && npm install --loglevel=error && cd ../bridge-server && npm install --loglevel=error && cd ../electron && npm install"
   },
   "dependencies": {
     "@google-cloud/local-auth": "^3.0.1",

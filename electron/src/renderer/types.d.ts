@@ -38,6 +38,10 @@ export interface ElectronAPI {
   selectAudioFile: () => Promise<string | null>;
   getBackendStatus: () => Promise<{ python: boolean; bridge: boolean; agent: boolean }>;
   checkServers: () => Promise<{ python: boolean; bridge: boolean; agent: boolean }>;
+  stopServices: () => Promise<{ success: boolean }>;
+  restartServices: () => Promise<{ success: boolean }>;
+  stopService: (service: string) => Promise<{ success: boolean }>;
+  restartService: (service: string) => Promise<{ success: boolean }>;
   getAppVersion: () => Promise<string>;
   onNotification: (cb: (msg: string) => void) => () => void;
   platform: string;

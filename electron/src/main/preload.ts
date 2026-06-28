@@ -15,13 +15,21 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getBackendStatus: (): Promise<{
     python: boolean;
     bridge: boolean;
+    agent: boolean;
   }> => ipcRenderer.invoke("backend:status"),
 
   // ── Manual server check ──
   checkServers: (): Promise<{
     python: boolean;
     bridge: boolean;
+    agent: boolean;
   }> => ipcRenderer.invoke("backend:status"),
+
+  // ── Service management ──
+  stopServices: (): Promise<{ success: boolean }> => ipcRenderer.invoke("services:stop"),
+  restartServices: (): Promise<{ success: boolean }> => ipcRenderer.invoke("services:restart"),
+  stopService: (service: string): Promise<{ success: boolean }> => ipcRenderer.invoke("service:stop", service),
+  restartService: (service: string): Promise<{ success: boolean }> => ipcRenderer.invoke("service:restart", service),
 
   // ── App info ──
   getAppVersion: (): Promise<string> => ipcRenderer.invoke("app:version"),

@@ -93,14 +93,20 @@ echo "   ✅ $WHISPER_VARIANT installed"
 echo ""
 echo "   📦 Installing agent-runner dependencies..."
 cd "$ROOT/agent-runner"
-npm install --silent 2>/dev/null
+npm install --loglevel=error 2>&1 | tail -1
 echo "   ✅ agent-runner dependencies installed"
 
 echo ""
 echo "   📦 Installing bridge-server dependencies..."
 cd "$ROOT/bridge-server"
-npm install --silent 2>/dev/null
+npm install --loglevel=error 2>&1 | tail -1
 echo "   ✅ bridge-server dependencies installed"
+
+echo ""
+echo "   📦 Installing electron app dependencies..."
+cd "$ROOT/electron"
+npm install --loglevel=error 2>&1 | tail -1
+echo "   ✅ electron dependencies installed"
 
 # ── 5. Summary ──
 
@@ -110,8 +116,9 @@ echo "║   ✅ Setup complete!                                     ║"
 echo "║                                                          ║"
 echo "║   Whisper variant: $WHISPER_VARIANT"
 echo "║                                                          ║"
-echo "║   Start all services:  npm run transcribe:all            ║"
-echo "║   Or individually:                                      ║"
+echo "║   Run the Electron app:  npm run electron:dev            ║"
+echo "║                                                          ║"
+echo "║   Or start services individually:                       ║"
 echo "║     npm run transcribe:backend     (Python :5001)        ║"
 echo "║     npm run transcribe:bridge      (Node :5010)          ║"
 echo "║     npm run transcribe:runner      (agent prompt)        ║"

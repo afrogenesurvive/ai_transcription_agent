@@ -11,7 +11,18 @@
 
 import { app, BrowserWindow, Tray, Menu, nativeImage, Notification, ipcMain, dialog } from "electron";
 import path from "path";
-import { startAll, stopAll, isAgentRunning } from "./backend-manager";
+import {
+  startAll,
+  stopAll,
+  restartAll,
+  restartPythonBackend,
+  restartBridgeServer,
+  restartAgentRunner,
+  stopPythonBackend,
+  stopBridgeServer,
+  stopAgentRunner,
+  isAgentRunning,
+} from "./backend-manager";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -135,6 +146,45 @@ ipcMain.handle("backend:status", async () => {
 
 ipcMain.handle("app:version", () => {
   return app.getVersion();
+});
+
+// ── Combined service management ──
+
+ipcMain.handle("services:stop", async () => {
+  console.log("[ipc] Stopping all services...");
+  await stopAll();
+  return { success: true };
+});
+
+ipcMain.handle("services:restart", async () => {
+  console.log("[ipc] Restarting all services...");
+  await restartAll();
+  return { success: true };
+});
+
+// ── Per-service management ──
+
+const stopFn: Record<string, () => Promise<void>> = {
+  python: stopPythonBackend,
+  bridge: stopBridgeServer,
+  agent: stopAgentRunner,
+};
+const restartFn: Record<string, () => Promise<void>> = {
+  python: restartPythonBackend,
+  bridge: restartBridgeServer,
+  agent: restartAgentRunner,
+};
+
+ipcMain.handle("service:stop", async (_event, service: string) => {
+  console.log(`[ipc] Stopping ${service}...`);
+  await stopFn[service]?.();
+  return { success: true };
+});
+
+ipcMain.handle("service:restart", async (_event, service: string) => {
+  console.log(`[ipc] Restarting ${service}...`);
+  await restartFn[service]?.();
+  return { success: true };
 });
 
 // ── App Lifecycle ──
