@@ -11,7 +11,7 @@
 
 import { app, BrowserWindow, Tray, Menu, nativeImage, Notification, ipcMain, dialog } from "electron";
 import path from "path";
-import { startAll, stopAll } from "./backend-manager";
+import { startAll, stopAll, isAgentRunning } from "./backend-manager";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -110,9 +110,27 @@ ipcMain.handle("dialog:selectAudio", async () => {
   return result.canceled ? null : result.filePaths[0];
 });
 
-ipcMain.handle("backend:status", () => {
-  // Simple health check — actual status is maintained in renderer polling
-  return { python: true, bridge: true };
+ipcMain.handle("backend:status", async () => {
+  // Check all three services with individual timeouts
+  let python = false;
+  let bridge = false;
+  const agent = isAgentRunning();
+
+  try {
+    const pyRes = await fetch("http://127.0.0.1:5001/health", { signal: AbortSignal.timeout(2000) });
+    python = pyRes.ok;
+  } catch {
+    // python not running
+  }
+
+  try {
+    const brRes = await fetch("http://127.0.0.1:5010/health", { signal: AbortSignal.timeout(2000) });
+    bridge = brRes.ok;
+  } catch {
+    // bridge not running
+  }
+
+  return { python, bridge, agent };
 });
 
 ipcMain.handle("app:version", () => {

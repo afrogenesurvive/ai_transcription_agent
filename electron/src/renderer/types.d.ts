@@ -36,7 +36,8 @@ export interface MemorySearchResult {
 
 export interface ElectronAPI {
   selectAudioFile: () => Promise<string | null>;
-  getBackendStatus: () => Promise<{ python: boolean; bridge: boolean }>;
+  getBackendStatus: () => Promise<{ python: boolean; bridge: boolean; agent: boolean }>;
+  checkServers: () => Promise<{ python: boolean; bridge: boolean; agent: boolean }>;
   getAppVersion: () => Promise<string>;
   onNotification: (cb: (msg: string) => void) => () => void;
   platform: string;

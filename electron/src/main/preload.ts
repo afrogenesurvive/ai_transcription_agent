@@ -17,6 +17,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
     bridge: boolean;
   }> => ipcRenderer.invoke("backend:status"),
 
+  // ── Manual server check ──
+  checkServers: (): Promise<{
+    python: boolean;
+    bridge: boolean;
+  }> => ipcRenderer.invoke("backend:status"),
+
   // ── App info ──
   getAppVersion: (): Promise<string> => ipcRenderer.invoke("app:version"),
 

@@ -124,14 +124,68 @@ export async function stopBridgeServer(): Promise<void> {
   }
 }
 
+// ── Agent Runner ──
+
+let agentProcess: ChildProcess | null = null;
+
+/** Check if the agent child process is still alive. */
+export function isAgentRunning(): boolean {
+  return agentProcess !== null && agentProcess.exitCode === null;
+}
+
+export async function startAgentRunner(): Promise<void> {
+  const agentDir = resourcePath("agent-runner");
+  const nodeBin = isProd ? path.join(agentDir, "node_modules", ".bin", "node") : "node";
+
+  console.log(`[agent] Starting agent runner at ${agentDir}`);
+
+  agentProcess = spawn(nodeBin, ["index.js"], {
+    cwd: agentDir,
+    env: {
+      ...process.env,
+      BRIDGE_URL: "http://127.0.0.1:5010",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  agentProcess.stdout?.on("data", (d: Buffer) => {
+    console.log(`[agent] ${d.toString().trim()}`);
+  });
+
+  agentProcess.stderr?.on("data", (d: Buffer) => {
+    console.error(`[agent:err] ${d.toString().trim()}`);
+  });
+
+  agentProcess.on("exit", (code) => {
+    console.log(`[agent] Agent process exited with code ${code}`);
+    agentProcess = null;
+  });
+
+  // Agent runner doesn't have an HTTP health endpoint — it
+  // starts listening for trigger file changes immediately.
+  // Give it a moment to initialize.
+  await new Promise((r) => setTimeout(r, 1000));
+  console.log(`[agent] Agent runner started (PID: ${agentProcess.pid})`);
+}
+
+export async function stopAgentRunner(): Promise<void> {
+  if (agentProcess) {
+    agentProcess.kill("SIGTERM");
+    agentProcess = null;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+}
+
 // ── Combined ──
 
 export async function startAll(): Promise<void> {
   await startPythonBackend();
   await startBridgeServer();
+  await startAgentRunner();
 }
 
 export async function stopAll(): Promise<void> {
+  await stopAgentRunner();
   await stopBridgeServer();
   await stopPythonBackend();
 }
