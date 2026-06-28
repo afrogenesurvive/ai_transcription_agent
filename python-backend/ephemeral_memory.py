@@ -104,7 +104,12 @@ class EphemeralMemory:
     # ── Action Items ──
 
     def save_action_items(self, job_id: str, items: List[dict], meeting_title: str = ""):
-        """Bulk-save action items extracted from a meeting."""
+        """Bulk-save action items extracted from a meeting.
+
+        Every entry is preserved with an automatic `created_at` timestamp for
+        full audit history. Repeated action items across meetings are kept
+        intentionally — repetition signals unresolved or recurring work.
+        """
         conn = sqlite3.connect(self.db_path)
         conn.execute(
             "UPDATE action_items SET status='completed' WHERE source_meeting=? AND status='open'",
@@ -126,6 +131,7 @@ class EphemeralMemory:
             )
         conn.commit()
         conn.close()
+        print(f"[ephemeral] Saved {len(items)} action items for '{meeting_title}' (job={job_id[:8]})")
 
     def query_action_items(
         self, assignee: str = "", status: str = "", limit: int = 20
@@ -191,6 +197,12 @@ class EphemeralMemory:
     # ── Budgets ──
 
     def save_budgets(self, job_id: str, budgets: List[dict], meeting_title: str = ""):
+        """Bulk-save budget items.
+
+        Every entry is preserved with an automatic `created_at` timestamp.
+        Repeated budget items across meetings are kept intentionally — seeing
+        "Server costs — $15,000" in three meetings tells you it was a recurring topic.
+        """
         conn = sqlite3.connect(self.db_path)
         for b in budgets:
             conn.execute(
@@ -207,6 +219,7 @@ class EphemeralMemory:
             )
         conn.commit()
         conn.close()
+        print(f"[ephemeral] Saved {len(budgets)} budget items for '{meeting_title}' (job={job_id[:8]})")
 
     def query_budgets(self, category: str = "", limit: int = 20) -> List[dict]:
         conn = sqlite3.connect(self.db_path)
@@ -226,6 +239,12 @@ class EphemeralMemory:
     # ── Decisions ──
 
     def save_decisions(self, job_id: str, decisions: List[dict], meeting_title: str = ""):
+        """Bulk-save decisions.
+
+        Every entry is preserved with an automatic `created_at` timestamp.
+        Repeated decisions across meetings are kept intentionally — revisiting
+        a decision is meaningful context.
+        """
         conn = sqlite3.connect(self.db_path)
         for d in decisions:
             conn.execute(
@@ -236,6 +255,7 @@ class EphemeralMemory:
             )
         conn.commit()
         conn.close()
+        print(f"[ephemeral] Saved {len(decisions)} decisions for '{meeting_title}' (job={job_id[:8]})")
 
     def query_decisions(self, keyword: str = "", limit: int = 20) -> List[dict]:
         conn = sqlite3.connect(self.db_path)

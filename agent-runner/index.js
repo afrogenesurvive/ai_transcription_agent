@@ -270,11 +270,20 @@ const PIPELINE_HINTS = {
   transcribe_refine:
     `Next: Call transcribe_get_transcript to read the refined transcript, ` +
     `then call transcribe_analyze to analyze topics/sentiment/entities, ` +
-    `then call transcribe_summarize with a structured summary.`,
+    `then call transcribe_summarize with a structured summary. ` +
+    `Check the Memory Context above for continuity — reference past items where relevant.`,
   transcribe_get_transcript:
-    `Next: Analyze the transcript for topics, sentiment, and key entities, ` + `then call transcribe_analyze to store the analysis results.`,
-  transcribe_analyze: `Next: Generate a structured summary from the transcript and analysis, ` + `then call transcribe_summarize to store it.`,
-  transcribe_summarize: `Next: Call transcribe_save_context to persist the meeting to semantic + ephemeral memory.`,
+    `Next: Analyze the transcript for topics, sentiment, and key entities, ` +
+    `then call transcribe_analyze to store the analysis results. ` +
+    `Note recurring topics vs new topics compared to the Memory Context.`,
+  transcribe_analyze:
+    `Next: Generate a structured summary from the transcript and analysis, ` +
+    `then call transcribe_summarize to store it. ` +
+    `Cross-reference with the Memory Context above — note which action items are recurring ` +
+    `(still open from previous meetings) vs newly created. Repetition is signal, not noise.`,
+  transcribe_summarize:
+    `Next: Call transcribe_save_context to persist the meeting to semantic + ephemeral memory. ` +
+    `All entries are timestamped and preserved for audit — nothing is deduplicated at the code level.`,
   transcribe_save_context: `Next: Call transcribe_prepare_delivery to package results for delivery.`,
   transcribe_prepare_delivery: `Next: Deliver results using send_delivery_email, save_to_drive, or create_trello_action_items.`,
   transcribe_label_speaker: `Next: If more unknown speakers remain, call transcribe_label_speaker again; ` + `otherwise the pipeline is complete.`,
@@ -308,6 +317,77 @@ async function processEvent(event) {
 
   // Build initial context with job info + transcript preview
   let context = buildInitialContext(event, transcript, safeTitle, safeAttendees, eventId);
+
+  // ── Hard-wired: Fetch existing memory context before the pipeline starts ──
+  // This gives the LLM awareness of past action items, decisions, budgets,
+  // and semantically similar meetings — so it can reference continuity and
+  // identify recurring topics (repetition is itself valuable signal).
+  console.log(`   🧠 [RUNNER] Fetching existing memory context...`);
+
+  try {
+    // 1. Query ephemeral memory for existing action items, decisions, budgets
+    const [queryActions, queryDecisions, queryBudgets] = await Promise.allSettled([
+      executeToolCall("transcribe_query_ephemeral", { table: "action_items", limit: 15 }),
+      executeToolCall("transcribe_query_ephemeral", { table: "decisions", limit: 10 }),
+      executeToolCall("transcribe_query_ephemeral", { table: "budgets", limit: 10 }),
+    ]);
+
+    const memoryLines = ["", "── Existing Memory Context (use for continuity, not dedup) ──"];
+
+    if (queryActions.status === "fulfilled" && queryActions.value?.results?.length) {
+      const items = queryActions.value.results;
+      const totalCount = items.length;
+      const openItems = items.filter((ai) => ai.status === "open");
+      memoryLines.push(`Action items: ${openItems.length} open of ${totalCount} total in history`);
+      for (const ai of openItems.slice(0, 6)) {
+        const meeting = ai.source_meeting ? ` [from: ${ai.source_meeting}]` : "";
+        memoryLines.push(`  - ${ai.description} (assignee: ${ai.assignee || "unassigned"}${meeting})`);
+      }
+    }
+    if (queryDecisions.status === "fulfilled" && queryDecisions.value?.results?.length) {
+      const items = queryDecisions.value.results;
+      memoryLines.push(`Recent decisions (${items.length} total in history):`);
+      for (const d of items.slice(0, 5)) {
+        const meeting = d.source_meeting ? ` [from: ${d.source_meeting}]` : "";
+        memoryLines.push(`  - ${d.description}${meeting}`);
+      }
+    }
+    if (queryBudgets.status === "fulfilled" && queryBudgets.value?.results?.length) {
+      const items = queryBudgets.value.results;
+      memoryLines.push(`Recent budget items (${items.length} total in history):`);
+      for (const b of items.slice(0, 5)) {
+        const meeting = b.source_meeting ? ` [from: ${b.source_meeting}]` : "";
+        memoryLines.push(`  - ${b.description} (${b.currency || "USD"} ${b.amount})${meeting}`);
+      }
+    }
+
+    // 2. Try semantic search for similar past meetings by title
+    const titleWords = safeTitle
+      .replace(/[^a-zA-Z0-9 ]/g, "")
+      .split(/\s+/)
+      .filter((w) => w.length > 3)
+      .slice(0, 4)
+      .join(" ");
+    if (titleWords) {
+      const semanticResult = await executeToolCall("transcribe_search_memory", {
+        query: titleWords,
+        nResults: 3,
+      });
+      if (semanticResult?.results?.length) {
+        memoryLines.push(`Similar past meetings:`);
+        for (const r of semanticResult.results.slice(0, 3)) {
+          const meta = r.metadata || {};
+          memoryLines.push(`  - "${meta.title || "?"}" (relevance: ${(1 - r.score).toFixed(2)})`);
+        }
+      }
+    }
+
+    memoryLines.push("── End Memory Context ──\n");
+    context += "\n" + memoryLines.join("\n");
+    console.log(`   ✅ [RUNNER] Memory context injected (${memoryLines.length - 3} items)`);
+  } catch (err) {
+    console.log(`   ⚠️  [RUNNER] Memory fetch failed (non-fatal): ${err.message}`);
+  }
 
   // ── Multi-step pipeline loop ──
   // Each iteration: LLM picks one tool → executes it → result appended to context
@@ -388,6 +468,9 @@ function buildInitialContext(event, transcript, safeTitle, safeAttendees, eventI
 
   if (event.type === "ready_for_processing") {
     lines.push("Actions: refine transcript, extract action items, generate summary, prepare delivery.");
+    lines.push("Existing memory context is provided below — use it for continuity and to identify");
+    lines.push("recurring topics. Repetition is signal (e.g., same action item across weeks = blocker).");
+    lines.push("If an action item from a previous meeting is resolved here, note it as completed.");
     lines.push(`Transcript (${transcript.length} segments):`);
     for (const seg of transcript.slice(0, 10)) {
       lines.push(`  [${seg.start?.toFixed(1)}s] ${seg.speaker}: ${(seg.text || "").slice(0, 100)}`);
