@@ -13,6 +13,10 @@ import { app, BrowserWindow, Tray, Menu, nativeImage, Notification, ipcMain, dia
 import path from "path";
 import {
   startAll,
+  startPythonBackend,
+  startBridgeServer,
+  startAgentRunner,
+  ensureOllamaRunning,
   stopAll,
   restartAll,
   restartPythonBackend,
@@ -23,7 +27,7 @@ import {
   stopAgentRunner,
   isAgentRunning,
 } from "./backend-manager";
-import { subscribe, getLogs, clearLogs } from "./logger";
+import { subscribe, getLogs, clearLogs, addLog, initFileLogging } from "./logger";
 import { getConfig, saveConfig, checkConfig } from "./config";
 
 let mainWindow: BrowserWindow | null = null;
@@ -203,16 +207,45 @@ ipcMain.handle("logs:clear", () => {
 // ── Config IPC ──
 
 ipcMain.handle("config:get", () => {
-  return getConfig();
+  const cfg = getConfig();
+  addLog("main", "info", "Config retrieved");
+  return cfg;
 });
 
-ipcMain.handle("config:save", (_event, values: Record<string, string>) => {
+ipcMain.handle("config:save", async (_event, values: Record<string, string>) => {
+  addLog("main", "info", "Config saving...");
   saveConfig(values);
+
+  // Check what changed
+  const cfg = checkConfig();
+  if (cfg.ok) {
+    addLog("main", "info", `Config OK — ${cfg.missing.length} missing values`);
+  } else {
+    addLog("main", "warn", `Config incomplete — missing: ${cfg.missing.join(", ")}`);
+  }
+
+  // Restart agent runner so it picks up the new env vars (e.g. DEEPSEEK_API_KEY)
+  // If it wasn't running (due to missing config), start it now.
+  try {
+    if (isAgentRunning()) {
+      await restartAgentRunner();
+      addLog("main", "info", "Agent runner restarted after config save");
+    } else {
+      await startAgentRunner();
+      addLog("main", "info", "Agent runner started after config save");
+    }
+  } catch (err: any) {
+    const msg = `Failed to restart agent runner: ${err.message}`;
+    console.error(msg);
+    addLog("main", "error", msg);
+  }
   return getConfig();
 });
 
 ipcMain.handle("config:check", () => {
-  return checkConfig();
+  const cfg = checkConfig();
+  addLog("main", cfg.ok ? "info" : "warn", `Config check: ${cfg.ok ? "OK" : `missing ${cfg.missing.join(", ")}`}`);
+  return cfg;
 });
 
 // ── App Lifecycle ──
@@ -228,13 +261,37 @@ app.whenReady().then(async () => {
   createWindow();
   createTray();
 
+  // Initialize file logging
+  const userDataLogs = path.join(app.getPath("userData"), "logs");
+  const devLogs = app.isPackaged ? undefined : path.join(app.getAppPath(), "..", "storage", "logs");
+  initFileLogging(userDataLogs, devLogs);
+  addLog("main", "info", `App started — logs: ${userDataLogs}`);
+
   // Then start backend services
   try {
-    await startAll();
-    sendNotification("Ready", "Transcription backend is running");
-    mainWindow?.webContents.send("notification", "Backend ready");
-  } catch (err) {
-    console.error("Failed to start backend:", err);
+    // Python and Bridge don't need API keys — always safe to start
+    await startPythonBackend();
+    await startBridgeServer();
+
+    // Agent runner needs DEEPSEEK_API_KEY (or Ollama) — skip if missing
+    const cfg = checkConfig();
+    if (cfg.ok) {
+      addLog("main", "info", `Config OK — starting agent runner`);
+      // If using Ollama, try to ensure the server is running first
+      await ensureOllamaRunning();
+      await startAgentRunner();
+      sendNotification("Ready", "Transcription backend is running");
+      mainWindow?.webContents.send("notification", "Backend ready");
+    } else {
+      const msg = `Config incomplete — agent runner deferred. Missing: ${cfg.missing.join(", ")}`;
+      console.log(`[startup] ${msg}`);
+      addLog("main", "warn", msg);
+      mainWindow?.webContents.send("notification", "Config needed — enter API key to start agent");
+    }
+  } catch (err: any) {
+    const msg = `Failed to start backend: ${err.message}`;
+    console.error(msg);
+    addLog("main", "error", msg);
     dialog.showErrorBox("Backend Error", "Could not start the transcription backend. Make sure Python 3 and Node.js are installed.");
   }
 });

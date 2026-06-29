@@ -899,6 +899,51 @@ body {
   color: var(--red);
 }
 
+.config-radio-group {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.config-radio {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.config-radio:hover {
+  border-color: var(--accent);
+  background: var(--surface-hover);
+}
+
+.config-radio--selected {
+  border-color: var(--accent);
+  background: rgba(88, 166, 255, 0.08);
+}
+
+.config-radio input {
+  display: none;
+}
+
+.config-radio-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.config-radio-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
 .config-input {
   width: 100%;
   background: var(--bg);

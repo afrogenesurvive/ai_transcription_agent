@@ -175,6 +175,97 @@ export function isAgentRunning(): boolean {
   return agentProcess !== null && agentProcess.exitCode === null;
 }
 
+// ── Ollama auto-start ──
+
+/**
+ * If the LLM provider is Ollama, check if the server is running.
+ * If not, attempt to start it (launch the Ollama application or ollama serve).
+ *
+ * Returns true if Ollama is (or became) available, false otherwise.
+ * Non-blocking for the caller — the agent runner will retry on connection failure.
+ */
+export async function ensureOllamaRunning(): Promise<boolean> {
+  const env = getChildEnv();
+  if (env.LLM_PROVIDER !== "ollama") return true; // not using Ollama
+
+  const baseUrl = env.OLLAMA_BASE_URL || "http://127.0.0.1:11434";
+  console.log(`[ollama] Checking if Ollama is running at ${baseUrl}...`);
+  addLog("main", "info", `Checking Ollama at ${baseUrl}...`);
+
+  // Try a quick health check
+  try {
+    const res = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(3000) });
+    if (res.ok) {
+      console.log(`[ollama] Ollama is already running`);
+      addLog("main", "info", "Ollama is already running");
+      return true;
+    }
+  } catch {
+    // Not running — will attempt to start
+  }
+
+  console.log(`[ollama] Ollama not detected — attempting to start...`);
+  addLog("main", "info", "Ollama not detected — attempting to start...");
+
+  try {
+    if (IS_WIN) {
+      // Try common Ollama install locations on Windows
+      const possiblePaths = [
+        path.join(process.env.LOCALAPPDATA || "", "Programs", "Ollama", "ollama.exe"),
+        path.join(process.env.PROGRAMFILES || "", "Ollama", "ollama.exe"),
+        "ollama", // fallback to PATH
+      ];
+      for (const ollamaBin of possiblePaths) {
+        try {
+          execSync(`"${ollamaBin}" serve`, { stdio: "ignore", timeout: 2000 });
+          console.log(`[ollama] Started: ${ollamaBin}`);
+          addLog("main", "info", `Started Ollama: ${ollamaBin}`);
+          break;
+        } catch {
+          continue;
+        }
+      }
+    } else {
+      // macOS / Linux: try `open -a Ollama` (macOS) or `ollama serve`
+      try {
+        if (process.platform === "darwin") {
+          execSync("open -a Ollama", { stdio: "ignore", timeout: 3000 });
+        } else {
+          execSync("ollama serve", { stdio: "ignore", timeout: 3000 });
+        }
+        console.log(`[ollama] Ollama launch command sent`);
+        addLog("main", "info", "Ollama launch command sent");
+      } catch {
+        // `open -a Ollama` might fail if Ollama.app isn't installed — non-fatal
+        console.log(`[ollama] Could not launch Ollama — user may need to start it manually`);
+        addLog("main", "warn", "Could not launch Ollama — user may need to start it manually");
+        return false;
+      }
+    }
+
+    // Wait a moment for Ollama to start, then check again
+    await new Promise((r) => setTimeout(r, 5000));
+    try {
+      const res = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(5000) });
+      if (res.ok) {
+        console.log(`[ollama] Ollama is now running`);
+        addLog("main", "info", "Ollama is now running");
+        return true;
+      }
+    } catch {
+      // Still not running
+    }
+
+    console.log(`[ollama] Ollama did not start in time — agent runner will retry`);
+    addLog("main", "warn", "Ollama did not start in time — agent runner will retry on connection");
+    return false;
+  } catch (err: any) {
+    console.log(`[ollama] Failed to start: ${err.message}`);
+    addLog("main", "error", `Failed to start Ollama: ${err.message}`);
+    return false;
+  }
+}
+
 export async function startAgentRunner(): Promise<void> {
   const agentDir = resourcePath("agent-runner");
   const nodeBin = NODE_BIN;

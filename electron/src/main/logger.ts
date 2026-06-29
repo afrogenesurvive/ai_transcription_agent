@@ -1,10 +1,18 @@
 /**
  * Logger — ring buffer for child process output + main process logs.
  *
- * Stores the last 2000 entries and notifies subscribers when new entries arrive.
- * Used by backend-manager.ts (to capture stdout/stderr from Python/Bridge/Agent)
- * and index.ts (to forward logs to the renderer via IPC).
+ * Stores the last 2000 entries, notifies subscribers when new entries arrive,
+ * and persists all entries to rotating log files on disk.
+ *
+ * Log files are stored in: <userData>/logs/app-YYYY-MM-DD.log
+ * In dev, also mirrored to: <project>/storage/logs/app-YYYY-MM-DD.log
+ *
+ * Used by backend-manager.ts (to capture stdout/stderr from Python/Bridge/Agent),
+ * config.ts (to log config changes), and index.ts (to forward logs to the renderer).
  */
+
+import fs from "fs";
+import path from "path";
 
 export interface LogEntry {
   timestamp: number;
@@ -16,12 +24,90 @@ export interface LogEntry {
 const MAX_ENTRIES = 2000;
 const buffer: LogEntry[] = [];
 let subscribers: Array<(entry: LogEntry) => void> = [];
+let logDir: string | null = null;
+let currentLogDate: string | null = null;
+let writeStream: fs.WriteStream | null = null;
+
+function getDateStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function rotateFile(): void {
+  const dateStr = getDateStr();
+  if (dateStr === currentLogDate && writeStream) return;
+  // Close previous
+  if (writeStream) {
+    writeStream.end();
+    writeStream = null;
+  }
+  currentLogDate = dateStr;
+  if (!logDir) return;
+  const filePath = path.join(logDir, `app-${dateStr}.log`);
+  try {
+    writeStream = fs.createWriteStream(filePath, { flags: "a" });
+  } catch {
+    // Can't write to log file — non-fatal
+  }
+}
+
+/**
+ * Initialize file logging. Call once after app is ready.
+ * @param primaryDir — primary log directory (e.g. app.getPath("userData") + "/logs")
+ * @param mirrorDir — optional secondary directory (e.g. project storage/logs for dev)
+ */
+export function initFileLogging(primaryDir: string, mirrorDir?: string): void {
+  logDir = primaryDir;
+  try {
+    fs.mkdirSync(logDir, { recursive: true });
+    // Also create mirror dir if provided
+    if (mirrorDir) {
+      fs.mkdirSync(mirrorDir, { recursive: true });
+      // In the addLog function we'll try to write to both
+    }
+  } catch {
+    // non-fatal
+  }
+  // Store mirror for use in addLog
+  if (mirrorDir) _mirrorDir = mirrorDir;
+  rotateFile();
+}
+
+let _mirrorDir: string | null = null;
+
+function writeToFile(message: string): void {
+  rotateFile();
+  if (writeStream) {
+    try {
+      writeStream.write(message + "\n");
+    } catch {
+      // non-fatal
+    }
+  }
+  // Also write to mirror directory if set
+  if (_mirrorDir) {
+    const dateStr = getDateStr();
+    const mirrorPath = path.join(_mirrorDir, `app-${dateStr}.log`);
+    try {
+      fs.mkdirSync(_mirrorDir, { recursive: true });
+      fs.appendFileSync(mirrorPath, message + "\n");
+    } catch {
+      // non-fatal
+    }
+  }
+}
 
 export function addLog(source: LogEntry["source"], level: LogEntry["level"], message: string): void {
   if (!message) return;
-  const entry: LogEntry = { timestamp: Date.now(), source, level, message };
+  const timestamp = Date.now();
+  const entry: LogEntry = { timestamp, source, level, message };
   buffer.push(entry);
   if (buffer.length > MAX_ENTRIES) buffer.shift();
+
+  // Write to log file
+  const timeStr = new Date(timestamp).toISOString();
+  writeToFile(`[${timeStr}] [${source}] [${level}] ${message}`);
+
   // Notify subscribers synchronously
   for (const fn of subscribers) fn(entry);
 }

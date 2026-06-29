@@ -28,7 +28,6 @@ interface ConfigValues {
 
 const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secret: boolean; section: string }[] = [
   { key: "DEEPSEEK_API_KEY", label: "DeepSeek API Key", required: true, secret: true, section: "LLM Provider" },
-  { key: "LLM_PROVIDER", label: "LLM Provider (deepseek / ollama)", required: false, secret: false, section: "LLM Provider" },
   { key: "OLLAMA_BASE_URL", label: "Ollama Base URL", required: false, secret: false, section: "LLM Provider" },
   { key: "OLLAMA_MODEL", label: "Ollama Model", required: false, secret: false, section: "LLM Provider" },
   { key: "GMAIL_CLIENT_ID", label: "Gmail Client ID", required: false, secret: true, section: "Email Delivery" },
@@ -113,31 +112,105 @@ export default function ConfigPanel({ visible, onClose }: Props) {
           {Array.from(sections.entries()).map(([sectionName, fields]) => (
             <div key={sectionName} className="config-section">
               <h3 className="config-section-title">{sectionName}</h3>
-              {fields.map((field) => (
-                <div key={field.key} className="config-field">
-                  <label className="config-label">
-                    {field.label}
-                    {field.required && <span className="config-required"> *</span>}
-                  </label>
-                  {field.secret ? (
-                    <input
-                      className="config-input"
-                      type="password"
-                      value={values[field.key] || ""}
-                      onChange={(e) => handleChange(field.key, e.target.value)}
-                      placeholder={field.required ? "Enter your API key..." : "Optional"}
-                    />
-                  ) : (
-                    <input
-                      className="config-input"
-                      type="text"
-                      value={values[field.key] || ""}
-                      onChange={(e) => handleChange(field.key, e.target.value)}
-                      placeholder={field.required ? "Required" : "Optional"}
-                    />
-                  )}
-                </div>
-              ))}
+
+              {sectionName === "LLM Provider" && (
+                <>
+                  {/* Provider radio buttons */}
+                  <div className="config-field">
+                    <label className="config-label">
+                      LLM Provider <span className="config-required">*</span>
+                    </label>
+                    <div className="config-radio-group">
+                      <label className={`config-radio ${values.LLM_PROVIDER === "deepseek" ? "config-radio--selected" : ""}`}>
+                        <input
+                          type="radio"
+                          name="llm-provider"
+                          value="deepseek"
+                          checked={values.LLM_PROVIDER === "deepseek"}
+                          onChange={() => handleChange("LLM_PROVIDER", "deepseek")}
+                        />
+                        <span className="config-radio-label">DeepSeek (API)</span>
+                        <span className="config-radio-desc">Cloud API — requires API key</span>
+                      </label>
+                      <label className={`config-radio ${values.LLM_PROVIDER === "ollama" ? "config-radio--selected" : ""}`}>
+                        <input
+                          type="radio"
+                          name="llm-provider"
+                          value="ollama"
+                          checked={values.LLM_PROVIDER === "ollama"}
+                          onChange={() => handleChange("LLM_PROVIDER", "ollama")}
+                        />
+                        <span className="config-radio-label">Ollama (Local)</span>
+                        <span className="config-radio-desc">Local LLM — no API key needed</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* DeepSeek: show API key */}
+                  {values.LLM_PROVIDER === "deepseek" &&
+                    fields
+                      .filter((f) => f.key === "DEEPSEEK_API_KEY")
+                      .map((field) => (
+                        <div key={field.key} className="config-field">
+                          <label className="config-label">
+                            {field.label}
+                            {field.required && <span className="config-required"> *</span>}
+                          </label>
+                          <input
+                            className="config-input"
+                            type="password"
+                            value={values[field.key] || ""}
+                            onChange={(e) => handleChange(field.key, e.target.value)}
+                            placeholder="sk-..."
+                          />
+                        </div>
+                      ))}
+
+                  {/* Ollama: show URL + model */}
+                  {values.LLM_PROVIDER === "ollama" &&
+                    fields
+                      .filter((f) => f.key !== "DEEPSEEK_API_KEY")
+                      .map((field) => (
+                        <div key={field.key} className="config-field">
+                          <label className="config-label">{field.label}</label>
+                          <input
+                            className="config-input"
+                            type="text"
+                            value={values[field.key] || ""}
+                            onChange={(e) => handleChange(field.key, e.target.value)}
+                            placeholder="Optional"
+                          />
+                        </div>
+                      ))}
+                </>
+              )}
+
+              {sectionName !== "LLM Provider" &&
+                fields.map((field) => (
+                  <div key={field.key} className="config-field">
+                    <label className="config-label">
+                      {field.label}
+                      {field.required && <span className="config-required"> *</span>}
+                    </label>
+                    {field.secret ? (
+                      <input
+                        className="config-input"
+                        type="password"
+                        value={values[field.key] || ""}
+                        onChange={(e) => handleChange(field.key, e.target.value)}
+                        placeholder={field.required ? "Enter your API key..." : "Optional"}
+                      />
+                    ) : (
+                      <input
+                        className="config-input"
+                        type="text"
+                        value={values[field.key] || ""}
+                        onChange={(e) => handleChange(field.key, e.target.value)}
+                        placeholder={field.required ? "Required" : "Optional"}
+                      />
+                    )}
+                  </div>
+                ))}
             </div>
           ))}
         </div>

@@ -172,6 +172,21 @@ export default function StatusBar({ devPanelOpen, onToggleDevPanel, configOk, on
     <div className="status-bar">
       <div className="status-bar-left">
         <div className="status-item-group">
+          {/* Config status */}
+          <span className="status-item">
+            <span className={`status-dot ${configOk ? "online" : "offline"}`} />
+            <span className="service-label">Config</span>
+            {!configOk && (
+              <button className="micro-btn start-btn" onClick={onOpenConfig} disabled={anyBusy} title="Configure API key">
+                ⚙
+              </button>
+            )}
+            {configOk && (
+              <button className="micro-btn restart-btn" onClick={onOpenConfig} disabled={anyBusy} title="Edit configuration">
+                ⚙
+              </button>
+            )}
+          </span>
           {SERVICES.map((svc) => (
             <span key={svc} className="status-item">
               <span className={`status-dot ${status[svc] === null ? "unknown" : status[svc] ? "online" : "offline"}`} />
