@@ -67,10 +67,19 @@ export default function App() {
     if (statusHook.state === "complete" && jobId) {
       Promise.all([api.getTranscript(jobId), api.getSummary(jobId).catch(() => null)])
         .then(([transcriptData, summaryData]) => {
-          setTranscript({ ...transcriptData, summary: summaryData?.summary });
-          setView("results");
+          if (transcriptData) {
+            setTranscript({ ...transcriptData, summary: summaryData?.summary });
+            setView("results");
+          } else {
+            setNotification("Transcription completed but transcript data unavailable");
+            setView("results");
+          }
         })
-        .catch(console.error);
+        .catch((err) => {
+          setNotification(`Failed to load transcript: ${err.message}`);
+          // Still show the results view with whatever we have
+          setView("results");
+        });
     }
   }, [statusHook.state, jobId, api]);
 
@@ -127,7 +136,19 @@ export default function App() {
             <ProgressPanel status={statusHook.data.status} progress={statusHook.data.progress} error={statusHook.data.error} />
           )}
 
-          {view === "results" && (
+          {view === "results" && statusHook.state === "error" && (
+            <div className="panel actions-panel">
+              <h2>❌ Processing Failed</h2>
+              <p className="error-box" style={{ marginBottom: 12 }}>
+                {statusHook.data?.error || statusHook.error || "Unknown error"}
+              </p>
+              <button className="btn-primary" onClick={handleNew}>
+                Try Again
+              </button>
+            </div>
+          )}
+
+          {view === "results" && statusHook.state !== "error" && (
             <div className="panel actions-panel">
               <h2>Actions</h2>
               <p>Processing complete. The agent will now refine, summarize, and deliver the results.</p>

@@ -26,6 +26,8 @@ import {
   stopBridgeServer,
   stopAgentRunner,
   isAgentRunning,
+  startHealthMonitoring,
+  stopHealthMonitoring,
 } from "./backend-manager";
 import { subscribe, getLogs, clearLogs, addLog, initFileLogging, listLogFiles, readLogFile, getLogDir, getMirrorDir } from "./logger";
 import { getConfig, saveConfig, checkConfig, getConfigWithSources } from "./config";
@@ -285,6 +287,9 @@ app.whenReady().then(async () => {
   initFileLogging(userDataLogs, devLogs);
   addLog("main", "info", `App started — logs: ${userDataLogs}`);
 
+  // Start periodic health monitoring
+  startHealthMonitoring();
+
   // Then start backend services
   try {
     // Python and Bridge don't need API keys — always safe to start
@@ -322,6 +327,7 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", async () => {
   unsubscribeLogs();
+  stopHealthMonitoring();
   await stopAll();
 });
 

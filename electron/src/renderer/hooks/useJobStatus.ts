@@ -12,7 +12,7 @@ export function useJobStatus(jobId: string | null, fetcher: (id: string) => Prom
   const [error, setError] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const terminalStatuses = new Set(["transcribed", "ready_for_agent", "refined", "summarized", "delivered", "failed", "labeling_needed"]);
+  const terminalStatuses = new Set(["transcribed", "ready_for_agent", "refined", "summarized", "delivered", "failed"]);
 
   const startPolling = useCallback(() => {
     if (!jobId) return;

@@ -18,6 +18,7 @@
 import "dotenv/config";
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 import readline from "readline";
 import { fileURLToPath } from "url";
 import { callModel } from "./model-client.js";
@@ -295,6 +296,77 @@ const TERMINAL_TOOLS = new Set(["send_delivery_email", "save_to_drive", "create_
 /** Maximum number of LLM rounds per event (safety limit). */
 const MAX_PIPELINE_STEPS = 15;
 
+/** Maximum retries for LLM calls and tool executions before marking failed. */
+const MAX_RETRIES = 3;
+
+/** Base delay (ms) for exponential backoff. */
+const RETRY_BASE_DELAY = 2000;
+
+/**
+ * Enqueue a failed event directly to the queue file and touch the trigger,
+ * so the pipeline status is properly recorded and the UI can display the error.
+ * This mirrors what the Python agent_bridge.py's enqueue_failed does.
+ */
+function enqueueFailed(event, errorMsg) {
+  try {
+    const queueDir = path.resolve(__dirname, "..", "queue");
+    const queueFile = path.join(queueDir, "transcription.jsonl");
+    const triggerFile = path.resolve(__dirname, "..", "queue", ".transcription-trigger");
+
+    const failedEvent = {
+      id: crypto.randomUUID(),
+      source: "agent-runner",
+      type: "failed",
+      data: {
+        jobId: event.data?.jobId || event.id,
+        title: event.data?.title || "Unknown",
+        error: errorMsg,
+        originalType: event.type,
+      },
+      queuedAt: new Date().toISOString(),
+    };
+
+    fs.mkdirSync(queueDir, { recursive: true });
+    fs.appendFileSync(queueFile, JSON.stringify(failedEvent) + "\n", "utf8");
+
+    // Touch the trigger so the poller/mainLoop picks it up
+    try {
+      if (fs.existsSync(triggerFile)) {
+        fs.utimesSync(triggerFile, new Date(), new Date());
+      } else {
+        fs.writeFileSync(triggerFile, "");
+      }
+    } catch {
+      /* non-fatal */
+    }
+
+    console.log(`   📝 [RUNNER] Failed event enqueued for job ${event.data?.jobId?.slice(0, 8) || "?"}`);
+  } catch (err) {
+    console.error(`   ❌ [RUNNER] Could not enqueue failed event: ${err.message}`);
+  }
+}
+
+/**
+ * Retry an async function with exponential backoff.
+ * Returns the result on success, or throws after all retries are exhausted.
+ */
+async function withRetry(fn, label, maxRetries = MAX_RETRIES) {
+  let lastErr;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt < maxRetries) {
+        const delay = RETRY_BASE_DELAY * Math.pow(2, attempt - 1);
+        console.log(`   🔄 [RUNNER] ${label} failed (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms...`);
+        await new Promise((r) => setTimeout(r, delay));
+      }
+    }
+  }
+  throw lastErr;
+}
+
 async function processEvent(event) {
   const eventId = event.id;
   const tag = eventId?.slice(0, 8) || "???";
@@ -393,10 +465,20 @@ async function processEvent(event) {
   // Each iteration: LLM picks one tool → executes it → result appended to context
   // Loop ends when a terminal tool is called, LLM returns nothing, or max steps hit.
   let pipelineComplete = false;
+  let pipelineError = null;
 
   for (let step = 1; step <= MAX_PIPELINE_STEPS && !pipelineComplete; step++) {
     console.log(`   🤖 [RUNNER] Asking LLM (step ${step})...`);
-    const decision = await callModel(context, TOOLS);
+    let decision;
+    try {
+      decision = await withRetry(() => callModel(context, TOOLS), `LLM call (step ${step})`);
+    } catch (err) {
+      pipelineError = `LLM call failed after ${MAX_RETRIES} retries: ${err.message}`;
+      console.log(`   ❌ [RUNNER] ${pipelineError}`);
+      logAction({ eventId, eventType: event.type, action: "failed", detail: pipelineError });
+      pipelineComplete = true;
+      break;
+    }
 
     if (!decision) {
       console.log(`   ⏭️  [RUNNER] No decision — pipeline complete`);
@@ -406,9 +488,18 @@ async function processEvent(event) {
     }
 
     console.log(`   🎯 [RUNNER] ${decision.name}`);
-    const result = await executeToolCall(decision.name, decision.arguments);
+    let result;
+    try {
+      result = await withRetry(() => executeToolCall(decision.name, decision.arguments), `${decision.name}`);
+    } catch (err) {
+      pipelineError = `${decision.name} failed after ${MAX_RETRIES} retries: ${err.message}`;
+      console.log(`   ❌ [RUNNER] ${pipelineError}`);
+      logAction({ eventId, eventType: event.type, action: "failed", detail: pipelineError });
+      pipelineComplete = true;
+      break;
+    }
 
-    // Check for errors (bridge calls return raw JSON, so check for thrown exceptions)
+    // Check for errors returned by the tool (not thrown)
     const ok = result && result.ok !== false;
     const errorMsg = !ok && result?.error ? result.error : null;
 
@@ -422,8 +513,9 @@ async function processEvent(event) {
     });
 
     if (!ok) {
-      console.log(`   ❌ [RUNNER] ${errorMsg || "Unknown error"}`);
-      logAction({ eventId, eventType: event.type, action: "failed", detail: errorMsg });
+      pipelineError = errorMsg || `Unknown error in ${decision.name}`;
+      console.log(`   ❌ [RUNNER] ${pipelineError}`);
+      logAction({ eventId, eventType: event.type, action: "failed", detail: pipelineError });
       pipelineComplete = true;
       break;
     }
@@ -448,7 +540,14 @@ async function processEvent(event) {
     if (hint) context += `\n${hint}`;
   }
 
-  console.log(`   ✅ [RUNNER] Pipeline finished for job ${tag}`);
+  if (pipelineError) {
+    console.log(`   ❌ [RUNNER] Pipeline failed for job ${tag}: ${pipelineError}`);
+    logAction({ eventId, eventType: event.type, action: "failed", detail: pipelineError });
+    // Enqueue a failed event so the UI and user know what happened
+    await enqueueFailed(event, pipelineError);
+  } else {
+    console.log(`   ✅ [RUNNER] Pipeline finished for job ${tag}`);
+  }
   markCleared(eventId);
 }
 

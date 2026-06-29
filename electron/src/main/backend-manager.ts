@@ -363,3 +363,77 @@ export async function restartAll(): Promise<void> {
   await startAll();
   console.log(`[backend] All services restarted`);
 }
+
+// ── Health monitoring ──
+
+let healthInterval: ReturnType<typeof setInterval> | null = null;
+
+/** Health check a single HTTP service. Returns true if healthy. */
+async function checkService(url: string, label: string, timeoutMs = 3000): Promise<boolean> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    if (res.ok) return true;
+    console.log(`[health] ${label} returned ${res.status}`);
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Start periodic health monitoring of all backend services.
+ * Restarts any service that is down and logs the event.
+ * Call once after initial startup.
+ */
+export function startHealthMonitoring(): void {
+  if (healthInterval) return;
+  console.log(`[health] Starting periodic health monitoring (30s interval)`);
+  addLog("main", "info", "Starting periodic health monitoring (30s interval)");
+
+  healthInterval = setInterval(async () => {
+    const pythonOk = await checkService("http://127.0.0.1:5001/health", "Python", 3000);
+    const bridgeOk = await checkService("http://127.0.0.1:5010/health", "Bridge", 3000);
+
+    if (!pythonOk && !pythonProcess) {
+      console.log(`[health] Python backend is down — restarting...`);
+      addLog("main", "warn", "Python backend is down — restarting...");
+      try {
+        await startPythonBackend();
+        addLog("main", "info", "Python backend auto-restarted");
+      } catch (err: any) {
+        addLog("main", "error", `Failed to auto-restart Python: ${err.message}`);
+      }
+    }
+
+    if (!bridgeOk && !bridgeProcess) {
+      console.log(`[health] Bridge server is down — restarting...`);
+      addLog("main", "warn", "Bridge server is down — restarting...");
+      try {
+        await startBridgeServer();
+        addLog("main", "info", "Bridge server auto-restarted");
+      } catch (err: any) {
+        addLog("main", "error", `Failed to auto-restart bridge: ${err.message}`);
+      }
+    }
+
+    // Agent runner has no HTTP endpoint — check if process is alive
+    if (!agentProcess && !isAgentRunning()) {
+      console.log(`[health] Agent runner is down — restarting...`);
+      addLog("main", "warn", "Agent runner is down — restarting...");
+      try {
+        await startAgentRunner();
+        addLog("main", "info", "Agent runner auto-restarted");
+      } catch (err: any) {
+        addLog("main", "error", `Failed to auto-restart agent runner: ${err.message}`);
+      }
+    }
+  }, 30000);
+}
+
+/** Stop health monitoring. */
+export function stopHealthMonitoring(): void {
+  if (healthInterval) {
+    clearInterval(healthInterval);
+    healthInterval = null;
+  }
+}

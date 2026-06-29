@@ -45,8 +45,7 @@ function mapTools(defs) {
 
 export async function callModel(context, toolDefs) {
   if (PROVIDER === "deepseek" && !process.env.DEEPSEEK_API_KEY) {
-    console.error("   ❌ [MODEL] DEEPSEEK_API_KEY not set");
-    return null;
+    throw new Error("DEEPSEEK_API_KEY not set — configure it in Config or .env");
   }
 
   const tools = mapTools(toolDefs);
@@ -93,6 +92,6 @@ export async function callModel(context, toolDefs) {
     return { name: toolCall.function.name, arguments: args };
   } catch (err) {
     console.error(`   ❌ [MODEL] ${err.message}`);
-    return null;
+    throw err;
   }
 }

@@ -375,6 +375,94 @@ async def health():
     return {"status": "ok", "device": detect_device()}
 
 
+# ── Database browsing (for DevPanel) ──
+
+EPHEMERAL_TABLES = {
+    "action_items": {"label": "Action Items", "columns": ["id", "job_id", "description", "assignee", "deadline", "status", "priority", "source_meeting", "created_at"]},
+    "contacts": {"label": "Contacts", "columns": ["id", "name", "email", "organization", "role", "phone", "source_meeting", "first_mentioned", "last_mentioned"]},
+    "budgets": {"label": "Budgets", "columns": ["id", "job_id", "description", "amount", "currency", "category", "source_meeting", "created_at"]},
+    "decisions": {"label": "Decisions", "columns": ["id", "job_id", "description", "rationale", "made_by", "source_meeting", "created_at"]},
+    "notes": {"label": "Notes", "columns": ["id", "job_id", "topic", "content", "created_at"]},
+}
+
+
+@app.get("/memory/ephemeral/tables")
+async def memory_ephemeral_tables():
+    """List all ephemeral memory tables with row counts (read-only, for DevPanel)."""
+    print(f"[api] GET /memory/ephemeral/tables")
+    try:
+        # Get row counts for each table — use a large limit to get all rows
+        table_list = []
+        for name, info in EPHEMERAL_TABLES.items():
+            rows = ephemeral_memory.query_all(name, "", 100000)
+            table_list.append({
+                "name": name,
+                "label": info["label"],
+                "columns": info["columns"],
+                "row_count": len(rows),
+            })
+        return {"tables": table_list}
+    except Exception as e:
+        print(f"[api] GET /memory/ephemeral/tables ERROR: {e}")
+        raise HTTPException(500, f"Failed to list tables: {e}")
+
+
+@app.get("/memory/ephemeral/table/{table_name}")
+async def memory_ephemeral_table(table_name: str, limit: int = 100, offset: int = 0):
+    """Get rows from an ephemeral memory table (read-only, for DevPanel)."""
+    print(f"[api] GET /memory/ephemeral/table/{table_name} limit={limit} offset={offset}")
+    if table_name not in EPHEMERAL_TABLES:
+        raise HTTPException(404, f"Unknown table: {table_name}")
+
+    try:
+        all_rows = ephemeral_memory.query_all(table_name, "", limit + offset)
+        total = len(all_rows)
+        rows = all_rows[offset:offset + limit]
+        return {
+            "table": table_name,
+            "columns": EPHEMERAL_TABLES[table_name]["columns"],
+            "rows": rows,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+    except Exception as e:
+        print(f"[api] GET /memory/ephemeral/table/{table_name} ERROR: {e}")
+        raise HTTPException(500, f"Failed to query table: {e}")
+
+
+@app.get("/memory/semantic/meetings")
+async def memory_semantic_meetings():
+    """List meetings stored in ChromaDB semantic memory (read-only, for DevPanel)."""
+    print(f"[api] GET /memory/semantic/meetings")
+    try:
+        # Get all data from the collection
+        semantic_memory._ensure_loaded()
+        coll = semantic_memory._collection
+        all_data = coll.get(include=["metadatas"])
+        meetings = []
+        seen = set()
+        if all_data and all_data["ids"]:
+            for i in range(len(all_data["ids"])):
+                meta = all_data["metadatas"][i] if all_data.get("metadatas") else {}
+                job_id = meta.get("job_id", "")
+                # Deduplicate by job_id (each meeting has 2 chunks: summary + transcript)
+                if job_id and job_id not in seen:
+                    seen.add(job_id)
+                    meetings.append({
+                        "id": all_data["ids"][i],
+                        "job_id": job_id,
+                        "title": meta.get("title", "Unknown"),
+                        "type": meta.get("type", "unknown"),
+                        "attendees": meta.get("attendees", ""),
+                        "timestamp": meta.get("timestamp", ""),
+                    })
+        return {"meetings": meetings, "total": len(meetings)}
+    except Exception as e:
+        print(f"[api] GET /memory/semantic/meetings ERROR: {e}")
+        raise HTTPException(500, f"Failed to list meetings: {e}")
+
+
 # ── Internal pipeline ──
 
 def _run_pipeline(job_id: str):

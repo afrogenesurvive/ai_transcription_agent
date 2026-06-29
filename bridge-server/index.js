@@ -157,6 +157,17 @@ async function dispatch(tool, args) {
         decisions: args.decisions || [],
       });
 
+    // ── Database browsing (read-only, for DevPanel) ──
+
+    case "memory_ephemeral_tables":
+      return await callPython("GET", "/memory/ephemeral/tables");
+
+    case "memory_ephemeral_table":
+      return await callPython("GET", `/memory/ephemeral/table/${args.tableName}?limit=${args.limit || 100}&offset=${args.offset || 0}`);
+
+    case "memory_semantic_meetings":
+      return await callPython("GET", "/memory/semantic/meetings");
+
     default:
       throw new Error(`Unknown tool: ${tool}`);
   }

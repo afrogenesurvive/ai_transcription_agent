@@ -18,7 +18,9 @@ interface Props {
   onClose: () => void;
 }
 
-type Tab = "live" | "files";
+type Tab = "live" | "files" | "database";
+
+const BRIDGE_URL = "http://127.0.0.1:5010";
 
 type SourceFilter = "all" | LogEntry["source"];
 type LevelFilter = "all" | LogEntry["level"];
@@ -246,6 +248,218 @@ function LogFilesTab() {
   );
 }
 
+/* ── Database Tab ── */
+
+interface TableInfo {
+  name: string;
+  label: string;
+  columns: string[];
+  row_count: number;
+}
+
+interface MeetingInfo {
+  id: string;
+  job_id: string;
+  title: string;
+  type: string;
+  attendees: string;
+  timestamp: string;
+}
+
+async function callBridge(tool: string, args: any = {}): Promise<any> {
+  try {
+    const res = await fetch(`${BRIDGE_URL}/tools/call`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tool, args }),
+    });
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+function DatabaseTab() {
+  const [tables, setTables] = useState<TableInfo[]>([]);
+  const [selectedTable, setSelectedTable] = useState<string | null>(null);
+  const [tableRows, setTableRows] = useState<any[]>([]);
+  const [tableColumns, setTableColumns] = useState<string[]>([]);
+  const [tableTotal, setTableTotal] = useState(0);
+  const [meetings, setMeetings] = useState<MeetingInfo[]>([]);
+  const [activeView, setActiveView] = useState<"ephemeral" | "semantic">("ephemeral");
+  const [loading, setLoading] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  const loadTables = useCallback(async () => {
+    setLoading(true);
+    const result = await callBridge("memory_ephemeral_tables");
+    if (result?.tables) setTables(result.tables);
+    setLoading(false);
+  }, []);
+
+  const loadMeetings = useCallback(async () => {
+    setLoading(true);
+    const result = await callBridge("memory_semantic_meetings");
+    if (result?.meetings) setMeetings(result.meetings);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    loadTables();
+    loadMeetings();
+  }, [loadTables, loadMeetings]);
+
+  const handleSelectTable = useCallback(async (tableName: string) => {
+    setSelectedTable(tableName);
+    setLoading(true);
+    const result = await callBridge("memory_ephemeral_table", { tableName, limit: 100, offset: 0 });
+    if (result) {
+      setTableRows(result.rows || []);
+      setTableColumns(result.columns || []);
+      setTableTotal(result.total || 0);
+    }
+    setLoading(false);
+  }, []);
+
+  const handleRefresh = useCallback(() => {
+    loadTables();
+    loadMeetings();
+    if (selectedTable) handleSelectTable(selectedTable);
+  }, [loadTables, loadMeetings, handleSelectTable, selectedTable]);
+
+  // Render a cell value safely
+  const renderCell = (val: any): string => {
+    if (val === null || val === undefined) return "—";
+    if (typeof val === "object") return JSON.stringify(val).slice(0, 80);
+    return String(val);
+  };
+
+  return (
+    <>
+      {/* Toolbar */}
+      <div className="dev-panel-toolbar">
+        <span className="dev-panel-title">🗄️ Database</span>
+        <div className="dev-panel-filters">
+          <div className="dev-panel-view-toggle">
+            <button
+              className={`dev-panel-view-btn ${activeView === "ephemeral" ? "dev-panel-view-btn--active" : ""}`}
+              onClick={() => setActiveView("ephemeral")}>
+              💾 Ephemeral
+            </button>
+            <button
+              className={`dev-panel-view-btn ${activeView === "semantic" ? "dev-panel-view-btn--active" : ""}`}
+              onClick={() => setActiveView("semantic")}>
+              🧠 Semantic
+            </button>
+          </div>
+        </div>
+        <div className="dev-panel-actions">
+          <button className="dev-panel-btn" onClick={handleRefresh} title="Refresh database">
+            ↻ Refresh
+          </button>
+        </div>
+      </div>
+
+      <div className="dev-panel-db">
+        {activeView === "ephemeral" && (
+          <>
+            {/* Table list sidebar */}
+            <div className="dev-panel-db-sidebar">
+              {loading && tables.length === 0 && (
+                <div className="dev-panel-empty" style={{ padding: "12px" }}>
+                  Loading...
+                </div>
+              )}
+              {!loading && tables.length === 0 && (
+                <div className="dev-panel-empty" style={{ padding: "12px" }}>
+                  No tables found.
+                </div>
+              )}
+              {tables.map((t) => (
+                <div
+                  key={t.name}
+                  className={`dev-panel-db-item ${selectedTable === t.name ? "dev-panel-db-item--active" : ""}`}
+                  onClick={() => handleSelectTable(t.name)}>
+                  <span className="dev-panel-db-item-name">{t.label}</span>
+                  <span className="dev-panel-db-item-count">{t.row_count} rows</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Table content */}
+            <div className="dev-panel-db-content" ref={contentRef}>
+              {!selectedTable && <div className="dev-panel-empty">Select a table to view its rows.</div>}
+              {selectedTable && tableRows.length === 0 && <div className="dev-panel-empty">(empty table)</div>}
+              {selectedTable && tableRows.length > 0 && (
+                <table className="dev-panel-db-table">
+                  <thead>
+                    <tr>
+                      {tableColumns.map((col) => (
+                        <th key={col}>{col}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tableRows.map((row, i) => (
+                      <tr key={i}>
+                        {tableColumns.map((col) => (
+                          <td key={col}>{renderCell(row[col])}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </>
+        )}
+
+        {activeView === "semantic" && (
+          <div className="dev-panel-db-content" ref={contentRef}>
+            {loading && meetings.length === 0 && <div className="dev-panel-empty">Loading...</div>}
+            {!loading && meetings.length === 0 && <div className="dev-panel-empty">No meetings stored in ChromaDB.</div>}
+            {meetings.length > 0 && (
+              <table className="dev-panel-db-table">
+                <thead>
+                  <tr>
+                    <th>Title</th>
+                    <th>Job ID</th>
+                    <th>Type</th>
+                    <th>Attendees</th>
+                    <th>Timestamp</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {meetings.map((m) => (
+                    <tr key={m.id}>
+                      <td>{m.title}</td>
+                      <td className="dev-panel-db-cell-mono">{m.job_id?.slice(0, 12)}…</td>
+                      <td>{m.type}</td>
+                      <td>{m.attendees || "—"}</td>
+                      <td>{m.timestamp || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Footer with stats */}
+      <div className="dev-panel-footer">
+        {activeView === "ephemeral" && (
+          <span>
+            {tables.length} table(s), {tables.reduce((s, t) => s + t.row_count, 0)} total rows
+          </span>
+        )}
+        {activeView === "semantic" && <span>{meetings.length} meeting(s)</span>}
+        {selectedTable && <span>{tableTotal} row(s) in table</span>}
+      </div>
+    </>
+  );
+}
+
 /* ── DevPanel ── */
 
 export default function DevPanel({ visible, onClose }: Props) {
@@ -263,6 +477,9 @@ export default function DevPanel({ visible, onClose }: Props) {
         <button className={`dev-panel-tab ${activeTab === "files" ? "dev-panel-tab--active" : ""}`} onClick={() => setActiveTab("files")}>
           📁 Log Files
         </button>
+        <button className={`dev-panel-tab ${activeTab === "database" ? "dev-panel-tab--active" : ""}`} onClick={() => setActiveTab("database")}>
+          🗄️ Database
+        </button>
         <div className="dev-panel-tabs-spacer" />
         <button className="dev-panel-btn dev-panel-btn-close" onClick={onClose} title="Close dev panel">
           ✕
@@ -272,6 +489,7 @@ export default function DevPanel({ visible, onClose }: Props) {
       {/* Tab content */}
       {activeTab === "live" && <LiveLogsTab />}
       {activeTab === "files" && <LogFilesTab />}
+      {activeTab === "database" && <DatabaseTab />}
     </div>
   );
 }
