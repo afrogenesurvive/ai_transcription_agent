@@ -83,6 +83,79 @@ body {
   border-color: var(--accent);
 }
 
+/* ── App Body (sidebar + main) ── */
+
+.app-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── Sidebar ── */
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 48px;
+  min-width: 48px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: 8px 0;
+  gap: 2px;
+  align-items: center;
+}
+
+.sidebar-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  background: none;
+  border: none;
+  border-left: 3px solid transparent;
+  color: var(--text-muted);
+  padding: 8px 4px;
+  cursor: pointer;
+  width: 42px;
+  border-radius: 0 6px 6px 0;
+  transition: all 0.15s;
+  position: relative;
+}
+
+.sidebar-btn:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.sidebar-btn--active {
+  color: var(--accent);
+  border-left-color: var(--accent);
+  background: rgba(88, 166, 255, 0.08);
+}
+
+.sidebar-btn-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.sidebar-btn-label {
+  font-size: 9px;
+  font-weight: 500;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.sidebar-badge {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--orange);
+  position: absolute;
+  margin-left: 14px;
+  margin-top: -4px;
+}
+
 /* ── Main Content ── */
 
 .app-main {
@@ -634,10 +707,13 @@ body {
   display: flex;
   flex-direction: column;
   background: #0d1117;
-  border-top: 1px solid var(--border);
-  height: 280px;
   font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
   font-size: 11px;
+}
+
+.dev-panel--full {
+  height: 100%;
+  border: none;
 }
 
 .dev-panel-toolbar {
@@ -1005,6 +1081,31 @@ body {
 .config-save-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* ── Config Panel — full view (non-modal) ── */
+
+.config-panel--full {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  max-width: none;
+  max-height: none;
+  background: var(--bg);
+}
+
+.config-panel--full .config-body {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.config-panel--full .config-header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
 }
 
 /* ── Config Panel — mode toggle ── */

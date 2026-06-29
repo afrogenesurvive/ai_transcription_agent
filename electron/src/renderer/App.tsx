@@ -26,6 +26,7 @@ import { useJobStatus } from "./hooks/useJobStatus";
 import type { JobStatus } from "./types";
 
 type View = "upload" | "processing" | "results";
+type SidebarView = "main" | "dev" | "config";
 
 export default function App() {
   const api = useApi();
@@ -34,8 +35,7 @@ export default function App() {
   const [transcript, setTranscript] = useState<any>(null);
   const [uploading, setUploading] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
-  const [devPanelOpen, setDevPanelOpen] = useState(false);
-  const [configOpen, setConfigOpen] = useState(false);
+  const [sidebarView, setSidebarView] = useState<SidebarView>("main");
   const [configOk, setConfigOk] = useState(true);
 
   // Check config on mount
@@ -128,56 +128,89 @@ export default function App() {
         </div>
       )}
 
-      <main className="app-main">
-        <div className="left-col">
-          {view === "upload" && <UploadPanel onUpload={handleUpload} uploading={uploading} />}
+      <div className="app-body">
+        <nav className="sidebar">
+          <button
+            className={`sidebar-btn ${sidebarView === "main" ? "sidebar-btn--active" : ""}`}
+            onClick={() => setSidebarView("main")}
+            title="Main view">
+            <span className="sidebar-btn-icon">🏠</span>
+            <span className="sidebar-btn-label">Main</span>
+          </button>
+          <button
+            className={`sidebar-btn ${sidebarView === "dev" ? "sidebar-btn--active" : ""}`}
+            onClick={() => setSidebarView("dev")}
+            title="Developer tools">
+            <span className="sidebar-btn-icon">🛠️</span>
+            <span className="sidebar-btn-label">Dev</span>
+          </button>
+          <button
+            className={`sidebar-btn ${sidebarView === "config" ? "sidebar-btn--active" : ""}`}
+            onClick={() => {
+              setSidebarView("config");
+              window.electronAPI?.getConfigWithSources();
+            }}
+            title="Configuration">
+            <span className="sidebar-btn-icon">⚙️</span>
+            <span className="sidebar-btn-label">Config</span>
+            {!configOk && <span className="sidebar-badge" />}
+          </button>
+        </nav>
 
-          {(view === "processing" || view === "results") && statusHook.data && (
-            <ProgressPanel status={statusHook.data.status} progress={statusHook.data.progress} error={statusHook.data.error} />
+        <main className="app-main">
+          {sidebarView === "main" && (
+            <>
+              <div className="left-col">
+                {view === "upload" && <UploadPanel onUpload={handleUpload} uploading={uploading} />}
+
+                {(view === "processing" || view === "results") && statusHook.data && (
+                  <ProgressPanel status={statusHook.data.status} progress={statusHook.data.progress} error={statusHook.data.error} />
+                )}
+
+                {view === "results" && statusHook.state === "error" && (
+                  <div className="panel actions-panel">
+                    <h2>❌ Processing Failed</h2>
+                    <p className="error-box" style={{ marginBottom: 12 }}>
+                      {statusHook.data?.error || statusHook.error || "Unknown error"}
+                    </p>
+                    <button className="btn-primary" onClick={handleNew}>
+                      Try Again
+                    </button>
+                  </div>
+                )}
+
+                {view === "results" && statusHook.state !== "error" && (
+                  <div className="panel actions-panel">
+                    <h2>Actions</h2>
+                    <p>Processing complete. The agent will now refine, summarize, and deliver the results.</p>
+                    <button className="btn-primary" onClick={handleNew}>
+                      Upload Another Meeting
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="right-col">
+                <TranscriptView segments={transcript?.transcript} summary={transcript?.summary} loading={view === "processing"} />
+              </div>
+            </>
           )}
 
-          {view === "results" && statusHook.state === "error" && (
-            <div className="panel actions-panel">
-              <h2>❌ Processing Failed</h2>
-              <p className="error-box" style={{ marginBottom: 12 }}>
-                {statusHook.data?.error || statusHook.error || "Unknown error"}
-              </p>
-              <button className="btn-primary" onClick={handleNew}>
-                Try Again
-              </button>
-            </div>
+          {sidebarView === "dev" && <DevPanel onClose={() => setSidebarView("main")} />}
+
+          {sidebarView === "config" && (
+            <ConfigPanel
+              key="config-panel"
+              onClose={() => {
+                setSidebarView("main");
+                window.electronAPI?.checkConfig().then((r) => setConfigOk(r.ok));
+              }}
+            />
           )}
+        </main>
+      </div>
 
-          {view === "results" && statusHook.state !== "error" && (
-            <div className="panel actions-panel">
-              <h2>Actions</h2>
-              <p>Processing complete. The agent will now refine, summarize, and deliver the results.</p>
-              <button className="btn-primary" onClick={handleNew}>
-                Upload Another Meeting
-              </button>
-            </div>
-          )}
-        </div>
-
-        <div className="right-col">
-          <TranscriptView segments={transcript?.transcript} summary={transcript?.summary} loading={view === "processing"} />
-        </div>
-      </main>
-
-      <StatusBar
-        devPanelOpen={devPanelOpen}
-        onToggleDevPanel={() => setDevPanelOpen((v) => !v)}
-        configOk={configOk}
-        onOpenConfig={() => setConfigOpen(true)}
-      />
-      <DevPanel visible={devPanelOpen} onClose={() => setDevPanelOpen(false)} />
-      <ConfigPanel
-        visible={configOpen}
-        onClose={() => {
-          setConfigOpen(false);
-          window.electronAPI?.checkConfig().then((r) => setConfigOk(r.ok));
-        }}
-      />
+      <StatusBar configOk={configOk} onOpenConfig={() => setSidebarView("config")} onOpenDev={() => setSidebarView("dev")} />
     </div>
   );
 }

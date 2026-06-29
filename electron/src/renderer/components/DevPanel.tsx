@@ -14,7 +14,6 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import type { LogEntry, LogFileInfo } from "../types";
 
 interface Props {
-  visible: boolean;
   onClose: () => void;
 }
 
@@ -462,13 +461,11 @@ function DatabaseTab() {
 
 /* ── DevPanel ── */
 
-export default function DevPanel({ visible, onClose }: Props) {
+export default function DevPanel({ onClose }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("live");
 
-  if (!visible) return null;
-
   return (
-    <div className="dev-panel">
+    <div className="dev-panel dev-panel--full">
       {/* Tab bar */}
       <div className="dev-panel-tabs">
         <button className={`dev-panel-tab ${activeTab === "live" ? "dev-panel-tab--active" : ""}`} onClick={() => setActiveTab("live")}>
