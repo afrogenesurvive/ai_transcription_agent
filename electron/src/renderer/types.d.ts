@@ -41,6 +41,19 @@ export interface MemorySearchResult {
   metadata: { title?: string; job_id?: string; type?: string };
 }
 
+export interface LogFileInfo {
+  path: string;
+  name: string;
+  size: number;
+  mtime: string;
+  source: "primary" | "mirror";
+}
+
+export interface ConfigValueSource {
+  value: string;
+  source: "user_config" | "env_file" | "default";
+}
+
 export interface ElectronAPI {
   selectAudioFile: () => Promise<string | null>;
   getBackendStatus: () => Promise<{ python: boolean; bridge: boolean; agent: boolean }>;
@@ -57,6 +70,10 @@ export interface ElectronAPI {
   getConfig: () => Promise<Record<string, string>>;
   saveConfig: (values: Record<string, string>) => Promise<Record<string, string>>;
   checkConfig: () => Promise<{ ok: boolean; missing: string[] }>;
+  getConfigWithSources: () => Promise<Record<string, ConfigValueSource>>;
+  listLogFiles: () => Promise<LogFileInfo[]>;
+  readLogFile: (filePath: string, maxLines?: number) => Promise<string[]>;
+  getLogPaths: () => Promise<{ primary: string | null; mirror: string | null }>;
   platform: string;
 }
 

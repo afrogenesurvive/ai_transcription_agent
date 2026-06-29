@@ -100,11 +100,40 @@ function parseUserConfig(): Partial<AppConfig> {
   }
 }
 
+/** Describes the source of a config value for the UI. */
+export interface ConfigValueSource {
+  value: string;
+  source: "user_config" | "env_file" | "default";
+}
+
 /** Merge config from: user file > .env > defaults. */
 export function getConfig(): AppConfig {
   if (cachedConfig) return cachedConfig;
   cachedConfig = { ...DEFAULTS, ...parseDotEnv(), ...parseUserConfig() };
   return cachedConfig;
+}
+
+/** Get config with per-key source info (for showing in the UI). */
+export function getConfigWithSources(): Record<keyof AppConfig, ConfigValueSource> {
+  const envVals = parseDotEnv();
+  const userVals = parseUserConfig();
+  const result = {} as Record<keyof AppConfig, ConfigValueSource>;
+
+  for (const key of Object.keys(DEFAULTS) as (keyof AppConfig)[]) {
+    let source: ConfigValueSource["source"] = "default";
+    let value = DEFAULTS[key];
+
+    if (userVals[key]) {
+      value = userVals[key]!;
+      source = "user_config";
+    } else if (envVals[key]) {
+      value = envVals[key]!;
+      source = "env_file";
+    }
+
+    result[key] = { value, source };
+  }
+  return result;
 }
 
 /** Invalidate cache so next getConfig() re-reads from disk. */

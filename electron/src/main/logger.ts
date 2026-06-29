@@ -56,6 +56,60 @@ function rotateFile(): void {
  * @param primaryDir — primary log directory (e.g. app.getPath("userData") + "/logs")
  * @param mirrorDir — optional secondary directory (e.g. project storage/logs for dev)
  */
+/** Get the primary log directory path (set by initFileLogging). */
+export function getLogDir(): string | null {
+  return logDir;
+}
+
+/** Get the mirror log directory path (set by initFileLogging). */
+export function getMirrorDir(): string | null {
+  return _mirrorDir;
+}
+
+/** List all log files from both primary and mirror directories, newest first. */
+export interface LogFileInfo {
+  path: string;
+  name: string;
+  size: number;
+  mtime: Date;
+  source: "primary" | "mirror";
+}
+
+export function listLogFiles(): LogFileInfo[] {
+  const files: LogFileInfo[] = [];
+  const dirs: [string | null, "primary" | "mirror"][] = [
+    [logDir, "primary"],
+    [_mirrorDir, "mirror"],
+  ];
+  for (const [dir, source] of dirs) {
+    if (!dir) continue;
+    try {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.name.endsWith(".log")) continue;
+        const fullPath = path.join(dir, entry.name);
+        const stat = fs.statSync(fullPath);
+        files.push({ path: fullPath, name: entry.name, size: stat.size, mtime: stat.mtime, source });
+      }
+    } catch {
+      // directory might not exist yet
+    }
+  }
+  files.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+  return files;
+}
+
+/** Read the last N lines from a log file. */
+export function readLogFile(filePath: string, maxLines = 500): string[] {
+  try {
+    const content = fs.readFileSync(filePath, "utf8");
+    const lines = content.split("\n");
+    return lines.slice(-maxLines);
+  } catch {
+    return [];
+  }
+}
+
 export function initFileLogging(primaryDir: string, mirrorDir?: string): void {
   logDir = primaryDir;
   try {

@@ -6,7 +6,7 @@
  */
 
 import { contextBridge, ipcRenderer } from "electron";
-import type { LogEntry } from "./logger";
+import type { LogEntry, LogFileInfo } from "./logger";
 
 contextBridge.exposeInMainWorld("electronAPI", {
   // ── File dialogs ──
@@ -53,6 +53,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getConfig: (): Promise<Record<string, string>> => ipcRenderer.invoke("config:get"),
   saveConfig: (values: Record<string, string>): Promise<Record<string, string>> => ipcRenderer.invoke("config:save", values),
   checkConfig: (): Promise<{ ok: boolean; missing: string[] }> => ipcRenderer.invoke("config:check"),
+  getConfigWithSources: (): Promise<Record<string, { value: string; source: string }>> => ipcRenderer.invoke("config:getWithSources"),
+
+  // ── Log file browsing ──
+  listLogFiles: (): Promise<LogFileInfo[]> => ipcRenderer.invoke("logs:listFiles"),
+  readLogFile: (filePath: string, maxLines?: number): Promise<string[]> => ipcRenderer.invoke("logs:readFile", filePath, maxLines),
+  getLogPaths: (): Promise<{ primary: string | null; mirror: string | null }> => ipcRenderer.invoke("logs:getPaths"),
 
   // ── Platform ──
   platform: process.platform,

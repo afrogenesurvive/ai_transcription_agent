@@ -29,6 +29,8 @@ webapp/.env
 # ── Logs ──
 logs/
 *.log
+# Dev mirror logs (written to storage/logs/ in dev mode — also covered by storage/ rule above)
+
 
 # ── Build output & local data ──
 safe/
@@ -48,6 +50,9 @@ mcp/agent-runner/.runner.pid
 storage/
 queue/transcription.jsonl
 agent-runner/.runner.pid
+
+# ── Copilot chat history (local session logs, not committed) ──
+chat.json
 
 # ── Legacy MCP (reference only, not part of transcription system) ──
 legacy_mcp/

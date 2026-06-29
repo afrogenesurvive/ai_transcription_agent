@@ -1006,3 +1006,258 @@ body {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ── Config Panel — mode toggle ── */
+
+.config-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.config-mode-toggle {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.config-mode-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  padding: 5px 14px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.config-mode-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.config-mode-btn--active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.config-mode-btn--active:hover {
+  background: var(--accent-hover);
+  color: #fff;
+}
+
+/* ── Config Panel — view mode ── */
+
+.config-refresh-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 2px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  margin-left: 8px;
+  transition: all 0.15s;
+}
+
+.config-refresh-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.config-source-legend {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.config-source-tag {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.config-source-tag--user_config {
+  background: rgba(63, 185, 80, 0.15);
+  color: var(--green);
+  border: 1px solid rgba(63, 185, 80, 0.3);
+}
+
+.config-source-tag--env_file {
+  background: rgba(88, 166, 255, 0.15);
+  color: var(--accent);
+  border: 1px solid rgba(88, 166, 255, 0.3);
+}
+
+.config-source-tag--default {
+  background: rgba(139, 148, 158, 0.15);
+  color: var(--text-muted);
+  border: 1px solid rgba(139, 148, 158, 0.3);
+}
+
+.config-view-field {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.config-view-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text);
+  margin-bottom: 4px;
+  gap: 8px;
+}
+
+.config-view-value {
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  font-size: 12px;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.config-footer-hint {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* ── DevPanel — tab bar ── */
+
+.dev-panel-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.dev-panel-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  padding: 8px 16px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.dev-panel-tab:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.dev-panel-tab--active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.dev-panel-tabs-spacer {
+  flex: 1;
+}
+
+/* ── DevPanel — file browser ── */
+
+.dev-panel-file-browser {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.dev-panel-file-list {
+  width: 240px;
+  min-width: 180px;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.dev-panel-file-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.1s;
+}
+
+.dev-panel-file-item:hover {
+  background: var(--surface);
+}
+
+.dev-panel-file-item--active {
+  background: var(--surface-hover);
+  border-left: 3px solid var(--accent);
+}
+
+.dev-panel-file-name {
+  font-size: 12px;
+  color: var(--text);
+  font-weight: 500;
+  font-family: var(--font);
+}
+
+.dev-panel-file-meta {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font);
+}
+
+.dev-panel-file-date {
+  font-size: 10px;
+  color: var(--text-muted);
+  opacity: 0.6;
+  font-family: var(--font);
+}
+
+.dev-panel-file-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+  font-size: 11px;
+}
+
+.dev-panel-file-line {
+  padding: 1px 16px;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+.dev-panel-file-line:hover {
+  background: var(--surface);
+}
+
+.dev-panel-file-path-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font);
+  margin-left: 8px;
+  display: flex;
+  gap: 8px;
+  flex: 1;
+  overflow: hidden;
+}
+
+.dev-panel-file-path-hint span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: help;
+}

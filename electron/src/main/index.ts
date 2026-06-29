@@ -27,8 +27,8 @@ import {
   stopAgentRunner,
   isAgentRunning,
 } from "./backend-manager";
-import { subscribe, getLogs, clearLogs, addLog, initFileLogging } from "./logger";
-import { getConfig, saveConfig, checkConfig } from "./config";
+import { subscribe, getLogs, clearLogs, addLog, initFileLogging, listLogFiles, readLogFile, getLogDir, getMirrorDir } from "./logger";
+import { getConfig, saveConfig, checkConfig, getConfigWithSources } from "./config";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -246,6 +246,24 @@ ipcMain.handle("config:check", () => {
   const cfg = checkConfig();
   addLog("main", cfg.ok ? "info" : "warn", `Config check: ${cfg.ok ? "OK" : `missing ${cfg.missing.join(", ")}`}`);
   return cfg;
+});
+
+ipcMain.handle("config:getWithSources", () => {
+  return getConfigWithSources();
+});
+
+// ── Log file browsing ──
+
+ipcMain.handle("logs:listFiles", () => {
+  return listLogFiles();
+});
+
+ipcMain.handle("logs:readFile", async (_event, filePath: string, maxLines?: number) => {
+  return readLogFile(filePath, maxLines);
+});
+
+ipcMain.handle("logs:getPaths", () => {
+  return { primary: getLogDir(), mirror: getMirrorDir() };
 });
 
 // ── App Lifecycle ──

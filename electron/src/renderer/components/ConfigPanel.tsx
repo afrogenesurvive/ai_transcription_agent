@@ -3,6 +3,10 @@
  *
  * Shows required fields (DeepSeek API key) and optional fields
  * (delivery credentials). Values are saved to app.getPath("userData")/config.json.
+ *
+ * Supports two modes:
+ *   "edit"   — Edit and save config values (original behavior)
+ *   "view"   — Read-only view showing current config with source annotations
  */
 
 import React, { useState, useEffect, useCallback } from "react";
@@ -11,6 +15,8 @@ interface Props {
   visible: boolean;
   onClose: () => void;
 }
+
+type ConfigMode = "edit" | "view";
 
 interface ConfigValues {
   [key: string]: string;
@@ -26,6 +32,11 @@ interface ConfigValues {
   TRELLO_TOKEN: string;
 }
 
+interface ConfigSourceInfo {
+  value: string;
+  source: "user_config" | "env_file" | "default";
+}
+
 const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secret: boolean; section: string }[] = [
   { key: "DEEPSEEK_API_KEY", label: "DeepSeek API Key", required: true, secret: true, section: "LLM Provider" },
   { key: "OLLAMA_BASE_URL", label: "Ollama Base URL", required: false, secret: false, section: "LLM Provider" },
@@ -38,8 +49,22 @@ const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secre
   { key: "TRELLO_TOKEN", label: "Trello Token", required: false, secret: true, section: "Trello Delivery" },
 ];
 
+const SOURCE_LABELS: Record<string, string> = {
+  user_config: "User Config (config.json)",
+  env_file: ".env file",
+  default: "Default value",
+};
+
+const SOURCE_COLORS: Record<string, string> = {
+  user_config: "var(--green)",
+  env_file: "var(--accent)",
+  default: "var(--text-muted)",
+};
+
 export default function ConfigPanel({ visible, onClose }: Props) {
+  const [mode, setMode] = useState<ConfigMode>("edit");
   const [values, setValues] = useState<ConfigValues>({} as ConfigValues);
+  const [sourceInfo, setSourceInfo] = useState<Record<string, ConfigSourceInfo>>({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,6 +88,8 @@ export default function ConfigPanel({ visible, onClose }: Props) {
         TRELLO_TOKEN: cfg.TRELLO_TOKEN || "",
       });
     });
+    // Also load source-annotated config for view mode
+    window.electronAPI?.getConfigWithSources().then(setSourceInfo).catch(() => {});
   }, [visible]);
 
   const handleChange = (key: keyof ConfigValues, value: string) => {
@@ -84,6 +111,11 @@ export default function ConfigPanel({ visible, onClose }: Props) {
     }
   }, [values, onClose]);
 
+  const handleRefreshSources = useCallback(async () => {
+    const info = await window.electronAPI?.getConfigWithSources() || {};
+    setSourceInfo(info);
+  }, []);
+
   if (!visible) return null;
 
   // Group fields by section
@@ -98,129 +130,199 @@ export default function ConfigPanel({ visible, onClose }: Props) {
       <div className="config-panel" onClick={(e) => e.stopPropagation()}>
         <div className="config-header">
           <h2>⚙️ Configuration</h2>
-          <button className="config-close-btn" onClick={onClose}>
-            ✕
-          </button>
+          <div className="config-header-actions">
+            <div className="config-mode-toggle">
+              <button
+                className={`config-mode-btn ${mode === "edit" ? "config-mode-btn--active" : ""}`}
+                onClick={() => setMode("edit")}
+              >
+                ✏️ Edit
+              </button>
+              <button
+                className={`config-mode-btn ${mode === "view" ? "config-mode-btn--active" : ""}`}
+                onClick={() => {
+                  setMode("view");
+                  handleRefreshSources();
+                }}
+              >
+                👁️ View Current
+              </button>
+            </div>
+            <button className="config-close-btn" onClick={onClose}>
+              ✕
+            </button>
+          </div>
         </div>
 
         <div className="config-body">
-          <p className="config-hint">
-            Enter your API keys and credentials. Required fields are marked with <span className="config-required">*</span>. Values are stored in your
-            user data directory.
-          </p>
+          {mode === "edit" && (
+            <>
+              <p className="config-hint">
+                Enter your API keys and credentials. Required fields are marked with <span className="config-required">*</span>. Values are stored in
+                your user data directory.
+              </p>
 
-          {Array.from(sections.entries()).map(([sectionName, fields]) => (
-            <div key={sectionName} className="config-section">
-              <h3 className="config-section-title">{sectionName}</h3>
+              {Array.from(sections.entries()).map(([sectionName, fields]) => (
+                <div key={sectionName} className="config-section">
+                  <h3 className="config-section-title">{sectionName}</h3>
 
-              {sectionName === "LLM Provider" && (
-                <>
-                  {/* Provider radio buttons */}
-                  <div className="config-field">
-                    <label className="config-label">
-                      LLM Provider <span className="config-required">*</span>
-                    </label>
-                    <div className="config-radio-group">
-                      <label className={`config-radio ${values.LLM_PROVIDER === "deepseek" ? "config-radio--selected" : ""}`}>
-                        <input
-                          type="radio"
-                          name="llm-provider"
-                          value="deepseek"
-                          checked={values.LLM_PROVIDER === "deepseek"}
-                          onChange={() => handleChange("LLM_PROVIDER", "deepseek")}
-                        />
-                        <span className="config-radio-label">DeepSeek (API)</span>
-                        <span className="config-radio-desc">Cloud API — requires API key</span>
-                      </label>
-                      <label className={`config-radio ${values.LLM_PROVIDER === "ollama" ? "config-radio--selected" : ""}`}>
-                        <input
-                          type="radio"
-                          name="llm-provider"
-                          value="ollama"
-                          checked={values.LLM_PROVIDER === "ollama"}
-                          onChange={() => handleChange("LLM_PROVIDER", "ollama")}
-                        />
-                        <span className="config-radio-label">Ollama (Local)</span>
-                        <span className="config-radio-desc">Local LLM — no API key needed</span>
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* DeepSeek: show API key */}
-                  {values.LLM_PROVIDER === "deepseek" &&
-                    fields
-                      .filter((f) => f.key === "DEEPSEEK_API_KEY")
-                      .map((field) => (
-                        <div key={field.key} className="config-field">
-                          <label className="config-label">
-                            {field.label}
-                            {field.required && <span className="config-required"> *</span>}
+                  {sectionName === "LLM Provider" && (
+                    <>
+                      {/* Provider radio buttons */}
+                      <div className="config-field">
+                        <label className="config-label">
+                          LLM Provider <span className="config-required">*</span>
+                        </label>
+                        <div className="config-radio-group">
+                          <label className={`config-radio ${values.LLM_PROVIDER === "deepseek" ? "config-radio--selected" : ""}`}>
+                            <input
+                              type="radio"
+                              name="llm-provider"
+                              value="deepseek"
+                              checked={values.LLM_PROVIDER === "deepseek"}
+                              onChange={() => handleChange("LLM_PROVIDER", "deepseek")}
+                            />
+                            <span className="config-radio-label">DeepSeek (API)</span>
+                            <span className="config-radio-desc">Cloud API — requires API key</span>
                           </label>
+                          <label className={`config-radio ${values.LLM_PROVIDER === "ollama" ? "config-radio--selected" : ""}`}>
+                            <input
+                              type="radio"
+                              name="llm-provider"
+                              value="ollama"
+                              checked={values.LLM_PROVIDER === "ollama"}
+                              onChange={() => handleChange("LLM_PROVIDER", "ollama")}
+                            />
+                            <span className="config-radio-label">Ollama (Local)</span>
+                            <span className="config-radio-desc">Local LLM — no API key needed</span>
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* DeepSeek: show API key */}
+                      {values.LLM_PROVIDER === "deepseek" &&
+                        fields
+                          .filter((f) => f.key === "DEEPSEEK_API_KEY")
+                          .map((field) => (
+                            <div key={field.key} className="config-field">
+                              <label className="config-label">
+                                {field.label}
+                                {field.required && <span className="config-required"> *</span>}
+                              </label>
+                              <input
+                                className="config-input"
+                                type="password"
+                                value={values[field.key] || ""}
+                                onChange={(e) => handleChange(field.key, e.target.value)}
+                                placeholder="sk-..."
+                              />
+                            </div>
+                          ))}
+
+                      {/* Ollama: show URL + model */}
+                      {values.LLM_PROVIDER === "ollama" &&
+                        fields
+                          .filter((f) => f.key !== "DEEPSEEK_API_KEY")
+                          .map((field) => (
+                            <div key={field.key} className="config-field">
+                              <label className="config-label">{field.label}</label>
+                              <input
+                                className="config-input"
+                                type="text"
+                                value={values[field.key] || ""}
+                                onChange={(e) => handleChange(field.key, e.target.value)}
+                                placeholder="Optional"
+                              />
+                            </div>
+                          ))}
+                    </>
+                  )}
+
+                  {sectionName !== "LLM Provider" &&
+                    fields.map((field) => (
+                      <div key={field.key} className="config-field">
+                        <label className="config-label">
+                          {field.label}
+                          {field.required && <span className="config-required"> *</span>}
+                        </label>
+                        {field.secret ? (
                           <input
                             className="config-input"
                             type="password"
                             value={values[field.key] || ""}
                             onChange={(e) => handleChange(field.key, e.target.value)}
-                            placeholder="sk-..."
-                          />
-                        </div>
-                      ))}
+                          placeholder={field.required ? "Enter your API key..." : "Optional"}
+                        />
+                      ) : (
+                        <input
+                          className="config-input"
+                          type="text"
+                          value={values[field.key] || ""}
+                          onChange={(e) => handleChange(field.key, e.target.value)}
+                          placeholder={field.required ? "Required" : "Optional"}
+                        />
+                      )}
+                    </div>
+                  ))}
+              </div>
+            ))}
+          </>
+        )}
 
-                  {/* Ollama: show URL + model */}
-                  {values.LLM_PROVIDER === "ollama" &&
-                    fields
-                      .filter((f) => f.key !== "DEEPSEEK_API_KEY")
-                      .map((field) => (
-                        <div key={field.key} className="config-field">
-                          <label className="config-label">{field.label}</label>
-                          <input
-                            className="config-input"
-                            type="text"
-                            value={values[field.key] || ""}
-                            onChange={(e) => handleChange(field.key, e.target.value)}
-                            placeholder="Optional"
-                          />
-                        </div>
-                      ))}
-                </>
-              )}
+        {mode === "view" && (
+          <>
+            <p className="config-hint">
+              Current configuration values and their sources. Priority: <strong>User Config</strong> &gt; <strong>.env file</strong> &gt;{" "}
+              <strong>Defaults</strong>.
+              <button className="config-refresh-btn" onClick={handleRefreshSources} title="Refresh config values">
+                ↻ Refresh
+              </button>
+            </p>
 
-              {sectionName !== "LLM Provider" &&
-                fields.map((field) => (
-                  <div key={field.key} className="config-field">
-                    <label className="config-label">
-                      {field.label}
-                      {field.required && <span className="config-required"> *</span>}
-                    </label>
-                    {field.secret ? (
-                      <input
-                        className="config-input"
-                        type="password"
-                        value={values[field.key] || ""}
-                        onChange={(e) => handleChange(field.key, e.target.value)}
-                        placeholder={field.required ? "Enter your API key..." : "Optional"}
-                      />
-                    ) : (
-                      <input
-                        className="config-input"
-                        type="text"
-                        value={values[field.key] || ""}
-                        onChange={(e) => handleChange(field.key, e.target.value)}
-                        placeholder={field.required ? "Required" : "Optional"}
-                      />
-                    )}
-                  </div>
-                ))}
+            <div className="config-source-legend">
+              <span className="config-source-tag config-source-tag--user_config">User Config</span>
+              <span className="config-source-tag config-source-tag--env_file">.env File</span>
+              <span className="config-source-tag config-source-tag--default">Default</span>
             </div>
-          ))}
-        </div>
+
+            {Array.from(sections.entries()).map(([sectionName, fields]) => (
+              <div key={sectionName} className="config-section">
+                <h3 className="config-section-title">{sectionName}</h3>
+                {fields.map((field) => {
+                  const info = sourceInfo[field.key];
+                  const masked = field.secret && info?.value
+                    ? info.value.slice(0, 8) + "…" + info.value.slice(-4)
+                    : info?.value || "(not set)";
+                  return (
+                    <div key={field.key} className="config-view-field">
+                      <div className="config-view-label">
+                        <span>{field.label}</span>
+                        {info && (
+                          <span className={`config-source-tag config-source-tag--${info.source}`}>
+                            {SOURCE_LABELS[info.source]}
+                          </span>
+                        )}
+                      </div>
+                      <div className="config-view-value">{masked}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </>
+        )}
 
         <div className="config-footer">
           {error && <span className="config-error">{error}</span>}
           {saved && <span className="config-success">✓ Configuration saved</span>}
-          <button className="config-save-btn" onClick={handleSave} disabled={saving || saved}>
-            {saving ? "Saving…" : saved ? "Saved ✓" : "Save Configuration"}
-          </button>
+          {mode === "edit" && (
+            <button className="config-save-btn" onClick={handleSave} disabled={saving || saved}>
+              {saving ? "Saving…" : saved ? "Saved ✓" : "Save Configuration"}
+            </button>
+          )}
+          {mode === "view" && (
+            <span className="config-footer-hint">Switch to ✏️ Edit mode to change values.</span>
+          )}
         </div>
       </div>
     </div>
