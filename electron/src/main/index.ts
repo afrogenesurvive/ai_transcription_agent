@@ -24,6 +24,7 @@ import {
   isAgentRunning,
 } from "./backend-manager";
 import { subscribe, getLogs, clearLogs } from "./logger";
+import { getConfig, saveConfig, checkConfig } from "./config";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -197,6 +198,21 @@ ipcMain.handle("logs:get", () => {
 ipcMain.handle("logs:clear", () => {
   clearLogs();
   return { success: true };
+});
+
+// ── Config IPC ──
+
+ipcMain.handle("config:get", () => {
+  return getConfig();
+});
+
+ipcMain.handle("config:save", (_event, values: Record<string, string>) => {
+  saveConfig(values);
+  return getConfig();
+});
+
+ipcMain.handle("config:check", () => {
+  return checkConfig();
 });
 
 // ── App Lifecycle ──

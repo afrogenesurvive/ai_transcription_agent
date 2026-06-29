@@ -21,9 +21,11 @@ const SERVICE_LABELS: Record<Service, string> = {
 interface StatusBarProps {
   devPanelOpen: boolean;
   onToggleDevPanel: () => void;
+  configOk: boolean;
+  onOpenConfig: () => void;
 }
 
-export default function StatusBar({ devPanelOpen, onToggleDevPanel }: StatusBarProps) {
+export default function StatusBar({ devPanelOpen, onToggleDevPanel, configOk, onOpenConfig }: StatusBarProps) {
   const [status, setStatus] = useState<Record<Service, ServiceStatus>>({
     python: null,
     bridge: null,
@@ -213,6 +215,11 @@ export default function StatusBar({ devPanelOpen, onToggleDevPanel }: StatusBarP
           <button className="action-btn" onClick={handleCheckServers} disabled={checking || anyBusy} title="Check all servers">
             {checking ? "⟳ Checking…" : "↻ Check All"}
           </button>
+          {!configOk && (
+            <button className="action-btn config-warn-btn" onClick={onOpenConfig} title="API key required">
+              ⚙️ Config
+            </button>
+          )}
           <button
             className={`action-btn dev-btn ${devPanelOpen ? "dev-btn--active" : ""}`}
             onClick={onToggleDevPanel}

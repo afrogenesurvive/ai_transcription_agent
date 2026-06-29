@@ -54,6 +54,9 @@ export interface ElectronAPI {
   getLogs: () => Promise<LogEntry[]>;
   clearLogs: () => Promise<{ success: boolean }>;
   onLog: (cb: (entry: LogEntry) => void) => () => void;
+  getConfig: () => Promise<Record<string, string>>;
+  saveConfig: (values: Record<string, string>) => Promise<Record<string, string>>;
+  checkConfig: () => Promise<{ ok: boolean; missing: string[] }>;
   platform: string;
 }
 

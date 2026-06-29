@@ -14,12 +14,13 @@
  *   └──────────────────────────────────────────────┘
  */
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import UploadPanel from "./components/UploadPanel";
 import ProgressPanel from "./components/ProgressPanel";
 import TranscriptView from "./components/TranscriptView";
 import StatusBar from "./components/StatusBar";
 import DevPanel from "./components/DevPanel";
+import ConfigPanel from "./components/ConfigPanel";
 import { useApi } from "./hooks/useApi";
 import { useJobStatus } from "./hooks/useJobStatus";
 import type { JobStatus } from "./types";
@@ -34,6 +35,17 @@ export default function App() {
   const [uploading, setUploading] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
   const [devPanelOpen, setDevPanelOpen] = useState(false);
+  const [configOpen, setConfigOpen] = useState(false);
+  const [configOk, setConfigOk] = useState(true);
+
+  // Check config on mount
+  useEffect(() => {
+    window.electronAPI?.checkConfig().then((result) => {
+      setConfigOk(result.ok);
+      // Auto-open config if missing required values
+      if (!result.ok) setConfigOpen(true);
+    });
+  }, []);
 
   // Listen for Electron notifications
   React.useEffect(() => {
@@ -131,8 +143,20 @@ export default function App() {
         </div>
       </main>
 
-      <StatusBar devPanelOpen={devPanelOpen} onToggleDevPanel={() => setDevPanelOpen((v) => !v)} />
+      <StatusBar
+        devPanelOpen={devPanelOpen}
+        onToggleDevPanel={() => setDevPanelOpen((v) => !v)}
+        configOk={configOk}
+        onOpenConfig={() => setConfigOpen(true)}
+      />
       <DevPanel visible={devPanelOpen} onClose={() => setDevPanelOpen(false)} />
+      <ConfigPanel
+        visible={configOpen}
+        onClose={() => {
+          setConfigOpen(false);
+          window.electronAPI?.checkConfig().then((r) => setConfigOk(r.ok));
+        }}
+      />
     </div>
   );
 }

@@ -49,6 +49,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
     return () => ipcRenderer.removeAllListeners("log");
   },
 
+  // ── Configuration ──
+  getConfig: (): Promise<Record<string, string>> => ipcRenderer.invoke("config:get"),
+  saveConfig: (values: Record<string, string>): Promise<Record<string, string>> => ipcRenderer.invoke("config:save", values),
+  checkConfig: (): Promise<{ ok: boolean; missing: string[] }> => ipcRenderer.invoke("config:check"),
+
   // ── Platform ──
   platform: process.platform,
 });

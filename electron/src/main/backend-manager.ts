@@ -1,23 +1,62 @@
 /**
- * Backend Manager — spawns and manages Python backend + bridge server
- * as child processes from the Electron main process.
+ * Backend Manager — spawns and manages Python backend, bridge server,
+ * and agent runner as child processes from the Electron main process.
+ *
+ * Cross-platform: detects Windows vs Unix for paths, Python binary name,
+ * and process termination (SIGTERM vs taskkill).
  *
  * In development, assumes Python and Node are available on PATH.
  * In production (packaged), binaries are in extraResources.
  */
 
-import { spawn, ChildProcess } from "child_process";
+import { spawn, ChildProcess, execSync } from "child_process";
 import path from "path";
 import { app } from "electron";
 import { addLog } from "./logger";
+import { getChildEnv } from "./config";
 
 const isProd = app.isPackaged;
+const IS_WIN = process.platform === "win32";
+
+/** Platform-aware Python binary name */
+const PYTHON_BIN = IS_WIN ? "python" : "python3";
+
+/** Platform-aware Node binary name */
+const NODE_BIN = IS_WIN ? "node.exe" : "node";
 
 function resourcePath(...segments: string[]): string {
   if (isProd) {
     return path.join(process.resourcesPath, ...segments);
   }
   return path.join(app.getAppPath(), "..", ...segments);
+}
+
+/**
+ * Kill a child process — SIGTERM on Unix, taskkill on Windows.
+ * On Windows, SIGTERM is not supported; taskkill /pid ensures
+ * the entire process tree is terminated.
+ */
+async function killProcess(proc: ChildProcess): Promise<void> {
+  if (!proc || !proc.pid) return;
+  if (IS_WIN) {
+    try {
+      execSync(`taskkill /pid ${proc.pid} /T /F`, { stdio: "ignore" });
+    } catch {
+      // process already gone
+    }
+  } else {
+    proc.kill("SIGTERM");
+  }
+  await new Promise((r) => setTimeout(r, 1000));
+}
+
+/** Resolve the Python binary path, preferring the project venv. */
+function resolvePythonBin(backendDir: string): string {
+  // Try venv first (dev, or production if venv was bundled)
+  const venvPython = path.join(backendDir, IS_WIN ? "venv\\Scripts\\python.exe" : "venv", "bin", PYTHON_BIN);
+  if (require("fs").existsSync(venvPython)) return venvPython;
+  // Fall back to system Python (expected in production on end-user machines)
+  return PYTHON_BIN;
 }
 
 // ── Python Backend ──
@@ -40,17 +79,14 @@ async function waitForServer(url: string, timeoutMs = 15000): Promise<void> {
 
 export async function startPythonBackend(port = 5001): Promise<void> {
   const backendDir = resourcePath("python-backend");
-  const venvPython = path.join(backendDir, "venv", "bin", "python3");
-
-  // Prefer venv Python if it exists (dev or prod), fall back to system python3
-  const pythonBin = isProd || require("fs").existsSync(venvPython) ? venvPython : "python3";
+  const pythonBin = resolvePythonBin(backendDir);
 
   console.log(`[backend] Starting Python backend at ${backendDir}`);
   console.log(`[backend] Using: ${pythonBin} main.py`);
 
   pythonProcess = spawn(pythonBin, ["main.py"], {
     cwd: backendDir,
-    env: { ...process.env, TRANSCRIPTION_PORT: String(port) },
+    env: { ...getChildEnv(), TRANSCRIPTION_PORT: String(port) },
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -77,10 +113,8 @@ export async function startPythonBackend(port = 5001): Promise<void> {
 
 export async function stopPythonBackend(): Promise<void> {
   if (pythonProcess) {
-    pythonProcess.kill("SIGTERM");
+    await killProcess(pythonProcess);
     pythonProcess = null;
-    // Give it a moment to shut down
-    await new Promise((r) => setTimeout(r, 1000));
   }
 }
 
@@ -90,14 +124,14 @@ let bridgeProcess: ChildProcess | null = null;
 
 export async function startBridgeServer(bridgePort = 5010, pythonPort = 5001): Promise<void> {
   const bridgeDir = resourcePath("bridge-server");
-  const nodeBin = isProd ? path.join(bridgeDir, "node_modules", ".bin", "node") : "node";
+  const nodeBin = NODE_BIN;
 
   console.log(`[bridge] Starting bridge server at ${bridgeDir}`);
 
   bridgeProcess = spawn(nodeBin, ["index.js"], {
     cwd: bridgeDir,
     env: {
-      ...process.env,
+      ...getChildEnv(),
       BRIDGE_PORT: String(bridgePort),
       PYTHON_API_URL: `http://127.0.0.1:${pythonPort}`,
     },
@@ -127,9 +161,8 @@ export async function startBridgeServer(bridgePort = 5010, pythonPort = 5001): P
 
 export async function stopBridgeServer(): Promise<void> {
   if (bridgeProcess) {
-    bridgeProcess.kill("SIGTERM");
+    await killProcess(bridgeProcess);
     bridgeProcess = null;
-    await new Promise((r) => setTimeout(r, 1000));
   }
 }
 
@@ -144,14 +177,14 @@ export function isAgentRunning(): boolean {
 
 export async function startAgentRunner(): Promise<void> {
   const agentDir = resourcePath("agent-runner");
-  const nodeBin = isProd ? path.join(agentDir, "node_modules", ".bin", "node") : "node";
+  const nodeBin = NODE_BIN;
 
   console.log(`[agent] Starting agent runner at ${agentDir}`);
 
   agentProcess = spawn(nodeBin, ["index.js"], {
     cwd: agentDir,
     env: {
-      ...process.env,
+      ...getChildEnv(),
       BRIDGE_URL: "http://127.0.0.1:5010",
     },
     stdio: ["pipe", "pipe", "pipe"],
@@ -187,9 +220,8 @@ export async function startAgentRunner(): Promise<void> {
 
 export async function stopAgentRunner(): Promise<void> {
   if (agentProcess) {
-    agentProcess.kill("SIGTERM");
+    await killProcess(agentProcess);
     agentProcess = null;
-    await new Promise((r) => setTimeout(r, 1000));
   }
 }
 
