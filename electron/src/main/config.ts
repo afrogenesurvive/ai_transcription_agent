@@ -179,6 +179,8 @@ export function checkConfig(): { ok: boolean; missing: string[] } {
 /** Get environment variables for child processes (config values merged in). */
 export function getChildEnv(): NodeJS.ProcessEnv {
   const config = getConfig();
+  const userData = app.getPath("userData");
+
   return {
     ...process.env,
     DEEPSEEK_API_KEY: config.DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY || "",
@@ -191,5 +193,10 @@ export function getChildEnv(): NodeJS.ProcessEnv {
     GMAIL_USER: config.GMAIL_USER || process.env.GMAIL_USER || "",
     TRELLO_KEY: config.TRELLO_KEY || process.env.TRELLO_KEY || "",
     TRELLO_TOKEN: config.TRELLO_TOKEN || process.env.TRELLO_TOKEN || "",
+    // Storage paths — use userData in packaged mode so DBs land in a writable location
+    TRANSCRIPTION_STORAGE: process.env.TRANSCRIPTION_STORAGE || path.join(userData, "storage"),
+    TRANSCRIPTION_QUEUE_DIR: process.env.TRANSCRIPTION_QUEUE_DIR || path.join(userData, "queue"),
+    TRANSCRIPTION_TRIGGER_FILE:
+      process.env.TRANSCRIPTION_TRIGGER_FILE || path.join(userData, "queue", ".transcription-trigger"),
   };
 }
