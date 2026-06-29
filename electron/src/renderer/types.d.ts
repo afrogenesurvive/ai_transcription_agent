@@ -63,6 +63,7 @@ export interface ElectronAPI {
   stopService: (service: string) => Promise<{ success: boolean }>;
   restartService: (service: string) => Promise<{ success: boolean }>;
   getAppVersion: () => Promise<string>;
+  getActiveJobs: () => Promise<Array<{ job_id: string; status: string; progress: number; title: string }>>;
   onNotification: (cb: (msg: string) => void) => () => void;
   getLogs: () => Promise<LogEntry[]>;
   clearLogs: () => Promise<{ success: boolean }>;

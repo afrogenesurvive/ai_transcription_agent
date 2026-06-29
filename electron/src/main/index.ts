@@ -28,12 +28,14 @@ import {
   isAgentRunning,
   startHealthMonitoring,
   stopHealthMonitoring,
+  killProcessOnPort,
 } from "./backend-manager";
 import { subscribe, getLogs, clearLogs, addLog, initFileLogging, listLogFiles, readLogFile, getLogDir, getMirrorDir } from "./logger";
 import { getConfig, saveConfig, checkConfig, getConfigWithSources } from "./config";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
+let isQuitting = false;
 
 // ── Window ──
 
@@ -65,8 +67,8 @@ function createWindow() {
   });
 
   mainWindow.on("close", (event) => {
-    // Minimize to tray instead of closing
-    if (tray) {
+    // Minimize to tray instead of closing (unless we're actually quitting)
+    if (!isQuitting) {
       event.preventDefault();
       mainWindow?.hide();
     }
@@ -92,7 +94,7 @@ function createTray() {
     {
       label: "Quit",
       click: () => {
-        tray = null;
+        // Confirmation is handled in before-quit below
         app.quit();
       },
     },
@@ -154,6 +156,21 @@ ipcMain.handle("backend:status", async () => {
 
 ipcMain.handle("app:version", () => {
   return app.getVersion();
+});
+
+ipcMain.handle("jobs:getActive", async () => {
+  try {
+    const res = await fetch("http://127.0.0.1:5001/transcribe/active", {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data.active_jobs || [];
+    }
+  } catch {
+    // Backend not running — no active jobs
+  }
+  return [];
 });
 
 // ── Combined service management ──
@@ -325,10 +342,36 @@ app.on("window-all-closed", () => {
   }
 });
 
-app.on("before-quit", async () => {
+app.on("before-quit", (event) => {
+  // Prevent re-entrance — once confirmed, skip the dialog
+  if (isQuitting) return;
+
+  // Show confirmation dialog synchronously (blocks until user responds)
+  event.preventDefault();
+
+  const result = dialog.showMessageBoxSync({
+    type: "warning",
+    buttons: ["Cancel", "Quit"],
+    defaultId: 0,
+    cancelId: 0,
+    title: "Quit Transcription Agent",
+    message: "Are you sure you want to quit?",
+  });
+
+  if (result !== 1) return; // user clicked Cancel
+
+  // User confirmed — clean up and quit
+  isQuitting = true;
+  tray = null;
   unsubscribeLogs();
   stopHealthMonitoring();
-  await stopAll();
+  stopAll();
+  // Kill any leftover processes on our ports (safety net)
+  killProcessOnPort(5001);
+  killProcessOnPort(5010);
+  // Use exit() to force termination — quit() re-fires before-quit and
+  // on macOS window-all-closed won't terminate the app.
+  app.exit(0);
 });
 
 app.on("activate", () => {

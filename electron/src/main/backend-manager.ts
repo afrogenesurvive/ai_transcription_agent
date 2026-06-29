@@ -24,6 +24,27 @@ const PYTHON_BIN = IS_WIN ? "python" : "python3";
 /** Platform-aware Node binary name */
 const NODE_BIN = IS_WIN ? "node.exe" : "node";
 
+/** Kill any process listening on the given TCP port (macOS/Linux only). */
+export async function killProcessOnPort(port: number): Promise<void> {
+  if (IS_WIN) return; // taskkill-based cleanup in killProcess handles this
+  try {
+    const result = execSync(`lsof -ti:${port} -sTCP:LISTEN 2>/dev/null`, { encoding: "utf8", timeout: 3000 });
+    const pids = result.trim().split("\n").filter(Boolean).map(Number);
+    for (const pid of pids) {
+      try {
+        process.kill(pid, "SIGKILL");
+        console.log(`[backend] Killed stale process ${pid} on port ${port}`);
+      } catch {
+        // already gone
+      }
+    }
+    // Brief wait for the killed processes to release the port
+    if (pids.length > 0) await new Promise((r) => setTimeout(r, 500));
+  } catch {
+    // No process found on that port — great
+  }
+}
+
 function resourcePath(...segments: string[]): string {
   if (isProd) {
     return path.join(process.resourcesPath, ...segments);
@@ -78,6 +99,9 @@ async function waitForServer(url: string, timeoutMs = 15000): Promise<void> {
 }
 
 export async function startPythonBackend(port = 5001): Promise<void> {
+  // Clear any stale process on the target port first
+  await killProcessOnPort(port);
+
   const backendDir = resourcePath("python-backend");
   const pythonBin = resolvePythonBin(backendDir);
 
@@ -123,6 +147,9 @@ export async function stopPythonBackend(): Promise<void> {
 let bridgeProcess: ChildProcess | null = null;
 
 export async function startBridgeServer(bridgePort = 5010, pythonPort = 5001): Promise<void> {
+  // Clear any stale process on the target port first
+  await killProcessOnPort(bridgePort);
+
   const bridgeDir = resourcePath("bridge-server");
   const nodeBin = NODE_BIN;
 

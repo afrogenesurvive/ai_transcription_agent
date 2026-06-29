@@ -8,7 +8,7 @@
     "dev": "concurrently -n renderer,main,electron --kill-others \"npm run dev:renderer\" \"npm run watch:main\" \"npm run dev:electron\"",
     "dev:renderer": "vite",
     "watch:main": "tsc -p tsconfig.main.json --watch",
-    "dev:electron": "wait-on http://localhost:5173 dist/main/index.js && nodemon --watch dist/main --ext js --exec \"electron .\"",
+    "dev:electron": "wait-on http://localhost:5173 dist/main/index.js && electron .",
     "build": "tsc && vite build",
     "build:main": "tsc -p tsconfig.main.json",
     "start": "electron .",

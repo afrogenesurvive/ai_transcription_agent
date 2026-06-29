@@ -131,6 +131,38 @@ async def get_status(job_id: str):
     return s
 
 
+@app.get("/transcribe/active")
+async def get_active_jobs():
+    """List all jobs that haven't reached a terminal state."""
+    terminal_statuses = {"delivered", "failed", "not_found"}
+    active = []
+    for entry in os.scandir(config.STORAGE_PATH):
+        if not entry.is_dir():
+            continue
+        status_path = os.path.join(entry.path, "status.json")
+        if not os.path.exists(status_path):
+            continue
+        with open(status_path) as f:
+            status = json.load(f)
+        if status.get("status") in terminal_statuses:
+            continue
+        # Load metadata for display
+        metadata = {}
+        meta_path = os.path.join(entry.path, "metadata.json")
+        if os.path.exists(meta_path):
+            with open(meta_path) as f:
+                metadata = json.load(f)
+        active.append({
+            "job_id": status.get("job_id", entry.name),
+            "status": status.get("status", "unknown"),
+            "progress": status.get("progress", 0.0),
+            "title": metadata.get("title", "Untitled"),
+        })
+    active.sort(key=lambda j: j.get("progress", 0), reverse=True)
+    print(f"[api] GET /transcribe/active → {len(active)} active job(s)")
+    return {"active_jobs": active}
+
+
 @app.get("/transcribe/transcript/{job_id}")
 async def get_transcript(job_id: str, format: str = "json"):
     s = uploader.get_status(job_id)
