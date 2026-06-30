@@ -330,6 +330,23 @@ ipcMain.handle("agent-config:restart", async () => {
   }
 });
 
+// ── Storage Usage ──
+
+ipcMain.handle("storage:usage", async () => {
+  try {
+    const res = await fetch("http://127.0.0.1:5010/tools/call", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tool: "storage_usage", args: {} }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) return await res.json();
+    return { error: `Bridge returned ${res.status}` };
+  } catch (err: any) {
+    return { error: `Bridge unreachable: ${err.message}` };
+  }
+});
+
 // ── Log file browsing ──
 
 ipcMain.handle("logs:listFiles", () => {

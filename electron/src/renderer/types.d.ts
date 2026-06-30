@@ -62,6 +62,16 @@ export interface ConfigValueSource {
   source: "user_config" | "env_file" | "default";
 }
 
+export interface StorageUsage {
+  logs: { bytes: number; human: string };
+  history: { bytes: number; human: string; job_count: number };
+  chroma: { bytes: number; human: string };
+  databases: { bytes: number; human: string };
+  system: { bytes: number; human: string };
+  total: { bytes: number; human: string };
+  error?: string;
+}
+
 export interface ElectronAPI {
   selectAudioFile: () => Promise<string | null>;
   getBackendStatus: () => Promise<{ python: boolean; bridge: boolean; agent: boolean }>;
@@ -86,6 +96,7 @@ export interface ElectronAPI {
   listLogFiles: () => Promise<LogFileInfo[]>;
   readLogFile: (filePath: string, maxLines?: number) => Promise<string[]>;
   getLogPaths: () => Promise<{ primary: string | null; mirror: string | null }>;
+  getStorageUsage: () => Promise<StorageUsage>;
   platform: string;
 }
 

@@ -22,6 +22,7 @@ import StatusBar from "./components/StatusBar";
 import DevPanel from "./components/DevPanel";
 import ConfigPanel from "./components/ConfigPanel";
 import HistoryPanel from "./components/HistoryPanel";
+import StoragePanel from "./components/StoragePanel";
 import { useApi } from "./hooks/useApi";
 import { useJobStatus } from "./hooks/useJobStatus";
 import type { JobStatus } from "./types";
@@ -29,7 +30,7 @@ import type { JobStatus } from "./types";
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
 type View = "upload" | "processing" | "results";
-type SidebarView = "main" | "dev" | "config";
+type SidebarView = "main" | "dev" | "config" | "storage";
 
 export default function App() {
   const api = useApi();
@@ -252,25 +253,41 @@ export default function App() {
       <div className="app-body">
         <nav className="sidebar">
           <button
-            className={`sidebar-btn ${sidebarView === "main" ? "sidebar-btn--active" : ""}`}
-            onClick={() => setSidebarView("main")}
+            className={`sidebar-btn ${sidebarView === "main" && !showHistory ? "sidebar-btn--active" : ""}`}
+            onClick={() => {
+              setSidebarView("main");
+              setShowHistory(false);
+            }}
             title="Main view">
             <span className="sidebar-btn-icon">🏠</span>
             <span className="sidebar-btn-label">Main</span>
           </button>
           <button
-            className={`sidebar-btn ${showHistory ? "sidebar-btn--active" : ""}`}
+            className={`sidebar-btn ${showHistory && sidebarView === "main" ? "sidebar-btn--active" : ""}`}
             onClick={() => {
-              setShowHistory((v) => !v);
               setSidebarView("main");
+              setShowHistory((v) => !v);
             }}
             title="Job history">
             <span className="sidebar-btn-icon">📋</span>
             <span className="sidebar-btn-label">History</span>
           </button>
           <button
+            className={`sidebar-btn ${sidebarView === "storage" ? "sidebar-btn--active" : ""}`}
+            onClick={() => {
+              setSidebarView("storage");
+              setShowHistory(false);
+            }}
+            title="Storage usage">
+            <span className="sidebar-btn-icon">💾</span>
+            <span className="sidebar-btn-label">Storage</span>
+          </button>
+          <button
             className={`sidebar-btn ${sidebarView === "dev" ? "sidebar-btn--active" : ""}`}
-            onClick={() => setSidebarView("dev")}
+            onClick={() => {
+              setSidebarView("dev");
+              setShowHistory(false);
+            }}
             title="Developer tools">
             <span className="sidebar-btn-icon">🛠️</span>
             <span className="sidebar-btn-label">Dev</span>
@@ -279,6 +296,7 @@ export default function App() {
             className={`sidebar-btn ${sidebarView === "config" ? "sidebar-btn--active" : ""}`}
             onClick={() => {
               setSidebarView("config");
+              setShowHistory(false);
               window.electronAPI?.getConfigWithSources();
             }}
             title="Configuration">
@@ -353,6 +371,8 @@ export default function App() {
           )}
 
           {sidebarView === "dev" && <DevPanel onClose={() => setSidebarView("main")} />}
+
+          {sidebarView === "storage" && <StoragePanel onClose={() => setSidebarView("main")} />}
 
           {sidebarView === "config" && (
             <ConfigPanel

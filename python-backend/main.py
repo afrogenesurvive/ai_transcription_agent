@@ -236,8 +236,18 @@ async def get_status(job_id: str):
 
 @app.get("/transcribe/active")
 async def get_active_jobs():
-    """List all jobs that haven't reached a terminal state."""
-    terminal_statuses = {"delivered", "failed", "not_found"}
+    """List jobs actively running in the ML pipeline.
+
+    Only returns jobs whose status indicates the ML pipeline thread is
+    actively executing (diarization, ASR, alignment). Jobs that have
+    moved past the pipeline stage (refined, summarized, analyzed,
+    delivered, transcribed) or were never started (labeling_needed)
+    are not returned — they're handled by the agent runner separately.
+    """
+    ml_pipeline_statuses = {
+        "uploaded", "initializing", "processing_diarization",
+        "matching_voiceprints", "processing_transcription", "aligning",
+    }
     active = []
     for entry in os.scandir(config.STORAGE_PATH):
         if not entry.is_dir():
@@ -247,7 +257,8 @@ async def get_active_jobs():
             continue
         with open(status_path) as f:
             status = json.load(f)
-        if status.get("status") in terminal_statuses:
+        job_status = status.get("status", "")
+        if job_status not in ml_pipeline_statuses:
             continue
         # Load metadata for display
         metadata = {}
@@ -257,12 +268,12 @@ async def get_active_jobs():
                 metadata = json.load(f)
         active.append({
             "job_id": status.get("job_id", entry.name),
-            "status": status.get("status", "unknown"),
+            "status": job_status,
             "progress": status.get("progress", 0.0),
             "title": metadata.get("title", "Untitled"),
         })
     active.sort(key=lambda j: j.get("progress", 0), reverse=True)
-    print(f"[api] GET /transcribe/active → {len(active)} active job(s)")
+    print(f"[api] GET /transcribe/active → {len(active)} active ML job(s)")
     return {"active_jobs": active}
 
 
@@ -731,6 +742,105 @@ async def models_status():
 async def health():
     print(f"[api] GET /health")
     return {"status": "ok", "device": detect_device()}
+
+
+# ── Storage Usage ──
+
+def _dir_size(path: str) -> int:
+    """Recursively compute total size (bytes) of a directory."""
+    total = 0
+    try:
+        for entry in os.scandir(path):
+            if entry.is_file(follow_symlinks=False):
+                try:
+                    total += entry.stat().st_size
+                except OSError:
+                    pass
+            elif entry.is_dir(follow_symlinks=False):
+                total += _dir_size(entry.path)
+    except OSError:
+        pass
+    return total
+
+
+def _format_bytes(b: int) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if b < 1024:
+            return f"{b:.1f} {unit}"
+        b /= 1024
+    return f"{b:.1f} TB"
+
+
+@app.get("/storage/usage")
+async def storage_usage():
+    """Report disk usage breakdown: logs, history (job storage), system files, ChromaDB."""
+    base = config._BASE  # project root
+    storage_path = config.STORAGE_PATH
+
+    # Logs
+    logs_dir = os.path.join(storage_path, "logs")
+    logs_size = _dir_size(logs_dir) if os.path.exists(logs_dir) else 0
+
+    # ChromaDB vector store
+    chroma_dir = os.path.join(storage_path, "chroma")
+    chroma_size = _dir_size(chroma_dir) if os.path.exists(chroma_dir) else 0
+
+    # History — all job directories in storage/ (exclude logs, chroma, uploads)
+    history_size = 0
+    job_count = 0
+    if os.path.exists(storage_path):
+        for entry in os.scandir(storage_path):
+            if not entry.is_dir():
+                continue
+            name = entry.name
+            if name in ("logs", "chroma", "uploads", ".model_cache", "chroma_old"):
+                continue
+            # Check if it has a status.json (i.e. it's a job directory)
+            if os.path.exists(os.path.join(entry.path, "status.json")):
+                job_count += 1
+            history_size += _dir_size(entry.path)
+
+    # System — project source code (python-backend, agent-runner, bridge-server, electron, agent-config)
+    system_dirs = ["python-backend", "agent-runner", "bridge-server", "electron", "agent-config"]
+    system_size = 0
+    for d in system_dirs:
+        p = os.path.join(base, d)
+        if os.path.exists(p):
+            system_size += _dir_size(p)
+
+    # Also include other root-level files (package.json, scripts, etc.)
+    root_files_size = 0
+    if os.path.exists(base):
+        for entry in os.scandir(base):
+            if entry.is_file(follow_symlinks=False):
+                try:
+                    root_files_size += entry.stat().st_size
+                except OSError:
+                    pass
+
+    system_size += root_files_size
+
+    # Databases — ephemeral memory + voiceprint SQLite files at root of storage/
+    db_files = ["ephemeral_memory.db", "voiceprints.db"]
+    databases_size = 0
+    for fname in db_files:
+        fpath = os.path.join(storage_path, fname)
+        if os.path.isfile(fpath):
+            try:
+                databases_size += os.path.getsize(fpath)
+            except OSError:
+                pass
+
+    total = logs_size + history_size + system_size + chroma_size + databases_size
+
+    return {
+        "logs": {"bytes": logs_size, "human": _format_bytes(logs_size)},
+        "history": {"bytes": history_size, "human": _format_bytes(history_size), "job_count": job_count},
+        "chroma": {"bytes": chroma_size, "human": _format_bytes(chroma_size)},
+        "databases": {"bytes": databases_size, "human": _format_bytes(databases_size)},
+        "system": {"bytes": system_size, "human": _format_bytes(system_size)},
+        "total": {"bytes": total, "human": _format_bytes(total)},
+    }
 
 
 # ── Database browsing (for DevPanel) ──

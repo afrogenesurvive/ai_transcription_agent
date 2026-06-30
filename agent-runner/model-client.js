@@ -5,6 +5,7 @@
  * LLM_PROVIDER=ollama   (uses OLLAMA_BASE_URL + OLLAMA_MODEL)
  */
 
+import path from "path";
 import OpenAI from "openai";
 import { fileURLToPath } from "url";
 import { SYSTEM_PROMPT_TEMPLATE } from "./agent-config.js";

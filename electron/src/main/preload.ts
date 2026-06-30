@@ -69,6 +69,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   readLogFile: (filePath: string, maxLines?: number): Promise<string[]> => ipcRenderer.invoke("logs:readFile", filePath, maxLines),
   getLogPaths: (): Promise<{ primary: string | null; mirror: string | null }> => ipcRenderer.invoke("logs:getPaths"),
 
+  // ── Storage Usage ──
+  getStorageUsage: () => ipcRenderer.invoke("storage:usage"),
+
   // ── Platform ──
   platform: process.platform,
 });

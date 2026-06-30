@@ -216,6 +216,9 @@ async function dispatch(tool, args) {
     case "transcribe_models_status":
       return await callPython("GET", "/transcribe/models/status");
 
+    case "storage_usage":
+      return await callPython("GET", "/storage/usage");
+
     default:
       throw new Error(`Unknown tool: ${tool}`);
   }
