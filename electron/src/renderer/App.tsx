@@ -16,8 +16,8 @@
 
 import React, { useState, useCallback, useEffect } from "react";
 import UploadPanel from "./components/UploadPanel";
-import ProgressPanel from "./components/ProgressPanel";
-import TranscriptView from "./components/TranscriptView";
+import PipelineProgress from "./components/ProgressPanel";
+import ResultsViewer from "./components/ResultsViewer";
 import StatusBar from "./components/StatusBar";
 import DevPanel from "./components/DevPanel";
 import ConfigPanel from "./components/ConfigPanel";
@@ -33,6 +33,8 @@ export default function App() {
   const [view, setView] = useState<View>("upload");
   const [jobId, setJobId] = useState<string | null>(null);
   const [transcript, setTranscript] = useState<any>(null);
+  const [jobMetadata, setJobMetadata] = useState<any>(null);
+  const [statusData, setStatusData] = useState<any>(null);
   const [uploading, setUploading] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
   const [sidebarView, setSidebarView] = useState<SidebarView>("main");
@@ -42,8 +44,6 @@ export default function App() {
   useEffect(() => {
     window.electronAPI?.checkConfig().then((result) => {
       setConfigOk(result.ok);
-      // Auto-open config if missing required values
-      if (!result.ok) setConfigOpen(true);
     });
   }, []);
 
@@ -62,7 +62,18 @@ export default function App() {
     useCallback((id: string) => api.getStatus(id), [api]),
   );
 
-  // When polling completes, fetch transcript
+  // Track status data for progress display
+  React.useEffect(() => {
+    if (statusHook.data) {
+      setStatusData(statusHook.data);
+      // Store metadata from status once available
+      if (statusHook.data.metadata) {
+        setJobMetadata(statusHook.data.metadata);
+      }
+    }
+  }, [statusHook.data]);
+
+  // When polling completes, fetch transcript + summary + metadata
   React.useEffect(() => {
     if (statusHook.state === "complete" && jobId) {
       Promise.all([api.getTranscript(jobId), api.getSummary(jobId).catch(() => null)])
@@ -77,7 +88,6 @@ export default function App() {
         })
         .catch((err) => {
           setNotification(`Failed to load transcript: ${err.message}`);
-          // Still show the results view with whatever we have
           setView("results");
         });
     }
@@ -89,6 +99,7 @@ export default function App() {
     try {
       const result = await api.uploadAudio(file, title, attendees);
       setJobId(result.job_id);
+      setJobMetadata({ title, attendees });
       setView("processing");
       statusHook.startPolling();
     } catch (err: any) {
@@ -103,6 +114,8 @@ export default function App() {
     setView("upload");
     setJobId(null);
     setTranscript(null);
+    setJobMetadata(null);
+    setStatusData(null);
     statusHook.stopPolling();
   };
 
@@ -163,15 +176,15 @@ export default function App() {
               <div className="left-col">
                 {view === "upload" && <UploadPanel onUpload={handleUpload} uploading={uploading} />}
 
-                {(view === "processing" || view === "results") && statusHook.data && (
-                  <ProgressPanel status={statusHook.data.status} progress={statusHook.data.progress} error={statusHook.data.error} />
+                {(view === "processing" || view === "results") && statusData && (
+                  <PipelineProgress status={statusData.status} progress={statusData.progress} error={statusData.error} />
                 )}
 
-                {view === "results" && statusHook.state === "error" && (
+                {view === "results" && statusHook.state === "error" && !statusData && (
                   <div className="panel actions-panel">
                     <h2>❌ Processing Failed</h2>
                     <p className="error-box" style={{ marginBottom: 12 }}>
-                      {statusHook.data?.error || statusHook.error || "Unknown error"}
+                      {statusHook.error || "Unknown error"}
                     </p>
                     <button className="btn-primary" onClick={handleNew}>
                       Try Again
@@ -179,19 +192,31 @@ export default function App() {
                   </div>
                 )}
 
-                {view === "results" && statusHook.state !== "error" && (
+                {view === "results" && statusHook.state !== "error" && statusData?.status !== "failed" && (
                   <div className="panel actions-panel">
-                    <h2>Actions</h2>
-                    <p>Processing complete. The agent will now refine, summarize, and deliver the results.</p>
-                    <button className="btn-primary" onClick={handleNew}>
-                      Upload Another Meeting
-                    </button>
+                    <h2>What would you like to do next?</h2>
+                    <div className="rv-actions-grid">
+                      <button className="btn-primary" onClick={handleNew}>
+                        Upload Another Meeting
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
 
               <div className="right-col">
-                <TranscriptView segments={transcript?.transcript} summary={transcript?.summary} loading={view === "processing"} />
+                {view === "processing" && (
+                  <div className="panel transcript-panel">
+                    <h2>Transcript</h2>
+                    <p className="placeholder">
+                      Your results will appear here automatically once processing is complete. You&#39;ll be able to browse the full transcript,
+                      summary, and audio recording.
+                    </p>
+                  </div>
+                )}
+                {view === "results" && jobId && (
+                  <ResultsViewer jobId={jobId} segments={transcript?.transcript} summary={transcript?.summary} metadata={jobMetadata} />
+                )}
               </div>
             </>
           )}

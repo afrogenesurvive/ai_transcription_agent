@@ -1,0 +1,575 @@
+/**
+ * ResultsViewer — tabbed process viewer for completed transcription jobs.
+ *
+ * Tabs:
+ *   🔊 Audio     — Audio player for the original meeting recording
+ *   📝 Transcript — Speaker-labeled raw transcript with timestamps
+ *   📋 Summary    — Executive summary, key decisions, action items
+ *   📊 Analysis   — Topics, sentiment, entities, effectiveness
+ *   🪵 Logs       — Job-specific developer log files
+ */
+
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import type { TranscriptionSegment, AnalysisData } from "../types";
+
+const BRIDGE_URL = "http://127.0.0.1:5010";
+
+type TabId = "audio" | "transcript" | "summary" | "analysis" | "logs";
+
+interface Tab {
+  id: TabId;
+  label: string;
+  icon: string;
+}
+
+const TABS: Tab[] = [
+  { id: "audio", label: "Audio", icon: "🔊" },
+  { id: "transcript", label: "Transcript", icon: "📝" },
+  { id: "summary", label: "Summary", icon: "📋" },
+  { id: "analysis", label: "Analysis", icon: "📊" },
+  { id: "logs", label: "Logs", icon: "🪵" },
+];
+
+interface Props {
+  jobId: string;
+  segments?: TranscriptionSegment[];
+  summary?: {
+    executive_summary?: string;
+    key_decisions?: string[];
+    discussion_points?: string[];
+    action_items?: { description: string; assignee?: string; deadline?: string }[];
+  };
+  metadata?: {
+    title?: string;
+    attendees?: string[];
+    event_type?: string;
+  };
+}
+
+/* ── Helpers ── */
+
+const SPEAKER_COLORS = ["#4A90D9", "#E67E22", "#2ECC71", "#E74C3C", "#9B59B6", "#1ABC9C", "#F39C12", "#3498DB"];
+
+function speakerColor(speaker: string): string {
+  let hash = 0;
+  for (let i = 0; i < speaker.length; i++) {
+    hash = speaker.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return SPEAKER_COLORS[Math.abs(hash) % SPEAKER_COLORS.length];
+}
+
+function formatTime(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/* ── Tab: Audio ── */
+
+function AudioTab({ jobId, metadata }: { jobId: string; metadata?: Props["metadata"] }) {
+  const audioUrl = `http://127.0.0.1:5010/transcribe/audio/${jobId}`;
+  const [audioError, setAudioError] = useState(false);
+
+  return (
+    <div className="rv-tab-content rv-tab-content--audio">
+      <div className="rv-audio-header">
+        <h3>🎵 Meeting Recording</h3>
+        {metadata?.title && <span className="rv-audio-title">{metadata.title}</span>}
+      </div>
+
+      <div className="rv-audio-player-wrapper">
+        {!audioError ? (
+          <audio controls className="rv-audio-player" onError={() => setAudioError(true)} preload="metadata">
+            <source src={audioUrl} type="audio/wav" />
+            Your browser does not support the audio element.
+          </audio>
+        ) : (
+          <div className="rv-audio-error">
+            <span className="rv-audio-error-icon">⚠️</span>
+            <div>
+              <p>
+                <strong>Audio file unavailable</strong>
+              </p>
+              <p className="rv-muted">The standardized audio may not be accessible. Check that the backend is running.</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="rv-audio-info">
+        <p className="rv-muted">
+          Audio stream URL: <code className="rv-code">{audioUrl}</code>
+        </p>
+        {metadata?.attendees && metadata.attendees.length > 0 && <p className="rv-muted">Attendees: {metadata.attendees.join(", ")}</p>}
+      </div>
+    </div>
+  );
+}
+
+/* ── Tab: Transcript ── */
+
+function TranscriptTab({ segments }: { segments?: TranscriptionSegment[] }) {
+  const [searchTerm, setSearchTerm] = useState("");
+  const listRef = useRef<HTMLDivElement>(null);
+
+  const filtered = segments
+    ? searchTerm
+      ? segments.filter((s) => s.text.toLowerCase().includes(searchTerm.toLowerCase()) || s.speaker.toLowerCase().includes(searchTerm.toLowerCase()))
+      : segments
+    : [];
+
+  const handleJumpToTime = (seconds: number) => {
+    // Scroll to the segment
+    const el = document.getElementById(`seg-${seconds}`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+
+  if (!segments || segments.length === 0) {
+    return (
+      <div className="rv-tab-content">
+        <div className="rv-empty-state">
+          <span className="rv-empty-icon">📝</span>
+          <p>No transcript data available.</p>
+          <p className="rv-muted">The transcript will appear here once processing completes.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rv-tab-content rv-tab-content--transcript">
+      <div className="rv-transcript-toolbar">
+        <span className="rv-segment-count">
+          {filtered.length} segment{filtered.length !== 1 ? "s" : ""}
+        </span>
+        <div className="rv-search-box">
+          <span className="rv-search-icon">🔍</span>
+          <input
+            type="text"
+            placeholder="Search transcript…"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="rv-search-input"
+          />
+          {searchTerm && (
+            <button className="rv-search-clear" onClick={() => setSearchTerm("")}>
+              ✕
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="rv-segments" ref={listRef}>
+        {filtered.map((seg, i) => (
+          <div key={i} id={`seg-${seg.start}`} className="rv-segment" onClick={() => handleJumpToTime(seg.start)}>
+            <span className="rv-speaker-badge" style={{ backgroundColor: speakerColor(seg.speaker) }}>
+              {seg.speaker}
+            </span>
+            <span className="rv-timestamp">{formatTime(seg.start)}</span>
+            <span className="rv-text">{seg.text}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── Tab: Summary ── */
+
+function SummaryTab({ summary }: { summary?: Props["summary"] }) {
+  if (!summary || (!summary.executive_summary && !summary.key_decisions && !summary.action_items)) {
+    return (
+      <div className="rv-tab-content">
+        <div className="rv-empty-state">
+          <span className="rv-empty-icon">📋</span>
+          <p>No summary available yet.</p>
+          <p className="rv-muted">The agent will generate a summary after transcription completes.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rv-tab-content rv-tab-content--summary">
+      {summary.executive_summary && (
+        <div className="rv-summary-card">
+          <div className="rv-summary-card-header">
+            <span className="rv-summary-card-icon">📄</span>
+            <h3>Executive Summary</h3>
+          </div>
+          <p className="rv-summary-text">{summary.executive_summary}</p>
+        </div>
+      )}
+
+      {summary.discussion_points && summary.discussion_points.length > 0 && (
+        <div className="rv-summary-card">
+          <div className="rv-summary-card-header">
+            <span className="rv-summary-card-icon">💬</span>
+            <h3>Discussion Points</h3>
+          </div>
+          <ul className="rv-summary-list">
+            {summary.discussion_points.map((p, i) => (
+              <li key={i}>{p}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {summary.key_decisions && summary.key_decisions.length > 0 && (
+        <div className="rv-summary-card">
+          <div className="rv-summary-card-header">
+            <span className="rv-summary-card-icon">✅</span>
+            <h3>Key Decisions</h3>
+          </div>
+          <ul className="rv-summary-list rv-list--decisions">
+            {summary.key_decisions.map((d, i) => (
+              <li key={i}>{d}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {summary.action_items && summary.action_items.length > 0 && (
+        <div className="rv-summary-card">
+          <div className="rv-summary-card-header">
+            <span className="rv-summary-card-icon">📌</span>
+            <h3>Action Items</h3>
+          </div>
+          <ul className="rv-action-items">
+            {summary.action_items.map((a, i) => (
+              <li key={i}>
+                <label className="rv-action-checkbox">
+                  <input type="checkbox" />
+                  <span className="rv-action-text">
+                    <strong>{a.description}</strong>
+                    {a.assignee && <span className="rv-assignee"> — {a.assignee}</span>}
+                    {a.deadline && <span className="rv-deadline"> (due: {a.deadline})</span>}
+                  </span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Tab: Analysis ── */
+
+function AnalysisTab({ analysis }: { analysis: AnalysisData | null }) {
+  if (!analysis || Object.keys(analysis).length === 0) {
+    return (
+      <div className="rv-tab-content">
+        <div className="rv-empty-state">
+          <span className="rv-empty-icon">📊</span>
+          <p>No analysis data available.</p>
+          <p className="rv-muted">Analysis includes topics, sentiment, and key entities from the meeting.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rv-tab-content rv-tab-content--analysis">
+      <div className="rv-analysis-grid">
+        {analysis.topics && analysis.topics.length > 0 && (
+          <div className="rv-analysis-card">
+            <div className="rv-analysis-card-header">
+              <span className="rv-analysis-icon">🏷️</span>
+              <h3>Topics Discussed</h3>
+            </div>
+            <div className="rv-tag-list">
+              {analysis.topics.map((t, i) => (
+                <span key={i} className="rv-tag">
+                  {t}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {analysis.sentiment && (
+          <div className="rv-analysis-card">
+            <div className="rv-analysis-card-header">
+              <span className="rv-analysis-icon">💭</span>
+              <h3>Meeting Sentiment</h3>
+            </div>
+            <p className="rv-analysis-text">{analysis.sentiment}</p>
+          </div>
+        )}
+
+        {analysis.key_entities && analysis.key_entities.length > 0 && (
+          <div className="rv-analysis-card">
+            <div className="rv-analysis-card-header">
+              <span className="rv-analysis-icon">🔑</span>
+              <h3>Key Entities</h3>
+            </div>
+            <ul className="rv-entity-list">
+              {analysis.key_entities.map((e, i) => (
+                <li key={i}>{e}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {analysis.effectiveness && (
+          <div className="rv-analysis-card">
+            <div className="rv-analysis-card-header">
+              <span className="rv-analysis-icon">📈</span>
+              <h3>Meeting Effectiveness</h3>
+            </div>
+            <p className="rv-analysis-text">{analysis.effectiveness}</p>
+          </div>
+        )}
+
+        {analysis.follow_ups && analysis.follow_ups.length > 0 && (
+          <div className="rv-analysis-card">
+            <div className="rv-analysis-card-header">
+              <span className="rv-analysis-icon">🔜</span>
+              <h3>Follow-Ups</h3>
+            </div>
+            <ul className="rv-entity-list">
+              {analysis.follow_ups.map((f, i) => (
+                <li key={i}>{f}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── Tab: Logs ── */
+
+function LogsTab({ jobId }: { jobId: string }) {
+  const [logs, setLogs] = useState<string[]>([]);
+  const [jobLogFiles, setJobLogFiles] = useState<{ file: string; content: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedLogFile, setSelectedLogFile] = useState<string | null>(null);
+  const logRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchLogs = async () => {
+      try {
+        const res = await fetch(`${BRIDGE_URL}/tools/call`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tool: "transcribe_get_job_logs", args: { jobId, maxLines: 300 } }),
+        });
+        const data = await res.json();
+        if (!cancelled) {
+          setLogs(data.logs || []);
+          setJobLogFiles(data.job_logs || []);
+          setLoading(false);
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setError(err.message);
+          setLoading(false);
+        }
+      }
+    };
+    fetchLogs();
+    return () => {
+      cancelled = true;
+    };
+  }, [jobId]);
+
+  // Also try to get global log files via Electron IPC
+  const [electronLogFiles, setElectronLogFiles] = useState<any[]>([]);
+  useEffect(() => {
+    window.electronAPI
+      ?.listLogFiles()
+      .then((files) => {
+        setElectronLogFiles(files || []);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleReadElectronLog = async (filePath: string) => {
+    setSelectedLogFile(filePath);
+    const lines = (await window.electronAPI?.readLogFile(filePath, 500)) || [];
+    setLogs(lines);
+  };
+
+  if (loading) {
+    return (
+      <div className="rv-tab-content">
+        <div className="rv-empty-state">
+          <p>Loading logs…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="rv-tab-content">
+        <div className="rv-empty-state">
+          <span className="rv-empty-icon">❌</span>
+          <p>Failed to load logs: {error}</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rv-tab-content rv-tab-content--logs">
+      {/* Job-specific log files */}
+      {jobLogFiles.length > 0 && (
+        <div className="rv-logs-section">
+          <h4 className="rv-logs-section-title">📁 Job-Specific Files</h4>
+          <div className="rv-logs-file-list">
+            {jobLogFiles.map((jf, i) => (
+              <div key={i} className="rv-logs-file-item">
+                <span className="rv-logs-file-name">{jf.file}</span>
+                <pre className="rv-logs-pre">{jf.content}</pre>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Filtered pipeline logs */}
+      {logs.length > 0 && (
+        <div className="rv-logs-section">
+          <h4 className="rv-logs-section-title">🪵 Pipeline Logs (filtered for this job)</h4>
+          <div className="rv-logs-list" ref={logRef}>
+            {logs.map((line, i) => (
+              <div key={i} className="rv-log-line">
+                <span className="rv-log-line-num">{i + 1}</span>
+                <span className="rv-log-line-text">{line}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Global log file picker (from Electron) */}
+      {electronLogFiles.length > 0 && (
+        <div className="rv-logs-section">
+          <h4 className="rv-logs-section-title">📂 Global Log Files</h4>
+          <div className="rv-logs-file-browser">
+            {electronLogFiles.map((f) => (
+              <button
+                key={f.path}
+                className={`rv-logs-file-btn ${selectedLogFile === f.path ? "rv-logs-file-btn--active" : ""}`}
+                onClick={() => handleReadElectronLog(f.path)}>
+                <span className="rv-logs-file-btn-name">{f.name}</span>
+                <span className="rv-logs-file-btn-meta">{formatBytes(f.size)}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {logs.length === 0 && jobLogFiles.length === 0 && (
+        <div className="rv-empty-state">
+          <span className="rv-empty-icon">🪵</span>
+          <p>No log entries found for this job.</p>
+          <p className="rv-muted">Logs will appear here as the pipeline runs.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Main ResultsViewer ── */
+
+export default function ResultsViewer({ jobId, segments, summary, metadata }: Props) {
+  const [activeTab, setActiveTab] = useState<TabId>("summary");
+  const [analysis, setAnalysis] = useState<AnalysisData | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState(true);
+
+  // Fetch analysis data when the component mounts
+  useEffect(() => {
+    let cancelled = false;
+    const fetchAnalysis = async () => {
+      try {
+        const res = await fetch(`${BRIDGE_URL}/tools/call`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tool: "transcribe_get_analysis", args: { jobId } }),
+        });
+        const data = await res.json();
+        if (!cancelled) {
+          setAnalysis(data.analysis || data || null);
+          setAnalysisLoading(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setAnalysis(null);
+          setAnalysisLoading(false);
+        }
+      }
+    };
+    fetchAnalysis();
+    return () => {
+      cancelled = true;
+    };
+  }, [jobId]);
+
+  const tabMeta = TABS.find((t) => t.id === activeTab);
+
+  return (
+    <div className="rv-container">
+      {/* Tab navigation */}
+      <div className="rv-tabs">
+        {TABS.map((tab) => (
+          <button
+            key={tab.id}
+            className={`rv-tab ${activeTab === tab.id ? "rv-tab--active" : ""}`}
+            onClick={() => setActiveTab(tab.id)}
+            title={tab.label}>
+            <span className="rv-tab-icon">{tab.icon}</span>
+            <span className="rv-tab-label">{tab.label}</span>
+            {tab.id === "analysis" && analysisLoading && <span className="rv-tab-spinner" />}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab header with meta info */}
+      <div className="rv-panel-header">
+        <div className="rv-panel-header-left">
+          <h2 className="rv-panel-title">
+            {tabMeta?.icon} {tabMeta?.label}
+          </h2>
+          {metadata?.title && <span className="rv-panel-subtitle">{metadata.title}</span>}
+        </div>
+        <div className="rv-panel-header-right">
+          <span className="rv-job-badge" title="Job ID">
+            🆔 {jobId.slice(0, 8)}…
+          </span>
+        </div>
+      </div>
+
+      {/* Tab content */}
+      <div className="rv-body">
+        {activeTab === "audio" && <AudioTab jobId={jobId} metadata={metadata} />}
+        {activeTab === "transcript" && <TranscriptTab segments={segments} />}
+        {activeTab === "summary" && <SummaryTab summary={summary} />}
+        {activeTab === "analysis" &&
+          (analysisLoading ? (
+            <div className="rv-tab-content">
+              <div className="rv-empty-state">
+                <p>Loading analysis…</p>
+              </div>
+            </div>
+          ) : (
+            <AnalysisTab analysis={analysis} />
+          ))}
+        {activeTab === "logs" && <LogsTab jobId={jobId} />}
+      </div>
+    </div>
+  );
+}

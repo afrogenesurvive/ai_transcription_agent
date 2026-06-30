@@ -34,6 +34,14 @@ export interface LogEntry {
   message: string;
 }
 
+export interface AnalysisData {
+  topics?: string[];
+  sentiment?: string;
+  key_entities?: string[];
+  effectiveness?: string;
+  follow_ups?: string[];
+}
+
 export interface MemorySearchResult {
   id: string;
   score: number;

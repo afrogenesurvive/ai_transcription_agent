@@ -44,6 +44,32 @@ export function useApi() {
       return bridgeCall("transcribe_get_summary", { jobId }) as Promise<any>;
     },
 
+    /** Get analysis */
+    getAnalysis: async (jobId: string) => {
+      return bridgeCall("transcribe_get_analysis", { jobId }) as Promise<any>;
+    },
+
+    /** Get audio stream URL */
+    getAudioUrl: (jobId: string) => {
+      return `http://127.0.0.1:5010/transcribe/audio/${jobId}`;
+    },
+
+    /** Get job-specific logs */
+    getJobLogs: async (jobId: string, maxLines = 200) => {
+      return bridgeCall("transcribe_get_job_logs", { jobId, maxLines }) as Promise<{
+        logs: string[];
+        job_logs: { file: string; content: string }[];
+      }>;
+    },
+
+    /** Get job files listing */
+    getJobFiles: async (jobId: string) => {
+      return bridgeCall("transcribe_get_job_files", { jobId }) as Promise<{
+        job_id: string;
+        files: { name: string; size: number; mtime: number; type: string }[];
+      }>;
+    },
+
     /** Search semantic memory */
     searchMemory: async (query: string, nResults = 5) => {
       return bridgeCall("transcribe_search_memory", { query, nResults }) as Promise<{

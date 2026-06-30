@@ -401,6 +401,80 @@ async def memory_save_context(req: SaveMeetingContextRequest):
         raise HTTPException(500, f"Save context failed: {e}")
 
 
+@app.get("/transcribe/audio/{job_id}")
+async def get_audio(job_id: str):
+    """Serve the standardized WAV audio file for playback in the UI."""
+    from fastapi.responses import FileResponse
+    try:
+        audio_path = uploader.get_audio_path(job_id)
+        if not os.path.exists(audio_path):
+            raise HTTPException(404, "Audio file not found")
+        print(f"[api] GET /transcribe/audio/{job_id} → serving {audio_path}")
+        return FileResponse(audio_path, media_type="audio/wav", filename=f"{job_id}.wav")
+    except FileNotFoundError:
+        raise HTTPException(404, "Audio not found for job")
+    except Exception as e:
+        raise HTTPException(500, f"Failed to serve audio: {e}")
+
+
+@app.get("/transcribe/job_logs/{job_id}")
+async def get_job_logs(job_id: str, max_lines: int = 200):
+    """Return job-specific log lines from the global log files filtered by job_id."""
+    logs_dir = os.path.join(config.STORAGE_PATH, "logs")
+    matched_lines = []
+    if os.path.exists(logs_dir):
+        for fname in sorted(os.listdir(logs_dir), reverse=True)[:3]:
+            fpath = os.path.join(logs_dir, fname)
+            if not fname.endswith(".log"):
+                continue
+            try:
+                with open(fpath) as f:
+                    for line in f:
+                        if job_id in line:
+                            matched_lines.append(line.strip())
+            except Exception:
+                continue
+    # Also check the job directory itself for any logs
+    job_dir = os.path.join(config.STORAGE_PATH, job_id)
+    job_logs = []
+    if os.path.exists(job_dir):
+        for fname in os.listdir(job_dir):
+            if fname.endswith(".log") or fname.endswith(".txt"):
+                fpath = os.path.join(job_dir, fname)
+                try:
+                    with open(fpath) as f:
+                        content = f.read()
+                        job_logs.append({"file": fname, "content": content})
+                except Exception:
+                    continue
+    return {"logs": matched_lines[-max_lines:], "job_logs": job_logs}
+
+
+@app.get("/transcribe/job_files/{job_id}")
+async def get_job_files(job_id: str):
+    """List all files in a job's storage directory."""
+    job_dir = os.path.join(config.STORAGE_PATH, job_id)
+    if not os.path.exists(job_dir):
+        raise HTTPException(404, "Job directory not found")
+    files = []
+    for fname in os.listdir(job_dir):
+        fpath = os.path.join(job_dir, fname)
+        try:
+            stat = os.stat(fpath)
+            files.append({
+                "name": fname,
+                "size": stat.st_size,
+                "mtime": stat.st_mtime,
+                "type": "json" if fname.endswith(".json") else
+                        "audio" if fname.endswith((".wav", ".mp3", ".m4a")) else
+                        "text" if fname.endswith(".txt") else "other",
+            })
+        except Exception:
+            continue
+    files.sort(key=lambda f: f["name"])
+    return {"job_id": job_id, "files": files}
+
+
 @app.get("/health")
 async def health():
     print(f"[api] GET /health")

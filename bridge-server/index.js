@@ -168,6 +168,19 @@ async function dispatch(tool, args) {
     case "memory_semantic_meetings":
       return await callPython("GET", "/memory/semantic/meetings");
 
+    case "transcribe_get_audio":
+      // Returns the audio stream URL — frontend constructs the URL directly
+      return { url: `${PYTHON_API}/transcribe/audio/${args.jobId}` };
+
+    case "transcribe_get_analysis":
+      return await callPython("GET", `/transcribe/analysis/${args.jobId}`);
+
+    case "transcribe_get_job_logs":
+      return await callPython("GET", `/transcribe/job_logs/${args.jobId}?max_lines=${args.maxLines || 200}`);
+
+    case "transcribe_get_job_files":
+      return await callPython("GET", `/transcribe/job_files/${args.jobId}`);
+
     default:
       throw new Error(`Unknown tool: ${tool}`);
   }
@@ -204,6 +217,38 @@ const server = http.createServer(async (req, res) => {
       console.log(`[bridge] ← ${tool} OK (${elapsed}ms)`);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(result));
+    } else if (req.method === "GET" && url.pathname.startsWith("/transcribe/audio/")) {
+      // Proxy audio file serving — pipe through for streaming
+      const jobId = url.pathname.split("/").pop();
+      console.log(`[bridge] → GET /transcribe/audio/${jobId} (proxying audio stream)`);
+      const audioUrl = `${PYTHON_API}/transcribe/audio/${jobId}`;
+      const audioResp = await fetch(audioUrl);
+      if (!audioResp.ok) {
+        res.writeHead(audioResp.status);
+        res.end(JSON.stringify({ error: "Audio not found" }));
+        return;
+      }
+      const contentType = audioResp.headers.get("content-type") || "audio/wav";
+      res.writeHead(200, {
+        "Content-Type": contentType,
+        "Content-Disposition": `inline; filename="${jobId}.wav"`,
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "no-cache",
+      });
+      // Stream the audio data through
+      const reader = audioResp.body.getReader();
+      const pump = async () => {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          res.write(value);
+        }
+        res.end();
+      };
+      pump().catch((err) => {
+        console.error(`[bridge] Audio stream error: ${err.message}`);
+        res.end();
+      });
     } else if (req.method === "GET" && url.pathname === "/health") {
       console.log(`[bridge] GET /health`);
       res.writeHead(200, { "Content-Type": "application/json" });
