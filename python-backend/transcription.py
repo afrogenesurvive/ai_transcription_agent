@@ -28,10 +28,41 @@ This module does two independent ML tasks and then merges them:
      transcript ready for refinement and summarization.
 """
 
+import os
 import platform as sys_platform
 import warnings
 from typing import Optional
 from config import config
+
+
+def _is_network_error(exc: Exception) -> bool:
+    """Check if an exception is caused by a network connectivity issue.
+
+    Helps distinguish network failures (DNS, timeout, connection refused)
+    from genuine model errors (gated model, missing cache, corrupt file).
+    When a network error is detected, model loading retries with
+    local_files_only=True instead of crashing.
+    """
+    msg = str(exc).lower()
+    err_type = type(exc).__name__.lower()
+    # Check by exception type name
+    for keyword in ("connectionerror", "timeout", "maxretryerror",
+                    "nameresolutionerror", "connectionreseterror"):
+        if keyword in err_type:
+            return True
+    # Check by error message keywords
+    for keyword in ("connection refused", "connection reset",
+                    "name resolution", "nodename nor servname",
+                    "max retries exceeded", "failed to resolve",
+                    "connection timeout", "network unreachable",
+                    "host unreachable", "temporarily unavailable"):
+        if keyword in msg:
+            return True
+    # Check errno for OS-level network errors (macOS/Linux)
+    if isinstance(exc, OSError) and getattr(exc, 'errno', None) in (8, 51, 54, 57, 60, 61, 64, 65, 66):
+        return True
+    return False
+
 
 # ── speechbrain LazyModule workaround ──
 # speechbrain 1.0+ lazy imports crash when linecache.getattr(mod, '__file__') is
@@ -172,9 +203,22 @@ class TranscriptionEngine:
                 _torch.load = _permissive_load
 
                 device_for_model = _torch.device(self.device)
-                pipeline = Pipeline.from_pretrained(
-                    config.DIARIZATION_MODEL, use_auth_token=hf_token,
-                )
+                # Try online first so pyannote can check for model updates.
+                # Falls back to local cache on network errors (DNS, timeout, etc.).
+                try:
+                    pipeline = Pipeline.from_pretrained(
+                        config.DIARIZATION_MODEL, use_auth_token=hf_token,
+                    )
+                except Exception as _hub_err:
+                    if _is_network_error(_hub_err):
+                        print(f"[transcription] ⚠️  HuggingFace unreachable ({_hub_err}). "
+                              f"Falling back to local cache...")
+                        pipeline = Pipeline.from_pretrained(
+                            config.DIARIZATION_MODEL, use_auth_token=hf_token,
+                            local_files_only=True,
+                        )
+                    else:
+                        raise
                 if pipeline is None:
                     raise RuntimeError(
                         f"Model '{config.DIARIZATION_MODEL}' returned None — "
@@ -190,9 +234,21 @@ class TranscriptionEngine:
                     try:
                         # Re-apply patch (finally block restores original)
                         _torch.load = _permissive_load
-                        pipeline_cpu = Pipeline.from_pretrained(
-                            config.DIARIZATION_MODEL, use_auth_token=hf_token,
-                        )
+                        # Try online first; fall back to local cache on network error
+                        try:
+                            pipeline_cpu = Pipeline.from_pretrained(
+                                config.DIARIZATION_MODEL, use_auth_token=hf_token,
+                            )
+                        except Exception as _cpu_hub_err:
+                            if _is_network_error(_cpu_hub_err):
+                                print(f"[transcription] ⚠️  HuggingFace unreachable on CPU fallback, "
+                                      f"using local cache...")
+                                pipeline_cpu = Pipeline.from_pretrained(
+                                    config.DIARIZATION_MODEL, use_auth_token=hf_token,
+                                    local_files_only=True,
+                                )
+                            else:
+                                raise
                         if pipeline_cpu:
                             pipeline_cpu.to(_torch.device("cpu"))
                             self._diarization = pipeline_cpu

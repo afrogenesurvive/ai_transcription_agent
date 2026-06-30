@@ -80,6 +80,9 @@ export interface ElectronAPI {
   saveConfig: (values: Record<string, string>) => Promise<Record<string, string>>;
   checkConfig: () => Promise<{ ok: boolean; missing: string[] }>;
   getConfigWithSources: () => Promise<Record<string, ConfigValueSource>>;
+  getAgentConfig: () => Promise<{ tools?: any; pipeline?: any; systemPrompt?: string; error?: string }>;
+  saveAgentConfig: (config: { tools?: any; pipeline?: any; systemPrompt?: string }) => Promise<{ success?: boolean; error?: string }>;
+  restartAgent: () => Promise<{ success?: boolean; error?: string }>;
   listLogFiles: () => Promise<LogFileInfo[]>;
   readLogFile: (filePath: string, maxLines?: number) => Promise<string[]>;
   getLogPaths: () => Promise<{ primary: string | null; mirror: string | null }>;

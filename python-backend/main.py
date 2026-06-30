@@ -71,6 +71,35 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from config import config
+
+
+def _is_network_error(exc: Exception) -> bool:
+    """Check if an exception is caused by a network connectivity issue.
+
+    Distinguishes network failures (DNS, timeout, connection refused)
+    from genuine model errors (gated model, missing cache). When a
+    network error is detected, model loading retries with
+    local_files_only=True instead of crashing.
+    """
+    msg = str(exc).lower()
+    err_type = type(exc).__name__.lower()
+    for keyword in ("connectionerror", "timeout", "maxretryerror",
+                    "nameresolutionerror", "connectionreseterror"):
+        if keyword in err_type:
+            return True
+    for keyword in ("connection refused", "connection reset",
+                    "name resolution", "nodename nor servname",
+                    "max retries exceeded", "failed to resolve",
+                    "connection timeout", "network unreachable",
+                    "host unreachable", "temporarily unavailable"):
+        if keyword in msg:
+            return True
+    if isinstance(exc, OSError) and getattr(exc, 'errno', None) in (8, 51, 54, 57, 60, 61, 64, 65, 66):
+        return True
+    return False
+
+
+
 from upload import AudioUploader
 from voiceprint import VoiceprintManager
 from transcription import TranscriptionEngine, detect_device
@@ -645,9 +674,22 @@ async def models_status():
                     return _orig_load(f, *a, **kw)
                 _torch.load = _permissive_load
 
-                pipeline = Pipeline.from_pretrained(
-                    config.DIARIZATION_MODEL, use_auth_token=hf_token,
-                )
+                # Try online first so pyannote can check for model updates.
+                # Falls back to local cache on network errors (DNS, timeout, etc.).
+                try:
+                    pipeline = Pipeline.from_pretrained(
+                        config.DIARIZATION_MODEL, use_auth_token=hf_token,
+                    )
+                except Exception as _hub_err:
+                    if _is_network_error(_hub_err):
+                        print(f"[models_status] ⚠️  HuggingFace unreachable ({_hub_err}). "
+                              f"Falling back to local cache...")
+                        pipeline = Pipeline.from_pretrained(
+                            config.DIARIZATION_MODEL, use_auth_token=hf_token,
+                            local_files_only=True,
+                        )
+                    else:
+                        raise
                 if pipeline is None:
                     result["diarization_error"] = (
                         f"Model '{config.DIARIZATION_MODEL}' returned None — "

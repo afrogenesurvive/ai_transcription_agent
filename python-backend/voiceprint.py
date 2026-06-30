@@ -26,6 +26,26 @@ from typing import List, Optional, Dict
 from config import config
 
 
+def _is_network_error(exc: Exception) -> bool:
+    """Check if an exception is caused by a network connectivity issue."""
+    msg = str(exc).lower()
+    err_type = type(exc).__name__.lower()
+    for keyword in ("connectionerror", "timeout", "maxretryerror",
+                    "nameresolutionerror", "connectionreseterror"):
+        if keyword in err_type:
+            return True
+    for keyword in ("connection refused", "connection reset",
+                    "name resolution", "nodename nor servname",
+                    "max retries exceeded", "failed to resolve",
+                    "connection timeout", "network unreachable",
+                    "host unreachable", "temporarily unavailable"):
+        if keyword in msg:
+            return True
+    if isinstance(exc, OSError) and getattr(exc, 'errno', None) in (8, 51, 54, 57, 60, 61, 64, 65, 66):
+        return True
+    return False
+
+
 class VoiceprintManager:
     def __init__(self, db_path: Optional[str] = None):
         self.db_path = db_path or config.VOICEPRINT_DB
@@ -75,7 +95,22 @@ class VoiceprintManager:
             # Inference model: takes audio → outputs embedding vector
             # window="whole" means process the full segment at once (not sliding)
             print(f"[voiceprint] Loading embedding model ({config.EMBEDDING_MODEL})...")
-            self._embedding_model = Inference(config.EMBEDDING_MODEL, window="whole")
+            # Try online first so pyannote can check for model updates.
+            # Falls back to local cache on network errors.
+            try:
+                self._embedding_model = Inference(
+                    config.EMBEDDING_MODEL, window="whole",
+                )
+            except Exception as _hub_err:
+                if _is_network_error(_hub_err):
+                    print(f"[voiceprint] ⚠️  HuggingFace unreachable ({_hub_err}). "
+                          f"Falling back to local cache...")
+                    self._embedding_model = Inference(
+                        config.EMBEDDING_MODEL, window="whole",
+                        local_files_only=True,
+                    )
+                else:
+                    raise
             print(f"[voiceprint] Embedding model loaded")
 
         if segment:

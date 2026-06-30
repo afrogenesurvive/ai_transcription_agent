@@ -11,9 +11,21 @@
 
 import "dotenv/config";
 import http from "http";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PYTHON_API = process.env.PYTHON_API_URL || "http://127.0.0.1:5001";
 const BRIDGE_PORT = parseInt(process.env.BRIDGE_PORT || "5010", 10);
+
+// Resolve agent-config directory (same logic as agent-runner/agent-config.js)
+const CONFIG_DIR_CANDIDATES = [
+  path.resolve(__dirname, "..", "agent-config"),
+  path.resolve(__dirname, "..", "..", "agent-config"),
+  path.resolve(__dirname, "agent-config"),
+];
+const AGENT_CONFIG_DIR = CONFIG_DIR_CANDIDATES.find((d) => fs.existsSync(d)) || path.resolve(__dirname, "..", "agent-config");
 
 // ── Sanitize (Tier 1 — mandatory for all proxied responses) ──
 
@@ -54,11 +66,22 @@ async function callPython(method, path, body = null) {
   console.log(`[bridge]   → Python ${method} ${path}`);
   const startTime = Date.now();
   const resp = await fetch(url, opts);
-  const data = await resp.json();
+  const text = await resp.text();
   const elapsed = Date.now() - startTime;
+
+  // Parse response — defensive in case it's an error page, not JSON
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = { error: text };
+  }
+
   if (!resp.ok) {
     console.error(`[bridge]   ← Python ${resp.status} (${elapsed}ms): ${JSON.stringify(data)}`);
-    throw new Error(`Python ${resp.status}: ${JSON.stringify(data)}`);
+    // Extract a clean message from Python's HTTPException body
+    const detail = data.detail || data.error || data.message || JSON.stringify(data);
+    throw new Error(detail);
   }
   console.log(`[bridge]   ← Python ${resp.status} (${elapsed}ms)`);
   return data;
@@ -184,6 +207,9 @@ async function dispatch(tool, args) {
     case "transcribe_cancel":
       return await callPython("POST", `/transcribe/cancel/${args.jobId}`);
 
+    case "transcribe_active":
+      return await callPython("GET", "/transcribe/active");
+
     case "transcribe_history":
       return await callPython("GET", "/transcribe/history");
 
@@ -305,6 +331,101 @@ const server = http.createServer(async (req, res) => {
       console.log(`[bridge] GET /health`);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ status: "ok", pythonApi: PYTHON_API }));
+
+      // ── Agent Config CRUD ──
+    } else if (req.method === "GET" && url.pathname === "/agent/config") {
+      console.log(`[bridge] GET /agent/config`);
+      const toolsPath = path.join(AGENT_CONFIG_DIR, "tools.json");
+      const pipelinePath = path.join(AGENT_CONFIG_DIR, "pipeline.json");
+      const promptPath = path.join(AGENT_CONFIG_DIR, "system-prompt.md");
+      const tools = fs.existsSync(toolsPath) ? JSON.parse(fs.readFileSync(toolsPath, "utf8")) : null;
+      const pipeline = fs.existsSync(pipelinePath) ? JSON.parse(fs.readFileSync(pipelinePath, "utf8")) : null;
+      const systemPrompt = fs.existsSync(promptPath) ? fs.readFileSync(promptPath, "utf8") : null;
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ tools, pipeline, systemPrompt }));
+    } else if (req.method === "POST" && url.pathname === "/agent/config") {
+      console.log(`[bridge] POST /agent/config`);
+
+      // ── Guard: reject if any pipeline stage is active ──
+      // Agent config changes require a runner restart, which would interrupt
+      // in-flight diarization, transcription, summarization, or delivery.
+      // Check the Python backend for non-terminal jobs first.
+      try {
+        const activeResp = await fetch(`${PYTHON_API}/transcribe/active`, {
+          signal: AbortSignal.timeout(3000),
+        });
+        if (activeResp.ok) {
+          const activeData = await activeResp.json();
+          const activeJobs = activeData.active_jobs || [];
+          if (activeJobs.length > 0) {
+            const jobList = activeJobs.map((j) => `"${j.title || j.job_id}" (${j.status})`).join(", ");
+            console.log(`[bridge]   ⛔ Active jobs detected: ${jobList}`);
+            res.writeHead(409, { "Content-Type": "application/json" });
+            res.end(
+              JSON.stringify({
+                error: `Cannot edit agent instructions while jobs are running (${activeJobs.length} active: ${jobList}). Wait for all jobs to complete, then try again.`,
+                active_jobs: activeJobs,
+              }),
+            );
+            return;
+          }
+        }
+      } catch {
+        // If we can't reach Python, allow the write (the user may be fixing config)
+        console.log(`[bridge]   ⚠️  Could not check active jobs — proceeding`);
+      }
+
+      try {
+        const { tools, pipeline, systemPrompt } = JSON.parse(body);
+
+        if (tools !== undefined) {
+          const toolsPath = path.join(AGENT_CONFIG_DIR, "tools.json");
+          fs.writeFileSync(toolsPath + ".tmp", JSON.stringify(tools, null, 2), "utf8");
+          fs.renameSync(toolsPath + ".tmp", toolsPath);
+          console.log(`[bridge]   tools.json written (${tools.length} tools)`);
+        }
+        if (pipeline !== undefined) {
+          const pipelinePath = path.join(AGENT_CONFIG_DIR, "pipeline.json");
+          fs.writeFileSync(pipelinePath + ".tmp", JSON.stringify(pipeline, null, 2), "utf8");
+          fs.renameSync(pipelinePath + ".tmp", pipelinePath);
+          console.log(`[bridge]   pipeline.json written`);
+        }
+        if (systemPrompt !== undefined) {
+          const promptPath = path.join(AGENT_CONFIG_DIR, "system-prompt.md");
+          fs.writeFileSync(promptPath + ".tmp", systemPrompt, "utf8");
+          fs.renameSync(promptPath + ".tmp", promptPath);
+          console.log(`[bridge]   system-prompt.md written`);
+        }
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            success: true,
+            written: { tools: tools !== undefined, pipeline: pipeline !== undefined, systemPrompt: systemPrompt !== undefined },
+          }),
+        );
+      } catch (err) {
+        console.error(`[bridge] POST /agent/config error: ${err.message}`);
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: `Failed to write config: ${err.message}` }));
+      }
+    } else if (req.method === "POST" && url.pathname === "/agent/config/restart") {
+      // Touch a restart-flag file so the Electron main process (or a watcher) can
+      // detect that the agent runner needs to be restarted to pick up new config.
+      console.log(`[bridge] POST /agent/config/restart`);
+      try {
+        const flagPath = path.join(AGENT_CONFIG_DIR, ".restart-flag");
+        const restartPid = body ? JSON.parse(body).pid : null;
+        const flag = JSON.stringify({ timestamp: new Date().toISOString(), pid: restartPid });
+        fs.writeFileSync(flagPath, flag, "utf8");
+        console.log(`[bridge]   .restart-flag written`);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true, message: "Agent runner restart flagged" }));
+      } catch (err) {
+        console.error(`[bridge] POST /agent/config/restart error: ${err.message}`);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: `Failed to flag restart: ${err.message}` }));
+      }
     } else {
       console.log(`[bridge] 404 ${req.method} ${url.pathname}`);
       res.writeHead(404);

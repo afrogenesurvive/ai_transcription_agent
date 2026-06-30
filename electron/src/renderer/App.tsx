@@ -50,6 +50,7 @@ export default function App() {
   // Fetch diarization model status on mount
   useEffect(() => {
     let cancelled = false;
+    let isFirstCheck = true;
     const checkModel = async () => {
       try {
         const res = await fetch(`${BRIDGE_URL}/tools/call`, {
@@ -59,7 +60,18 @@ export default function App() {
         });
         if (res.ok) {
           const data = await res.json();
-          if (!cancelled) setDiarizationAvailable(data.diarization_available);
+          if (!cancelled) {
+            setDiarizationAvailable(data.diarization_available);
+            // Show notification on first check if diarization model is unavailable
+            if (isFirstCheck && !data.diarization_available) {
+              const reason = data.diarization_error
+                ? `Diarization model unavailable: ${data.diarization_error.slice(0, 120)}`
+                : "Diarization model unavailable — speaker identification will be limited";
+              setNotification(reason);
+              setTimeout(() => setNotification(null), 8000);
+            }
+            isFirstCheck = false;
+          }
         }
       } catch {
         /* backend not reachable */
@@ -75,8 +87,13 @@ export default function App() {
 
   // Check config on mount
   useEffect(() => {
-    window.electronAPI?.checkConfig().then((result) => {
+    window.electronAPI?.checkConfig().then((result: { ok: boolean; missing: string[] }) => {
       setConfigOk(result.ok);
+      if (!result.ok) {
+        const items = result.missing?.length ? result.missing.join(", ") : "DEEPSEEK_API_KEY or Ollama";
+        setNotification(`Config incomplete: missing ${items}`);
+        setTimeout(() => setNotification(null), 8000);
+      }
     });
   }, []);
 
@@ -123,6 +140,16 @@ export default function App() {
           setNotification(`Failed to load transcript: ${err.message}`);
           setView("results");
         });
+    }
+
+    // When polling detects a failed status or network error — show notification
+    if (statusHook.state === "error" && jobId) {
+      // Use the backend's error message if available, otherwise the network error
+      const errMsg = statusHook.data?.error || statusHook.error || "Processing failed — check the Logs tab for details";
+      setNotification(errMsg);
+      setTimeout(() => setNotification(null), 10000);
+      // Transition to results view so the user can see the error + logs
+      setView("results");
     }
   }, [statusHook.state, jobId, api]);
 

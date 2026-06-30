@@ -27,7 +27,16 @@ export function useApi() {
       const res = await fetch(`${BRIDGE_URL}/transcribe/upload`, { method: "POST", body: formData });
       if (!res.ok) {
         const errBody = await res.text().catch(() => "");
-        throw new Error(`Upload error: ${res.status}${errBody ? ` — ${errBody}` : ""}`);
+        // Try to extract a clean detail message from Python's HTTPException JSON
+        let cleanMsg = errBody;
+        try {
+          const parsed = JSON.parse(errBody);
+          if (parsed.detail) cleanMsg = parsed.detail;
+          else if (parsed.error) cleanMsg = parsed.error;
+        } catch {
+          /* not JSON — use raw text */
+        }
+        throw new Error(cleanMsg);
       }
       return res.json() as Promise<{ job_id: string; status: string }>;
     },

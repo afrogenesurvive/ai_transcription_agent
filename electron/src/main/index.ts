@@ -9,6 +9,7 @@
  *   - File dialog IPC for audio selection
  */
 
+import fs from "fs";
 import { app, BrowserWindow, Tray, Menu, nativeImage, Notification, ipcMain, dialog } from "electron";
 import path from "path";
 import {
@@ -271,6 +272,64 @@ ipcMain.handle("config:getWithSources", () => {
   return getConfigWithSources();
 });
 
+// ── Agent Config IPC ──
+
+ipcMain.handle("agent-config:get", async () => {
+  try {
+    const res = await fetch("http://127.0.0.1:5010/agent/config", {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (res.ok) return await res.json();
+    return { error: `Bridge returned ${res.status}` };
+  } catch (err: any) {
+    return { error: `Bridge unreachable: ${err.message}` };
+  }
+});
+
+ipcMain.handle("agent-config:save", async (_event, config: { tools?: any; pipeline?: any; systemPrompt?: string }) => {
+  addLog("main", "info", "Agent config saving...");
+  try {
+    const res = await fetch("http://127.0.0.1:5010/agent/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(config),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) {
+      const result = await res.json();
+      addLog("main", "info", "Agent config saved");
+      return result;
+    }
+    const errText = await res.text();
+    addLog("main", "error", `Agent config save failed: ${errText}`);
+    return { error: `Bridge returned ${res.status}: ${errText}` };
+  } catch (err: any) {
+    addLog("main", "error", `Agent config save failed: ${err.message}`);
+    return { error: `Bridge unreachable: ${err.message}` };
+  }
+});
+
+ipcMain.handle("agent-config:restart", async () => {
+  addLog("main", "info", "Flagging agent runner restart...");
+  try {
+    // Touch the restart flag via the bridge
+    const res = await fetch("http://127.0.0.1:5010/agent/config/restart", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+      signal: AbortSignal.timeout(3000),
+    });
+    if (res.ok) {
+      addLog("main", "info", "Agent runner restart flagged via bridge");
+      return { success: true };
+    }
+    return { error: `Bridge returned ${res.status}` };
+  } catch (err: any) {
+    addLog("main", "error", `Failed to flag restart: ${err.message}`);
+    return { error: `Bridge unreachable: ${err.message}` };
+  }
+});
+
 // ── Log file browsing ──
 
 ipcMain.handle("logs:listFiles", () => {
@@ -306,6 +365,40 @@ app.whenReady().then(async () => {
 
   // Start periodic health monitoring
   startHealthMonitoring();
+
+  // ── Watch agent-config restart flag ──
+  // When the bridge touches agent-config/.restart-flag (via POST /agent/config/restart),
+  // restart the agent runner so it picks up new tool/pipeline config.
+  const agentConfigDir = (() => {
+    const candidates = [path.join(app.getAppPath(), "..", "agent-config"), path.join(app.getAppPath(), "agent-config")];
+    if (app.isPackaged) {
+      candidates.unshift(path.join(process.resourcesPath, "agent-config"));
+    }
+    return candidates.find((d) => fs.existsSync(d)) || candidates[0];
+  })();
+
+  const restartFlagPath = path.join(agentConfigDir, ".restart-flag");
+  if (fs.existsSync(agentConfigDir)) {
+    try {
+      fs.watch(restartFlagPath, (_eventType) => {
+        addLog("main", "info", "Agent restart flag detected — restarting runner");
+        // Debounce: remove the flag immediately so repeated firings don't loop
+        try {
+          fs.unlinkSync(restartFlagPath);
+        } catch {
+          /* ok */
+        }
+        restartAgentRunner().catch((err: any) => {
+          addLog("main", "error", `Agent restart failed: ${err.message}`);
+        });
+      });
+      addLog("main", "info", `Watching restart flag: ${restartFlagPath}`);
+    } catch {
+      addLog("main", "warn", "Could not watch restart flag (non-fatal)");
+    }
+  } else {
+    addLog("main", "debug", `agent-config dir not found at ${agentConfigDir} (restart watcher deferred)`);
+  }
 
   // Then start backend services
   try {

@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "JSON Schema validating agent-config/tools.json and agent-config/pipeline.json for UI editing",
+  "definitions": {
+    "tool": {
+      "type": "object",
+      "required": ["name", "description", "terminal", "handler", "inputSchema"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z_]+$", "description": "Unique tool identifier, lowercase with underscores" },
+        "description": { "type": "string", "maxLength": 500, "description": "Short description shown to the LLM" },
+        "terminal": { "type": "boolean", "description": "If true, calling this tool ends the pipeline" },
+        "handler": {
+          "type": "string",
+          "enum": ["bridge", "direct"],
+          "description": "Execution method: 'bridge' proxies to Python backend, 'direct' calls external APIs"
+        },
+        "inputSchema": { "type": "object", "description": "JSON Schema defining the tool's arguments (OpenAI function-calling format)" }
+      }
+    },
+    "pipeline_hints": {
+      "type": "object",
+      "patternProperties": {
+        "^[a-z_]+$": { "type": "string", "maxLength": 500 }
+      },
+      "additionalProperties": false
+    },
+    "event_templates": {
+      "type": "object",
+      "properties": {
+        "ready_for_processing": { "type": "string", "maxLength": 2000 },
+        "labeling_needed": { "type": "string", "maxLength": 2000 },
+        "failed": { "type": "string", "maxLength": 2000 }
+      },
+      "required": ["ready_for_processing", "labeling_needed", "failed"]
+    }
+  }
+}
