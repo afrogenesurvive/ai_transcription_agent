@@ -184,6 +184,9 @@ async function dispatch(tool, args) {
     case "transcribe_cancel":
       return await callPython("POST", `/transcribe/cancel/${args.jobId}`);
 
+    case "transcribe_history":
+      return await callPython("GET", "/transcribe/history");
+
     case "transcribe_models_status":
       return await callPython("GET", "/transcribe/models/status");
 

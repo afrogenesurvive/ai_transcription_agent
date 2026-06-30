@@ -33,13 +33,6 @@ import warnings
 from typing import Optional
 from config import config
 
-# Suppress torchaudio deprecation warnings from pyannote/speechbrain.
-# These are harmless but clutter stderr in the Electron logs.
-warnings.filterwarnings(
-    "ignore",
-    message="torchaudio._backend.list_audio_backends has been deprecated",
-)
-
 # ── speechbrain LazyModule workaround ──
 # speechbrain 1.0+ lazy imports crash when linecache.getattr(mod, '__file__') is
 # called by inspect.stack() → traceback during pytorch_lightning import. Patch
@@ -54,6 +47,43 @@ try:
     _sb_utils.LazyModule.__getattr__ = _safe_lazy_getattr
 except Exception:
     pass  # speechbrain may not be installed yet
+
+# ── pyannote.audio torchaudio compat patch ──
+# pyannote.audio uses torchaudio.info(backend=...) and torchaudio.list_audio_backends()
+# — both deprecated since torchaudio 2.5+ and scheduled for removal in torchaudio 2.9.
+# When removed, pyannote will crash.
+#
+# Since all pipeline audio is standardized to 16kHz mono WAV, we bypass torchaudio
+# entirely for file info and hardcode the backend to "soundfile".
+#
+# IMPORTANT: torchaudio.list_audio_backends must be patched BEFORE any pyannote
+# import, because pyannote.audio.utils.protocol creates Audio(mono="downmix") at
+# module level, triggering the deprecated path during import.
+import soundfile
+import torchaudio as _torchaudio
+_torchaudio.list_audio_backends = lambda: ["soundfile"]
+
+try:
+    import pyannote.audio.core.io as _pyannote_io
+
+    class _SafeAudioMetaData:
+        """Duck-typed replacement for torchaudio.AudioMetaData.
+        Avoids the in-place deprecation wrapper on torchaudio's AudioMetaData.__init__."""
+        def __init__(self, sample_rate, num_frames, num_channels):
+            self.sample_rate = sample_rate
+            self.num_frames = num_frames
+            self.num_channels = num_channels
+            self.bits_per_sample = 0
+            self.encoding = "PCM_S"
+
+    def _patched_get_torchaudio_info(file, backend=None):
+        sinfo = soundfile.info(file["audio"])
+        return _SafeAudioMetaData(sinfo.samplerate, sinfo.frames, sinfo.channels)
+    _pyannote_io.get_torchaudio_info = _patched_get_torchaudio_info
+
+    print("[startup] ✅ Patched pyannote.audio → soundfile (avoids torchaudio deprecations)")
+except Exception:
+    pass  # pyannote may not be installed yet
 
 
 def detect_platform() -> str:

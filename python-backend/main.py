@@ -12,13 +12,6 @@ import json
 import threading
 import warnings
 
-# Suppress torchaudio deprecation warnings from pyannote.audio and speechbrain.
-# These are harmless but clutter stderr in the Electron logs.
-warnings.filterwarnings(
-    "ignore",
-    message="torchaudio._backend.list_audio_backends has been deprecated",
-)
-
 # ── speechbrain LazyModule workaround ──
 # speechbrain 1.0+ uses lazy imports for optional integrations (k2, flair, etc.).
 # When PyTorch Lightning calls inspect.stack() → linecache → getattr(mod, '__file__'),
@@ -35,6 +28,43 @@ try:
     _sb_utils.LazyModule.__getattr__ = _safe_lazy_getattr
 except Exception:
     pass  # speechbrain may not be installed yet
+
+# ── pyannote.audio torchaudio compat patch ──
+# pyannote.audio uses torchaudio.info(backend=...) and torchaudio.list_audio_backends()
+# — both deprecated since torchaudio 2.5+ and scheduled for removal in torchaudio 2.9.
+# When removed, pyannote will crash.
+#
+# Since all pipeline audio is standardized to 16kHz mono WAV, we bypass torchaudio
+# entirely for file info and hardcode the backend to "soundfile".
+#
+# IMPORTANT: torchaudio.list_audio_backends must be patched BEFORE any pyannote
+# import, because pyannote.audio.utils.protocol creates Audio(mono="downmix") at
+# module level, triggering the deprecated path during import.
+import soundfile
+import torchaudio as _torchaudio
+_torchaudio.list_audio_backends = lambda: ["soundfile"]
+
+try:
+    import pyannote.audio.core.io as _pyannote_io
+
+    class _SafeAudioMetaData:
+        """Duck-typed replacement for torchaudio.AudioMetaData.
+        Avoids the in-place deprecation wrapper on torchaudio's AudioMetaData.__init__."""
+        def __init__(self, sample_rate, num_frames, num_channels):
+            self.sample_rate = sample_rate
+            self.num_frames = num_frames
+            self.num_channels = num_channels
+            self.bits_per_sample = 0
+            self.encoding = "PCM_S"
+
+    def _patched_get_torchaudio_info(file, backend=None):
+        sinfo = soundfile.info(file["audio"])
+        return _SafeAudioMetaData(sinfo.samplerate, sinfo.frames, sinfo.channels)
+    _pyannote_io.get_torchaudio_info = _patched_get_torchaudio_info
+
+    print("[startup] ✅ Patched pyannote.audio → soundfile (avoids torchaudio deprecations)")
+except Exception:
+    pass  # pyannote may not be installed yet
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -207,6 +237,43 @@ async def get_active_jobs():
     return {"active_jobs": active}
 
 
+@app.get("/transcribe/history")
+async def get_job_history():
+    """List all jobs (including completed/failed) with metadata, newest first."""
+    jobs = []
+    for entry in os.scandir(config.STORAGE_PATH):
+        if not entry.is_dir() or entry.name == "chroma" or entry.name == "logs" or entry.name == "uploads":
+            continue
+        status_path = os.path.join(entry.path, "status.json")
+        if not os.path.exists(status_path):
+            continue
+        with open(status_path) as f:
+            status = json.load(f)
+        metadata = {}
+        meta_path = os.path.join(entry.path, "metadata.json")
+        if os.path.exists(meta_path):
+            with open(meta_path) as f:
+                metadata = json.load(f)
+        # Get transcript segment count
+        transcript_path = os.path.join(entry.path, "transcript.json")
+        has_transcript = os.path.exists(transcript_path)
+        # Use file mtime as a proxy for recency
+        mtime = os.path.getmtime(status_path)
+        jobs.append({
+            "job_id": status.get("job_id", entry.name),
+            "status": status.get("status", "unknown"),
+            "progress": status.get("progress", 0.0),
+            "title": metadata.get("title", "Untitled"),
+            "event_type": metadata.get("event_type", ""),
+            "attendees": metadata.get("attendees", []),
+            "has_transcript": has_transcript,
+            "mtime": mtime,
+        })
+    jobs.sort(key=lambda j: j["mtime"], reverse=True)
+    print(f"[api] GET /transcribe/history → {len(jobs)} job(s)")
+    return {"jobs": jobs}
+
+
 @app.get("/transcribe/transcript/{job_id}")
 async def get_transcript(job_id: str, format: str = "json"):
     s = uploader.get_status(job_id)
@@ -240,7 +307,17 @@ async def get_summary(job_id: str):
 @app.post("/agent/refine")
 async def agent_refine(req: RefineRequest):
     print(f"[api] POST /agent/refine job_id={req.job_id} rules={req.rules}")
-    transcript = [s.dict() for s in req.transcript]
+    # If no transcript was passed in the request (e.g. the LLM tool schema
+    # doesn't include it), read the existing stored transcript instead.
+    if req.transcript:
+        transcript = [s.dict() for s in req.transcript]
+    else:
+        p = os.path.join(config.STORAGE_PATH, req.job_id, "transcript.json")
+        if os.path.exists(p):
+            with open(p) as f:
+                transcript = json.load(f)
+        else:
+            transcript = []
     refined = []
     for seg in transcript:
         text = seg["text"]

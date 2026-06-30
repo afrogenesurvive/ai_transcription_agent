@@ -10,6 +10,7 @@ numpy>=1.26.0
 
 # Machine Learning
 torch>=2.8.0
+torchaudio>=2.0.0,<2.9  # Pinned <2.9: pyannote uses deprecated torchaudio._backend.utils.info (removed in 2.9)
 pyannote.audio>=3.1.0
 
 # ── Whisper ASR variants ──

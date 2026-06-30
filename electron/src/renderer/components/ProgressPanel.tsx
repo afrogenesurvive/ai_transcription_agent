@@ -96,9 +96,10 @@ const PIPELINE: StageDef[] = [
  * Determine the status of each pipeline stage based on the current backend status.
  * Returns: "done" | "active" | "pending" | "error"
  */
-function getStageState(stage: StageDef, currentStatus: string, isFailed: boolean): "done" | "active" | "pending" | "error" {
+function getStageState(stage: StageDef, currentStatus: string, isFailed: boolean, isComplete: boolean): "done" | "active" | "pending" | "error" {
   if (isFailed && stage.matches.includes(currentStatus)) return "error";
   if (isFailed) return "done"; // All previous stages succeeded
+  if (isComplete) return "done"; // Pipeline fully done — all stages completed
   if (stage.matches.includes(currentStatus)) return "active";
   // Check if this stage comes before or after the current one
   const currentIdx = PIPELINE.findIndex((s) => s.matches.includes(currentStatus));
@@ -141,7 +142,7 @@ export default function PipelineProgress({ status, progress, error, onCancel, ca
       {/* ── Vertical pipeline stepper ── */}
       <div className="pp-stepper">
         {PIPELINE.map((stage) => {
-          const state = getStageState(stage, status, isFailed);
+          const state = getStageState(stage, status, isFailed, isComplete);
           return (
             <div key={stage.key} className={`pp-step pp-step--${state}`}>
               {/* Connector line */}

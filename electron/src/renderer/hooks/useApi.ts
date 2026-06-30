@@ -78,6 +78,22 @@ export function useApi() {
       return bridgeCall("transcribe_cancel", { jobId }) as Promise<{ job_id: string; status: string; cancelled: boolean }>;
     },
 
+    /** Get job history (all jobs, including completed/failed) */
+    getHistory: async () => {
+      return bridgeCall("transcribe_history", {}) as Promise<{
+        jobs: Array<{
+          job_id: string;
+          status: string;
+          progress: number;
+          title: string;
+          event_type: string;
+          attendees: string[];
+          has_transcript: boolean;
+          mtime: number;
+        }>;
+      }>;
+    },
+
     /** Check model availability (diarization, device, etc.) */
     getModelsStatus: async () => {
       return bridgeCall("transcribe_models_status", {}) as Promise<{

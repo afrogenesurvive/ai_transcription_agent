@@ -21,6 +21,7 @@ import ResultsViewer from "./components/ResultsViewer";
 import StatusBar from "./components/StatusBar";
 import DevPanel from "./components/DevPanel";
 import ConfigPanel from "./components/ConfigPanel";
+import HistoryPanel from "./components/HistoryPanel";
 import { useApi } from "./hooks/useApi";
 import { useJobStatus } from "./hooks/useJobStatus";
 import type { JobStatus } from "./types";
@@ -43,6 +44,8 @@ export default function App() {
   const [configOk, setConfigOk] = useState(true);
   const [cancelling, setCancelling] = useState(false);
   const [diarizationAvailable, setDiarizationAvailable] = useState<boolean | null>(null);
+  const [historyJobId, setHistoryJobId] = useState<string | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
 
   // Fetch diarization model status on mount
   useEffect(() => {
@@ -156,6 +159,28 @@ export default function App() {
     }
   }, [jobId, api, statusHook]);
 
+  // Load a past job from history
+  const loadHistoryJob = useCallback(
+    async (jobId: string) => {
+      setHistoryJobId(jobId);
+      setShowHistory(false);
+      try {
+        const [transcriptData, summaryData] = await Promise.all([api.getTranscript(jobId), api.getSummary(jobId).catch(() => null)]);
+        if (transcriptData) {
+          setTranscript({ ...transcriptData, summary: summaryData?.summary });
+          setView("results");
+        } else {
+          setNotification("Transcript data unavailable for this job");
+          setView("results");
+        }
+      } catch (err: any) {
+        setNotification(`Failed to load job: ${err.message}`);
+        setView("results");
+      }
+    },
+    [api],
+  );
+
   // Start a new upload (reset everything)
   const handleNew = () => {
     setView("upload");
@@ -207,6 +232,16 @@ export default function App() {
             <span className="sidebar-btn-label">Main</span>
           </button>
           <button
+            className={`sidebar-btn ${showHistory ? "sidebar-btn--active" : ""}`}
+            onClick={() => {
+              setShowHistory((v) => !v);
+              setSidebarView("main");
+            }}
+            title="Job history">
+            <span className="sidebar-btn-icon">📋</span>
+            <span className="sidebar-btn-label">History</span>
+          </button>
+          <button
             className={`sidebar-btn ${sidebarView === "dev" ? "sidebar-btn--active" : ""}`}
             onClick={() => setSidebarView("dev")}
             title="Developer tools">
@@ -229,41 +264,47 @@ export default function App() {
         <main className="app-main">
           {sidebarView === "main" && (
             <>
-              <div className="left-col">
-                {view === "upload" && <UploadPanel onUpload={handleUpload} uploading={uploading} />}
+              <div className="left-col" id="left-col">
+                {showHistory ? (
+                  <HistoryPanel onSelectJob={loadHistoryJob} currentJobId={jobId} />
+                ) : (
+                  <>
+                    {view === "upload" && <UploadPanel onUpload={handleUpload} uploading={uploading} />}
 
-                {(view === "processing" || view === "results") && statusData && (
-                  <PipelineProgress
-                    status={statusData.status}
-                    progress={statusData.progress}
-                    error={statusData.error}
-                    onCancel={view === "processing" ? handleCancel : undefined}
-                    cancelling={cancelling}
-                    diarizationAvailable={diarizationAvailable}
-                  />
-                )}
+                    {(view === "processing" || view === "results") && statusData && (
+                      <PipelineProgress
+                        status={statusData.status}
+                        progress={statusData.progress}
+                        error={statusData.error}
+                        onCancel={view === "processing" ? handleCancel : undefined}
+                        cancelling={cancelling}
+                        diarizationAvailable={diarizationAvailable}
+                      />
+                    )}
 
-                {view === "results" && statusHook.state === "error" && !statusData && (
-                  <div className="panel actions-panel">
-                    <h2>❌ Processing Failed</h2>
-                    <p className="error-box" style={{ marginBottom: 12 }}>
-                      {statusHook.error || "Unknown error"}
-                    </p>
-                    <button className="btn-primary" onClick={handleNew}>
-                      Try Again
-                    </button>
-                  </div>
-                )}
+                    {view === "results" && statusHook.state === "error" && !statusData && (
+                      <div className="panel actions-panel">
+                        <h2>❌ Processing Failed</h2>
+                        <p className="error-box" style={{ marginBottom: 12 }}>
+                          {statusHook.error || "Unknown error"}
+                        </p>
+                        <button className="btn-primary" onClick={handleNew}>
+                          Try Again
+                        </button>
+                      </div>
+                    )}
 
-                {view === "results" && statusHook.state !== "error" && statusData?.status !== "failed" && (
-                  <div className="panel actions-panel">
-                    <h2>What would you like to do next?</h2>
-                    <div className="rv-actions-grid">
-                      <button className="btn-primary" onClick={handleNew}>
-                        Upload Another Meeting
-                      </button>
-                    </div>
-                  </div>
+                    {view === "results" && statusHook.state !== "error" && statusData?.status !== "failed" && (
+                      <div className="panel actions-panel">
+                        <h2>What would you like to do next?</h2>
+                        <div className="rv-actions-grid">
+                          <button className="btn-primary" onClick={handleNew}>
+                            Upload Another Meeting
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 
