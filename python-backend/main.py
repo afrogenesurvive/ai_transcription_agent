@@ -11,6 +11,7 @@ import os
 import json
 import threading
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from config import config
@@ -33,6 +34,10 @@ agent_bridge: AgentBridge = None
 semantic_memory: SemanticMemory = None
 ephemeral_memory: EphemeralMemory = None
 
+# Track running pipeline threads for cancellation
+_pipeline_threads: dict[str, threading.Thread] = {}
+_pipeline_cancel: set[str] = set()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -51,6 +56,15 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Meeting Transcription Backend", version="1.0.0", lifespan=lifespan)
+
+# Allow cross-origin requests from the Electron renderer (Vite dev server on :5173)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # ── ML Pipeline ──
@@ -81,7 +95,9 @@ async def upload_audio(
     job_id = result["job_id"]
     print(f"[upload] Received file '{file.filename}' ({len(content)} bytes) → job_id={job_id}")
     print(f"[upload] Metadata: title='{title}', attendees={attendees}, event_type='{event_type}'")
-    threading.Thread(target=_run_pipeline, args=(job_id,), daemon=True).start()
+    t = threading.Thread(target=_run_pipeline, args=(job_id,), daemon=True)
+    _pipeline_threads[job_id] = t
+    t.start()
     return {"job_id": job_id, "status": "uploaded"}
 
 
@@ -117,7 +133,9 @@ async def upload_audio_by_path(req: UploadByPathRequest):
     file_size = os.path.getsize(file_path)
     print(f"[upload_by_path] File '{file_path}' ({file_size} bytes) → job_id={job_id}")
     print(f"[upload_by_path] Metadata: title='{req.title}', attendees={req.attendees}")
-    threading.Thread(target=_run_pipeline, args=(job_id,), daemon=True).start()
+    t = threading.Thread(target=_run_pipeline, args=(job_id,), daemon=True)
+    _pipeline_threads[job_id] = t
+    t.start()
     return {"job_id": job_id, "status": "uploaded", "file_path": file_path}
 
 
@@ -475,6 +493,63 @@ async def get_job_files(job_id: str):
     return {"job_id": job_id, "files": files}
 
 
+@app.post("/transcribe/cancel/{job_id}")
+async def cancel_job(job_id: str):
+    """Cancel a running pipeline job. Always marks the job as failed."""
+    s = uploader.get_status(job_id)
+    if s["status"] == "not_found":
+        raise HTTPException(404, "Job not found")
+    _pipeline_cancel.add(job_id)
+    uploader.update_status(job_id, {"status": "failed", "error": "Cancelled by user", "progress": 0.0})
+    print(f"[api] POST /transcribe/cancel/{job_id} → cancelled")
+    return {"job_id": job_id, "status": "cancelled", "cancelled": True}
+
+
+@app.get("/transcribe/models/status")
+async def models_status():
+    """Check which ML models are available. Helps users diagnose setup issues."""
+    result = {
+        "device": detect_device(),
+        "whisper_model": config.WHISPER_MODEL_SIZE,
+        "diarization_model": config.DIARIZATION_MODEL,
+        "diarization_available": False,
+        "diarization_error": None,
+        "hf_token_configured": bool(config.HUGGING_FACE_TOKEN),
+    }
+
+    # Try to verify diarization model is loadable
+    try:
+        from pyannote.audio import Pipeline
+        import torch
+        hf_token = config.HUGGING_FACE_TOKEN
+        if not hf_token:
+            result["diarization_error"] = (
+                "No HUGGING_FACE_TOKEN set. "
+                "Get a token at https://hf.co/settings/tokens and accept the model terms at "
+                f"https://hf.co/{config.DIARIZATION_MODEL}"
+            )
+        else:
+            # Just check if we can instantiate — don't run the full pipeline
+            pipeline = Pipeline.from_pretrained(
+                config.DIARIZATION_MODEL, use_auth_token=hf_token,
+            )
+            pipeline.to(torch.device("cpu"))  # lightweight check
+            result["diarization_available"] = True
+            del pipeline
+    except Exception as e:
+        msg = str(e)
+        if "gated" in msg.lower() or "access" in msg.lower() or "token" in msg.lower():
+            result["diarization_error"] = (
+                "Model is gated — accept terms at "
+                f"https://hf.co/{config.DIARIZATION_MODEL} and set HUGGING_FACE_TOKEN"
+            )
+        else:
+            result["diarization_error"] = f"Model failed to load: {msg}"
+
+    print(f"[api] GET /transcribe/models/status → diarization={'✅' if result['diarization_available'] else '❌'} device={result['device']}")
+    return result
+
+
 @app.get("/health")
 async def health():
     print(f"[api] GET /health")
@@ -571,6 +646,16 @@ async def memory_semantic_meetings():
 
 # ── Internal pipeline ──
 
+def _check_cancelled(job_id: str) -> bool:
+    """Check if this job has been cancelled. Returns True if cancelled."""
+    if job_id in _pipeline_cancel:
+        print(f"\n   🛑 [pipeline] Job {job_id} cancelled — stopping.")
+        _pipeline_cancel.discard(job_id)
+        _pipeline_threads.pop(job_id, None)
+        return True
+    return False
+
+
 def _run_pipeline(job_id: str):
     print(f"\n{'='*60}")
     print(f"   🎬 [PIPELINE] Starting pipeline for job {job_id}")
@@ -586,6 +671,7 @@ def _run_pipeline(job_id: str):
         # ── Step 1: Diarization ──
         print(f"\n   🔬 [PIPELINE] Step 1/5: Diarization (identifying speakers)...")
         uploader.update_status(job_id, {"status": "processing_diarization", "progress": 0.2})
+        if _check_cancelled(job_id): return
         diarization = engine.run_diarization(audio_path)
         speakers_found = set(s["speaker"] for s in diarization)
         print(f"   ✅ [pipeline] Diarization complete: {len(diarization)} segments, {len(speakers_found)} speakers: {', '.join(sorted(speakers_found))}")
@@ -600,6 +686,7 @@ def _run_pipeline(job_id: str):
         # ── Step 2: Voiceprint matching ──
         print(f"\n   🧬 [PIPELINE] Step 2/5: Voiceprint matching...")
         uploader.update_status(job_id, {"status": "matching_voiceprints", "progress": 0.35})
+        if _check_cancelled(job_id): return
         attendees = metadata.get("attendees", [])
         if attendees:
             print(f"[pipeline] Matching against {len(attendees)} known attendees: {attendees}")
@@ -619,12 +706,14 @@ def _run_pipeline(job_id: str):
         # ── Step 3: ASR Transcription ──
         print(f"\n   🎤 [PIPELINE] Step 3/5: ASR transcription (Whisper)...")
         uploader.update_status(job_id, {"status": "processing_transcription", "progress": 0.5})
+        if _check_cancelled(job_id): return
         transcription = engine.run_transcription(audio_path)
         print(f"   ✅ [pipeline] ASR complete: {len(transcription.get('words', []))} words, {len(transcription.get('segments', []))} segments")
 
         # ── Step 4: Alignment ──
         print(f"\n   🔗 [PIPELINE] Step 4/5: Aligning diarization with transcript...")
         uploader.update_status(job_id, {"status": "aligning", "progress": 0.7})
+        if _check_cancelled(job_id): return
         aligned = engine.align_transcript(transcription, diarization)
         print(f"   ✅ [pipeline] Alignment complete: {len(aligned)} transcript segments")
 
@@ -646,6 +735,7 @@ def _run_pipeline(job_id: str):
 
         # ── Step 5: Enqueue for agent ──
         print(f"\n   📨 [PIPELINE] Step 5/5: Enqueueing for agent runner...")
+        if _check_cancelled(job_id): return
         unknown = match_result.get("unknown", [])
         if unknown:
             for u in unknown:
@@ -671,6 +761,9 @@ def _run_pipeline(job_id: str):
         traceback.print_exc()
         uploader.update_status(job_id, {"status": "failed", "error": str(e)})
         agent_bridge.enqueue_failed(job_id, str(e), {})
+    finally:
+        _pipeline_threads.pop(job_id, None)
+        _pipeline_cancel.discard(job_id)
 
 
 def _redact(text: str, rule: str) -> str:

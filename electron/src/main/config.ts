@@ -31,6 +31,8 @@ export interface AppConfig {
   /** Trello delivery credentials */
   TRELLO_KEY: string;
   TRELLO_TOKEN: string;
+  /** Hugging Face token (required for gated models like pyannote/speaker-diarization-3.1) */
+  HUGGING_FACE_TOKEN: string;
 }
 
 const DEFAULTS: AppConfig = {
@@ -44,6 +46,7 @@ const DEFAULTS: AppConfig = {
   GMAIL_USER: "",
   TRELLO_KEY: "",
   TRELLO_TOKEN: "",
+  HUGGING_FACE_TOKEN: "",
 };
 
 /** Keys the UI considers "required" before the pipeline can run. */

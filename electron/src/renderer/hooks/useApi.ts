@@ -16,7 +16,7 @@ async function bridgeCall(tool: string, args: Record<string, unknown> = {}) {
 
 export function useApi() {
   return {
-    /** Upload an audio file */
+    /** Upload an audio file (via bridge server to avoid CORS issues) */
     uploadAudio: async (file: File, title: string, attendees: string[]) => {
       const formData = new FormData();
       formData.append("file", file);
@@ -24,8 +24,11 @@ export function useApi() {
       formData.append("attendees", JSON.stringify(attendees));
       formData.append("event_type", "internal");
 
-      const res = await fetch(`http://127.0.0.1:5001/transcribe/upload`, { method: "POST", body: formData });
-      if (!res.ok) throw new Error(`Upload error: ${res.status}`);
+      const res = await fetch(`${BRIDGE_URL}/transcribe/upload`, { method: "POST", body: formData });
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => "");
+        throw new Error(`Upload error: ${res.status}${errBody ? ` — ${errBody}` : ""}`);
+      }
       return res.json() as Promise<{ job_id: string; status: string }>;
     },
 
@@ -67,6 +70,23 @@ export function useApi() {
       return bridgeCall("transcribe_get_job_files", { jobId }) as Promise<{
         job_id: string;
         files: { name: string; size: number; mtime: number; type: string }[];
+      }>;
+    },
+
+    /** Cancel a running job */
+    cancelJob: async (jobId: string) => {
+      return bridgeCall("transcribe_cancel", { jobId }) as Promise<{ job_id: string; status: string; cancelled: boolean }>;
+    },
+
+    /** Check model availability (diarization, device, etc.) */
+    getModelsStatus: async () => {
+      return bridgeCall("transcribe_models_status", {}) as Promise<{
+        device: string;
+        whisper_model: string;
+        diarization_model: string;
+        diarization_available: boolean;
+        diarization_error: string | null;
+        hf_token_configured: boolean;
       }>;
     },
 

@@ -49,5 +49,8 @@ class Config:
     # FFmpeg
     FFMPEG_PATH = os.getenv("FFMPEG_PATH", "ffmpeg")
 
+    # Hugging Face auth (required for gated models like pyannote/speaker-diarization-3.1)
+    HUGGING_FACE_TOKEN = os.getenv("HUGGING_FACE_TOKEN") or os.getenv("HF_TOKEN") or None
+
 
 config = Config()

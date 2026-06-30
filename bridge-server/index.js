@@ -181,6 +181,12 @@ async function dispatch(tool, args) {
     case "transcribe_get_job_files":
       return await callPython("GET", `/transcribe/job_files/${args.jobId}`);
 
+    case "transcribe_cancel":
+      return await callPython("POST", `/transcribe/cancel/${args.jobId}`);
+
+    case "transcribe_models_status":
+      return await callPython("GET", "/transcribe/models/status");
+
     default:
       throw new Error(`Unknown tool: ${tool}`);
   }
@@ -200,6 +206,49 @@ const server = http.createServer(async (req, res) => {
   }
 
   const url = new URL(req.url, `http://localhost:${BRIDGE_PORT}`);
+
+  // ── Multipart upload proxy ──
+  // File uploads need to be proxied as raw binary (not JSON) to Python
+  if (req.method === "POST" && url.pathname === "/transcribe/upload") {
+    const contentType = req.headers["content-type"] || "multipart/form-data";
+    console.log(`[bridge] → POST /transcribe/upload (multipart proxy)`);
+
+    // Collect the raw binary body
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const bodyBuffer = Buffer.concat(chunks);
+
+    try {
+      const pyResp = await fetch(`${PYTHON_API}/transcribe/upload`, {
+        method: "POST",
+        headers: { "Content-Type": contentType, "Content-Length": bodyBuffer.length.toString() },
+        body: bodyBuffer,
+      });
+
+      const responseData = await pyResp.text();
+      let parsed;
+      try {
+        parsed = JSON.parse(responseData);
+      } catch {
+        parsed = { error: responseData };
+      }
+
+      // Set CORS headers on the response
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Content-Type", "application/json");
+      res.writeHead(pyResp.ok ? 200 : pyResp.status);
+      res.end(JSON.stringify(parsed));
+      console.log(`[bridge] ← POST /transcribe/upload → ${pyResp.status}`);
+    } catch (err) {
+      console.error(`[bridge] Upload proxy error: ${err.message}`);
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Content-Type", "application/json");
+      res.writeHead(502);
+      res.end(JSON.stringify({ error: `Upload proxy failed: ${err.message}` }));
+    }
+    return;
+  }
+
   let body = "";
   if (req.method === "POST") {
     for await (const chunk of req) body += chunk;

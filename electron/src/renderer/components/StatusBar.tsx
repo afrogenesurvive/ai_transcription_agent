@@ -30,6 +30,8 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
     bridge: null,
     agent: null,
   });
+  const [diarizationOk, setDiarizationOk] = useState<boolean | null>(null);
+  const [diarizationError, setDiarizationError] = useState<string | null>(null);
   const [version, setVersion] = useState("1.0.0");
   const [checking, setChecking] = useState(false);
   const [busy, setBusy] = useState<BusyService>(null);
@@ -65,11 +67,35 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
     }
   }, []);
 
+  // Poll diarization model status
+  const pollModels = useCallback(async () => {
+    try {
+      const res = await fetch("http://127.0.0.1:5010/tools/call", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tool: "transcribe_models_status", args: {} }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setDiarizationOk(data.diarization_available);
+        setDiarizationError(data.diarization_error);
+      }
+    } catch {
+      // Backend not reachable
+    }
+  }, []);
+
   useEffect(() => {
     pollStatus();
     const interval = setInterval(pollStatus, 5000);
     return () => clearInterval(interval);
   }, [pollStatus]);
+
+  useEffect(() => {
+    pollModels();
+    const interval = setInterval(pollModels, 15000);
+    return () => clearInterval(interval);
+  }, [pollModels]);
 
   useEffect(() => {
     window.electronAPI
@@ -182,6 +208,16 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
             )}
             {configOk && (
               <button className="micro-btn restart-btn" onClick={onOpenConfig} disabled={anyBusy} title="Edit configuration">
+                ⚙
+              </button>
+            )}
+          </span>
+          {/* Diarization model status */}
+          <span className="status-item" title={diarizationError || "Speaker diarization model status"}>
+            <span className={`status-dot ${diarizationOk === null ? "unknown" : diarizationOk ? "online" : "offline"}`} />
+            <span className="service-label">Diarization</span>
+            {diarizationOk === false && (
+              <button className="micro-btn start-btn" onClick={onOpenConfig} disabled={anyBusy} title="Configure HF token">
                 ⚙
               </button>
             )}

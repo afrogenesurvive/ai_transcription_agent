@@ -29,6 +29,7 @@ interface ConfigValues {
   GMAIL_USER: string;
   TRELLO_KEY: string;
   TRELLO_TOKEN: string;
+  HUGGING_FACE_TOKEN: string;
 }
 
 interface ConfigSourceInfo {
@@ -40,6 +41,7 @@ const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secre
   { key: "DEEPSEEK_API_KEY", label: "DeepSeek API Key", required: true, secret: true, section: "LLM Provider" },
   { key: "OLLAMA_BASE_URL", label: "Ollama Base URL", required: false, secret: false, section: "LLM Provider" },
   { key: "OLLAMA_MODEL", label: "Ollama Model", required: false, secret: false, section: "LLM Provider" },
+  { key: "HUGGING_FACE_TOKEN", label: "Hugging Face Token", required: false, secret: true, section: "LLM Provider" },
   { key: "GMAIL_CLIENT_ID", label: "Gmail Client ID", required: false, secret: true, section: "Email Delivery" },
   { key: "GMAIL_CLIENT_SECRET", label: "Gmail Client Secret", required: false, secret: true, section: "Email Delivery" },
   { key: "GMAIL_REFRESH_TOKEN", label: "Gmail Refresh Token", required: false, secret: true, section: "Email Delivery" },
@@ -79,6 +81,7 @@ export default function ConfigPanel({ onClose }: Props) {
         LLM_PROVIDER: cfg.LLM_PROVIDER || "deepseek",
         OLLAMA_BASE_URL: cfg.OLLAMA_BASE_URL || "http://127.0.0.1:11434/v1",
         OLLAMA_MODEL: cfg.OLLAMA_MODEL || "llama3.1:8b",
+        HUGGING_FACE_TOKEN: cfg.HUGGING_FACE_TOKEN || "",
         GMAIL_CLIENT_ID: cfg.GMAIL_CLIENT_ID || "",
         GMAIL_CLIENT_SECRET: cfg.GMAIL_CLIENT_SECRET || "",
         GMAIL_REFRESH_TOKEN: cfg.GMAIL_REFRESH_TOKEN || "",

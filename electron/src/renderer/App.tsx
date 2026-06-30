@@ -25,6 +25,8 @@ import { useApi } from "./hooks/useApi";
 import { useJobStatus } from "./hooks/useJobStatus";
 import type { JobStatus } from "./types";
 
+const BRIDGE_URL = "http://127.0.0.1:5010";
+
 type View = "upload" | "processing" | "results";
 type SidebarView = "main" | "dev" | "config";
 
@@ -39,6 +41,34 @@ export default function App() {
   const [notification, setNotification] = useState<string | null>(null);
   const [sidebarView, setSidebarView] = useState<SidebarView>("main");
   const [configOk, setConfigOk] = useState(true);
+  const [cancelling, setCancelling] = useState(false);
+  const [diarizationAvailable, setDiarizationAvailable] = useState<boolean | null>(null);
+
+  // Fetch diarization model status on mount
+  useEffect(() => {
+    let cancelled = false;
+    const checkModel = async () => {
+      try {
+        const res = await fetch(`${BRIDGE_URL}/tools/call`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tool: "transcribe_models_status", args: {} }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (!cancelled) setDiarizationAvailable(data.diarization_available);
+        }
+      } catch {
+        /* backend not reachable */
+      }
+    };
+    checkModel();
+    const interval = setInterval(checkModel, 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
 
   // Check config on mount
   useEffect(() => {
@@ -95,19 +125,36 @@ export default function App() {
 
   // Handle upload submit
   const handleUpload = async (file: File, title: string, attendees: string[]) => {
+    console.log("handleUpload");
     setUploading(true);
     try {
-      const result = await api.uploadAudio(file, title, attendees);
+      const result: any = await api.uploadAudio(file, title, attendees);
+      console.log("Upload result", result);
       setJobId(result.job_id);
       setJobMetadata({ title, attendees });
       setView("processing");
-      statusHook.startPolling();
+      // Polling starts automatically via useJobStatus when jobId changes
     } catch (err: any) {
       setNotification(`Upload failed: ${err.message}`);
     } finally {
       setUploading(false);
     }
   };
+
+  // Cancel a running job
+  const handleCancel = useCallback(async () => {
+    if (!jobId) return;
+    setCancelling(true);
+    try {
+      await api.cancelJob(jobId);
+      statusHook.stopPolling();
+      setNotification("Processing cancelled");
+    } catch (err: any) {
+      setNotification(`Cancel failed: ${err.message}`);
+    } finally {
+      setCancelling(false);
+    }
+  }, [jobId, api, statusHook]);
 
   // Start a new upload (reset everything)
   const handleNew = () => {
@@ -137,7 +184,16 @@ export default function App() {
 
       {notification && (
         <div className="notification" onClick={() => setNotification(null)}>
-          {notification}
+          <span className="notification-text">{notification}</span>
+          <button
+            className="notification-close"
+            onClick={(e) => {
+              e.stopPropagation();
+              setNotification(null);
+            }}
+            title="Dismiss">
+            ✕
+          </button>
         </div>
       )}
 
@@ -177,7 +233,14 @@ export default function App() {
                 {view === "upload" && <UploadPanel onUpload={handleUpload} uploading={uploading} />}
 
                 {(view === "processing" || view === "results") && statusData && (
-                  <PipelineProgress status={statusData.status} progress={statusData.progress} error={statusData.error} />
+                  <PipelineProgress
+                    status={statusData.status}
+                    progress={statusData.progress}
+                    error={statusData.error}
+                    onCancel={view === "processing" ? handleCancel : undefined}
+                    cancelling={cancelling}
+                    diarizationAvailable={diarizationAvailable}
+                  />
                 )}
 
                 {view === "results" && statusHook.state === "error" && !statusData && (

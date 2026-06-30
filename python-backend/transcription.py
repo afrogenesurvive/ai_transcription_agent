@@ -93,11 +93,29 @@ class TranscriptionEngine:
         if self._diarization is None:
             from pyannote.audio import Pipeline
             import torch
-            self._diarization = Pipeline.from_pretrained(
-                config.DIARIZATION_MODEL, use_auth_token=None,
-            )
-            self._diarization.to(torch.device(self.device))
-            print(f"[transcription] Diarization model loaded")
+
+            hf_token = config.HUGGING_FACE_TOKEN
+            if not hf_token:
+                print(f"[transcription] ⚠️  No HUGGING_FACE_TOKEN set. The diarization model is gated and requires authentication.")
+                print(f"[transcription]   1. Get a token: https://hf.co/settings/tokens")
+                print(f"[transcription]   2. Accept terms: https://hf.co/{config.DIARIZATION_MODEL}")
+                print(f"[transcription]   3. Set HUGGING_FACE_TOKEN in your .env or config")
+                print(f"[transcription]   Falling back — will generate placeholder segments without diarization.")
+
+                # Return empty diarization — the pipeline continues without speaker labels
+                return []
+
+            try:
+                self._diarization = Pipeline.from_pretrained(
+                    config.DIARIZATION_MODEL, use_auth_token=hf_token,
+                )
+                self._diarization.to(torch.device(self.device))
+                print(f"[transcription] ✅ Diarization model loaded")
+            except Exception as e:
+                print(f"[transcription] ❌ Failed to load diarization model: {e}")
+                print(f"[transcription]    ⚠️  Speaker identification unavailable — transcript will have no speaker labels.")
+                print(f"[transcription]    To fix: set HUGGING_FACE_TOKEN in config or .env")
+                return []
 
         print(f"[transcription] Running diarization on {audio_path}...")
         diarization = self._diarization(audio_path)
@@ -184,9 +202,17 @@ class TranscriptionEngine:
         for seg in result.get("segments", []):
             for w in seg.get("words", []):
                 words.append({
-                    "text": w.get("word", ""),
+                    "text": w.get("word") or w.get("text") or "",
                     "start": w.get("start", 0),
                     "end": w.get("end", 0),
+                })
+        # If no word-level timestamps, fall back to segment-level text
+        if not words and result.get("segments"):
+            for seg in result.get("segments", []):
+                words.append({
+                    "text": seg.get("text", ""),
+                    "start": seg.get("start", 0),
+                    "end": seg.get("end", 0),
                 })
         return {"text": result.get("text", ""), "segments": result.get("segments", []), "words": words}
 
@@ -248,6 +274,19 @@ class TranscriptionEngine:
                 })
 
         print(f"[transcription] Alignment done: {len(aligned)} merged segments")
+
+        # Fallback: if diarization produced nothing but ASR has words,
+        # create a flat single-speaker transcript so the result isn't empty.
+        if not aligned and words:
+            full_text = " ".join(w["text"] for w in words)
+            aligned.append({
+                "speaker": "Unknown Speaker",
+                "text": full_text,
+                "start": words[0].get("start", 0.0),
+                "end": words[-1].get("end", 0.0),
+            })
+            print(f"[transcription] ⚠️  No diarization segments — created flat transcript ({len(words)} words)")
+
         return aligned
 
     def process_full(self, audio_path: str) -> dict:

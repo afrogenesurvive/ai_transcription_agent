@@ -1,5 +1,6 @@
 /**
  * Hook — polls a job's status until it reaches a terminal state.
+ * Automatically starts polling when jobId becomes non-null.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -11,17 +12,29 @@ export function useJobStatus(jobId: string | null, fetcher: (id: string) => Prom
   const [state, setState] = useState<PollingState>("idle");
   const [error, setError] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const fetcherRef = useRef(fetcher);
+  fetcherRef.current = fetcher;
 
-  const terminalStatuses = new Set(["transcribed", "ready_for_agent", "refined", "summarized", "delivered", "failed"]);
+  const terminalStatuses = useRef(new Set(["transcribed", "ready_for_agent", "refined", "summarized", "delivered", "failed"])).current;
 
-  const startPolling = useCallback(() => {
+  const stopPolling = useCallback(() => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  }, []);
+
+  // Auto-start polling whenever jobId becomes non-null
+  useEffect(() => {
     if (!jobId) return;
+
     setState("polling");
     setError(null);
+    setData(null);
 
     const poll = async () => {
       try {
-        const result = await fetcher(jobId);
+        const result = await fetcherRef.current(jobId);
         setData(result);
 
         if (terminalStatuses.has(result.status)) {
@@ -36,19 +49,10 @@ export function useJobStatus(jobId: string | null, fetcher: (id: string) => Prom
     };
 
     poll(); // immediate first call
-    intervalRef.current = setInterval(poll, 1500);
-  }, [jobId, fetcher]);
+    intervalRef.current = setInterval(poll, 10000);
 
-  const stopPolling = useCallback(() => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-  }, []);
-
-  useEffect(() => {
     return () => stopPolling();
-  }, [stopPolling]);
+  }, [jobId, stopPolling, terminalStatuses]);
 
-  return { data, state, error, startPolling, stopPolling };
+  return { data, state, error, startPolling: () => {}, stopPolling };
 }

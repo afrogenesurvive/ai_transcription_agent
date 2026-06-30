@@ -14,6 +14,12 @@ interface Props {
   status: string;
   progress: number;
   error?: string;
+  /** Called when the user clicks "Stop Processing" */
+  onCancel?: () => void;
+  /** Whether a cancel is currently in progress */
+  cancelling?: boolean;
+  /** Whether the diarization model is available (for speaker labels) */
+  diarizationAvailable?: boolean | null;
 }
 
 /* ── Pipeline stages (non-technical friendly labels) ── */
@@ -101,10 +107,11 @@ function getStageState(stage: StageDef, currentStatus: string, isFailed: boolean
   return "pending";
 }
 
-export default function PipelineProgress({ status, progress, error }: Props) {
+export default function PipelineProgress({ status, progress, error, onCancel, cancelling, diarizationAvailable }: Props) {
   const pct = Math.round(progress * 100);
   const isFailed = status === "failed";
   const isComplete = ["delivered", "refined", "summarized", "analyzed"].includes(status);
+  const isProcessing = !isFailed && !isComplete;
 
   const activeStage = PIPELINE.find((s) => s.matches.includes(status));
   const activeLabel = activeStage?.label || status;
@@ -162,6 +169,30 @@ export default function PipelineProgress({ status, progress, error }: Props) {
           );
         })}
       </div>
+
+      {/* ── Diarization unavailable warning ── */}
+      {diarizationAvailable === false && (
+        <div className="pp-warning-box">
+          <span className="pp-warning-icon">⚠️</span>
+          <div className="pp-warning-content">
+            <strong>Speaker identification unavailable</strong>
+            <p>
+              Speech-to-text will still work, but the transcript won't have speaker names or labels. Set a <strong>Hugging Face Token</strong> in
+              Config to enable speaker diarization.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Stop button (during active processing) ── */}
+      {isProcessing && onCancel && (
+        <div className="pp-stop-row">
+          <button className="pp-stop-btn" onClick={onCancel} disabled={cancelling}>
+            {cancelling ? "⏳ Stopping…" : "⏹ Stop Processing"}
+          </button>
+          <span className="pp-stop-hint">Stops the pipeline and marks the job as cancelled.</span>
+        </div>
+      )}
 
       {/* ── Error message ── */}
       {isFailed && error && (
