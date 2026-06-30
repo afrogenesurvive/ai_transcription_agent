@@ -10,6 +10,32 @@ Endpoints:
 import os
 import json
 import threading
+import warnings
+
+# Suppress torchaudio deprecation warnings from pyannote.audio and speechbrain.
+# These are harmless but clutter stderr in the Electron logs.
+warnings.filterwarnings(
+    "ignore",
+    message="torchaudio._backend.list_audio_backends has been deprecated",
+)
+
+# ── speechbrain LazyModule workaround ──
+# speechbrain 1.0+ uses lazy imports for optional integrations (k2, flair, etc.).
+# When PyTorch Lightning calls inspect.stack() → linecache → getattr(mod, '__file__'),
+# the LazyModule.__getattr__ triggers, tries to import the missing dependency, and
+# crashes the whole pipeline. We patch LazyModule to avoid triggering on __file__.
+# This must run BEFORE importing pyannote.audio.
+try:
+    import speechbrain.utils.importutils as _sb_utils
+    _orig_lazy_getattr = _sb_utils.LazyModule.__getattr__
+    def _safe_lazy_getattr(self, attr):
+        if attr == "__file__":
+            raise AttributeError(attr)
+        return _orig_lazy_getattr(self, attr)
+    _sb_utils.LazyModule.__getattr__ = _safe_lazy_getattr
+except Exception:
+    pass  # speechbrain may not be installed yet
+
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -514,6 +540,7 @@ async def models_status():
         "diarization_model": config.DIARIZATION_MODEL,
         "diarization_available": False,
         "diarization_error": None,
+        "diarization_traceback": None,
         "hf_token_configured": bool(config.HUGGING_FACE_TOKEN),
     }
 
@@ -525,28 +552,59 @@ async def models_status():
         if not hf_token:
             result["diarization_error"] = (
                 "No HUGGING_FACE_TOKEN set. "
-                "Get a token at https://hf.co/settings/tokens and accept the model terms at "
+                f"Get a token at https://hf.co/settings/tokens and accept the model terms at "
                 f"https://hf.co/{config.DIARIZATION_MODEL}"
             )
         else:
-            # Just check if we can instantiate — don't run the full pipeline
-            pipeline = Pipeline.from_pretrained(
-                config.DIARIZATION_MODEL, use_auth_token=hf_token,
-            )
-            pipeline.to(torch.device("cpu"))  # lightweight check
-            result["diarization_available"] = True
-            del pipeline
+            # PyTorch 2.6+ needs relaxed loading for pyannote pickle models
+            import torch as _torch
+            _orig_load = _torch.load
+            try:
+                # Force weights_only=False — lightning_fabric (used by
+                # pyannote) explicitly passes weights_only=True, so setdefault
+                # is not enough.
+                def _permissive_load(f, *a, **kw):
+                    kw["weights_only"] = False
+                    return _orig_load(f, *a, **kw)
+                _torch.load = _permissive_load
+
+                pipeline = Pipeline.from_pretrained(
+                    config.DIARIZATION_MODEL, use_auth_token=hf_token,
+                )
+                if pipeline is None:
+                    result["diarization_error"] = (
+                        f"Model '{config.DIARIZATION_MODEL}' returned None — "
+                        f"it may be gated. Accept terms at "
+                        f"https://hf.co/{config.DIARIZATION_MODEL}"
+                    )
+                else:
+                    pipeline.to(_torch.device("cpu"))
+                    result["diarization_available"] = True
+                    del pipeline
+            finally:
+                _torch.load = _orig_load
     except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        result["diarization_traceback"] = tb
         msg = str(e)
         if "gated" in msg.lower() or "access" in msg.lower() or "token" in msg.lower():
             result["diarization_error"] = (
                 "Model is gated — accept terms at "
                 f"https://hf.co/{config.DIARIZATION_MODEL} and set HUGGING_FACE_TOKEN"
             )
+        elif "module" in msg.lower() and "torchaudio" in msg.lower():
+            result["diarization_error"] = (
+                f"PyTorch/torchaudio compatibility issue: {msg[:200]}. "
+                f"Try reinstalling pyannote.audio: pip install --upgrade pyannote.audio"
+            )
         else:
-            result["diarization_error"] = f"Model failed to load: {msg}"
+            result["diarization_error"] = f"Model failed to load: {msg[:300]}"
 
-    print(f"[api] GET /transcribe/models/status → diarization={'✅' if result['diarization_available'] else '❌'} device={result['device']}")
+    status_icon = "✅" if result["diarization_available"] else "❌"
+    print(f"[api] GET /transcribe/models/status → diarization={status_icon} device={result['device']}")
+    if result["diarization_error"]:
+        print(f"[api]   diarization_error: {result['diarization_error'][:200]}")
     return result
 
 
@@ -696,7 +754,11 @@ def _run_pipeline(job_id: str):
         else:
             print(f"[pipeline] No known attendees — all speakers will be unknown")
             match_result = {"known": {}, "unknown": [
-                {"speaker_id": spk, "segments": segs, "sample_segment": segs[0]}
+                {
+                    "speaker_id": spk,
+                    "segments": [{"start": s.start, "end": s.end, "duration": s.duration, "speaker": s.speaker} for s in segs],
+                    "sample_segment": {"start": segs[0].start, "end": segs[0].end},
+                }
                 for spk, segs in speaker_segments.items()
             ]}
         print(f"[pipeline] Voiceprint result: {len(match_result['known'])} known, {len(match_result.get('unknown', []))} unknown")
@@ -738,9 +800,14 @@ def _run_pipeline(job_id: str):
         if _check_cancelled(job_id): return
         unknown = match_result.get("unknown", [])
         if unknown:
+            # Normalize sample_segment to dict in case it came from match_against_attendees
+            # (which returns dicts) vs the fallback path (which previously used SimpleNamespace)
+            for u in unknown:
+                if hasattr(u["sample_segment"], "start"):
+                    u["sample_segment"] = {"start": u["sample_segment"].start, "end": u["sample_segment"].end}
             for u in unknown:
                 for seg in aligned:
-                    if abs(seg["start"] - u["sample_segment"].start) < 1.0:
+                    if abs(seg["start"] - u["sample_segment"]["start"]) < 1.0:
                         u["sample_text"] = seg["text"][:200]
                         break
             uploader.update_status(job_id, {"status": "labeling_needed", "progress": 0.9, "unknown_speakers": unknown})

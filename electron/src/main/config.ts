@@ -196,6 +196,7 @@ export function getChildEnv(): NodeJS.ProcessEnv {
     GMAIL_USER: config.GMAIL_USER || process.env.GMAIL_USER || "",
     TRELLO_KEY: config.TRELLO_KEY || process.env.TRELLO_KEY || "",
     TRELLO_TOKEN: config.TRELLO_TOKEN || process.env.TRELLO_TOKEN || "",
+    HUGGING_FACE_TOKEN: config.HUGGING_FACE_TOKEN || process.env.HUGGING_FACE_TOKEN || "",
     // Storage paths — only override in packaged (prod) mode so DBs land in a
     // writable location. In dev the Python backend defaults to the project-
     // relative storage/ dir, which is already writable.

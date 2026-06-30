@@ -51,6 +51,21 @@ function LiveLogsTab() {
   const [levelFilter, setLevelFilter] = useState<LevelFilter>("all");
   const [autoScroll, setAutoScroll] = useState(true);
   const listRef = useRef<HTMLDivElement>(null);
+  const autoScrollRef = useRef(true);
+
+  // Keep ref in sync with state so scroll logic can read the latest value
+  // without being delayed by React batching
+  const handleAutoScrollChange = useCallback((checked: boolean) => {
+    setAutoScroll(checked);
+    autoScrollRef.current = checked;
+  }, []);
+
+  // Scroll to bottom when new logs arrive, but only if auto-scroll is enabled
+  const scrollToBottom = useCallback(() => {
+    if (autoScrollRef.current && listRef.current) {
+      listRef.current.scrollTop = listRef.current.scrollHeight;
+    }
+  }, []);
 
   useEffect(() => {
     window.electronAPI
@@ -63,16 +78,12 @@ function LiveLogsTab() {
         const next = [...prev, entry];
         return next.length > 1000 ? next.slice(-1000) : next;
       });
+      // Schedule scroll immediately after state update
+      requestAnimationFrame(scrollToBottom);
     });
 
     return () => unsub?.();
-  }, []);
-
-  useEffect(() => {
-    if (autoScroll && listRef.current) {
-      listRef.current.scrollTop = listRef.current.scrollHeight;
-    }
-  }, [logs, autoScroll]);
+  }, [scrollToBottom]);
 
   const handleClear = useCallback(async () => {
     await window.electronAPI?.clearLogs();
@@ -108,7 +119,7 @@ function LiveLogsTab() {
           </select>
 
           <label className="dev-panel-checkbox">
-            <input type="checkbox" checked={autoScroll} onChange={(e) => setAutoScroll(e.target.checked)} />
+            <input type="checkbox" checked={autoScroll} onChange={(e) => handleAutoScrollChange(e.target.checked)} />
             Auto-scroll
           </label>
         </div>

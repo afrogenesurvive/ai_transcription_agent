@@ -29,8 +29,31 @@ This module does two independent ML tasks and then merges them:
 """
 
 import platform as sys_platform
+import warnings
 from typing import Optional
 from config import config
+
+# Suppress torchaudio deprecation warnings from pyannote/speechbrain.
+# These are harmless but clutter stderr in the Electron logs.
+warnings.filterwarnings(
+    "ignore",
+    message="torchaudio._backend.list_audio_backends has been deprecated",
+)
+
+# ── speechbrain LazyModule workaround ──
+# speechbrain 1.0+ lazy imports crash when linecache.getattr(mod, '__file__') is
+# called by inspect.stack() → traceback during pytorch_lightning import. Patch
+# LazyModule to never trigger lazy loading for __file__ attribute access.
+try:
+    import speechbrain.utils.importutils as _sb_utils
+    _orig_lazy_getattr = _sb_utils.LazyModule.__getattr__
+    def _safe_lazy_getattr(self, attr):
+        if attr == "__file__":
+            raise AttributeError(attr)
+        return _orig_lazy_getattr(self, attr)
+    _sb_utils.LazyModule.__getattr__ = _safe_lazy_getattr
+except Exception:
+    pass  # speechbrain may not be installed yet
 
 
 def detect_platform() -> str:
@@ -105,17 +128,69 @@ class TranscriptionEngine:
                 # Return empty diarization — the pipeline continues without speaker labels
                 return []
 
+            # PyTorch 2.6+ defaults torch.load() to weights_only=True for
+            # security, but pyannote's models were saved with pickle and
+            # require full deserialization. Temporarily relax this.
+            import torch as _torch
+            _orig_load = _torch.load
             try:
-                self._diarization = Pipeline.from_pretrained(
+                # Force weights_only=False — lightning_fabric (used by pyannote)
+                # explicitly passes weights_only=True, so setdefault is not enough.
+                def _permissive_load(f, *a, **kw):
+                    kw["weights_only"] = False
+                    return _orig_load(f, *a, **kw)
+                _torch.load = _permissive_load
+
+                device_for_model = _torch.device(self.device)
+                pipeline = Pipeline.from_pretrained(
                     config.DIARIZATION_MODEL, use_auth_token=hf_token,
                 )
-                self._diarization.to(torch.device(self.device))
-                print(f"[transcription] ✅ Diarization model loaded")
+                if pipeline is None:
+                    raise RuntimeError(
+                        f"Model '{config.DIARIZATION_MODEL}' returned None — "
+                        "may be gated or unreachable"
+                    )
+                pipeline.to(device_for_model)
+                self._diarization = pipeline
+                print(f"[transcription] ✅ Diarization model loaded on {device_for_model}")
+            except RuntimeError as e:
+                # If model fails on MPS (common with some pyannote ops), try CPU
+                if self.device == "mps" and ("mps" in str(e).lower() or "metal" in str(e).lower()):
+                    print(f"[transcription] ⚠️  MPS device error, falling back to CPU: {e}")
+                    try:
+                        # Re-apply patch (finally block restores original)
+                        _torch.load = _permissive_load
+                        pipeline_cpu = Pipeline.from_pretrained(
+                            config.DIARIZATION_MODEL, use_auth_token=hf_token,
+                        )
+                        if pipeline_cpu:
+                            pipeline_cpu.to(_torch.device("cpu"))
+                            self._diarization = pipeline_cpu
+                            self.device = "cpu"
+                            print(f"[transcription] ✅ Diarization model loaded on CPU (fallback)")
+                        else:
+                            raise RuntimeError("Pipeline returned None on CPU fallback")
+                    except Exception as cpu_err:
+                        import traceback
+                        traceback.print_exc()
+                        print(f"[transcription] ❌ CPU fallback also failed: {cpu_err}")
+                        print(f"[transcription]    ⚠️  Speaker identification unavailable.")
+                        return []
+                else:
+                    import traceback
+                    traceback.print_exc()
+                    print(f"[transcription] ❌ Failed to load diarization model: {e}")
+                    print(f"[transcription]    ⚠️  Speaker identification unavailable.")
+                    return []
             except Exception as e:
+                import traceback
+                traceback.print_exc()
                 print(f"[transcription] ❌ Failed to load diarization model: {e}")
-                print(f"[transcription]    ⚠️  Speaker identification unavailable — transcript will have no speaker labels.")
-                print(f"[transcription]    To fix: set HUGGING_FACE_TOKEN in config or .env")
+                print(f"[transcription]    ⚠️  Speaker identification unavailable.")
                 return []
+            finally:
+                # Always restore original torch.load to avoid side effects
+                _torch.load = _orig_load
 
         print(f"[transcription] Running diarization on {audio_path}...")
         diarization = self._diarization(audio_path)

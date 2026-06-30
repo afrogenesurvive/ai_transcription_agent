@@ -6,6 +6,7 @@ import os
 import uuid
 import json
 import subprocess
+import tempfile
 from typing import Optional
 from config import config
 
@@ -64,8 +65,19 @@ class AudioUploader:
         p = os.path.join(self.storage_path, job_id, "status.json")
         if not os.path.exists(p):
             return {"job_id": job_id, "status": "not_found", "error": "Job not found"}
-        with open(p) as f:
-            return json.load(f)
+        try:
+            with open(p) as f:
+                return json.load(f)
+        except (json.JSONDecodeError, ValueError) as e:
+            # The status file is corrupt (truncated write, concurrent write, etc.).
+            # Return a degraded status so callers can still handle the job gracefully.
+            print(f"[upload] ⚠️  Corrupt status.json for job {job_id}: {e}")
+            return {
+                "job_id": job_id,
+                "status": "corrupted",
+                "error": f"Status file corrupt: {e}",
+                "progress": 0.0,
+            }
 
     def update_status(self, job_id: str, updates: dict):
         status = self.get_status(job_id)
@@ -103,8 +115,22 @@ class AudioUploader:
     def _write_status(self, job_id: str, status: dict):
         d = os.path.join(self.storage_path, job_id)
         os.makedirs(d, exist_ok=True)
-        with open(os.path.join(d, "status.json"), "w") as f:
-            json.dump(status, f, indent=2)
+        dest = os.path.join(d, "status.json")
+        # Atomic write: write to a temp file first, then rename.
+        # This prevents readers from seeing a partially-written file
+        # if the process crashes during serialization.
+        fd, tmp = tempfile.mkstemp(dir=d, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(status, f, indent=2)
+            os.replace(tmp, dest)
+        except Exception:
+            # Clean up temp file on failure, then re-raise
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
 
     @staticmethod
     def _copy_file(src: str, dst: str):
