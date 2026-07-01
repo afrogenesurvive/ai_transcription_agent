@@ -139,14 +139,17 @@ class VoiceprintManager:
 
         Algorithm:
         1. Load embeddings for all known attendees from SQLite.
-        2. For each diarized speaker cluster, take the first segment and
-           extract its embedding.
+        2. For each diarized speaker cluster, sample up to N evenly-spaced
+           segments and average their embeddings for a robust signature.
         3. Compute cosine similarity against every known embedding.
         4. If best match above threshold → label as that person.
         5. Otherwise → add to unknown list for agent resolution.
         """
         if threshold is None:
             threshold = config.VOICEPRINT_THRESHOLD
+
+        # How many segments to sample per speaker cluster for averaging
+        MAX_SAMPLE_SEGMENTS = 5
 
         # Step 1: Load stored embeddings for attendees who have voiceprints enrolled
         known_embeddings = self._get_known_embeddings(attendees)
@@ -156,8 +159,21 @@ class VoiceprintManager:
         # Step 2-5: Match each speaker cluster
         for speaker_id, segments in speaker_segments.items():
             first = segments[0]
-            # Extract embedding from the first segment of this speaker's audio
-            emb = self.extract_embedding(audio_path, segment=(first.start, first.end))
+
+            # Sample evenly-spaced segments across the cluster and average their embeddings
+            sample_count = min(MAX_SAMPLE_SEGMENTS, len(segments))
+            step = max(1, len(segments) // sample_count)
+            sampled_embs = []
+            for i in range(0, len(segments), step):
+                if len(sampled_embs) >= sample_count:
+                    break
+                s = segments[i]
+                seg_emb = self.extract_embedding(audio_path, segment=(s.start, s.end))
+                sampled_embs.append(seg_emb)
+
+            # Average and re-normalize for a robust composite embedding
+            emb = np.mean(sampled_embs, axis=0)
+            emb = emb / np.linalg.norm(emb)
 
             # Find the best matching known voiceprint
             best_match, best_score = None, 0
@@ -169,7 +185,8 @@ class VoiceprintManager:
             if best_match:
                 # Known speaker — assign all their segments
                 results["known"][best_match] = segments
-                print(f"[voiceprint] ✅ {speaker_id} → matched '{best_match}' (score={best_score:.3f})")
+                print(f"[voiceprint] ✅ {speaker_id} → matched '{best_match}' (score={best_score:.3f}, "
+                      f"averaged over {len(sampled_embs)} segment(s))")
             else:
                 # Unknown speaker — record metadata for agent labeling
                 results["unknown"].append({
@@ -177,27 +194,39 @@ class VoiceprintManager:
                     "segments": [{"start": s.start, "end": s.end} for s in segments],
                     "sample_segment": {"start": first.start, "end": first.end},
                 })
-                print(f"[voiceprint] ❓ {speaker_id} → unknown (best score={best_score:.3f}, threshold={threshold})")
+                print(f"[voiceprint] ❓ {speaker_id} → unknown (best score={best_score:.3f}, "
+                      f"threshold={threshold}, {len(sampled_embs)} segment(s) averaged)")
 
         return results
 
     def _get_known_embeddings(self, attendees: List[str]) -> Dict[str, np.ndarray]:
         """Look up stored voiceprint embeddings for a list of attendees.
 
-        Searches by email first, then by speaker_name.
+        Uses a single batched query (email IN (...) OR speaker_name IN (...))
+        instead of N individual queries.
         """
+        if not attendees:
+            return {}
+
         conn = sqlite3.connect(self.db_path)
-        known = {}
-        for attendee in attendees:
-            for col in ("email", "speaker_name"):
-                row = conn.execute(
-                    f"SELECT speaker_name, embedding FROM voiceprints WHERE {col} = ?",
-                    (attendee,),
-                ).fetchone()
-                if row:
-                    known[row[0]] = pickle.loads(row[1])
-                    break
+        placeholders = ",".join("?" for _ in attendees)
+        rows = conn.execute(
+            f"""
+            SELECT DISTINCT speaker_name, email, embedding
+            FROM voiceprints
+            WHERE email IN ({placeholders}) OR speaker_name IN ({placeholders})
+            """,
+            (*attendees, *attendees),
+        ).fetchall()
         conn.close()
+
+        # Build result set — deduplicate if email and name match different rows
+        seen_names = set()
+        known = {}
+        for name, email, blob in rows:
+            if name not in seen_names:
+                seen_names.add(name)
+                known[name] = pickle.loads(blob)
         return known
 
     def save_voiceprint(self, name: str, email: str, embedding: np.ndarray):
