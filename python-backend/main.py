@@ -683,6 +683,85 @@ async def cancel_job(job_id: str):
     return {"job_id": job_id, "status": "cancelled", "cancelled": True}
 
 
+# ── Job Deletion ──
+
+import shutil
+
+@app.delete("/transcribe/job/{job_id}")
+async def delete_job(job_id: str):
+    """Delete a job and all its associated data from storage."""
+    job_dir = os.path.join(config.STORAGE_PATH, job_id)
+    if not os.path.exists(job_dir):
+        print(f"[api] DELETE /transcribe/job/{job_id} → not_found")
+        raise HTTPException(404, "Job not found")
+
+    # Ensure it's a real job directory (has status.json)
+    if not os.path.exists(os.path.join(job_dir, "status.json")):
+        print(f"[api] DELETE /transcribe/job/{job_id} → not a valid job directory")
+        raise HTTPException(400, "Not a valid job directory")
+
+    # Cancel if running
+    _pipeline_cancel.add(job_id)
+    _pipeline_threads.pop(job_id, None)
+
+    try:
+        shutil.rmtree(job_dir)
+        print(f"[api] DELETE /transcribe/job/{job_id} → deleted")
+        return {"job_id": job_id, "deleted": True}
+    except Exception as e:
+        print(f"[api] DELETE /transcribe/job/{job_id} → error: {e}")
+        raise HTTPException(500, f"Failed to delete job: {e}")
+
+
+# ── Log Deletion ──
+
+@app.delete("/storage/logs")
+async def delete_logs(log_type: str = "all"):
+    """Delete JSONL log files from the logs/ directory.
+
+    Query params:
+      log_type: "all" — delete all JSONL files
+                "error" — delete only JSONL files containing error events
+    """
+    logs_path = os.path.join(config._BASE, "logs")
+    if not os.path.exists(logs_path):
+        print(f"[api] DELETE /storage/logs → logs directory not found")
+        return {"deleted": 0, "message": "No logs directory found"}
+
+    deleted = 0
+    errors = 0
+
+    for fname in os.listdir(logs_path):
+        if not fname.endswith(".jsonl"):
+            continue
+        fpath = os.path.join(logs_path, fname)
+
+        if log_type == "error":
+            # Only delete files that contain error events
+            try:
+                with open(fpath) as f:
+                    content = f.read()
+                if '"eventType":"failed"' not in content and '"level":"error"' not in content:
+                    continue
+            except Exception:
+                pass  # If we can't read it, skip rather than risk data loss
+
+        try:
+            os.remove(fpath)
+            deleted += 1
+            print(f"[api] DELETE /storage/logs → removed {fname}")
+        except Exception as e:
+            errors += 1
+            print(f"[api] DELETE /storage/logs → failed to remove {fname}: {e}")
+
+    return {
+        "deleted": deleted,
+        "errors": errors,
+        "log_type": log_type,
+        "message": f"Deleted {deleted} log file(s)" + (f" ({errors} error(s))" if errors else ""),
+    }
+
+
 @app.get("/transcribe/models/status")
 async def models_status():
     """Check which ML models are available. Helps users diagnose setup issues."""

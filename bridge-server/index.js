@@ -222,6 +222,12 @@ async function dispatch(tool, args) {
     case "storage_usage":
       return await callPython("GET", "/storage/usage");
 
+    case "transcribe_delete_job":
+      return await callPython("DELETE", `/transcribe/job/${args.jobId}`);
+
+    case "storage_clear_logs":
+      return await callPython("DELETE", `/storage/logs?log_type=${args.logType || "all"}`);
+
     default:
       throw new Error(`Unknown tool: ${tool}`);
   }

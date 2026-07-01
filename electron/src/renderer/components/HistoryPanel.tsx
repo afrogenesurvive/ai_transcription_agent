@@ -68,22 +68,33 @@ function formatDate(ts: number): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+const BRIDGE_URL = "http://127.0.0.1:5010";
+
+async function callBridge(tool: string, args: any = {}): Promise<any> {
+  const res = await fetch(`${BRIDGE_URL}/tools/call`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tool, args }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Bridge error (${res.status}): ${err}`);
+  }
+  return res.json();
+}
+
 export default function HistoryPanel({ onSelectJob, currentJobId }: Props) {
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   const loadHistory = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("http://127.0.0.1:5010/tools/call", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tool: "transcribe_history", args: {} }),
-      });
-      if (!res.ok) throw new Error(`Bridge error: ${res.status}`);
-      const data = await res.json();
+      const data = await callBridge("transcribe_history");
       setJobs(data.jobs || []);
     } catch (err: any) {
       setError(err.message);
@@ -95,6 +106,19 @@ export default function HistoryPanel({ onSelectJob, currentJobId }: Props) {
   useEffect(() => {
     loadHistory();
   }, [loadHistory]);
+
+  const handleDelete = useCallback(async (jobId: string) => {
+    setConfirmDelete(null);
+    setDeleting(jobId);
+    try {
+      await callBridge("transcribe_delete_job", { jobId });
+      setJobs((prev) => prev.filter((j) => j.job_id !== jobId));
+    } catch (err: any) {
+      setError(`Failed to delete job: ${err.message}`);
+    } finally {
+      setDeleting(null);
+    }
+  }, []);
 
   return (
     <div className="history-panel">
@@ -112,20 +136,53 @@ export default function HistoryPanel({ onSelectJob, currentJobId }: Props) {
 
       <div className="history-panel-list">
         {jobs.map((job) => (
-          <div
-            key={job.job_id}
-            className={`history-panel-item ${currentJobId === job.job_id ? "history-panel-item--active" : ""}`}
-            onClick={() => onSelectJob(job.job_id)}>
-            <div className="history-panel-item-top">
-              <span className="history-panel-item-icon">{STATUS_ICON[job.status] || "📄"}</span>
-              <span className="history-panel-item-title">{job.title}</span>
+          <div key={job.job_id} className="history-panel-item-wrapper">
+            <div
+              className={`history-panel-item ${currentJobId === job.job_id ? "history-panel-item--active" : ""}`}
+              onClick={() => onSelectJob(job.job_id)}>
+              <div className="history-panel-item-top">
+                <span className="history-panel-item-icon">{STATUS_ICON[job.status] || "📄"}</span>
+                <span className="history-panel-item-title">{job.title}</span>
+              </div>
+              <div className="history-panel-item-meta">
+                <span className="history-panel-item-status">{STATUS_LABEL[job.status] || job.status}</span>
+                <span className="history-panel-item-date">{formatDate(job.mtime)}</span>
+              </div>
+              {job.attendees && job.attendees.length > 0 && <div className="history-panel-item-attendees">{job.attendees.join(", ")}</div>}
+              {!job.has_transcript && job.status !== "failed" && <div className="history-panel-item-warning">No transcript data</div>}
             </div>
-            <div className="history-panel-item-meta">
-              <span className="history-panel-item-status">{STATUS_LABEL[job.status] || job.status}</span>
-              <span className="history-panel-item-date">{formatDate(job.mtime)}</span>
-            </div>
-            {job.attendees && job.attendees.length > 0 && <div className="history-panel-item-attendees">{job.attendees.join(", ")}</div>}
-            {!job.has_transcript && job.status !== "failed" && <div className="history-panel-item-warning">No transcript data</div>}
+            <button
+              className="history-panel-delete-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                setConfirmDelete(job.job_id);
+              }}
+              disabled={deleting === job.job_id}
+              title="Delete this job">
+              {deleting === job.job_id ? "⏳" : "🗑️"}
+            </button>
+
+            {/* Confirmation dialog */}
+            {confirmDelete === job.job_id && (
+              <div className="confirm-overlay" onClick={() => setConfirmDelete(null)}>
+                <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+                  <h3 className="confirm-dialog-title">Delete Job</h3>
+                  <p className="confirm-dialog-text">
+                    Are you sure you want to delete "<strong>{job.title}</strong>"?
+                    <br />
+                    This will permanently remove all associated data including transcript, summary, and audio.
+                  </p>
+                  <div className="confirm-dialog-actions">
+                    <button className="btn-secondary" onClick={() => setConfirmDelete(null)}>
+                      Cancel
+                    </button>
+                    <button className="btn-danger" onClick={() => handleDelete(job.job_id)} disabled={deleting === job.job_id}>
+                      {deleting === job.job_id ? "Deleting..." : "Delete"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         ))}
       </div>

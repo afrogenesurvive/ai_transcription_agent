@@ -3190,3 +3190,363 @@ body {
   color: var(--accent);
   font-weight: 600;
 }
+
+/* ═══════════════════════════════════════════════════════
+   Confirmation Dialog
+   ═══════════════════════════════════════════════════════ */
+
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  animation: confirm-fade-in 0.15s ease;
+}
+
+@keyframes confirm-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.confirm-dialog {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  width: 400px;
+  max-width: 90vw;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  animation: confirm-scale-in 0.15s ease;
+}
+
+@keyframes confirm-scale-in {
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.confirm-dialog-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 12px 0;
+  color: var(--text);
+}
+
+.confirm-dialog-text {
+  font-size: 14px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: 0 0 20px 0;
+}
+
+.confirm-dialog-text code {
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 13px;
+  background: rgba(88, 166, 255, 0.1);
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: var(--accent);
+}
+
+.confirm-dialog-text strong {
+  color: var(--text);
+}
+
+.confirm-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.btn-secondary {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 8px 18px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: var(--font);
+  transition: all 0.15s;
+}
+
+.btn-secondary:hover {
+  background: var(--surface-hover);
+  border-color: var(--text-muted);
+}
+
+.btn-danger {
+  background: var(--red);
+  border: 1px solid var(--red);
+  color: #fff;
+  padding: 8px 18px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: var(--font);
+  transition: all 0.15s;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #e03a33;
+  border-color: #e03a33;
+}
+
+.btn-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-warning {
+  background: var(--orange);
+  border: 1px solid var(--orange);
+  color: #fff;
+  padding: 8px 18px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: var(--font);
+  transition: all 0.15s;
+}
+
+.btn-warning:hover:not(:disabled) {
+  background: #c98a1e;
+  border-color: #c98a1e;
+}
+
+.btn-warning:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ═══════════════════════════════════════════════════════
+   History Panel — Delete Button
+   ═══════════════════════════════════════════════════════ */
+
+.history-panel-item-wrapper {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.history-panel-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.history-panel-delete-btn {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 8px;
+  transition: all 0.15s;
+  opacity: 0.4;
+}
+
+.history-panel-item-wrapper:hover .history-panel-delete-btn {
+  opacity: 0.8;
+  border-color: var(--border);
+}
+
+.history-panel-delete-btn:hover {
+  opacity: 1 !important;
+  background: rgba(248, 81, 73, 0.12);
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.history-panel-delete-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* ═══════════════════════════════════════════════════════
+   Storage Panel — Developer Section & Log Deletion
+   ═══════════════════════════════════════════════════════ */
+
+.storage-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 24px 0 16px 0;
+}
+
+.storage-dev-section {
+  margin-top: 4px;
+}
+
+.storage-dev-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  width: 100%;
+  text-align: left;
+  font-family: var(--font);
+  transition: all 0.15s;
+}
+
+.storage-dev-toggle:hover {
+  background: var(--surface-hover);
+  border-color: var(--accent);
+}
+
+.storage-dev-toggle-icon {
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.storage-dev-toggle-label {
+  flex: 1;
+}
+
+.storage-dev-content {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.storage-dev-description {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  padding: 0 4px;
+}
+
+.storage-dev-description code {
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 12px;
+  background: rgba(88, 166, 255, 0.1);
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: var(--accent);
+}
+
+.storage-log-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.storage-log-action-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.storage-log-action-info strong {
+  display: block;
+  font-size: 14px;
+  margin-bottom: 4px;
+  color: var(--text);
+}
+
+.storage-log-action-info p {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  margin: 0;
+}
+
+.storage-log-action-info p code {
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 11px;
+  background: rgba(88, 166, 255, 0.1);
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: var(--accent);
+}
+
+.storage-log-error-section {
+  border: 2px solid var(--red);
+  border-radius: 10px;
+  padding: 2px;
+  background: rgba(248, 81, 73, 0.04);
+}
+
+.storage-log-error-section .storage-log-action {
+  border-color: transparent;
+  background: transparent;
+}
+
+.storage-error-label {
+  color: var(--red) !important;
+  font-size: 13px !important;
+  letter-spacing: 0.5px;
+}
+
+.storage-error-description {
+  color: var(--text-muted) !important;
+}
+
+.storage-error-description strong {
+  color: var(--red);
+  display: inline !important;
+  font-size: inherit !important;
+}
+
+.storage-log-result {
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  line-height: 1.4;
+  margin-top: 4px;
+}
+
+.storage-log-result--ok {
+  background: rgba(63, 185, 80, 0.1);
+  border: 1px solid rgba(63, 185, 80, 0.3);
+  color: var(--green);
+}
+
+.storage-log-result--error {
+  background: rgba(248, 81, 73, 0.1);
+  border: 1px solid rgba(248, 81, 73, 0.3);
+  color: var(--red);
+}
+
+.btn-primary--danger {
+  background: var(--red);
+  border-color: var(--red);
+}
+
+.btn-primary--danger:hover:not(:disabled) {
+  background: #e03a33;
+}
