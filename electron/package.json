@@ -65,10 +65,12 @@
     }
   },
   "dependencies": {
+    "pidusage": "^4.0.1",
     "react": "^18.3.0",
     "react-dom": "^18.3.0"
   },
   "devDependencies": {
+    "@types/pidusage": "^2.0.5",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.0",

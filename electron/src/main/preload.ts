@@ -72,6 +72,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // ── Storage Usage ──
   getStorageUsage: () => ipcRenderer.invoke("storage:usage"),
 
+  // ── Performance Metrics ──
+  getPerformanceMetrics: (): Promise<{
+    electron: Array<{ type: string; pid: number; cpu: number | null; memory: number | null; peakMemory: number | null }>;
+    children: Array<{ service: string; pid: number; cpu: number; memory: number; elapsed: number }>;
+  }> => ipcRenderer.invoke("metrics:getAll"),
+
   // ── Platform ──
   platform: process.platform,
 });

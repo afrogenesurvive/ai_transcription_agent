@@ -17,7 +17,7 @@ interface Props {
   onClose: () => void;
 }
 
-type Tab = "live" | "files" | "database";
+type Tab = "live" | "files" | "database" | "performance";
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
@@ -470,6 +470,171 @@ function DatabaseTab() {
   );
 }
 
+/* ── Performance Tab ── */
+
+interface MetricRow {
+  label: string;
+  pid: number | null;
+  cpu: number | null;
+  memoryBytes: number | null;
+}
+
+function formatMem(bytes: number | null): string {
+  if (!bytes) return "—";
+  const mb = bytes / (1024 * 1024);
+  return `${mb.toFixed(1)} MB`;
+}
+
+function formatCpu(val: number | null): string {
+  if (val === null || val === undefined) return "—";
+  return `${val.toFixed(1)}%`;
+}
+
+function PerformanceTab() {
+  const [electronRows, setElectronRows] = useState<MetricRow[]>([]);
+  const [childRows, setChildRows] = useState<MetricRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [pollIntervalMs, setPollIntervalMs] = useState(10000);
+
+  // Read polling interval from config on mount
+  useEffect(() => {
+    window.electronAPI?.getConfig().then((cfg) => {
+      const val = parseInt(cfg.PERF_METRICS_POLL_INTERVAL || "10000", 10);
+      if (val > 0) setPollIntervalMs(val);
+    });
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const data = await window.electronAPI?.getPerformanceMetrics();
+        if (!data || cancelled) return;
+
+        const electron: MetricRow[] = (data.electron || []).map((m) => ({
+          label: m.type === "Browser" ? "Main / Renderer" : m.type,
+          pid: m.pid,
+          cpu: m.cpu,
+          memoryBytes: m.memory,
+        }));
+        const children: MetricRow[] = (data.children || []).map((m) => ({
+          label: m.service.charAt(0).toUpperCase() + m.service.slice(1),
+          pid: m.pid,
+          cpu: m.cpu,
+          memoryBytes: m.memory,
+        }));
+
+        if (!cancelled) {
+          setElectronRows(electron);
+          setChildRows(children);
+          setLoading(false);
+        }
+      } catch {
+        // backend not reachable
+      }
+    };
+
+    poll();
+    const interval = setInterval(poll, pollIntervalMs);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [pollIntervalMs]);
+
+  const allRows = [...childRows, ...electronRows];
+  const intervalSec = (pollIntervalMs / 1000).toFixed(0);
+
+  return (
+    <>
+      <div className="dev-panel-toolbar">
+        <span className="dev-panel-title">⚡ Performance</span>
+        <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Auto-refreshes every {intervalSec}s</span>
+        <div className="dev-panel-actions">
+          <button
+            className="dev-panel-btn"
+            onClick={() => {
+              setLoading(true);
+              window.electronAPI?.getPerformanceMetrics().then((data) => {
+                if (!data) return;
+                setElectronRows(
+                  (data.electron || []).map((m) => ({
+                    label: m.type === "Browser" ? "Main / Renderer" : m.type,
+                    pid: m.pid,
+                    cpu: m.cpu,
+                    memoryBytes: m.memory,
+                  })),
+                );
+                setChildRows(
+                  (data.children || []).map((m) => ({
+                    label: m.service.charAt(0).toUpperCase() + m.service.slice(1),
+                    pid: m.pid,
+                    cpu: m.cpu,
+                    memoryBytes: m.memory,
+                  })),
+                );
+                setLoading(false);
+              });
+            }}
+            title="Refresh now">
+            ↻ Refresh
+          </button>
+        </div>
+      </div>
+
+      <div className="dev-panel-list">
+        {loading && <div className="dev-panel-empty">Fetching metrics...</div>}
+
+        {!loading && allRows.length === 0 && <div className="dev-panel-empty">No process metrics available. Make sure services are running.</div>}
+
+        {!loading && allRows.length > 0 && (
+          <table className="dev-panel-metrics-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid var(--border)", color: "var(--text-muted)" }}>
+                <th style={{ padding: "6px 12px", textAlign: "left" }}>Service</th>
+                <th style={{ padding: "6px 12px", textAlign: "right" }}>PID</th>
+                <th style={{ padding: "6px 12px", textAlign: "right" }}>CPU</th>
+                <th style={{ padding: "6px 12px", textAlign: "right" }}>Memory</th>
+              </tr>
+            </thead>
+            <tbody>
+              {allRows.map((r) => (
+                <tr key={`${r.label}-${r.pid}`} style={{ borderBottom: "1px solid var(--border)" }}>
+                  <td style={{ padding: "8px 12px" }}>
+                    <span
+                      style={{
+                        display: "inline-block",
+                        width: 8,
+                        height: 8,
+                        borderRadius: "50%",
+                        marginRight: 8,
+                        backgroundColor: r.cpu !== null && r.cpu > 50 ? "#f85149" : r.cpu !== null && r.cpu > 20 ? "#d29922" : "#3fb950",
+                      }}
+                    />
+                    {r.label}
+                  </td>
+                  <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "monospace", color: "var(--text-muted)" }}>{r.pid ?? "—"}</td>
+                  <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "monospace" }}>{formatCpu(r.cpu)}</td>
+                  <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "monospace" }}>{formatMem(r.memoryBytes)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div className="dev-panel-footer">
+        <span>{allRows.length} process(es)</span>
+        <span>
+          <span style={{ color: "#3fb950" }}>●</span> &lt;20% &nbsp;
+          <span style={{ color: "#d29922" }}>●</span> 20–50% &nbsp;
+          <span style={{ color: "#f85149" }}>●</span> &gt;50% CPU
+        </span>
+      </div>
+    </>
+  );
+}
+
 /* ── DevPanel ── */
 
 export default function DevPanel({ onClose }: Props) {
@@ -488,6 +653,9 @@ export default function DevPanel({ onClose }: Props) {
         <button className={`dev-panel-tab ${activeTab === "database" ? "dev-panel-tab--active" : ""}`} onClick={() => setActiveTab("database")}>
           🗄️ Database
         </button>
+        <button className={`dev-panel-tab ${activeTab === "performance" ? "dev-panel-tab--active" : ""}`} onClick={() => setActiveTab("performance")}>
+          ⚡ Performance
+        </button>
         <div className="dev-panel-tabs-spacer" />
         <button className="dev-panel-btn dev-panel-btn-close" onClick={onClose} title="Close dev panel">
           ✕
@@ -498,6 +666,7 @@ export default function DevPanel({ onClose }: Props) {
       {activeTab === "live" && <LiveLogsTab />}
       {activeTab === "files" && <LogFilesTab />}
       {activeTab === "database" && <DatabaseTab />}
+      {activeTab === "performance" && <PerformanceTab />}
     </div>
   );
 }

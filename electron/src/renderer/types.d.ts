@@ -97,6 +97,10 @@ export interface ElectronAPI {
   readLogFile: (filePath: string, maxLines?: number) => Promise<string[]>;
   getLogPaths: () => Promise<{ primary: string | null; mirror: string | null }>;
   getStorageUsage: () => Promise<StorageUsage>;
+  getPerformanceMetrics: () => Promise<{
+    electron: Array<{ type: string; pid: number; cpu: number | null; memory: number | null; peakMemory: number | null }>;
+    children: Array<{ service: string; pid: number; cpu: number; memory: number; elapsed: number }>;
+  }>;
   platform: string;
 }
 

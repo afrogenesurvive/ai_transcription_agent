@@ -379,6 +379,15 @@ export async function restartAgentRunner(): Promise<void> {
   console.log(`[agent] Agent runner restarted`);
 }
 
+/** Get the PIDs of all three child services (useful for monitoring). */
+export function getChildPids(): { python: number | null; bridge: number | null; agent: number | null } {
+  return {
+    python: pythonProcess?.pid ?? null,
+    bridge: bridgeProcess?.pid ?? null,
+    agent: agentProcess?.pid ?? null,
+  };
+}
+
 // ── Combined ──
 
 export async function startAll(): Promise<void> {

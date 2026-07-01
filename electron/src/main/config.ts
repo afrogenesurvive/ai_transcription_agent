@@ -33,6 +33,8 @@ export interface AppConfig {
   TRELLO_TOKEN: string;
   /** Hugging Face token (required for gated models like pyannote/speaker-diarization-3.1) */
   HUGGING_FACE_TOKEN: string;
+  /** Performance metrics polling interval (ms) for DevPanel */
+  PERF_METRICS_POLL_INTERVAL: string;
 }
 
 const DEFAULTS: AppConfig = {
@@ -47,6 +49,7 @@ const DEFAULTS: AppConfig = {
   TRELLO_KEY: "",
   TRELLO_TOKEN: "",
   HUGGING_FACE_TOKEN: "",
+  PERF_METRICS_POLL_INTERVAL: "10000",
 };
 
 /** Keys the UI considers "required" before the pipeline can run. */

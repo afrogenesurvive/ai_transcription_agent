@@ -12,6 +12,7 @@
 import fs from "fs";
 import { app, BrowserWindow, Tray, Menu, nativeImage, Notification, ipcMain, dialog } from "electron";
 import path from "path";
+import pidusage from "pidusage";
 import {
   startAll,
   startPythonBackend,
@@ -30,6 +31,7 @@ import {
   startHealthMonitoring,
   stopHealthMonitoring,
   killProcessOnPort,
+  getChildPids,
 } from "./backend-manager";
 import { subscribe, getLogs, clearLogs, addLog, initFileLogging, listLogFiles, readLogFile, getLogDir, getMirrorDir } from "./logger";
 import { getConfig, saveConfig, checkConfig, getConfigWithSources } from "./config";
@@ -345,6 +347,56 @@ ipcMain.handle("storage:usage", async () => {
   } catch (err: any) {
     return { error: `Bridge unreachable: ${err.message}` };
   }
+});
+
+// ── Performance Metrics IPC ──
+
+ipcMain.handle("metrics:getAll", async () => {
+  // 1. Electron app metrics (main, renderer, GPU, utility processes)
+  let electronMetrics: any[] = [];
+  try {
+    electronMetrics = app.getAppMetrics().map((m) => ({
+      type: m.type,
+      pid: m.pid,
+      cpu: m.cpu?.percentCPUUsage ?? null,
+      memory: m.memory?.workingSetSize ?? null,
+      peakMemory: m.memory?.peakWorkingSetSize ?? null,
+    }));
+  } catch {
+    // app.getAppMetrics is available from Electron 5+
+  }
+
+  // 2. Child process metrics via pidusage
+  const childPids = getChildPids();
+  const pidMap: Record<number, { service: string }> = {};
+  const pids: number[] = [];
+  for (const [service, pid] of Object.entries(childPids)) {
+    if (pid) {
+      pidMap[pid] = { service };
+      pids.push(pid);
+    }
+  }
+
+  let childMetrics: any[] = [];
+  if (pids.length > 0) {
+    try {
+      const stats = await pidusage(pids);
+      for (const [pidStr, stat] of Object.entries(stats)) {
+        const pid = Number(pidStr);
+        childMetrics.push({
+          service: pidMap[pid]?.service ?? "unknown",
+          pid,
+          cpu: stat.cpu,
+          memory: stat.memory,
+          elapsed: stat.elapsed,
+        });
+      }
+    } catch {
+      // pidusage may fail if a process exited between the check
+    }
+  }
+
+  return { electron: electronMetrics, children: childMetrics };
 });
 
 // ── Log file browsing ──
