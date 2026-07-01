@@ -198,6 +198,9 @@ async function dispatch(tool, args) {
     case "transcribe_get_analysis":
       return await callPython("GET", `/transcribe/analysis/${args.jobId}`);
 
+    case "transcribe_get_token_usage":
+      return await callPython("GET", `/transcribe/usage/${args.jobId}`);
+
     case "transcribe_get_job_logs":
       return await callPython("GET", `/transcribe/job_logs/${args.jobId}?max_lines=${args.maxLines || 200}`);
 

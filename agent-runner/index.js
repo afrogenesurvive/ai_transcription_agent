@@ -26,7 +26,16 @@ import { executeToolCall } from "./tool-executor.js";
 import { logAction } from "./logger.js";
 import { readPending, markCleared, acquireLock, releaseLock } from "./poller.js";
 import { sanitizeTranscriptSegments, sanitizeContextString } from "./sanitize.js";
-import { TOOLS, PIPELINE_HINTS, TERMINAL_TOOLS, MAX_PIPELINE_STEPS, MAX_RETRIES, RETRY_BASE_DELAY, EVENT_TEMPLATES } from "./agent-config.js";
+import {
+  TOOLS,
+  PIPELINE_HINTS,
+  TERMINAL_TOOLS,
+  MAX_PIPELINE_STEPS,
+  MAX_RETRIES,
+  RETRY_BASE_DELAY,
+  EVENT_TEMPLATES,
+  SYSTEM_PROMPT_TEMPLATE,
+} from "./agent-config.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PID_FILE = path.resolve(__dirname, ".runner.pid");
@@ -196,23 +205,108 @@ async function processEvent(event) {
     console.log(`   ⚠️  [RUNNER] Memory fetch failed (non-fatal): ${err.message}`);
   }
 
+  // ── Skip-steps configuration ──
+  // `skip_steps` is an array of tool names to exclude from the LLM's available
+  // tools. Default skips analysis and delivery. When a tool is skipped, the
+  // pipeline hint chain is walked forward past it so the LLM gets the correct
+  // "what to do next" guidance.
+  const skippedTools = new Set(jobData.skip_steps || []);
+  if (skippedTools.size > 0) {
+    console.log(`   ⏭️  [RUNNER] Skipped tools: ${[...skippedTools].join(", ")}`);
+  }
+
+  // Filter the available tools: remove any that are in the skip list
+  const availableTools = TOOLS.filter((t) => !skippedTools.has(t.name));
+
+  // ── Render the system prompt ──
+  // Generate a version of the system prompt with skipped sections removed
+  // and {{TOOL_LIST}} injected. Pass it directly to callModel() in-memory
+  // so model-client.js doesn't need any stripping logic.
+  let renderedPrompt = null;
+  {
+    const toolLines = availableTools.map((t) => `  - ${t.name}: ${t.description}`).join("\n");
+    let rendered = SYSTEM_PROMPT_TEMPLATE.replace("{{TOOL_LIST}}", toolLines);
+
+    // Strip numbered sections that reference skipped tools
+    if (skippedTools.size > 0) {
+      for (const toolName of skippedTools) {
+        const sectionRegex = new RegExp(
+          `\\d+\\.\\s+\\*\\*[^*]+\\*\\*\\s+[—–-]\\s+[^\\n]*\\b${toolName}\\b[^\\n]*(?:\\n(?!\\d+\\.\\s+\\*\\*|##|$)[^\\n]*)*`,
+          "g",
+        );
+        rendered = rendered.replace(sectionRegex, "");
+        const commentRegex = new RegExp(`<!--\\s*\\d+\\.\\s+\\*\\*[^*]+\\*\\*[^>]*\\b${toolName}\\b[^>]*-->`, "g");
+        rendered = rendered.replace(commentRegex, "");
+      }
+      rendered = rendered.replace(/\n{3,}/g, "\n\n").trim();
+      console.log(`   📝 [RUNNER] Stripped ${skippedTools.size} skipped tool section(s) from system prompt`);
+    }
+    renderedPrompt = rendered;
+  }
+
+  // Dynamically resolve the next non-skipped pipeline hint.
+  // Walks the hint chain: if the next referenced tool is skipped, recurse.
+  function resolveNextHint(currentTool, hints) {
+    const hint = hints[currentTool];
+    if (!hint) return null;
+    // Extract the first referenced tool name from the hint prose
+    const match = hint.match(/\b(transcribe_\w+)\b/);
+    if (!match) return hint;
+    const nextTool = match[0];
+    if (skippedTools.has(nextTool)) {
+      // Try the hint of the tool after the skipped one
+      const nextHint = hints[nextTool];
+      if (!nextHint) return hint; // fallback to current hint
+      const nextMatch = nextHint.match(/\b(transcribe_\w+)\b/);
+      if (nextMatch && skippedTools.has(nextMatch[0])) {
+        // Multiple consecutive skips — recurse deeper
+        return resolveNextHint(nextTool, hints);
+      }
+      // Return the hint that points past the skipped tool
+      const overridden = nextHint
+        .replace(new RegExp(`\\b${nextMatch ? nextMatch[0].replace(/\./g, "\\.") : ""}\\b`), `(skipped ${nextTool}) ${nextMatch ? nextMatch[0] : ""}`)
+        .trim();
+      return overridden;
+    }
+    return hint;
+  }
+
   // ── Multi-step pipeline loop ──
   // Each iteration: LLM picks one tool → executes it → result appended to context
   // Loop ends when a terminal tool is called, LLM returns nothing, or max steps hit.
   let pipelineComplete = false;
   let pipelineError = null;
+  const tokenUsage = []; // per-step token usage records
+  let totalPromptTokens = 0;
+  let totalCompletionTokens = 0;
+  let totalTokens = 0;
 
   for (let step = 1; step <= MAX_PIPELINE_STEPS && !pipelineComplete; step++) {
     console.log(`   🤖 [RUNNER] Asking LLM (step ${step})...`);
     let decision;
     try {
-      decision = await withRetry(() => callModel(context, TOOLS), `LLM call (step ${step})`);
+      decision = await withRetry(() => callModel(context, availableTools, renderedPrompt), `LLM call (step ${step})`);
     } catch (err) {
       pipelineError = `LLM call failed after ${MAX_RETRIES} retries: ${err.message}`;
       console.log(`   ❌ [RUNNER] ${pipelineError}`);
       logAction({ eventId, eventType: event.type, action: "failed", detail: pipelineError });
       pipelineComplete = true;
       break;
+    }
+
+    // Track token usage from this LLM call
+    if (decision?.usage) {
+      const stepUsage = {
+        step,
+        tool: decision.name || "unknown",
+        prompt_tokens: decision.usage.prompt_tokens || 0,
+        completion_tokens: decision.usage.completion_tokens || 0,
+        total_tokens: decision.usage.total_tokens || 0,
+      };
+      tokenUsage.push(stepUsage);
+      totalPromptTokens += stepUsage.prompt_tokens;
+      totalCompletionTokens += stepUsage.completion_tokens;
+      totalTokens += stepUsage.total_tokens;
     }
 
     if (!decision) {
@@ -265,13 +359,25 @@ async function processEvent(event) {
       break;
     }
 
+    // If delivery tools are skipped and we just saved context, pipeline is done
+    if (decision.name === "transcribe_save_context" && skippedTools.size > 0) {
+      const hasRemainingDelivery = [...TERMINAL_TOOLS].some((t) => !skippedTools.has(t));
+      if (!hasRemainingDelivery) {
+        console.log(`   ⏭️  [RUNNER] Delivery skipped — pipeline finished after save_context`);
+        logAction({ eventId, eventType: event.type, action: "complete", detail: "delivery skipped, ended after save_context" });
+        pipelineComplete = true;
+        break;
+      }
+    }
+
     // Append result summary to context so the LLM knows what happened
     const resultSummary =
       result && typeof result === "object" && !Array.isArray(result) ? JSON.stringify(result).slice(0, 500) : String(result || "ok").slice(0, 500);
     context += `\n\n[Step ${step} Complete] Tool: ${decision.name}\nResult: ${resultSummary}`;
 
-    // Add a hint about the next logical pipeline step
-    const hint = PIPELINE_HINTS[decision.name];
+    // Add a hint about the next logical pipeline step, skipping over any
+    // tools that are in the skip list.
+    const hint = resolveNextHint(decision.name, PIPELINE_HINTS);
     if (hint) context += `\n${hint}`;
   }
 
@@ -283,6 +389,33 @@ async function processEvent(event) {
   } else {
     console.log(`   ✅ [RUNNER] Pipeline finished for job ${tag}`);
   }
+
+  // ── Save token usage data to the job's storage directory ──
+  if (tokenUsage.length > 0) {
+    try {
+      const jobId = jobData.jobId || eventId;
+      const storageDir = path.resolve(__dirname, "..", "storage", jobId);
+      const usageData = {
+        job_id: jobId,
+        title: safeTitle,
+        provider: process.env.LLM_PROVIDER || "deepseek",
+        model: process.env.LLM_PROVIDER === "ollama" ? process.env.OLLAMA_MODEL || "llama3.1:8b" : "deepseek-v4-flash",
+        steps: tokenUsage,
+        totals: {
+          prompt_tokens: totalPromptTokens,
+          completion_tokens: totalCompletionTokens,
+          total_tokens: totalTokens,
+        },
+        saved_at: new Date().toISOString(),
+      };
+      fs.mkdirSync(storageDir, { recursive: true });
+      fs.writeFileSync(path.join(storageDir, "usage.json"), JSON.stringify(usageData, null, 2), "utf8");
+      console.log(`   💰 [RUNNER] Token usage saved: ${totalTokens} total tokens across ${tokenUsage.length} steps`);
+    } catch (err) {
+      console.log(`   ⚠️  [RUNNER] Failed to save token usage: ${err.message}`);
+    }
+  }
+
   markCleared(eventId);
 }
 

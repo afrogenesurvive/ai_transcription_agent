@@ -86,10 +86,12 @@ const FALLBACK_PIPELINE = {
   retry_base_delay_ms: 2000,
   terminal_tools: ["send_delivery_email", "save_to_drive", "create_trello_action_items"],
   pipeline_hints: {
-    transcribe_refine: "Next: Call transcribe_get_transcript to read the refined transcript, then call transcribe_analyze...",
-    transcribe_get_transcript: "Next: Analyze the transcript for topics, sentiment, and key entities...",
-    transcribe_analyze: "Next: Generate a structured summary from the transcript and analysis...",
-    transcribe_summarize: "Next: Call transcribe_save_context to persist the meeting...",
+    transcribe_refine:
+      "Next: Call transcribe_get_transcript to read the refined transcript, then call transcribe_summarize to generate a structured summary, then call transcribe_analyze to analyze topics/sentiment/entities...",
+    transcribe_get_transcript:
+      "Next: Call transcribe_summarize to generate a structured summary from the transcript, then call transcribe_analyze to store analysis results...",
+    transcribe_summarize: "Next: Call transcribe_analyze to store analysis of topics, sentiment, entities, and follow-ups...",
+    transcribe_analyze: "Next: Call transcribe_save_context to persist the meeting...",
     transcribe_save_context: "Next: Call transcribe_prepare_delivery to package results for delivery.",
     transcribe_prepare_delivery: "Next: Deliver results using send_delivery_email, save_to_drive, or create_trello_action_items.",
     transcribe_label_speaker: "Next: If more unknown speakers remain, call transcribe_label_speaker again; otherwise the pipeline is complete.",

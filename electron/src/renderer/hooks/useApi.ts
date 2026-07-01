@@ -17,12 +17,13 @@ async function bridgeCall(tool: string, args: Record<string, unknown> = {}) {
 export function useApi() {
   return {
     /** Upload an audio file (via bridge server to avoid CORS issues) */
-    uploadAudio: async (file: File, title: string, attendees: string[]) => {
+    uploadAudio: async (file: File, title: string, attendees: string[], skipSteps: string[] = []) => {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("title", title);
       formData.append("attendees", JSON.stringify(attendees));
       formData.append("event_type", "internal");
+      formData.append("skip_steps", JSON.stringify(skipSteps));
 
       const res = await fetch(`${BRIDGE_URL}/transcribe/upload`, { method: "POST", body: formData });
       if (!res.ok) {
@@ -119,6 +120,29 @@ export function useApi() {
     searchMemory: async (query: string, nResults = 5) => {
       return bridgeCall("transcribe_search_memory", { query, nResults }) as Promise<{
         results: any[];
+      }>;
+    },
+
+    /** Get token usage for a completed job */
+    getTokenUsage: async (jobId: string) => {
+      return bridgeCall("transcribe_get_token_usage", { jobId }) as Promise<{
+        job_id: string;
+        title: string;
+        provider: string;
+        model: string;
+        steps: Array<{
+          step: number;
+          tool: string;
+          prompt_tokens: number;
+          completion_tokens: number;
+          total_tokens: number;
+        }>;
+        totals: {
+          prompt_tokens: number;
+          completion_tokens: number;
+          total_tokens: number;
+        };
+        saved_at: string;
       }>;
     },
   };

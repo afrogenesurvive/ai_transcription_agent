@@ -30,7 +30,24 @@ import type { JobStatus } from "./types";
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
 type View = "upload" | "processing" | "results";
-type SidebarView = "main" | "dev" | "config" | "storage";
+type SidebarView = "current" | "dev" | "config" | "storage";
+
+/**
+ * Map tool-level skip_steps from job metadata to pipeline stage keys.
+ * Stage keys in ProgressPanel: uploaded, initializing, diarization,
+ * voiceprints, transcription, aligning, agent, delivery.
+ */
+function computeSkippedStages(statusData: any): Set<string> | undefined {
+  const skipSteps: string[] | undefined = statusData?.metadata?.skip_steps;
+  if (!skipSteps || skipSteps.length === 0) return undefined;
+  const stages = new Set<string>();
+  // Delivery tools being skipped → mark the "delivery" stage as skipped
+  const deliveryTools = ["transcribe_prepare_delivery", "send_delivery_email", "save_to_drive", "create_trello_action_items"];
+  if (deliveryTools.some((t) => skipSteps.includes(t))) {
+    stages.add("delivery");
+  }
+  return stages.size > 0 ? stages : undefined;
+}
 
 export default function App() {
   const api = useApi();
@@ -41,7 +58,7 @@ export default function App() {
   const [statusData, setStatusData] = useState<any>(null);
   const [uploading, setUploading] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
-  const [sidebarView, setSidebarView] = useState<SidebarView>("main");
+  const [sidebarView, setSidebarView] = useState<SidebarView>("current");
   const [configOk, setConfigOk] = useState(true);
   const [cancelling, setCancelling] = useState(false);
   const [diarizationAvailable, setDiarizationAvailable] = useState<boolean | null>(null);
@@ -155,11 +172,11 @@ export default function App() {
   }, [statusHook.state, jobId, api]);
 
   // Handle upload submit
-  const handleUpload = async (file: File, title: string, attendees: string[]) => {
-    console.log("handleUpload");
+  const handleUpload = async (file: File, title: string, attendees: string[], skipSteps: string[]) => {
+    console.log("handleUpload", { skipSteps });
     setUploading(true);
     try {
-      const result: any = await api.uploadAudio(file, title, attendees);
+      const result: any = await api.uploadAudio(file, title, attendees, skipSteps);
       console.log("Upload result", result);
       setJobId(result.job_id);
       setJobMetadata({ title, attendees });
@@ -187,15 +204,23 @@ export default function App() {
     }
   }, [jobId, api, statusHook]);
 
-  // Load a past job from history
+  // Load a past job from history — keeps history panel visible and shows results in the right column
   const loadHistoryJob = useCallback(
     async (jobId: string) => {
       setHistoryJobId(jobId);
-      setShowHistory(false);
+      setShowHistory(true);
       try {
-        const [transcriptData, summaryData] = await Promise.all([api.getTranscript(jobId), api.getSummary(jobId).catch(() => null)]);
+        const [transcriptData, summaryData, statusData] = await Promise.all([
+          api.getTranscript(jobId),
+          api.getSummary(jobId).catch(() => null),
+          api.getStatus(jobId).catch(() => null),
+        ]);
         if (transcriptData) {
           setTranscript({ ...transcriptData, summary: summaryData?.summary });
+          // Store metadata from status if available (title, attendees, etc.)
+          if (statusData?.metadata) {
+            setJobMetadata(statusData.metadata);
+          }
           setView("results");
         } else {
           setNotification("Transcript data unavailable for this job");
@@ -216,6 +241,7 @@ export default function App() {
     setTranscript(null);
     setJobMetadata(null);
     setStatusData(null);
+    setHistoryJobId(null);
     statusHook.stopPolling();
   };
 
@@ -223,16 +249,6 @@ export default function App() {
     <div className="app">
       <header className="app-header">
         <h1>🎙️ Transcription Agent</h1>
-        <nav>
-          <button className={`nav-btn ${view === "upload" ? "active" : ""}`} onClick={handleNew}>
-            New Upload
-          </button>
-          {view === "results" && (
-            <button className="nav-btn" onClick={handleNew}>
-              Upload Another
-            </button>
-          )}
-        </nav>
       </header>
 
       {notification && (
@@ -253,20 +269,33 @@ export default function App() {
       <div className="app-body">
         <nav className="sidebar">
           <button
-            className={`sidebar-btn ${sidebarView === "main" && !showHistory ? "sidebar-btn--active" : ""}`}
+            className="sidebar-btn"
+            disabled={view === "processing" || uploading}
             onClick={() => {
-              setSidebarView("main");
-              setShowHistory(false);
+              handleNew();
+              setSidebarView("current");
             }}
-            title="Main view">
-            <span className="sidebar-btn-icon">🏠</span>
-            <span className="sidebar-btn-label">Main</span>
+            title={view === "processing" || uploading ? "Finish current run first" : "Start a new transcription"}>
+            <span className="sidebar-btn-icon">➕</span>
+            <span className="sidebar-btn-label">New</span>
           </button>
           <button
-            className={`sidebar-btn ${showHistory && sidebarView === "main" ? "sidebar-btn--active" : ""}`}
+            className={`sidebar-btn ${sidebarView === "current" && !showHistory ? "sidebar-btn--active" : ""}`}
             onClick={() => {
-              setSidebarView("main");
+              setSidebarView("current");
+              setShowHistory(false);
+              setHistoryJobId(null);
+            }}
+            title="Current job">
+            <span className="sidebar-btn-icon">🏠</span>
+            <span className="sidebar-btn-label">Current</span>
+          </button>
+          <button
+            className={`sidebar-btn ${showHistory && sidebarView === "current" ? "sidebar-btn--active" : ""}`}
+            onClick={() => {
+              setSidebarView("current");
               setShowHistory((v) => !v);
+              // Don't clear historyJobId — user may toggle back to see results
             }}
             title="Job history">
             <span className="sidebar-btn-icon">📋</span>
@@ -307,11 +336,11 @@ export default function App() {
         </nav>
 
         <main className="app-main">
-          {sidebarView === "main" && (
+          {sidebarView === "current" && (
             <>
               <div className="left-col" id="left-col">
                 {showHistory ? (
-                  <HistoryPanel onSelectJob={loadHistoryJob} currentJobId={jobId} />
+                  <HistoryPanel onSelectJob={loadHistoryJob} currentJobId={historyJobId || jobId} />
                 ) : (
                   <>
                     {view === "upload" && <UploadPanel onUpload={handleUpload} uploading={uploading} />}
@@ -324,6 +353,7 @@ export default function App() {
                         onCancel={view === "processing" ? handleCancel : undefined}
                         cancelling={cancelling}
                         diarizationAvailable={diarizationAvailable}
+                        skippedSteps={computeSkippedStages(statusData)}
                       />
                     )}
 
@@ -354,7 +384,12 @@ export default function App() {
               </div>
 
               <div className="right-col">
-                {view === "processing" && (
+                {/* Show results for a history job (history panel visible in left column) */}
+                {historyJobId && (
+                  <ResultsViewer jobId={historyJobId} segments={transcript?.transcript} summary={transcript?.summary} metadata={jobMetadata} />
+                )}
+                {/* Processing placeholder — hidden when viewing history */}
+                {!historyJobId && view === "processing" && (
                   <div className="panel transcript-panel">
                     <h2>Transcript</h2>
                     <p className="placeholder">
@@ -363,22 +398,23 @@ export default function App() {
                     </p>
                   </div>
                 )}
-                {view === "results" && jobId && (
+                {/* Live results from current upload — hidden when viewing history */}
+                {!historyJobId && view === "results" && jobId && (
                   <ResultsViewer jobId={jobId} segments={transcript?.transcript} summary={transcript?.summary} metadata={jobMetadata} />
                 )}
               </div>
             </>
           )}
 
-          {sidebarView === "dev" && <DevPanel onClose={() => setSidebarView("main")} />}
+          {sidebarView === "dev" && <DevPanel onClose={() => setSidebarView("current")} />}
 
-          {sidebarView === "storage" && <StoragePanel onClose={() => setSidebarView("main")} />}
+          {sidebarView === "storage" && <StoragePanel onClose={() => setSidebarView("current")} />}
 
           {sidebarView === "config" && (
             <ConfigPanel
               key="config-panel"
               onClose={() => {
-                setSidebarView("main");
+                setSidebarView("current");
                 window.electronAPI?.checkConfig().then((r) => setConfigOk(r.ok));
               }}
             />

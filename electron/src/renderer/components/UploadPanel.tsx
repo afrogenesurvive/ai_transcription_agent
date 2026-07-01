@@ -5,7 +5,7 @@
 import React, { useState, useRef, useCallback } from "react";
 
 interface Props {
-  onUpload: (file: File, title: string, attendees: string[]) => void;
+  onUpload: (file: File, title: string, attendees: string[], skipSteps: string[]) => void;
   uploading: boolean;
 }
 
@@ -14,6 +14,8 @@ export default function UploadPanel({ onUpload, uploading }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState("");
   const [attendees, setAttendees] = useState("");
+  const [skipAnalysis, setSkipAnalysis] = useState(true);
+  const [skipDelivery, setSkipDelivery] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFile = useCallback(
@@ -38,15 +40,21 @@ export default function UploadPanel({ onUpload, uploading }: Props) {
   );
 
   const handleSubmit = () => {
-    if (file)
-      onUpload(
-        file,
-        title || file.name,
-        attendees
-          .split(",")
-          .map((a) => a.trim())
-          .filter(Boolean),
-      );
+    if (!file) return;
+    const steps: string[] = [];
+    if (skipAnalysis) steps.push("transcribe_analyze");
+    if (skipDelivery) {
+      steps.push("transcribe_prepare_delivery", "send_delivery_email", "save_to_drive", "create_trello_action_items");
+    }
+    onUpload(
+      file,
+      title || file.name,
+      attendees
+        .split(",")
+        .map((a) => a.trim())
+        .filter(Boolean),
+      steps,
+    );
   };
 
   const formatSize = (bytes: number) => {
@@ -108,6 +116,19 @@ export default function UploadPanel({ onUpload, uploading }: Props) {
         <label>
           Attendees (comma-separated emails)
           <input type="text" value={attendees} onChange={(e) => setAttendees(e.target.value)} placeholder="john@co.com, mary@co.com" />
+        </label>
+      </div>
+
+      <div className="skip-options">
+        <label className="skip-checkbox">
+          <input type="checkbox" checked={skipAnalysis} onChange={(e) => setSkipAnalysis(e.target.checked)} />
+          <span>Skip analysis</span>
+          <span className="skip-hint">(topics, sentiment, entity extraction)</span>
+        </label>
+        <label className="skip-checkbox">
+          <input type="checkbox" checked={skipDelivery} onChange={(e) => setSkipDelivery(e.target.checked)} />
+          <span>Skip delivery</span>
+          <span className="skip-hint">(no email, Trello, or Drive — saves LLM tokens)</span>
         </label>
       </div>
 

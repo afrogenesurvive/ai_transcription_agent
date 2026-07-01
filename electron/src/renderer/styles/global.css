@@ -62,27 +62,6 @@ body {
   font-weight: 600;
 }
 
-.app-header nav {
-  -webkit-app-region: no-drag;
-}
-
-.nav-btn {
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text);
-  padding: 6px 14px;
-  border-radius: var(--radius);
-  cursor: pointer;
-  font-size: 13px;
-  margin-left: 8px;
-}
-
-.nav-btn.active,
-.nav-btn:hover {
-  background: var(--surface-hover);
-  border-color: var(--accent);
-}
-
 /* ── App Body (sidebar + main) ── */
 
 .app-body {
@@ -131,6 +110,17 @@ body {
   color: var(--accent);
   border-left-color: var(--accent);
   background: rgba(88, 166, 255, 0.08);
+}
+
+.sidebar-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: auto;
+}
+
+.sidebar-btn:disabled:hover {
+  color: var(--text-muted);
+  background: none;
 }
 
 .sidebar-btn-icon {
@@ -283,6 +273,34 @@ body {
   cursor: pointer;
   font-size: 12px;
   text-decoration: underline;
+}
+
+/* ── Skip Options ── */
+
+.skip-options {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.skip-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+}
+
+.skip-checkbox input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+.skip-hint {
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 /* ── Form Fields ── */
@@ -497,6 +515,16 @@ body {
   background: var(--red);
 }
 
+.pp-step--skipped .pp-step-line {
+  background: var(--border);
+  opacity: 0.4;
+}
+
+.pp-step--skipped .pp-step-dot {
+  background: var(--text-muted);
+  opacity: 0.5;
+}
+
 .pp-step-check {
   color: #fff;
   font-size: 11px;
@@ -518,7 +546,7 @@ body {
   }
 }
 
-.pp-step-error-icon {
+.pp-step-skipped-icon {
   color: #fff;
   font-size: 11px;
   font-weight: 700;
@@ -571,6 +599,12 @@ body {
   opacity: 0.6;
 }
 
+.pp-step--skipped .pp-step-label {
+  color: var(--text-muted);
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
 .pp-step-desc {
   font-size: 11px;
   color: var(--text-muted);
@@ -578,6 +612,10 @@ body {
 }
 
 .pp-step--pending .pp-step-desc {
+  display: none;
+}
+
+.pp-step--skipped .pp-step-desc {
   display: none;
 }
 
@@ -610,6 +648,17 @@ body {
   font-weight: 600;
   color: var(--green);
   background: rgba(63, 185, 80, 0.12);
+  padding: 2px 8px;
+  border-radius: 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.pp-step-skipped-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: rgba(139, 148, 158, 0.15);
   padding: 2px 8px;
   border-radius: 8px;
   white-space: nowrap;
@@ -3015,4 +3064,129 @@ body {
   display: flex;
   gap: 8px;
   margin-top: 8px;
+}
+
+/* ── Tokens Tab ── */
+
+.rv-tab-content--tokens {
+  padding: 16px 20px;
+  overflow-y: auto;
+}
+
+.rv-tokens-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.rv-tokens-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rv-tokens-card-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1.2;
+}
+
+.rv-tokens-card-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 500;
+}
+
+.rv-tokens-model-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+.rv-tokens-model-badge {
+  background: rgba(88, 166, 255, 0.12);
+  color: var(--accent);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.rv-tokens-steps-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 8px 0;
+}
+
+.rv-tokens-table-wrapper {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.rv-tokens-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.rv-tokens-table th {
+  background: var(--surface);
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 8px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.rv-tokens-table td {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+.rv-tokens-table tr:last-child td {
+  border-bottom: none;
+}
+
+.rv-tokens-table tr:hover {
+  background: var(--surface-hover);
+}
+
+.rv-tokens-step-num {
+  color: var(--text-muted);
+  font-weight: 500;
+  width: 32px;
+}
+
+.rv-tokens-num {
+  font-family: "SF Mono", "Fira Code", monospace;
+  text-align: right;
+  font-size: 12px;
+}
+
+.rv-tokens-num--total {
+  color: var(--accent);
+  font-weight: 600;
 }

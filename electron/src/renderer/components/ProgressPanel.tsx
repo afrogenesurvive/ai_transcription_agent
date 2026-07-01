@@ -20,6 +20,8 @@ interface Props {
   cancelling?: boolean;
   /** Whether the diarization model is available (for speaker labels) */
   diarizationAvailable?: boolean | null;
+  /** Set of stage keys (e.g. "agent", "delivery") to show as skipped */
+  skippedSteps?: Set<string>;
 }
 
 /* ── Pipeline stages (non-technical friendly labels) ── */
@@ -94,9 +96,16 @@ const PIPELINE: StageDef[] = [
 
 /**
  * Determine the status of each pipeline stage based on the current backend status.
- * Returns: "done" | "active" | "pending" | "error"
+ * Returns: "done" | "active" | "pending" | "error" | "skipped"
  */
-function getStageState(stage: StageDef, currentStatus: string, isFailed: boolean, isComplete: boolean): "done" | "active" | "pending" | "error" {
+function getStageState(
+  stage: StageDef,
+  currentStatus: string,
+  isFailed: boolean,
+  isComplete: boolean,
+  skippedSteps?: Set<string>,
+): "done" | "active" | "pending" | "error" | "skipped" {
+  if (skippedSteps?.has(stage.key)) return "skipped";
   if (isFailed && stage.matches.includes(currentStatus)) return "error";
   if (isFailed) return "done"; // All previous stages succeeded
   if (isComplete) return "done"; // Pipeline fully done — all stages completed
@@ -108,7 +117,7 @@ function getStageState(stage: StageDef, currentStatus: string, isFailed: boolean
   return "pending";
 }
 
-export default function PipelineProgress({ status, progress, error, onCancel, cancelling, diarizationAvailable }: Props) {
+export default function PipelineProgress({ status, progress, error, onCancel, cancelling, diarizationAvailable, skippedSteps }: Props) {
   const pct = Math.round(progress * 100);
   const isFailed = status === "failed";
   const isComplete = ["delivered", "refined", "summarized", "analyzed"].includes(status);
@@ -142,7 +151,7 @@ export default function PipelineProgress({ status, progress, error, onCancel, ca
       {/* ── Vertical pipeline stepper ── */}
       <div className="pp-stepper">
         {PIPELINE.map((stage) => {
-          const state = getStageState(stage, status, isFailed, isComplete);
+          const state = getStageState(stage, status, isFailed, isComplete, skippedSteps);
           return (
             <div key={stage.key} className={`pp-step pp-step--${state}`}>
               {/* Connector line */}
@@ -153,6 +162,7 @@ export default function PipelineProgress({ status, progress, error, onCancel, ca
                 {state === "done" && <span className="pp-step-check">✓</span>}
                 {state === "active" && <span className="pp-step-spinner" />}
                 {state === "error" && <span className="pp-step-error-icon">✕</span>}
+                {state === "skipped" && <span className="pp-step-skipped-icon">➖</span>}
                 {state === "pending" && <span className="pp-step-pending-dot" />}
               </div>
 
@@ -165,6 +175,7 @@ export default function PipelineProgress({ status, progress, error, onCancel, ca
                 </div>
                 {state === "active" && <span className="pp-step-active-badge">In progress</span>}
                 {state === "done" && <span className="pp-step-done-badge">Done</span>}
+                {state === "skipped" && <span className="pp-step-skipped-badge">Skipped</span>}
               </div>
             </div>
           );

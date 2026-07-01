@@ -17,6 +17,7 @@ class UploadByPathRequest(BaseModel):
     title: str = "Untitled Meeting"
     attendees: List[str] = Field(default_factory=list)
     event_type: str = "internal"
+    skip_steps: Optional[List[str]] = Field(default=None, description="Tool names to skip in the agent pipeline. Defaults to skipping analysis and delivery.")
 
 
 class MeetingMetadata(BaseModel):

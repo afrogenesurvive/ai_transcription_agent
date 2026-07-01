@@ -160,6 +160,7 @@ async def upload_audio(
     title: str = Form("Untitled Meeting"),
     attendees: str = Form("[]"),
     event_type: str = Form("internal"),
+    skip_steps: str = Form(""),
 ):
     ext = os.path.splitext(file.filename or "audio.wav")[1] or ".wav"
     temp_dir = os.path.join(config.STORAGE_PATH, "uploads")
@@ -170,7 +171,19 @@ async def upload_audio(
     with open(temp_path, "wb") as f:
         f.write(content)
 
-    metadata = {"title": title, "attendees": json.loads(attendees), "event_type": event_type}
+    parsed_skip = json.loads(skip_steps) if skip_steps else [
+        "transcribe_analyze",
+        "transcribe_prepare_delivery",
+        "send_delivery_email",
+        "save_to_drive",
+        "create_trello_action_items",
+    ]
+    metadata = {
+        "title": title,
+        "attendees": json.loads(attendees),
+        "event_type": event_type,
+        "skip_steps": parsed_skip,
+    }
     try:
         result = uploader.upload(temp_path, metadata)
     finally:
@@ -180,6 +193,7 @@ async def upload_audio(
     job_id = result["job_id"]
     print(f"[upload] Received file '{file.filename}' ({len(content)} bytes) → job_id={job_id}")
     print(f"[upload] Metadata: title='{title}', attendees={attendees}, event_type='{event_type}'")
+    print(f"[upload] skip_steps={parsed_skip}")
     t = threading.Thread(target=_run_pipeline, args=(job_id,), daemon=True)
     _pipeline_threads[job_id] = t
     t.start()
@@ -204,10 +218,18 @@ async def upload_audio_by_path(req: UploadByPathRequest):
     if ext not in config.ALLOWED_EXTENSIONS:
         raise HTTPException(400, f"Unsupported format: {ext}. Allowed: {', '.join(sorted(config.ALLOWED_EXTENSIONS))}")
 
+    skip_steps = req.skip_steps or [
+        "transcribe_analyze",
+        "transcribe_prepare_delivery",
+        "send_delivery_email",
+        "save_to_drive",
+        "create_trello_action_items",
+    ]
     metadata = {
         "title": req.title,
         "attendees": req.attendees,
         "event_type": req.event_type,
+        "skip_steps": skip_steps,
     }
     try:
         result = uploader.upload(file_path, metadata)
@@ -409,6 +431,19 @@ async def get_analysis(job_id: str):
     with open(p) as f:
         data = json.load(f)
     print(f"[api] GET /transcribe/analysis/{job_id} → OK")
+    return data
+
+
+@app.get("/transcribe/usage/{job_id}")
+async def get_token_usage(job_id: str):
+    """Return token usage data recorded by the agent runner during LLM processing."""
+    p = os.path.join(config.STORAGE_PATH, job_id, "usage.json")
+    if not os.path.exists(p):
+        print(f"[api] GET /transcribe/usage/{job_id} → not_found")
+        raise HTTPException(404, "Token usage not available (job may have been processed before tracking was added)")
+    with open(p) as f:
+        data = json.load(f)
+    print(f"[api] GET /transcribe/usage/{job_id} → OK ({data.get('totals', {}).get('total_tokens', '?')} tokens)")
     return data
 
 
@@ -1044,8 +1079,9 @@ def _run_pipeline(job_id: str):
             agent_bridge.enqueue_labeling_needed(job_id, unknown, aligned, metadata)
         else:
             uploader.update_status(job_id, {"status": "ready_for_agent", "progress": 0.95})
-            print(f"[pipeline] All speakers known — enqueueing ready_for_processing")
-            agent_bridge.enqueue_ready(job_id, aligned, metadata)
+            skip = metadata.get("skip_steps")
+            print(f"[pipeline] All speakers known — enqueueing ready_for_processing (skip_steps={skip})")
+            agent_bridge.enqueue_ready(job_id, aligned, metadata, skip_steps=skip)
 
         print(f"\n{'='*60}")
         print(f"   ✅ [PIPELINE] Pipeline complete for job {job_id}")

@@ -46,8 +46,24 @@ class AgentBridge:
         return event_id
 
     def enqueue_ready(self, job_id: str, transcript: list, metadata: dict,
-                      unknown_speakers: Optional[list] = None):
-        """Diarization + transcription complete, ready for LLM processing."""
+                      unknown_speakers: Optional[list] = None,
+                      skip_steps: Optional[list] = None):
+        """Diarization + transcription complete, ready for LLM processing.
+
+        Args:
+            skip_steps: List of tool names to skip in the agent pipeline.
+                        Defaults to ["transcribe_analyze", "transcribe_prepare_delivery",
+                        "send_delivery_email", "save_to_drive", "create_trello_action_items"].
+                        Pass an empty list to run all steps.
+        """
+        if skip_steps is None:
+            skip_steps = [
+                "transcribe_analyze",
+                "transcribe_prepare_delivery",
+                "send_delivery_email",
+                "save_to_drive",
+                "create_trello_action_items",
+            ]
         return self.enqueue("ready_for_processing", {
             "jobId": job_id,
             "title": metadata.get("title", "Untitled Meeting"),
@@ -55,6 +71,7 @@ class AgentBridge:
             "eventType": metadata.get("event_type", "internal"),
             "transcript": transcript,
             "unknownSpeakers": unknown_speakers or [],
+            "skip_steps": skip_steps,
             "actions": ["refine", "summarize", "extract_action_items"],
         })
 

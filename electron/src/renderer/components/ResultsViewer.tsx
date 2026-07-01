@@ -7,6 +7,7 @@
  *   📋 Summary    — Executive summary, key decisions, action items
  *   📊 Analysis   — Topics, sentiment, entities, effectiveness
  *   🪵 Logs       — Job-specific developer log files
+ *   💰 Tokens    — LLM token usage breakdown per pipeline step
  */
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
@@ -14,7 +15,7 @@ import type { TranscriptionSegment, AnalysisData } from "../types";
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
-type TabId = "audio" | "transcript" | "summary" | "analysis" | "logs";
+type TabId = "audio" | "transcript" | "summary" | "analysis" | "logs" | "tokens";
 
 interface Tab {
   id: TabId;
@@ -27,6 +28,7 @@ const TABS: Tab[] = [
   { id: "transcript", label: "Transcript", icon: "📝" },
   { id: "summary", label: "Summary", icon: "📋" },
   { id: "analysis", label: "Analysis", icon: "📊" },
+  { id: "tokens", label: "Tokens", icon: "💰" },
   { id: "logs", label: "Logs", icon: "🪵" },
 ];
 
@@ -484,6 +486,146 @@ function LogsTab({ jobId }: { jobId: string }) {
   );
 }
 
+/* ── Tab: Tokens ── */
+
+interface TokenUsageData {
+  job_id: string;
+  title: string;
+  provider: string;
+  model: string;
+  steps: Array<{
+    step: number;
+    tool: string;
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  }>;
+  totals: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
+  saved_at: string;
+}
+
+function TokensTab({ jobId }: { jobId: string }) {
+  const [usage, setUsage] = useState<TokenUsageData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchUsage = async () => {
+      try {
+        const res = await fetch(`${BRIDGE_URL}/tools/call`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tool: "transcribe_get_token_usage", args: { jobId } }),
+        });
+        if (!res.ok) {
+          if (res.status === 404) throw new Error("Token usage not available for this job");
+          throw new Error(`Bridge error: ${res.status}`);
+        }
+        const data = await res.json();
+        if (!cancelled) setUsage(data);
+      } catch (err: any) {
+        if (!cancelled) setError(err.message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    fetchUsage();
+    return () => {
+      cancelled = true;
+    };
+  }, [jobId]);
+
+  if (loading) {
+    return (
+      <div className="rv-tab-content">
+        <div className="rv-empty-state">
+          <p>Loading token usage…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !usage) {
+    return (
+      <div className="rv-tab-content">
+        <div className="rv-empty-state">
+          <span className="rv-empty-icon">💰</span>
+          <p>Token usage data unavailable</p>
+          <p className="rv-muted">{error || "No usage data recorded for this job."}</p>
+          <p className="rv-muted">Token tracking was added after this job was processed. Future jobs will include this data.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rv-tab-content rv-tab-content--tokens">
+      {/* Summary card */}
+      <div className="rv-tokens-summary">
+        <div className="rv-tokens-card">
+          <span className="rv-tokens-card-value">{usage.totals.total_tokens.toLocaleString()}</span>
+          <span className="rv-tokens-card-label">Total Tokens</span>
+        </div>
+        <div className="rv-tokens-card">
+          <span className="rv-tokens-card-value">{usage.totals.prompt_tokens.toLocaleString()}</span>
+          <span className="rv-tokens-card-label">Prompt Tokens</span>
+        </div>
+        <div className="rv-tokens-card">
+          <span className="rv-tokens-card-value">{usage.totals.completion_tokens.toLocaleString()}</span>
+          <span className="rv-tokens-card-label">Completion Tokens</span>
+        </div>
+        <div className="rv-tokens-card">
+          <span className="rv-tokens-card-value">{usage.steps.length}</span>
+          <span className="rv-tokens-card-label">LLM Calls</span>
+        </div>
+      </div>
+
+      {/* Model info */}
+      <div className="rv-tokens-model-info">
+        <span className="rv-tokens-model-badge">{usage.provider}</span>
+        <code className="rv-code">{usage.model}</code>
+        <span className="rv-muted" style={{ marginLeft: "auto" }}>
+          Saved {new Date(usage.saved_at).toLocaleString()}
+        </span>
+      </div>
+
+      {/* Per-step breakdown */}
+      <h4 className="rv-tokens-steps-title">Per-Step Breakdown</h4>
+      <div className="rv-tokens-table-wrapper">
+        <table className="rv-tokens-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Tool</th>
+              <th>Prompt</th>
+              <th>Completion</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {usage.steps.map((step) => (
+              <tr key={step.step}>
+                <td className="rv-tokens-step-num">{step.step}</td>
+                <td>
+                  <code className="rv-code">{step.tool}</code>
+                </td>
+                <td className="rv-tokens-num">{step.prompt_tokens.toLocaleString()}</td>
+                <td className="rv-tokens-num">{step.completion_tokens.toLocaleString()}</td>
+                <td className="rv-tokens-num rv-tokens-num--total">{step.total_tokens.toLocaleString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 /* ── Main ResultsViewer ── */
 
 export default function ResultsViewer({ jobId, segments, summary, metadata }: Props) {
@@ -568,6 +710,7 @@ export default function ResultsViewer({ jobId, segments, summary, metadata }: Pr
           ) : (
             <AnalysisTab analysis={analysis} />
           ))}
+        {activeTab === "tokens" && <TokensTab jobId={jobId} />}
         {activeTab === "logs" && <LogsTab jobId={jobId} />}
       </div>
     </div>

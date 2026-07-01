@@ -42,16 +42,17 @@ function mapTools(defs) {
   }));
 }
 
-export async function callModel(context, toolDefs) {
+export async function callModel(context, toolDefs, systemMessageOverride) {
   if (PROVIDER === "deepseek" && !process.env.DEEPSEEK_API_KEY) {
     throw new Error("DEEPSEEK_API_KEY not set — configure it in Config or .env");
   }
 
   const tools = mapTools(toolDefs);
 
-  // Load system prompt from agent-config/system-prompt.md, inject tool list
-  const toolLines = toolDefs.map((t) => `  - ${t.name}: ${t.description}`).join("\n");
-  const systemMessage = SYSTEM_PROMPT_TEMPLATE.replace("{{TOOL_LIST}}", toolLines);
+  // Use the pre-rendered system prompt if provided (with skipped sections
+  // already stripped), otherwise fall back to the cached template.
+  const systemMessage =
+    systemMessageOverride || SYSTEM_PROMPT_TEMPLATE.replace("{{TOOL_LIST}}", toolDefs.map((t) => `  - ${t.name}: ${t.description}`).join("\n"));
 
   console.log(`   🤖 [MODEL] Calling ${PROVIDER}/${MODEL}...`);
 
@@ -69,6 +70,8 @@ export async function callModel(context, toolDefs) {
     });
 
     const choice = response.choices?.[0];
+    const usage = response.usage || null;
+
     const toolCall = choice?.message?.tool_calls?.[0];
     if (!toolCall) return null;
 
@@ -79,7 +82,7 @@ export async function callModel(context, toolDefs) {
       return null;
     }
 
-    return { name: toolCall.function.name, arguments: args };
+    return { name: toolCall.function.name, arguments: args, usage };
   } catch (err) {
     console.error(`   ❌ [MODEL] ${err.message}`);
     throw err;
