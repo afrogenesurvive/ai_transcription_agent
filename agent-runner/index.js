@@ -239,35 +239,53 @@ async function processEvent(event) {
         rendered = rendered.replace(commentRegex, "");
       }
       rendered = rendered.replace(/\n{3,}/g, "\n\n").trim();
-      console.log(`   📝 [RUNNER] Stripped ${skippedTools.size} skipped tool section(s) from system prompt`);
+      console.log(`   📝 [RUNNER] Stripped system prompt sections for ${skippedTools.size} skipped tool(s):`);
+      for (const toolName of skippedTools) {
+        console.log(`   📝 [RUNNER]   - ${toolName}`);
+      }
     }
     renderedPrompt = rendered;
   }
 
   // Dynamically resolve the next non-skipped pipeline hint.
   // Walks the hint chain: if the next referenced tool is skipped, recurse.
+  // Logs every resolution step so the stage-order system is observable.
   function resolveNextHint(currentTool, hints) {
     const hint = hints[currentTool];
-    if (!hint) return null;
+    if (!hint) {
+      console.log(`   🔍 [RUNNER] resolveNextHint("${currentTool}"): no hint defined — LLM will decide autonomously`);
+      return null;
+    }
+    console.log(`   🔍 [RUNNER] resolveNextHint("${currentTool}"): hint found — "${hint.slice(0, 100)}..."`);
     // Extract the first referenced tool name from the hint prose
     const match = hint.match(/\b(transcribe_\w+)\b/);
-    if (!match) return hint;
+    if (!match) {
+      console.log(`   🔍 [RUNNER] resolveNextHint: no next tool reference in hint, returning as-is`);
+      return hint;
+    }
     const nextTool = match[0];
     if (skippedTools.has(nextTool)) {
+      console.log(`   ⏭️  [RUNNER] resolveNextHint: "${nextTool}" is in skip list, walking past it`);
       // Try the hint of the tool after the skipped one
       const nextHint = hints[nextTool];
-      if (!nextHint) return hint; // fallback to current hint
+      if (!nextHint) {
+        console.log(`   ⏭️  [RUNNER] resolveNextHint: no hint for skipped "${nextTool}", returning original hint (fallback)`);
+        return hint;
+      }
       const nextMatch = nextHint.match(/\b(transcribe_\w+)\b/);
       if (nextMatch && skippedTools.has(nextMatch[0])) {
         // Multiple consecutive skips — recurse deeper
+        console.log(`   🔄 [RUNNER] resolveNextHint: "${nextMatch[0]}" is also skipped, recursing deeper`);
         return resolveNextHint(nextTool, hints);
       }
       // Return the hint that points past the skipped tool
       const overridden = nextHint
         .replace(new RegExp(`\\b${nextMatch ? nextMatch[0].replace(/\./g, "\\.") : ""}\\b`), `(skipped ${nextTool}) ${nextMatch ? nextMatch[0] : ""}`)
         .trim();
+      console.log(`   ⏭️  [RUNNER] resolveNextHint: overridden hint — "${overridden.slice(0, 120)}..."`);
       return overridden;
     }
+    console.log(`   🔍 [RUNNER] resolveNextHint: next tool "${nextTool}" is available, returning original hint`);
     return hint;
   }
 
@@ -378,7 +396,12 @@ async function processEvent(event) {
     // Add a hint about the next logical pipeline step, skipping over any
     // tools that are in the skip list.
     const hint = resolveNextHint(decision.name, PIPELINE_HINTS);
-    if (hint) context += `\n${hint}`;
+    if (hint) {
+      console.log(`   🧭 [RUNNER] Pipeline hint appended for next step: "${hint.slice(0, 100)}..."`);
+      context += `\n${hint}`;
+    } else {
+      console.log(`   🧭 [RUNNER] No pipeline hint for "${decision.name}" — LLM will decide next step autonomously`);
+    }
   }
 
   if (pipelineError) {
