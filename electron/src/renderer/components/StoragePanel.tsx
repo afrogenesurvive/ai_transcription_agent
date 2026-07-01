@@ -59,7 +59,7 @@ export default function StoragePanel({ onClose }: Props) {
 
   // Log deletion state
   const [showDevSection, setShowDevSection] = useState(false);
-  const [confirmLogAction, setConfirmLogAction] = useState<"all" | "error" | null>(null);
+  const [confirmLogAction, setConfirmLogAction] = useState<"all" | "error" | "all_including_errors" | null>(null);
   const [deletingLogs, setDeletingLogs] = useState(false);
   const [logDeleteResult, setLogDeleteResult] = useState<string | null>(null);
 
@@ -87,7 +87,7 @@ export default function StoragePanel({ onClose }: Props) {
   }, [fetchUsage]);
 
   const handleDeleteLogs = useCallback(
-    async (logType: "all" | "error") => {
+    async (logType: "all" | "error" | "all_including_errors") => {
       setConfirmLogAction(null);
       setDeletingLogs(true);
       setLogDeleteResult(null);
@@ -253,30 +253,45 @@ export default function StoragePanel({ onClose }: Props) {
                     them is irreversible.
                   </p>
 
-                  {/* Non-error log deletion */}
+                  {/* Non-error log deletion — preserves error logs */}
                   <div className="storage-log-action">
                     <div className="storage-log-action-info">
-                      <strong>🗑️ Delete All Log Files</strong>
+                      <strong>🗑️ Delete All Log Files (keep errors)</strong>
                       <p>
-                        Removes every <code>.jsonl</code> log file from the <code>logs/</code> directory.
+                        Removes every <code>.jsonl</code> log file <strong>except</strong> those containing error events. Error files are preserved
+                        for troubleshooting.
                       </p>
                     </div>
                     <button className="btn-warning" onClick={() => setConfirmLogAction("all")} disabled={deletingLogs}>
-                      Delete All Logs
+                      Delete Non-Error Logs
                     </button>
                   </div>
 
-                  {/* Error-only log deletion — separate sub-section with bright warning */}
+                  {/* Error-only log deletion */}
+                  <div className="storage-log-action">
+                    <div className="storage-log-action-info">
+                      <strong>🛡️ Delete Error Logs Only</strong>
+                      <p>
+                        Delete only log files that contain <strong>error</strong> events. Files without error entries will be preserved.
+                      </p>
+                    </div>
+                    <button className="btn-secondary" onClick={() => setConfirmLogAction("error")} disabled={deletingLogs}>
+                      Delete Error Logs
+                    </button>
+                  </div>
+
+                  {/* Everything — separate sub-section with bright warning */}
                   <div className="storage-log-error-section">
                     <div className="storage-log-action">
                       <div className="storage-log-action-info">
                         <strong className="storage-error-label">⚠️ DANGER ZONE ⚠️</strong>
                         <p className="storage-error-description">
-                          Delete only log files that contain <strong>error</strong> events. Files without error entries will be preserved.
+                          Delete <strong>all</strong> <code>.jsonl</code> log files — including those with error events. Error logs that may be needed
+                          for debugging will be lost.
                         </p>
                       </div>
-                      <button className="btn-danger" onClick={() => setConfirmLogAction("error")} disabled={deletingLogs}>
-                        Delete Error Logs Only
+                      <button className="btn-danger" onClick={() => setConfirmLogAction("all_including_errors")} disabled={deletingLogs}>
+                        Delete All Logs (Including Errors)
                       </button>
                     </div>
                   </div>
@@ -299,15 +314,27 @@ export default function StoragePanel({ onClose }: Props) {
       {confirmLogAction && (
         <div className="confirm-overlay" onClick={() => setConfirmLogAction(null)}>
           <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
-            <h3 className="confirm-dialog-title">{confirmLogAction === "error" ? "⚠️ Delete Error Logs" : "🗑️ Delete All Logs"}</h3>
+            <h3 className="confirm-dialog-title">
+              {confirmLogAction === "error"
+                ? "🛡️ Delete Error Logs"
+                : confirmLogAction === "all"
+                  ? "🗑️ Delete Non-Error Logs"
+                  : "⚠️ Delete All Logs (Including Errors)"}
+            </h3>
             <p className="confirm-dialog-text">
               {confirmLogAction === "error" ? (
                 <>
-                  This will permanently delete all <code>.jsonl</code> log files that contain error events. Files without errors will be kept.
+                  This will permanently delete all <code>.jsonl</code> log files that contain error events. Non-error files will be kept.
+                </>
+              ) : confirmLogAction === "all" ? (
+                <>
+                  This will permanently delete all <code>.jsonl</code> log files <strong>except</strong> those containing error events. Error files
+                  are preserved.
                 </>
               ) : (
                 <>
-                  This will permanently delete <strong>all</strong> <code>.jsonl</code> log files. This action cannot be undone.
+                  This will permanently delete <strong>every</strong> <code>.jsonl</code> log file including those with error events. This action
+                  cannot be undone.
                 </>
               )}
             </p>
@@ -316,7 +343,7 @@ export default function StoragePanel({ onClose }: Props) {
                 Cancel
               </button>
               <button
-                className={confirmLogAction === "error" ? "btn-danger" : "btn-warning"}
+                className={confirmLogAction === "all_including_errors" ? "btn-danger" : "btn-warning"}
                 onClick={() => handleDeleteLogs(confirmLogAction!)}
                 disabled={deletingLogs}>
                 {deletingLogs ? "Deleting..." : "Confirm Delete"}

@@ -715,13 +715,24 @@ async def delete_job(job_id: str):
 
 # ── Log Deletion ──
 
+def _log_file_has_errors(fpath):
+    """Check if a JSONL log file contains any error events."""
+    try:
+        with open(fpath) as f:
+            content = f.read()
+        return '"eventType":"failed"' in content or '"level":"error"' in content
+    except Exception:
+        return False
+
+
 @app.delete("/storage/logs")
 async def delete_logs(log_type: str = "all"):
     """Delete JSONL log files from the logs/ directory.
 
     Query params:
-      log_type: "all" — delete all JSONL files
-                "error" — delete only JSONL files containing error events
+      log_type: "all"                  — delete all JSONL files EXCEPT those containing error events
+      log_type: "all_including_errors" — delete ALL JSONL files (including error files)
+      log_type: "error"                — delete only JSONL files containing error events
     """
     logs_path = os.path.join(config._BASE, "logs")
     if not os.path.exists(logs_path):
@@ -736,15 +747,16 @@ async def delete_logs(log_type: str = "all"):
             continue
         fpath = os.path.join(logs_path, fname)
 
+        # Determine whether this file should be deleted
         if log_type == "error":
-            # Only delete files that contain error events
-            try:
-                with open(fpath) as f:
-                    content = f.read()
-                if '"eventType":"failed"' not in content and '"level":"error"' not in content:
-                    continue
-            except Exception:
-                pass  # If we can't read it, skip rather than risk data loss
+            # Delete only files that contain error events
+            if not _log_file_has_errors(fpath):
+                continue
+        elif log_type == "all":
+            # Delete all files EXCEPT those containing error events
+            if _log_file_has_errors(fpath):
+                continue
+        # else log_type == "all_including_errors": delete everything, no filter
 
         try:
             os.remove(fpath)

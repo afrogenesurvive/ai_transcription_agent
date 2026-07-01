@@ -30,7 +30,7 @@ export interface JobStatus {
 export interface LogEntry {
   timestamp: number;
   source: "python" | "bridge" | "agent" | "main";
-  level: "info" | "warn" | "error";
+  level: "debug" | "info" | "warn" | "error";
   message: string;
 }
 
