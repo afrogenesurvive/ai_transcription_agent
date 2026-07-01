@@ -19,6 +19,8 @@ class Config:
         "TRANSCRIPTION_TRIGGER_FILE",
         str(_BASE / "queue" / ".transcription-trigger"),
     )
+    # Electron app log directory (optional — for storage usage reporting)
+    ELECTRON_LOGS_DIR = os.getenv("ELECTRON_LOGS_DIR") or None
 
     # Voiceprint DB
     VOICEPRINT_DB = os.getenv(

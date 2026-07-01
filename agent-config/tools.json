@@ -1,7 +1,7 @@
 [
   {
     "name": "transcribe_refine",
-    "description": "Apply refinement rules to a transcript: redact PII, clean formatting.",
+    "description": "Clean a transcript: automatically strips timestamps, removes filler words (um, uh, ah, like, you know, etc.), and redacts PII (emails, phone numbers, SSNs, credit cards, account numbers). Pass optional custom rules for additional redactions.",
     "terminal": false,
     "handler": "bridge",
     "inputSchema": {

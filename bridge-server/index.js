@@ -18,6 +18,7 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PYTHON_API = process.env.PYTHON_API_URL || "http://127.0.0.1:5001";
 const BRIDGE_PORT = parseInt(process.env.BRIDGE_PORT || "5010", 10);
+const ELECTRON_LOGS_DIR = process.env.ELECTRON_LOGS_DIR || null;
 
 // Resolve agent-config directory (same logic as agent-runner/agent-config.js)
 const CONFIG_DIR_CANDIDATES = [

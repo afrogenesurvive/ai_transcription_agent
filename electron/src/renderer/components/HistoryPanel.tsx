@@ -18,6 +18,8 @@ interface JobSummary {
 interface Props {
   onSelectJob: (jobId: string) => void;
   currentJobId: string | null;
+  onNotify?: (message: string) => void;
+  onStorageChanged?: () => void;
 }
 
 const STATUS_ICON: Record<string, string> = {
@@ -83,7 +85,7 @@ async function callBridge(tool: string, args: any = {}): Promise<any> {
   return res.json();
 }
 
-export default function HistoryPanel({ onSelectJob, currentJobId }: Props) {
+export default function HistoryPanel({ onSelectJob, currentJobId, onNotify, onStorageChanged }: Props) {
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -107,18 +109,24 @@ export default function HistoryPanel({ onSelectJob, currentJobId }: Props) {
     loadHistory();
   }, [loadHistory]);
 
-  const handleDelete = useCallback(async (jobId: string) => {
-    setConfirmDelete(null);
-    setDeleting(jobId);
-    try {
-      await callBridge("transcribe_delete_job", { jobId });
-      setJobs((prev) => prev.filter((j) => j.job_id !== jobId));
-    } catch (err: any) {
-      setError(`Failed to delete job: ${err.message}`);
-    } finally {
-      setDeleting(null);
-    }
-  }, []);
+  const handleDelete = useCallback(
+    async (jobId: string) => {
+      setConfirmDelete(null);
+      setDeleting(jobId);
+      try {
+        await callBridge("transcribe_delete_job", { jobId });
+        setJobs((prev) => prev.filter((j) => j.job_id !== jobId));
+        onNotify?.(`🗑️ Job deleted`);
+        onStorageChanged?.();
+      } catch (err: any) {
+        setError(`Failed to delete job: ${err.message}`);
+        onNotify?.(`❌ Failed to delete job: ${err.message}`);
+      } finally {
+        setDeleting(null);
+      }
+    },
+    [onNotify, onStorageChanged],
+  );
 
   return (
     <div className="history-panel">

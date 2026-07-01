@@ -11,6 +11,8 @@ import type { StorageUsage } from "../types";
 
 interface Props {
   onClose: () => void;
+  onNotify?: (message: string) => void;
+  refreshTrigger?: number;
 }
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
@@ -52,7 +54,7 @@ async function callBridge(tool: string, args: any = {}): Promise<any> {
   return res.json();
 }
 
-export default function StoragePanel({ onClose }: Props) {
+export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Props) {
   const [data, setData] = useState<StorageUsage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -84,7 +86,7 @@ export default function StoragePanel({ onClose }: Props) {
 
   useEffect(() => {
     fetchUsage();
-  }, [fetchUsage]);
+  }, [fetchUsage, refreshTrigger]);
 
   const handleDeleteLogs = useCallback(
     async (logType: "all" | "error" | "all_including_errors") => {
@@ -93,16 +95,19 @@ export default function StoragePanel({ onClose }: Props) {
       setLogDeleteResult(null);
       try {
         const result = await callBridge("storage_clear_logs", { logType });
-        setLogDeleteResult(result.message || `Deleted ${result.deleted} log file(s)${result.errors ? ` (${result.errors} error(s))` : ""}`);
+        const msg = result.message || `Deleted ${result.deleted} log file(s)${result.errors ? ` (${result.errors} error(s))` : ""}`;
+        setLogDeleteResult(msg);
+        onNotify?.(`🪵 ${msg}`);
         // Refresh storage usage to reflect the change
         fetchUsage();
       } catch (err: any) {
         setLogDeleteResult(`Error: ${err.message}`);
+        onNotify?.(`❌ Log deletion failed: ${err.message}`);
       } finally {
         setDeletingLogs(false);
       }
     },
-    [fetchUsage],
+    [fetchUsage, onNotify],
   );
 
   // Compute bar widths as percentage of total

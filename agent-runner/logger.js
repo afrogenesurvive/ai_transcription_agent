@@ -7,7 +7,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const LOG_DIR = path.resolve(__dirname, "..", "logs");
+const LOG_DIR = process.env.TRANSCRIPTION_LOGS_DIR || path.resolve(__dirname, "..", "logs");
 
 export function logAction(entry) {
   const ts = new Date().toISOString();

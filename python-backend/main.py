@@ -11,6 +11,7 @@ import os
 import json
 import threading
 import warnings
+from datetime import datetime
 
 # ── speechbrain LazyModule workaround ──
 # speechbrain 1.0+ uses lazy imports for optional integrations (k2, flair, etc.).
@@ -137,6 +138,45 @@ async def lifespan(app: FastAPI):
     print(f"[startup] Backend on {config.HOST}:{config.PORT} | device={detect_device()}")
     print(f"[startup] Semantic memory: {semantic_memory.persist_dir}")
     print(f"[startup] Ephemeral memory: {ephemeral_memory.db_path}")
+
+    # ── Startup cleanup: reset orphaned pipeline statuses ──
+    # Jobs that were mid-pipeline when the process was killed (crash,
+    # force-quit, restart) leave stale status.json files behind. The
+    # /transcribe/active endpoint reads these from disk and would
+    # incorrectly report them as running. Reset any in-flight status
+    # to "failed" so the system starts with a clean slate and users
+    # aren't blocked by "active jobs" guards.
+    ml_inflight_statuses = {
+        "uploaded", "initializing", "processing_diarization",
+        "matching_voiceprints", "processing_transcription", "aligning",
+    }
+    cleaned = 0
+    for entry in os.scandir(config.STORAGE_PATH):
+        if not entry.is_dir() or entry.name in ("chroma", "logs", "uploads"):
+            continue
+        status_path = os.path.join(entry.path, "status.json")
+        if not os.path.exists(status_path):
+            continue
+        try:
+            with open(status_path) as f:
+                status = json.load(f)
+            job_status = status.get("status", "")
+            if job_status in ml_inflight_statuses:
+                status["status"] = "failed"
+                status["error"] = "Processing interrupted by restart — job was in-flight when the backend shut down"
+                status["progress"] = 0.0
+                status["failed_at"] = datetime.utcnow().isoformat()
+                with open(status_path, "w") as f:
+                    json.dump(status, f, indent=2)
+                job_id = status.get("job_id", entry.name)
+                print(f"   🧹 [startup] Reset orphaned job {job_id} ({job_status} → failed)")
+                cleaned += 1
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"   ⚠️  [startup] Could not read status for {entry.name}: {e}")
+    if cleaned:
+        print(f"   🧹 [startup] Cleaned {cleaned} orphaned job(s)")
+    else:
+        print(f"   ✅ [startup] No orphaned jobs found")
     yield
 
 
@@ -380,15 +420,14 @@ async def agent_refine(req: RefineRequest):
                 transcript = json.load(f)
         else:
             transcript = []
-    refined = []
-    for seg in transcript:
-        text = seg["text"]
-        for rule in req.rules:
-            text = _redact(text, rule)
-        refined.append({**seg, "text": text})
+
+    refined = _auto_refine(transcript, req.rules)
+
     uploader.save_transcript(req.job_id, refined)
     uploader.update_status(req.job_id, {"status": "refined"})
-    print(f"[api] POST /agent/refine → refined {len(refined)} segments")
+    print(f"[api] POST /agent/refine → refined {len(refined)} segments " +
+          f"(timestamps stripped, fillers removed, PII redacted" +
+          (f", +{len(req.rules)} custom rule(s)" if req.rules else "") + ")")
     return {"transcript": refined}
 
 
@@ -716,55 +755,78 @@ async def delete_job(job_id: str):
 # ── Log Deletion ──
 
 def _log_file_has_errors(fpath):
-    """Check if a JSONL log file contains any error events."""
+    """Check if a log file contains any error events.
+
+    Handles both formats:
+      - JSONL (.jsonl): contains "eventType":"failed" or "level":"error"
+      - Plain-text (.log): contains [error] or [ERROR]
+    """
     try:
         with open(fpath) as f:
             content = f.read()
-        return '"eventType":"failed"' in content or '"level":"error"' in content
+        if fpath.endswith(".jsonl"):
+            return '"eventType":"failed"' in content or '"level":"error"' in content
+        else:
+            # Plain-text log format: [timestamp] [source] [level] message
+            return "[error]" in content or "[ERROR]" in content
     except Exception:
         return False
 
 
 @app.delete("/storage/logs")
 async def delete_logs(log_type: str = "all"):
-    """Delete JSONL log files from the logs/ directory.
+    """Delete log files from project logs/ and Electron userData logs/ directories.
+
+    Cleans:
+      - logs/ — legacy JSONL log files in the project root
+      - userData/logs/ — agent runner JSONL + Electron .log files (if configured)
 
     Query params:
-      log_type: "all"                  — delete all JSONL files EXCEPT those containing error events
-      log_type: "all_including_errors" — delete ALL JSONL files (including error files)
-      log_type: "error"                — delete only JSONL files containing error events
+      log_type: "all"                  — delete all files EXCEPT those containing error events
+      log_type: "all_including_errors" — delete ALL files (including error files)
+      log_type: "error"                — delete only files containing error events
     """
-    logs_path = os.path.join(config._BASE, "logs")
-    if not os.path.exists(logs_path):
-        print(f"[api] DELETE /storage/logs → logs directory not found")
-        return {"deleted": 0, "message": "No logs directory found"}
-
     deleted = 0
     errors = 0
 
-    for fname in os.listdir(logs_path):
-        if not fname.endswith(".jsonl"):
+    # Directories to clean: project root logs/ (legacy) + Electron userData logs/
+    log_dirs = [
+        os.path.join(config._BASE, "logs"),  # logs/*.jsonl (legacy — may be empty after migration)
+    ]
+    if config.ELECTRON_LOGS_DIR:
+        log_dirs.append(config.ELECTRON_LOGS_DIR)  # userData/logs/ — agent JSONL + Electron .log
+
+    for logs_path in log_dirs:
+        if not os.path.exists(logs_path):
             continue
-        fpath = os.path.join(logs_path, fname)
 
-        # Determine whether this file should be deleted
-        if log_type == "error":
-            # Delete only files that contain error events
-            if not _log_file_has_errors(fpath):
+        for fname in os.listdir(logs_path):
+            if not (fname.endswith(".jsonl") or fname.endswith(".log")):
                 continue
-        elif log_type == "all":
-            # Delete all files EXCEPT those containing error events
-            if _log_file_has_errors(fpath):
-                continue
-        # else log_type == "all_including_errors": delete everything, no filter
+            fpath = os.path.join(logs_path, fname)
 
-        try:
-            os.remove(fpath)
-            deleted += 1
-            print(f"[api] DELETE /storage/logs → removed {fname}")
-        except Exception as e:
-            errors += 1
-            print(f"[api] DELETE /storage/logs → failed to remove {fname}: {e}")
+            # Determine whether this file should be deleted
+            if log_type == "error":
+                # Delete only files that contain error events
+                if not _log_file_has_errors(fpath):
+                    continue
+            elif log_type == "all":
+                # Delete all files EXCEPT those containing error events
+                if _log_file_has_errors(fpath):
+                    continue
+            # else log_type == "all_including_errors": delete everything, no filter
+
+            try:
+                os.remove(fpath)
+                deleted += 1
+                print(f"[api] DELETE /storage/logs → removed {fname} from {logs_path.split('/')[-2]}")
+            except Exception as e:
+                errors += 1
+                print(f"[api] DELETE /storage/logs → failed to remove {fname}: {e}")
+
+    if deleted == 0 and errors == 0:
+        return {"deleted": 0, "errors": 0, "log_type": log_type, "message": "No log files found"}
+
 
     return {
         "deleted": deleted,
@@ -903,9 +965,11 @@ async def storage_usage():
     base = config._BASE  # project root
     storage_path = config.STORAGE_PATH
 
-    # Logs
+    # Logs — storage/logs/ mirror + Electron userData logs (if configured)
     logs_dir = os.path.join(storage_path, "logs")
     logs_size = _dir_size(logs_dir) if os.path.exists(logs_dir) else 0
+    if config.ELECTRON_LOGS_DIR and os.path.exists(config.ELECTRON_LOGS_DIR):
+        logs_size += _dir_size(config.ELECTRON_LOGS_DIR)
 
     # ChromaDB vector store
     chroma_dir = os.path.join(storage_path, "chroma")
@@ -1189,14 +1253,113 @@ def _run_pipeline(job_id: str):
         _pipeline_cancel.discard(job_id)
 
 
-def _redact(text: str, rule: str) -> str:
-    import re
-    if "account" in rule.lower() or "banking" in rule.lower():
+import re
+
+# ── Filler words / discourse markers to strip from transcript text ──
+# These are common hesitation sounds and speech artifacts. Each pattern
+# consumes trailing punctuation and whitespace so that "um, like," becomes
+# just "," after removal rather than leaving orphans like " ,".
+_FILLER_PATTERNS = [
+    r'\bum+\b[\s,.]*',
+    r'\buh+\b[\s,.]*',
+    r'\bah+\b[\s,.]*',
+    r'\bhmm+\b[\s,.]*',
+    r'\bmm[- ]hmm+\b[\s,.]*',
+    r'\buh[- ]huh+\b[\s,.]*',
+    r'\bah[- ]hah?\b[\s,.]*',
+    r'\buh[- ]oh\b[\s,.]*',
+    r'\byou know\b[\s,.]*',
+    r'\bi mean\b[\s,.]*',
+    r'\byou see\b[\s,.]*',
+    r'\blike\b(?!\s+to\b)[\s,.]*',           # "like" as filler, not "like to"
+    r'\bkind of\b[\s,.]*',
+    r'\bsort of\b[\s,.]*',
+    r'\bso basically\b[\s,.]*',
+    r'\bbasically\b[\s,.]*',
+    r'\bactually\b[\s,.]*',
+    r'\bobviously\b[\s,.]*',
+    r'\bright\b[\s,.]*',
+    r'\bokay\b[\s,.]*',
+    r'\balright\b(?!\s+so\b)[\s,.]*',
+]
+
+
+def _auto_refine(segments: list[dict], custom_rules: list[str]) -> list[dict]:
+    """Apply automatic transcript refinement to every segment.
+
+    For each segment:
+      1. Strip timestamp metadata (``start``, ``end``, ``duration`` keys).
+      2. Strip filler words and discourse markers from the text.
+      3. Redact PII (emails, phones, SSN, credit cards, account numbers).
+      4. Apply any additional custom redaction rules passed by the LLM.
+      5. Collapse multiple spaces and trim.
+
+    Returns a new list of refined segment dicts (the original is not mutated).
+    """
+    fillers_re = re.compile('|'.join(_FILLER_PATTERNS), re.IGNORECASE)
+    refined = []
+    for seg in segments:
+        # 1. Strip timestamp metadata — keep only speaker label + cleaned text
+        clean = {"speaker": seg.get("speaker", "Unknown")}
+        text = seg.get("text", "")
+
+        # 2. Strip filler words
+        text = fillers_re.sub('', text)
+
+        # 3. Clean up punctuation orphans left by filler removal
+        #    e.g. "um, like," → after removing fillers → " , ," → clean → ""
+        text = re.sub(r'\s+[,.;:!?]+', ',', text)   # ", word" → ", word"
+        text = re.sub(r'[,.;:!?]+(?!\S)', '', text)  # trailing punctuation cleanup
+        text = re.sub(r'\s+', ' ', text)             # collapse spaces
+
+        # 4. Redact PII automatically
+        text = _redact_pii(text)
+
+        # 5. Apply any custom LLM-provided redaction rules
+        for rule in custom_rules:
+            text = _redact_custom(text, rule)
+
+        # 6. Final whitespace collapse and trim
+        text = re.sub(r'\s+', ' ', text).strip()
+
+        clean["text"] = text
+        refined.append(clean)
+
+    return refined
+
+
+def _redact_pii(text: str) -> str:
+    """Automatically redact common PII patterns from text."""
+    # Email addresses
+    text = re.sub(r'[\w.+-]+@[\w.-]+\.\w{2,}', '[EMAIL REDACTED]', text)
+    # Phone numbers (various formats)
+    text = re.sub(r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b', '[PHONE REDACTED]', text)
+    # SSN-like patterns (###-##-####)
+    text = re.sub(r'\b\d{3}-\d{2}-\d{4}\b', '[SSN REDACTED]', text)
+    # Credit-card-like patterns (####-####-####-#### or ################)
+    text = re.sub(r'\b(?:\d{4}[-\s]?){3}\d{4}\b', '[CARD REDACTED]', text)
+    text = re.sub(r'\b\d{16}\b', '[CARD REDACTED]', text)
+    # Long digit sequences (account numbers / banking)
+    text = re.sub(r'\b\d{8,}\b', '[ACCOUNT REDACTED]', text)
+    return text
+
+
+def _redact_custom(text: str, rule: str) -> str:
+    """Apply a single LLM-provided custom redaction rule."""
+    rule_lower = rule.lower()
+    if "account" in rule_lower or "banking" in rule_lower:
         text = re.sub(r'\b\d{4,}\b', '[REDACTED]', text)
-    if "email" in rule.lower() or "phone" in rule.lower() or "contact" in rule.lower():
+    if "email" in rule_lower or "phone" in rule_lower or "contact" in rule_lower:
         text = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', '[EMAIL REDACTED]', text)
         text = re.sub(r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b', '[PHONE REDACTED]', text)
+    if "name" in rule_lower or "person" in rule_lower:
+        text = re.sub(r'\b[A-Z][a-z]+ [A-Z][a-z]+\b', '[NAME REDACTED]', text)
     return text
+
+
+def _redact(text: str, rule: str) -> str:
+    """Legacy single-rule redaction (kept for backward compatibility)."""
+    return _redact_custom(text, rule)
 
 
 if __name__ == "__main__":

@@ -69,7 +69,8 @@ function readMarkdown(filename) {
 const FALLBACK_TOOLS = [
   {
     name: "transcribe_refine",
-    description: "Apply refinement rules to a transcript: redact PII, clean formatting.",
+    description:
+      "Clean a transcript: automatically strips timestamps, removes filler words (um, uh, ah, like, you know, etc.), and redacts PII (emails, phone numbers, SSNs, credit cards, account numbers). Pass optional custom rules for additional redactions.",
     terminal: false,
     handler: "bridge",
     inputSchema: {
@@ -87,7 +88,7 @@ const FALLBACK_PIPELINE = {
   terminal_tools: ["send_delivery_email", "save_to_drive", "create_trello_action_items"],
   pipeline_hints: {
     transcribe_refine:
-      "Next: Call transcribe_get_transcript to read the refined transcript, then call transcribe_summarize to generate a structured summary, then call transcribe_analyze to analyze topics/sentiment/entities...",
+      "Refinement auto-stripped timestamps, filler words, and PII. Next: Call transcribe_get_transcript to read the cleaned transcript, then call transcribe_summarize to generate a structured summary, then call transcribe_analyze to analyze topics/sentiment/entities...",
     transcribe_get_transcript:
       "Next: Call transcribe_summarize to generate a structured summary from the transcript, then call transcribe_analyze to store analysis results...",
     transcribe_summarize: "Next: Call transcribe_analyze to store analysis of topics, sentiment, entities, and follow-ups...",
@@ -98,14 +99,14 @@ const FALLBACK_PIPELINE = {
   },
   event_templates: {
     ready_for_processing:
-      "Actions: refine transcript, extract action items, generate summary, prepare delivery.\nExisting memory context is provided below...",
+      "Actions: refine transcript (auto-strips timestamps, fillers, and PII), extract action items, generate summary, generate analysis, prepare delivery.\nExisting memory context is provided below...",
     labeling_needed: "Unknown speakers detected. List voiceprints, notify user, or apply labels if info available.",
     failed: "Processing failed. Notify the user. Error: {{error}}",
   },
 };
 
 const FALLBACK_SYSTEM_PROMPT =
-  "You are an AI meeting transcription assistant. Process completed transcription jobs: refine transcripts, extract action items, generate summaries, and deliver results.";
+  "You are an AI meeting transcription assistant. Process completed transcription jobs: refine transcripts (auto-strips timestamps, fillers, and PII), extract action items, generate summaries, generate analysis, and deliver results.";
 
 // ── Loaded config (immutable after import) ──
 

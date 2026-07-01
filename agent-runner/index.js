@@ -39,7 +39,8 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PID_FILE = path.resolve(__dirname, ".runner.pid");
-const TRIGGER_FILE = path.resolve(__dirname, "..", "queue", ".transcription-trigger");
+const QUEUE_DIR = process.env.TRANSCRIPTION_QUEUE_DIR || path.resolve(__dirname, "..", "queue");
+const TRIGGER_FILE = path.join(QUEUE_DIR, ".transcription-trigger");
 const TASK_CHECK_INTERVAL = parseInt(process.env.TASK_CHECK_INTERVAL || "60000", 10);
 
 // ── Config loaded from agent-config/tools.json + agent-config/pipeline.json ──
@@ -53,9 +54,9 @@ const TASK_CHECK_INTERVAL = parseInt(process.env.TASK_CHECK_INTERVAL || "60000",
  */
 function enqueueFailed(event, errorMsg) {
   try {
-    const queueDir = path.resolve(__dirname, "..", "queue");
+    const queueDir = process.env.TRANSCRIPTION_QUEUE_DIR || path.resolve(__dirname, "..", "queue");
     const queueFile = path.join(queueDir, "transcription.jsonl");
-    const triggerFile = path.resolve(__dirname, "..", "queue", ".transcription-trigger");
+    const triggerFile = path.join(queueDir, ".transcription-trigger");
 
     const failedEvent = {
       id: crypto.randomUUID(),

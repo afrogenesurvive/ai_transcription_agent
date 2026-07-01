@@ -376,8 +376,7 @@ app.whenReady().then(async () => {
 
   // Initialize file logging
   const userDataLogs = path.join(app.getPath("userData"), "logs");
-  const devLogs = app.isPackaged ? undefined : path.join(app.getAppPath(), "..", "storage", "logs");
-  initFileLogging(userDataLogs, devLogs);
+  initFileLogging(userDataLogs);
   addLog("main", "info", `App started — logs: ${userDataLogs}`);
 
   // Start periodic health monitoring

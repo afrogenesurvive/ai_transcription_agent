@@ -64,6 +64,18 @@ export default function App() {
   const [diarizationAvailable, setDiarizationAvailable] = useState<boolean | null>(null);
   const [historyJobId, setHistoryJobId] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [storageRefreshTrigger, setStorageRefreshTrigger] = useState(0);
+
+  // Notification helper — shows a toast at the top-right, auto-dismissed after 4s
+  const notify = useCallback((message: string) => {
+    setNotification(message);
+    setTimeout(() => setNotification(null), 4000);
+  }, []);
+
+  // Callback for panels to signal that storage data changed (job/log deletion)
+  const onStorageChanged = useCallback(() => {
+    setStorageRefreshTrigger((n) => n + 1);
+  }, []);
 
   // Fetch diarization model status on mount
   useEffect(() => {
@@ -340,7 +352,12 @@ export default function App() {
             <>
               <div className="left-col" id="left-col">
                 {showHistory ? (
-                  <HistoryPanel onSelectJob={loadHistoryJob} currentJobId={historyJobId || jobId} />
+                  <HistoryPanel
+                    onSelectJob={loadHistoryJob}
+                    currentJobId={historyJobId || jobId}
+                    onNotify={notify}
+                    onStorageChanged={onStorageChanged}
+                  />
                 ) : (
                   <>
                     {view === "upload" && <UploadPanel onUpload={handleUpload} uploading={uploading} />}
@@ -408,7 +425,9 @@ export default function App() {
 
           {sidebarView === "dev" && <DevPanel onClose={() => setSidebarView("current")} />}
 
-          {sidebarView === "storage" && <StoragePanel onClose={() => setSidebarView("current")} />}
+          {sidebarView === "storage" && (
+            <StoragePanel onClose={() => setSidebarView("current")} onNotify={notify} refreshTrigger={storageRefreshTrigger} />
+          )}
 
           {sidebarView === "config" && (
             <ConfigPanel

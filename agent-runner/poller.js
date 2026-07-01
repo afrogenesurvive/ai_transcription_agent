@@ -7,7 +7,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const QUEUE_FILE = path.resolve(__dirname, "..", "queue", "transcription.jsonl");
+const QUEUE_DIR = process.env.TRANSCRIPTION_QUEUE_DIR || path.resolve(__dirname, "..", "queue");
+const QUEUE_FILE = path.join(QUEUE_DIR, "transcription.jsonl");
 
 const processing = new Set();
 

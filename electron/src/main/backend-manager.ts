@@ -110,7 +110,13 @@ export async function startPythonBackend(port = 5001): Promise<void> {
 
   pythonProcess = spawn(pythonBin, ["main.py"], {
     cwd: backendDir,
-    env: { ...getChildEnv(), TRANSCRIPTION_PORT: String(port) },
+    env: {
+      ...getChildEnv(),
+      TRANSCRIPTION_PORT: String(port),
+      TRANSCRIPTION_STORAGE: path.join(app.getPath("userData"), "storage"),
+      TRANSCRIPTION_QUEUE_DIR: path.join(app.getPath("userData"), "queue"),
+      ELECTRON_LOGS_DIR: path.join(app.getPath("userData"), "logs"),
+    },
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -161,6 +167,8 @@ export async function startBridgeServer(bridgePort = 5010, pythonPort = 5001): P
       ...getChildEnv(),
       BRIDGE_PORT: String(bridgePort),
       PYTHON_API_URL: `http://127.0.0.1:${pythonPort}`,
+      ELECTRON_LOGS_DIR: path.join(app.getPath("userData"), "logs"),
+      TRANSCRIPTION_STORAGE: path.join(app.getPath("userData"), "storage"),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -304,6 +312,8 @@ export async function startAgentRunner(): Promise<void> {
     env: {
       ...getChildEnv(),
       BRIDGE_URL: "http://127.0.0.1:5010",
+      TRANSCRIPTION_QUEUE_DIR: path.join(app.getPath("userData"), "queue"),
+      TRANSCRIPTION_LOGS_DIR: path.join(app.getPath("userData"), "logs"),
     },
     stdio: ["pipe", "pipe", "pipe"],
   });
