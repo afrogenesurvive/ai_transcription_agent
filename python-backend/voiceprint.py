@@ -21,37 +21,40 @@ each other.
 import os
 import sqlite3
 import pickle
+import threading
 import numpy as np
 from typing import List, Optional, Dict
 from config import config
-
-
-def _is_network_error(exc: Exception) -> bool:
-    """Check if an exception is caused by a network connectivity issue."""
-    msg = str(exc).lower()
-    err_type = type(exc).__name__.lower()
-    for keyword in ("connectionerror", "timeout", "maxretryerror",
-                    "nameresolutionerror", "connectionreseterror"):
-        if keyword in err_type:
-            return True
-    for keyword in ("connection refused", "connection reset",
-                    "name resolution", "nodename nor servname",
-                    "max retries exceeded", "failed to resolve",
-                    "connection timeout", "network unreachable",
-                    "host unreachable", "temporarily unavailable"):
-        if keyword in msg:
-            return True
-    if isinstance(exc, OSError) and getattr(exc, 'errno', None) in (8, 51, 54, 57, 60, 61, 64, 65, 66):
-        return True
-    return False
+from utils import is_network_error
 
 
 class VoiceprintManager:
+    _thread_local = threading.local()
+
     def __init__(self, db_path: Optional[str] = None):
         self.db_path = db_path or config.VOICEPRINT_DB
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self._embedding_model = None  # Lazy-loaded pyannote Inference model
         self._init_db()
+
+    def _get_conn(self) -> sqlite3.Connection:
+        """Get a thread-local SQLite connection. Reused across operations to
+        avoid the overhead of open/close per call."""
+        if not hasattr(self._thread_local, "conn") or self._thread_local.conn is None:
+            conn = sqlite3.connect(self.db_path)
+            conn.execute("PRAGMA busy_timeout=5000")
+            self._thread_local.conn = conn
+        return self._thread_local.conn
+
+    def close(self):
+        """Close the thread-local connection if open."""
+        conn = getattr(self._thread_local, "conn", None)
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            self._thread_local.conn = None
 
     def _init_db(self):
         """Create the SQLite voiceprints table if it doesn't exist.
@@ -102,7 +105,7 @@ class VoiceprintManager:
                     config.EMBEDDING_MODEL, window="whole",
                 )
             except Exception as _hub_err:
-                if _is_network_error(_hub_err):
+                if is_network_error(_hub_err):
                     print(f"[voiceprint] ⚠️  HuggingFace unreachable ({_hub_err}). "
                           f"Falling back to local cache...")
                     self._embedding_model = Inference(
@@ -157,6 +160,7 @@ class VoiceprintManager:
         results = {"known": {}, "unknown": []}
 
         # Step 2-5: Match each speaker cluster
+        # Segments are plain dicts with "start", "end", "duration", "speaker" keys
         for speaker_id, segments in speaker_segments.items():
             first = segments[0]
 
@@ -168,7 +172,7 @@ class VoiceprintManager:
                 if len(sampled_embs) >= sample_count:
                     break
                 s = segments[i]
-                seg_emb = self.extract_embedding(audio_path, segment=(s.start, s.end))
+                seg_emb = self.extract_embedding(audio_path, segment=(s["start"], s["end"]))
                 sampled_embs.append(seg_emb)
 
             # Average and re-normalize for a robust composite embedding
@@ -208,7 +212,7 @@ class VoiceprintManager:
         if not attendees:
             return {}
 
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         placeholders = ",".join("?" for _ in attendees)
         rows = conn.execute(
             f"""
@@ -218,7 +222,6 @@ class VoiceprintManager:
             """,
             (*attendees, *attendees),
         ).fetchall()
-        conn.close()
 
         # Build result set — deduplicate if email and name match different rows
         seen_names = set()
@@ -231,7 +234,7 @@ class VoiceprintManager:
 
     def save_voiceprint(self, name: str, email: str, embedding: np.ndarray):
         """Store or update a voiceprint. Uses email as the unique key (upsert)."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         conn.execute("""
             INSERT INTO voiceprints (speaker_name, email, embedding)
             VALUES (?, ?, ?)
@@ -240,21 +243,18 @@ class VoiceprintManager:
                 updated_at=CURRENT_TIMESTAMP
         """, (name, email, pickle.dumps(embedding)))
         conn.commit()
-        conn.close()
 
     def list_voiceprints(self) -> List[dict]:
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         rows = conn.execute(
             "SELECT speaker_name, email, created_at, updated_at FROM voiceprints ORDER BY speaker_name"
         ).fetchall()
-        conn.close()
         return [{"name": r[0], "email": r[1], "created_at": r[2], "updated_at": r[3]} for r in rows]
 
     def delete_voiceprint(self, email: str):
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         conn.execute("DELETE FROM voiceprints WHERE email = ?", (email,))
         conn.commit()
-        conn.close()
 
     @staticmethod
     def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:

@@ -33,88 +33,7 @@ import platform as sys_platform
 import warnings
 from typing import Optional
 from config import config
-
-
-def _is_network_error(exc: Exception) -> bool:
-    """Check if an exception is caused by a network connectivity issue.
-
-    Helps distinguish network failures (DNS, timeout, connection refused)
-    from genuine model errors (gated model, missing cache, corrupt file).
-    When a network error is detected, model loading retries with
-    local_files_only=True instead of crashing.
-    """
-    msg = str(exc).lower()
-    err_type = type(exc).__name__.lower()
-    # Check by exception type name
-    for keyword in ("connectionerror", "timeout", "maxretryerror",
-                    "nameresolutionerror", "connectionreseterror"):
-        if keyword in err_type:
-            return True
-    # Check by error message keywords
-    for keyword in ("connection refused", "connection reset",
-                    "name resolution", "nodename nor servname",
-                    "max retries exceeded", "failed to resolve",
-                    "connection timeout", "network unreachable",
-                    "host unreachable", "temporarily unavailable"):
-        if keyword in msg:
-            return True
-    # Check errno for OS-level network errors (macOS/Linux)
-    if isinstance(exc, OSError) and getattr(exc, 'errno', None) in (8, 51, 54, 57, 60, 61, 64, 65, 66):
-        return True
-    return False
-
-
-# ── speechbrain LazyModule workaround ──
-# speechbrain 1.0+ lazy imports crash when linecache.getattr(mod, '__file__') is
-# called by inspect.stack() → traceback during pytorch_lightning import. Patch
-# LazyModule to never trigger lazy loading for __file__ attribute access.
-try:
-    import speechbrain.utils.importutils as _sb_utils
-    _orig_lazy_getattr = _sb_utils.LazyModule.__getattr__
-    def _safe_lazy_getattr(self, attr):
-        if attr == "__file__":
-            raise AttributeError(attr)
-        return _orig_lazy_getattr(self, attr)
-    _sb_utils.LazyModule.__getattr__ = _safe_lazy_getattr
-except Exception:
-    pass  # speechbrain may not be installed yet
-
-# ── pyannote.audio torchaudio compat patch ──
-# pyannote.audio uses torchaudio.info(backend=...) and torchaudio.list_audio_backends()
-# — both deprecated since torchaudio 2.5+ and scheduled for removal in torchaudio 2.9.
-# When removed, pyannote will crash.
-#
-# Since all pipeline audio is standardized to 16kHz mono WAV, we bypass torchaudio
-# entirely for file info and hardcode the backend to "soundfile".
-#
-# IMPORTANT: torchaudio.list_audio_backends must be patched BEFORE any pyannote
-# import, because pyannote.audio.utils.protocol creates Audio(mono="downmix") at
-# module level, triggering the deprecated path during import.
-import soundfile
-import torchaudio as _torchaudio
-_torchaudio.list_audio_backends = lambda: ["soundfile"]
-
-try:
-    import pyannote.audio.core.io as _pyannote_io
-
-    class _SafeAudioMetaData:
-        """Duck-typed replacement for torchaudio.AudioMetaData.
-        Avoids the in-place deprecation wrapper on torchaudio's AudioMetaData.__init__."""
-        def __init__(self, sample_rate, num_frames, num_channels):
-            self.sample_rate = sample_rate
-            self.num_frames = num_frames
-            self.num_channels = num_channels
-            self.bits_per_sample = 0
-            self.encoding = "PCM_S"
-
-    def _patched_get_torchaudio_info(file, backend=None):
-        sinfo = soundfile.info(file["audio"])
-        return _SafeAudioMetaData(sinfo.samplerate, sinfo.frames, sinfo.channels)
-    _pyannote_io.get_torchaudio_info = _patched_get_torchaudio_info
-
-    print("[startup] ✅ Patched pyannote.audio → soundfile (avoids torchaudio deprecations)")
-except Exception:
-    pass  # pyannote may not be installed yet
+from utils import is_network_error
 
 
 def detect_platform() -> str:
@@ -210,7 +129,7 @@ class TranscriptionEngine:
                         config.DIARIZATION_MODEL, use_auth_token=hf_token,
                     )
                 except Exception as _hub_err:
-                    if _is_network_error(_hub_err):
+                    if is_network_error(_hub_err):
                         print(f"[transcription] ⚠️  HuggingFace unreachable ({_hub_err}). "
                               f"Falling back to local cache...")
                         pipeline = Pipeline.from_pretrained(
@@ -240,7 +159,7 @@ class TranscriptionEngine:
                                 config.DIARIZATION_MODEL, use_auth_token=hf_token,
                             )
                         except Exception as _cpu_hub_err:
-                            if _is_network_error(_cpu_hub_err):
+                            if is_network_error(_cpu_hub_err):
                                 print(f"[transcription] ⚠️  HuggingFace unreachable on CPU fallback, "
                                       f"using local cache...")
                                 pipeline_cpu = Pipeline.from_pretrained(

@@ -57,13 +57,7 @@ class AgentBridge:
                         Pass an empty list to run all steps.
         """
         if skip_steps is None:
-            skip_steps = [
-                "transcribe_analyze",
-                "transcribe_prepare_delivery",
-                "send_delivery_email",
-                "save_to_drive",
-                "create_trello_action_items",
-            ]
+            skip_steps = config.DEFAULT_SKIP_STEPS
         return self.enqueue("ready_for_processing", {
             "jobId": job_id,
             "title": metadata.get("title", "Untitled Meeting"),

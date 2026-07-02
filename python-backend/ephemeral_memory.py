@@ -10,6 +10,7 @@ All data is keyed by a semantic "topic" for easy agent lookup.
 import os
 import json
 import sqlite3
+import threading
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from config import config
@@ -24,12 +25,41 @@ class EphemeralMemory:
       - budgets:        financial figures mentioned (amount, currency, context)
       - decisions:      key decisions made (description, rationale)
       - notes:          free-form context notes (key-value pairs)
+
+    Uses ``threading.local()`` to reuse SQLite connections per thread,
+    avoiding the overhead of open/close per operation. Each thread gets
+    its own connection, which is safe since SQLite in WAL mode supports
+    concurrent readers.
     """
+
+    _thread_local = threading.local()
 
     def __init__(self, db_path: Optional[str] = None):
         self.db_path = db_path or os.path.join(config.STORAGE_PATH, "ephemeral_memory.db")
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self._init_db()
+
+    def _get_conn(self) -> sqlite3.Connection:
+        """Get a thread-local SQLite connection. Creates one if this thread
+        hasn't connected yet. Connections are NOT closed between operations
+        — they are reused until the thread exits or close() is called."""
+        if not hasattr(self._thread_local, "conn") or self._thread_local.conn is None:
+            conn = sqlite3.connect(self.db_path)
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA foreign_keys=ON")
+            conn.execute("PRAGMA busy_timeout=5000")
+            self._thread_local.conn = conn
+        return self._thread_local.conn
+
+    def close(self):
+        """Close the thread-local connection if open. Safe to call multiple times."""
+        conn = getattr(self._thread_local, "conn", None)
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            self._thread_local.conn = None
 
     def _init_db(self):
         conn = sqlite3.connect(self.db_path)
@@ -110,7 +140,7 @@ class EphemeralMemory:
         full audit history. Repeated action items across meetings are kept
         intentionally — repetition signals unresolved or recurring work.
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         conn.execute(
             "UPDATE action_items SET status='completed' WHERE source_meeting=? AND status='open'",
             (meeting_title,),
@@ -130,13 +160,12 @@ class EphemeralMemory:
                 ),
             )
         conn.commit()
-        conn.close()
         print(f"[ephemeral] Saved {len(items)} action items for '{meeting_title}' (job={job_id[:8]})")
 
     def query_action_items(
         self, assignee: str = "", status: str = "", limit: int = 20
     ) -> List[dict]:
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         conn.row_factory = sqlite3.Row
         parts = ["SELECT * FROM action_items WHERE 1=1"]
         params = []
@@ -149,14 +178,13 @@ class EphemeralMemory:
         parts.append("ORDER BY created_at DESC LIMIT ?")
         params.append(limit)
         rows = conn.execute(" ".join(parts), params).fetchall()
-        conn.close()
         return [dict(r) for r in rows]
 
     # ── Contacts ──
 
     def upsert_contact(self, name: str, email: str = "", org: str = "",
                        role: str = "", phone: str = "", meeting: str = ""):
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         existing = conn.execute(
             "SELECT id FROM contacts WHERE name=? OR (email!='' AND email=?)",
             (name, email),
@@ -177,10 +205,9 @@ class EphemeralMemory:
                 (name, email, org, role, phone, meeting),
             )
         conn.commit()
-        conn.close()
 
     def query_contacts(self, name: str = "", limit: int = 20) -> List[dict]:
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         conn.row_factory = sqlite3.Row
         if name:
             rows = conn.execute(
@@ -191,7 +218,6 @@ class EphemeralMemory:
             rows = conn.execute(
                 "SELECT * FROM contacts ORDER BY last_mentioned DESC LIMIT ?", (limit,)
             ).fetchall()
-        conn.close()
         return [dict(r) for r in rows]
 
     # ── Budgets ──
@@ -203,7 +229,7 @@ class EphemeralMemory:
         Repeated budget items across meetings are kept intentionally — seeing
         "Server costs — $15,000" in three meetings tells you it was a recurring topic.
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         for b in budgets:
             conn.execute(
                 """INSERT INTO budgets (job_id, description, amount, currency, category, source_meeting)
@@ -218,11 +244,10 @@ class EphemeralMemory:
                 ),
             )
         conn.commit()
-        conn.close()
         print(f"[ephemeral] Saved {len(budgets)} budget items for '{meeting_title}' (job={job_id[:8]})")
 
     def query_budgets(self, category: str = "", limit: int = 20) -> List[dict]:
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         conn.row_factory = sqlite3.Row
         if category:
             rows = conn.execute(
@@ -233,7 +258,6 @@ class EphemeralMemory:
             rows = conn.execute(
                 "SELECT * FROM budgets ORDER BY created_at DESC LIMIT ?", (limit,)
             ).fetchall()
-        conn.close()
         return [dict(r) for r in rows]
 
     # ── Decisions ──
@@ -245,7 +269,7 @@ class EphemeralMemory:
         Repeated decisions across meetings are kept intentionally — revisiting
         a decision is meaningful context.
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         for d in decisions:
             conn.execute(
                 """INSERT INTO decisions (job_id, description, rationale, made_by, source_meeting)
@@ -254,11 +278,10 @@ class EphemeralMemory:
                  d.get("made_by", ""), meeting_title),
             )
         conn.commit()
-        conn.close()
         print(f"[ephemeral] Saved {len(decisions)} decisions for '{meeting_title}' (job={job_id[:8]})")
 
     def query_decisions(self, keyword: str = "", limit: int = 20) -> List[dict]:
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         conn.row_factory = sqlite3.Row
         if keyword:
             rows = conn.execute(
@@ -269,13 +292,12 @@ class EphemeralMemory:
             rows = conn.execute(
                 "SELECT * FROM decisions ORDER BY created_at DESC LIMIT ?", (limit,)
             ).fetchall()
-        conn.close()
         return [dict(r) for r in rows]
 
     # ── Notes (free-form key-value) ──
 
     def save_note(self, job_id: str, topic: str, content: str):
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         conn.execute(
             """INSERT INTO notes (job_id, topic, content)
                VALUES (?, ?, ?)
@@ -284,10 +306,9 @@ class EphemeralMemory:
             (job_id, topic, content),
         )
         conn.commit()
-        conn.close()
 
     def query_notes(self, topic: str = "") -> List[dict]:
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         conn.row_factory = sqlite3.Row
         if topic:
             rows = conn.execute(
@@ -295,7 +316,6 @@ class EphemeralMemory:
             ).fetchall()
         else:
             rows = conn.execute("SELECT * FROM notes ORDER BY created_at DESC").fetchall()
-        conn.close()
         return [dict(r) for r in rows]
 
     # ── General query (agent-friendly) ──
@@ -305,7 +325,7 @@ class EphemeralMemory:
         table = table.lower()
         if table not in ("action_items", "contacts", "budgets", "decisions", "notes"):
             return []
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         conn.row_factory = sqlite3.Row
         if q and table != "notes":
             rows = conn.execute(
@@ -321,11 +341,21 @@ class EphemeralMemory:
             rows = conn.execute(
                 f"SELECT * FROM {table} ORDER BY created_at DESC LIMIT ?", (limit,)
             ).fetchall()
-        conn.close()
         return [dict(r) for r in rows]
 
+    def row_count(self, table: str) -> int:
+        """Return the total number of rows in a table using COUNT(*).
+
+        Avoids fetching all rows into memory (unlike query_all with a large limit).
+        """
+        table = table.lower()
+        if table not in ("action_items", "contacts", "budgets", "decisions", "notes"):
+            return 0
+        conn = self._get_conn()
+        row = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
+        return row[0] if row else 0
+
     def close_action_item(self, item_id: int):
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         conn.execute("UPDATE action_items SET status='completed', updated_at=CURRENT_TIMESTAMP WHERE id=?", (item_id,))
         conn.commit()
-        conn.close()

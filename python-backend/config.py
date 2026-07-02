@@ -57,5 +57,17 @@ class Config:
     # Transcript refinement options
     KEEP_TRANSCRIPT_TIMESTAMPS = os.getenv("KEEP_TRANSCRIPT_TIMESTAMPS", "false").lower() in ("true", "1", "yes")
 
+    # Default pipeline steps to skip (overridden by per-request skip_steps)
+    DEFAULT_SKIP_STEPS = [
+        "transcribe_analyze",
+        "transcribe_prepare_delivery",
+        "send_delivery_email",
+        "save_to_drive",
+        "create_trello_action_items",
+    ]
+
+    # Maximum concurrent ML pipeline jobs
+    MAX_CONCURRENT_PIPELINES = int(os.getenv("MAX_CONCURRENT_PIPELINES", "2"))
+
 
 config = Config()

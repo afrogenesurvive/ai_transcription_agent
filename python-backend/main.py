@@ -9,97 +9,19 @@ Endpoints:
 
 import os
 import json
-import threading
+import asyncio
 import warnings
 from datetime import datetime
 
-# ── speechbrain LazyModule workaround ──
-# speechbrain 1.0+ uses lazy imports for optional integrations (k2, flair, etc.).
-# When PyTorch Lightning calls inspect.stack() → linecache → getattr(mod, '__file__'),
-# the LazyModule.__getattr__ triggers, tries to import the missing dependency, and
-# crashes the whole pipeline. We patch LazyModule to avoid triggering on __file__.
-# This must run BEFORE importing pyannote.audio.
-try:
-    import speechbrain.utils.importutils as _sb_utils
-    _orig_lazy_getattr = _sb_utils.LazyModule.__getattr__
-    def _safe_lazy_getattr(self, attr):
-        if attr == "__file__":
-            raise AttributeError(attr)
-        return _orig_lazy_getattr(self, attr)
-    _sb_utils.LazyModule.__getattr__ = _safe_lazy_getattr
-except Exception:
-    pass  # speechbrain may not be installed yet
-
-# ── pyannote.audio torchaudio compat patch ──
-# pyannote.audio uses torchaudio.info(backend=...) and torchaudio.list_audio_backends()
-# — both deprecated since torchaudio 2.5+ and scheduled for removal in torchaudio 2.9.
-# When removed, pyannote will crash.
-#
-# Since all pipeline audio is standardized to 16kHz mono WAV, we bypass torchaudio
-# entirely for file info and hardcode the backend to "soundfile".
-#
-# IMPORTANT: torchaudio.list_audio_backends must be patched BEFORE any pyannote
-# import, because pyannote.audio.utils.protocol creates Audio(mono="downmix") at
-# module level, triggering the deprecated path during import.
-import soundfile
-import torchaudio as _torchaudio
-_torchaudio.list_audio_backends = lambda: ["soundfile"]
-
-try:
-    import pyannote.audio.core.io as _pyannote_io
-
-    class _SafeAudioMetaData:
-        """Duck-typed replacement for torchaudio.AudioMetaData.
-        Avoids the in-place deprecation wrapper on torchaudio's AudioMetaData.__init__."""
-        def __init__(self, sample_rate, num_frames, num_channels):
-            self.sample_rate = sample_rate
-            self.num_frames = num_frames
-            self.num_channels = num_channels
-            self.bits_per_sample = 0
-            self.encoding = "PCM_S"
-
-    def _patched_get_torchaudio_info(file, backend=None):
-        sinfo = soundfile.info(file["audio"])
-        return _SafeAudioMetaData(sinfo.samplerate, sinfo.frames, sinfo.channels)
-    _pyannote_io.get_torchaudio_info = _patched_get_torchaudio_info
-
-    print("[startup] ✅ Patched pyannote.audio → soundfile (avoids torchaudio deprecations)")
-except Exception:
-    pass  # pyannote may not be installed yet
+# ── Apply third-party compatibility patches FIRST (before any pyannote imports) ──
+import patches  # noqa: F401  (monkey-patches speechbrain + torchaudio + pyannote)
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from config import config
-
-
-def _is_network_error(exc: Exception) -> bool:
-    """Check if an exception is caused by a network connectivity issue.
-
-    Distinguishes network failures (DNS, timeout, connection refused)
-    from genuine model errors (gated model, missing cache). When a
-    network error is detected, model loading retries with
-    local_files_only=True instead of crashing.
-    """
-    msg = str(exc).lower()
-    err_type = type(exc).__name__.lower()
-    for keyword in ("connectionerror", "timeout", "maxretryerror",
-                    "nameresolutionerror", "connectionreseterror"):
-        if keyword in err_type:
-            return True
-    for keyword in ("connection refused", "connection reset",
-                    "name resolution", "nodename nor servname",
-                    "max retries exceeded", "failed to resolve",
-                    "connection timeout", "network unreachable",
-                    "host unreachable", "temporarily unavailable"):
-        if keyword in msg:
-            return True
-    if isinstance(exc, OSError) and getattr(exc, 'errno', None) in (8, 51, 54, 57, 60, 61, 64, 65, 66):
-        return True
-    return False
-
-
+from utils import is_network_error
 
 from upload import AudioUploader
 from voiceprint import VoiceprintManager
@@ -120,9 +42,17 @@ agent_bridge: AgentBridge = None
 semantic_memory: SemanticMemory = None
 ephemeral_memory: EphemeralMemory = None
 
-# Track running pipeline threads for cancellation
-_pipeline_threads: dict[str, threading.Thread] = {}
+# ── Async pipeline management ──
+# Instead of threading.Thread, we use asyncio tasks with a semaphore to
+# limit concurrent ML pipeline runs. This allows clean integration with
+# FastAPI's event loop, proper cancellation, and in-memory job tracking.
+_pipeline_tasks: dict[str, asyncio.Task] = {}
 _pipeline_cancel: set[str] = set()
+_pipeline_semaphore = asyncio.Semaphore(config.MAX_CONCURRENT_PIPELINES)
+
+# In-memory active job tracking (replaces disk-scanning in /transcribe/active)
+# Keyed by job_id; values are {status, progress, title}
+_active_jobs: dict[str, dict] = {}
 
 
 @asynccontextmanager
@@ -211,13 +141,7 @@ async def upload_audio(
     with open(temp_path, "wb") as f:
         f.write(content)
 
-    parsed_skip = json.loads(skip_steps) if skip_steps else [
-        "transcribe_analyze",
-        "transcribe_prepare_delivery",
-        "send_delivery_email",
-        "save_to_drive",
-        "create_trello_action_items",
-    ]
+    parsed_skip = json.loads(skip_steps) if skip_steps else config.DEFAULT_SKIP_STEPS
     metadata = {
         "title": title,
         "attendees": json.loads(attendees),
@@ -234,9 +158,7 @@ async def upload_audio(
     print(f"[upload] Received file '{file.filename}' ({len(content)} bytes) → job_id={job_id}")
     print(f"[upload] Metadata: title='{title}', attendees={attendees}, event_type='{event_type}'")
     print(f"[upload] skip_steps={parsed_skip}")
-    t = threading.Thread(target=_run_pipeline, args=(job_id,), daemon=True)
-    _pipeline_threads[job_id] = t
-    t.start()
+    _start_pipeline_async(job_id)
     return {"job_id": job_id, "status": "uploaded"}
 
 
@@ -258,13 +180,7 @@ async def upload_audio_by_path(req: UploadByPathRequest):
     if ext not in config.ALLOWED_EXTENSIONS:
         raise HTTPException(400, f"Unsupported format: {ext}. Allowed: {', '.join(sorted(config.ALLOWED_EXTENSIONS))}")
 
-    skip_steps = req.skip_steps or [
-        "transcribe_analyze",
-        "transcribe_prepare_delivery",
-        "send_delivery_email",
-        "save_to_drive",
-        "create_trello_action_items",
-    ]
+    skip_steps = req.skip_steps or config.DEFAULT_SKIP_STEPS
     metadata = {
         "title": req.title,
         "attendees": req.attendees,
@@ -280,9 +196,7 @@ async def upload_audio_by_path(req: UploadByPathRequest):
     file_size = os.path.getsize(file_path)
     print(f"[upload_by_path] File '{file_path}' ({file_size} bytes) → job_id={job_id}")
     print(f"[upload_by_path] Metadata: title='{req.title}', attendees={req.attendees}")
-    t = threading.Thread(target=_run_pipeline, args=(job_id,), daemon=True)
-    _pipeline_threads[job_id] = t
-    t.start()
+    _start_pipeline_async(job_id)
     return {"job_id": job_id, "status": "uploaded", "file_path": file_path}
 
 
@@ -306,36 +220,28 @@ async def get_active_jobs():
     delivered, transcribed) or were never started (labeling_needed)
     are not returned — they're handled by the agent runner separately.
     """
+    """List jobs actively running in the ML pipeline.
+
+    Uses in-memory tracking (``_active_jobs``) instead of scanning disk,
+    avoiding O(n) scandir + JSON reads on every request. The dict is
+    maintained by ``_run_pipeline`` and ``_run_pipeline_async``.
+    """
     ml_pipeline_statuses = {
         "uploaded", "initializing", "processing_diarization",
         "matching_voiceprints", "processing_transcription", "aligning",
     }
-    active = []
-    for entry in os.scandir(config.STORAGE_PATH):
-        if not entry.is_dir():
-            continue
-        status_path = os.path.join(entry.path, "status.json")
-        if not os.path.exists(status_path):
-            continue
-        with open(status_path) as f:
-            status = json.load(f)
-        job_status = status.get("status", "")
-        if job_status not in ml_pipeline_statuses:
-            continue
-        # Load metadata for display
-        metadata = {}
-        meta_path = os.path.join(entry.path, "metadata.json")
-        if os.path.exists(meta_path):
-            with open(meta_path) as f:
-                metadata = json.load(f)
-        active.append({
-            "job_id": status.get("job_id", entry.name),
-            "status": job_status,
-            "progress": status.get("progress", 0.0),
-            "title": metadata.get("title", "Untitled"),
-        })
+    active = [
+        {
+            "job_id": job_id,
+            "status": info["status"],
+            "progress": info.get("progress", 0.0),
+            "title": info.get("title", "Untitled"),
+        }
+        for job_id, info in _active_jobs.items()
+        if info.get("status") in ml_pipeline_statuses
+    ]
     active.sort(key=lambda j: j.get("progress", 0), reverse=True)
-    print(f"[api] GET /transcribe/active → {len(active)} active ML job(s)")
+    print(f"[api] GET /transcribe/active → {len(active)} active ML job(s) (in-memory)")
     return {"active_jobs": active}
 
 
@@ -723,7 +629,12 @@ async def cancel_job(job_id: str):
     if s["status"] == "not_found":
         raise HTTPException(404, "Job not found")
     _pipeline_cancel.add(job_id)
+    # Cancel the asyncio task if it's still running
+    task = _pipeline_tasks.pop(job_id, None)
+    if task and not task.done():
+        task.cancel()
     uploader.update_status(job_id, {"status": "failed", "error": "Cancelled by user", "progress": 0.0})
+    _active_jobs.pop(job_id, None)
     print(f"[api] POST /transcribe/cancel/{job_id} → cancelled")
     return {"job_id": job_id, "status": "cancelled", "cancelled": True}
 
@@ -747,7 +658,10 @@ async def delete_job(job_id: str):
 
     # Cancel if running
     _pipeline_cancel.add(job_id)
-    _pipeline_threads.pop(job_id, None)
+    task = _pipeline_tasks.pop(job_id, None)
+    if task and not task.done():
+        task.cancel()
+    _active_jobs.pop(job_id, None)
 
     try:
         shutil.rmtree(job_dir)
@@ -886,7 +800,7 @@ async def models_status():
                         config.DIARIZATION_MODEL, use_auth_token=hf_token,
                     )
                 except Exception as _hub_err:
-                    if _is_network_error(_hub_err):
+                    if is_network_error(_hub_err):
                         print(f"[models_status] ⚠️  HuggingFace unreachable ({_hub_err}). "
                               f"Falling back to local cache...")
                         pipeline = Pipeline.from_pretrained(
@@ -1070,15 +984,15 @@ async def memory_ephemeral_tables():
     """List all ephemeral memory tables with row counts (read-only, for DevPanel)."""
     print(f"[api] GET /memory/ephemeral/tables")
     try:
-        # Get row counts for each table — use a large limit to get all rows
+        # Get row counts for each table using COUNT(*) — avoids fetching all rows
         table_list = []
         for name, info in EPHEMERAL_TABLES.items():
-            rows = ephemeral_memory.query_all(name, "", 100000)
+            count = ephemeral_memory.row_count(name)
             table_list.append({
                 "name": name,
                 "label": info["label"],
                 "columns": info["columns"],
-                "row_count": len(rows),
+                "row_count": count,
             })
         return {"tables": table_list}
     except Exception as e:
@@ -1142,24 +1056,87 @@ async def memory_semantic_meetings():
         raise HTTPException(500, f"Failed to list meetings: {e}")
 
 
-# ── Internal pipeline ──
+# ── Pipeline management ──
+
+def _start_pipeline_async(job_id: str):
+    """Fire-and-forget: create an asyncio task for the pipeline, tracked
+    so it can be cancelled and monitored via the /transcribe/active endpoint."""
+    task = asyncio.create_task(_run_pipeline_async(job_id))
+    _pipeline_tasks[job_id] = task
+
 
 def _check_cancelled(job_id: str) -> bool:
     """Check if this job has been cancelled. Returns True if cancelled."""
     if job_id in _pipeline_cancel:
         print(f"\n   🛑 [pipeline] Job {job_id} cancelled — stopping.")
         _pipeline_cancel.discard(job_id)
-        _pipeline_threads.pop(job_id, None)
+        _pipeline_tasks.pop(job_id, None)
+        _active_jobs.pop(job_id, None)
         return True
     return False
 
 
-def _run_pipeline(job_id: str):
-    print(f"\n{'='*60}")
-    print(f"   🎬 [PIPELINE] Starting pipeline for job {job_id}")
-    print(f"{'='*60}")
+async def _run_pipeline_async(job_id: str):
+    """Async wrapper around the synchronous ML pipeline.
+
+    Uses ``asyncio.to_thread()`` to offload CPU-bound ML work to a thread
+    pool, allowing the event loop to handle other requests concurrently.
+    An ``asyncio.Semaphore`` limits how many pipelines run simultaneously.
+
+    The synchronous ``_run_pipeline`` function runs in a thread. Cancellation
+    is cooperative — the thread checks ``_pipeline_cancel`` between steps.
+    """
+    async with _pipeline_semaphore:
+        print(f"\n{'='*60}")
+        print(f"   🎬 [PIPELINE] Starting pipeline for job {job_id}")
+        print(f"{'='*60}")
+        _active_jobs[job_id] = {"status": "initializing", "progress": 0.0, "title": "..."}
+        try:
+            # Fetch metadata upfront (lightweight, no ML)
+            metadata = uploader.get_metadata(job_id)
+            _active_jobs[job_id]["title"] = metadata.get("title", "Untitled")
+        except Exception:
+            pass
+        try:
+            await asyncio.to_thread(_run_pipeline_sync, job_id)
+            print(f"\n{'='*60}")
+            print(f"   ✅ [PIPELINE] Pipeline complete for job {job_id}")
+            print(f"{'='*60}\n")
+        except asyncio.CancelledError:
+            _pipeline_cancel.add(job_id)
+            print(f"\n   🛑 [pipeline] Job {job_id} task cancelled.")
+            _active_jobs.pop(job_id, None)
+            raise
+        except Exception as e:
+            print(f"\n   ❌ [pipeline] ERROR in job {job_id}: {e}")
+            import traceback
+            traceback.print_exc()
+            uploader.update_status(job_id, {"status": "failed", "error": str(e)})
+            agent_bridge.enqueue_failed(job_id, str(e), {})
+        finally:
+            _pipeline_tasks.pop(job_id, None)
+            _pipeline_cancel.discard(job_id)
+            _active_jobs.pop(job_id, None)
+
+
+def _update_active(job_id: str, status: str, progress: float, **extra):
+    """Update the in-memory active job tracker and persist to disk."""
+    _active_jobs[job_id] = {**_active_jobs.get(job_id, {}), "status": status, "progress": progress}
+    _active_jobs[job_id].update(extra)
+    update_kwargs = {"status": status, "progress": progress}
+    if extra:
+        update_kwargs.update(extra)
+    uploader.update_status(job_id, update_kwargs)
+
+
+def _run_pipeline_sync(job_id: str):
+    """Synchronous ML pipeline — runs inside ``asyncio.to_thread()``.
+
+    Each step updates the in-memory ``_active_jobs`` dict (via ``_update_active``)
+    and checks ``_pipeline_cancel`` for cooperative cancellation.
+    """
     try:
-        uploader.update_status(job_id, {"status": "initializing", "progress": 0.05})
+        _update_active(job_id, "initializing", 0.05)
         engine = TranscriptionEngine()
         metadata = uploader.get_metadata(job_id)
         audio_path = uploader.get_audio_path(job_id)
@@ -1168,22 +1145,26 @@ def _run_pipeline(job_id: str):
 
         # ── Step 1: Diarization ──
         print(f"\n   🔬 [PIPELINE] Step 1/5: Diarization (identifying speakers)...")
-        uploader.update_status(job_id, {"status": "processing_diarization", "progress": 0.2})
+        _update_active(job_id, "processing_diarization", 0.2)
         if _check_cancelled(job_id): return
         diarization = engine.run_diarization(audio_path)
         speakers_found = set(s["speaker"] for s in diarization)
         print(f"   ✅ [pipeline] Diarization complete: {len(diarization)} segments, {len(speakers_found)} speakers: {', '.join(sorted(speakers_found))}")
 
-        # Group by speaker
-        from types import SimpleNamespace
+        # Group by speaker (use dicts consistently — no SimpleNamespace)
         speaker_segments = {}
         for seg in diarization:
             spk = seg["speaker"]
-            speaker_segments.setdefault(spk, []).append(SimpleNamespace(**seg))
+            speaker_segments.setdefault(spk, []).append({
+                "speaker": seg["speaker"],
+                "start": seg["start"],
+                "end": seg["end"],
+                "duration": seg.get("duration", seg["end"] - seg["start"]),
+            })
 
         # ── Step 2: Voiceprint matching ──
         print(f"\n   🧬 [PIPELINE] Step 2/5: Voiceprint matching...")
-        uploader.update_status(job_id, {"status": "matching_voiceprints", "progress": 0.35})
+        _update_active(job_id, "matching_voiceprints", 0.35)
         if _check_cancelled(job_id): return
         attendees = metadata.get("attendees", [])
         if attendees:
@@ -1196,8 +1177,8 @@ def _run_pipeline(job_id: str):
             match_result = {"known": {}, "unknown": [
                 {
                     "speaker_id": spk,
-                    "segments": [{"start": s.start, "end": s.end, "duration": s.duration, "speaker": s.speaker} for s in segs],
-                    "sample_segment": {"start": segs[0].start, "end": segs[0].end},
+                    "segments": [{"start": s["start"], "end": s["end"], "duration": s["duration"], "speaker": s["speaker"]} for s in segs],
+                    "sample_segment": {"start": segs[0]["start"], "end": segs[0]["end"]},
                 }
                 for spk, segs in speaker_segments.items()
             ]}
@@ -1207,14 +1188,14 @@ def _run_pipeline(job_id: str):
 
         # ── Step 3: ASR Transcription ──
         print(f"\n   🎤 [PIPELINE] Step 3/5: ASR transcription (Whisper)...")
-        uploader.update_status(job_id, {"status": "processing_transcription", "progress": 0.5})
+        _update_active(job_id, "processing_transcription", 0.5)
         if _check_cancelled(job_id): return
         transcription = engine.run_transcription(audio_path)
         print(f"   ✅ [pipeline] ASR complete: {len(transcription.get('words', []))} words, {len(transcription.get('segments', []))} segments")
 
         # ── Step 4: Alignment ──
         print(f"\n   🔗 [PIPELINE] Step 4/5: Aligning diarization with transcript...")
-        uploader.update_status(job_id, {"status": "aligning", "progress": 0.7})
+        _update_active(job_id, "aligning", 0.7)
         if _check_cancelled(job_id): return
         aligned = engine.align_transcript(transcription, diarization)
         print(f"   ✅ [pipeline] Alignment complete: {len(aligned)} transcript segments")
@@ -1224,7 +1205,7 @@ def _run_pipeline(job_id: str):
         for seg in aligned:
             for name, segs in match_result["known"].items():
                 for s in segs:
-                    if abs(seg["start"] - s.start) < 0.5:
+                    if abs(seg["start"] - s["start"]) < 0.5:
                         seg["speaker"] = name
                         label_count += 1
                         break
@@ -1233,35 +1214,26 @@ def _run_pipeline(job_id: str):
 
         uploader.save_transcript(job_id, aligned)
         uploader.save_transcript_text(job_id, aligned)
-        uploader.update_status(job_id, {"status": "transcribed", "progress": 0.85})
+        _update_active(job_id, "transcribed", 0.85)
 
         # ── Step 5: Enqueue for agent ──
         print(f"\n   📨 [PIPELINE] Step 5/5: Enqueueing for agent runner...")
         if _check_cancelled(job_id): return
         unknown = match_result.get("unknown", [])
         if unknown:
-            # Normalize sample_segment to dict in case it came from match_against_attendees
-            # (which returns dicts) vs the fallback path (which previously used SimpleNamespace)
-            for u in unknown:
-                if hasattr(u["sample_segment"], "start"):
-                    u["sample_segment"] = {"start": u["sample_segment"].start, "end": u["sample_segment"].end}
             for u in unknown:
                 for seg in aligned:
                     if abs(seg["start"] - u["sample_segment"]["start"]) < 1.0:
                         u["sample_text"] = seg["text"][:200]
                         break
-            uploader.update_status(job_id, {"status": "labeling_needed", "progress": 0.9, "unknown_speakers": unknown})
+            _update_active(job_id, "labeling_needed", 0.9, unknown_speakers=unknown)
             print(f"[pipeline] {len(unknown)} unknown speaker(s) — enqueueing labeling_needed")
             agent_bridge.enqueue_labeling_needed(job_id, unknown, aligned, metadata)
         else:
-            uploader.update_status(job_id, {"status": "ready_for_agent", "progress": 0.95})
+            _update_active(job_id, "ready_for_agent", 0.95)
             skip = metadata.get("skip_steps")
             print(f"[pipeline] All speakers known — enqueueing ready_for_processing (skip_steps={skip})")
             agent_bridge.enqueue_ready(job_id, aligned, metadata, skip_steps=skip)
-
-        print(f"\n{'='*60}")
-        print(f"   ✅ [PIPELINE] Pipeline complete for job {job_id}")
-        print(f"{'='*60}\n")
 
     except Exception as e:
         print(f"\n   ❌ [pipeline] ERROR in job {job_id}: {e}")
@@ -1270,7 +1242,6 @@ def _run_pipeline(job_id: str):
         uploader.update_status(job_id, {"status": "failed", "error": str(e)})
         agent_bridge.enqueue_failed(job_id, str(e), {})
     finally:
-        _pipeline_threads.pop(job_id, None)
         _pipeline_cancel.discard(job_id)
 
 
