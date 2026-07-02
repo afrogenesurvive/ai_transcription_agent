@@ -537,9 +537,9 @@ export default function ConfigPanel({ onClose }: Props) {
                             </button>
                             <button
                               className="config-ollama-pull-btn"
-                              onClick={() => handlePullModel("qwen3:14b")}
+                              onClick={() => handlePullModel("qwen3.6:27b")}
                               disabled={pullingModel !== null || activeJobs.length > 0}>
-                              {pullingModel === "qwen3:14b" ? "⟳ Pulling…" : "📥 Pull qwen3:14b"}
+                              {pullingModel === "qwen3.6:27b" ? "⟳ Pulling…" : "📥 Pull qwen3.6:27b"}
                             </button>
                           </div>
                           {pullingModel && (

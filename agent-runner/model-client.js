@@ -32,7 +32,7 @@ function getModel() {
     const model = process.env.OLLAMA_MODEL;
     if (!model) {
       throw new Error(
-        "OLLAMA_MODEL not configured. Set a model name in Config (e.g. deepseek-v2, qwen3:14b) " +
+        "OLLAMA_MODEL not configured. Set a model name in Config (e.g. deepseek-v2, qwen3.6:27b) " +
           "or pull one from the Ollama section in the Configuration panel.",
       );
     }
