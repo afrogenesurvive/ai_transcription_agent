@@ -23,6 +23,8 @@ export interface AppConfig {
   OLLAMA_BASE_URL: string;
   /** Ollama model name */
   OLLAMA_MODEL: string;
+  /** Ollama context window size (num_ctx) in tokens: 32768, 65536, or 131072 */
+  OLLAMA_NUM_CTX: string;
   /** Gmail delivery credentials */
   GMAIL_CLIENT_ID: string;
   GMAIL_CLIENT_SECRET: string;
@@ -56,6 +58,7 @@ const DEFAULTS: AppConfig = {
   LLM_PROVIDER: "deepseek",
   OLLAMA_BASE_URL: "http://127.0.0.1:11434/v1",
   OLLAMA_MODEL: "",
+  OLLAMA_NUM_CTX: "32768",
   GMAIL_CLIENT_ID: "",
   GMAIL_CLIENT_SECRET: "",
   GMAIL_REFRESH_TOKEN: "",

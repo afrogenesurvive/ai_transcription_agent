@@ -44,6 +44,14 @@ function getModel() {
 const client = createClient();
 const MODEL = getModel();
 
+function getNumCtx() {
+  if (PROVIDER !== "ollama") return undefined;
+  const val = parseInt(process.env.OLLAMA_NUM_CTX || "32768", 10);
+  // Only allow valid values: 32768, 65536, 131072
+  if ([32768, 65536, 131072].includes(val)) return val;
+  return 32768;
+}
+
 function mapTools(defs) {
   return defs.map((t) => ({
     type: "function",
@@ -66,6 +74,9 @@ export async function callModel(context, toolDefs, systemMessageOverride) {
   console.log(`   🤖 [MODEL] Calling ${PROVIDER}/${MODEL}...`);
 
   try {
+    // Ollama-specific parameters (num_ctx is forwarded by Ollama's /v1 endpoint)
+    const ollamaParams = PROVIDER === "ollama" ? { num_ctx: getNumCtx() } : {};
+
     const response = await client.chat.completions.create({
       model: MODEL,
       messages: [
@@ -76,6 +87,7 @@ export async function callModel(context, toolDefs, systemMessageOverride) {
       tool_choice: "auto",
       temperature: 0.1,
       stream: false,
+      ...ollamaParams,
     });
 
     const choice = response.choices?.[0];

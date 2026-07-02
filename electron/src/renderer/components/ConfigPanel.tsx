@@ -28,6 +28,7 @@ interface ConfigValues {
   LLM_PROVIDER: string;
   OLLAMA_BASE_URL: string;
   OLLAMA_MODEL: string;
+  OLLAMA_NUM_CTX: string;
   GMAIL_CLIENT_ID: string;
   GMAIL_CLIENT_SECRET: string;
   GMAIL_REFRESH_TOKEN: string;
@@ -66,6 +67,7 @@ const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secre
   { key: "DEEPSEEK_API_KEY", label: "DeepSeek API Key", required: true, secret: true, section: "LLM Provider" },
   { key: "OLLAMA_BASE_URL", label: "Ollama Base URL", required: false, secret: false, section: "LLM Provider" },
   { key: "OLLAMA_MODEL", label: "Ollama Model", required: false, secret: false, section: "LLM Provider" },
+  { key: "OLLAMA_NUM_CTX", label: "Ollama Context Window", required: false, secret: false, section: "LLM Provider" },
   { key: "HUGGING_FACE_TOKEN", label: "Hugging Face Token", required: false, secret: true, section: "LLM Provider" },
   { key: "GITHUB_TOKEN", label: "GitHub PAT (for private repo auto-updates)", required: false, secret: true, section: "Auto-Update" },
   { key: "WHISPER_MODEL_SIZE", label: "Whisper Model Size", required: false, secret: false, section: "LLM Provider" },
@@ -217,6 +219,7 @@ export default function ConfigPanel({ onClose }: Props) {
         LLM_PROVIDER: cfg.LLM_PROVIDER || "deepseek",
         OLLAMA_BASE_URL: cfg.OLLAMA_BASE_URL || "http://127.0.0.1:11434/v1",
         OLLAMA_MODEL: cfg.OLLAMA_MODEL || "",
+        OLLAMA_NUM_CTX: cfg.OLLAMA_NUM_CTX || "32768",
         HUGGING_FACE_TOKEN: cfg.HUGGING_FACE_TOKEN || "",
         GITHUB_TOKEN: cfg.GITHUB_TOKEN || "",
         WHISPER_MODEL_SIZE: cfg.WHISPER_MODEL_SIZE || "medium",
@@ -465,7 +468,7 @@ export default function ConfigPanel({ onClose }: Props) {
 
                     {values.LLM_PROVIDER === "ollama" &&
                       fields
-                        .filter((f) => f.key !== "DEEPSEEK_API_KEY" && f.key !== "WHISPER_MODEL_SIZE" && f.key !== "KEEP_TRANSCRIPT_TIMESTAMPS")
+                        .filter((f) => f.key !== "DEEPSEEK_API_KEY" && f.key !== "OLLAMA_MODEL" && f.key !== "OLLAMA_NUM_CTX" && f.key !== "WHISPER_MODEL_SIZE" && f.key !== "KEEP_TRANSCRIPT_TIMESTAMPS")
                         .map((field) => (
                           <div key={field.key} className="config-field">
                             <label className="config-label">{field.label}</label>
@@ -479,6 +482,49 @@ export default function ConfigPanel({ onClose }: Props) {
                             />
                           </div>
                         ))}
+
+                    {/* ── Ollama Model + Context Window (only when provider is ollama) ── */}
+                    {values.LLM_PROVIDER === "ollama" && (
+                      <div className="config-section">
+                        <h3 className="config-section-title">🧠 Model & Context Window</h3>
+
+                        {/* Model selector — fixed options: qwen3.5, deepseekv2 */}
+                        <div className="config-field-row">
+                          <div className="config-field config-field--compact">
+                            <label className="config-label">
+                              Model <span className="config-required">*</span>
+                            </label>
+                            <select
+                              className="config-select"
+                              value={values.OLLAMA_MODEL || "qwen3.5"}
+                              onChange={(e) => handleChange("OLLAMA_MODEL", e.target.value)}
+                              disabled={activeJobs.length > 0}>
+                              <option value="qwen3.5">qwen3.5</option>
+                              <option value="deepseekv2">deepseekv2</option>
+                            </select>
+                          </div>
+
+                          {/* Context window — fixed options: 32K, 64K, 128K */}
+                          <div className="config-field config-field--compact">
+                            <label className="config-label">
+                              Context Window <span className="config-required">*</span>
+                            </label>
+                            <select
+                              className="config-select"
+                              value={values.OLLAMA_NUM_CTX || "32768"}
+                              onChange={(e) => handleChange("OLLAMA_NUM_CTX", e.target.value)}
+                              disabled={activeJobs.length > 0}>
+                              <option value="32768">32K (32,768 tokens)</option>
+                              <option value="65536">64K (65,536 tokens)</option>
+                              <option value="131072">128K (131,072 tokens)</option>
+                            </select>
+                          </div>
+                        </div>
+                        <p className="config-field-hint" style={{ marginTop: 4 }}>
+                          Larger context windows let the LLM process longer transcripts but use more RAM/VRAM.
+                        </p>
+                      </div>
+                    )}
 
                     {/* ── Ollama Model Status — only when provider is ollama ── */}
                     {values.LLM_PROVIDER === "ollama" && (
