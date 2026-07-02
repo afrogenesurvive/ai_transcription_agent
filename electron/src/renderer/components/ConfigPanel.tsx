@@ -124,6 +124,21 @@ export default function ConfigPanel({ onClose }: Props) {
   const [editTerminalTools, setEditTerminalTools] = useState("");
   const [restartNeeded, setRestartNeeded] = useState(false);
 
+  // ── Check active jobs on mount (blocks editing on ALL tabs while running) ──
+  useEffect(() => {
+    setActiveJobsLoading(true);
+    window.electronAPI
+      ?.getActiveJobs()
+      .then((jobs) => {
+        setActiveJobs(jobs || []);
+        setActiveJobsLoading(false);
+      })
+      .catch(() => {
+        setActiveJobs([]);
+        setActiveJobsLoading(false);
+      });
+  }, []);
+
   // ── Load config on open ──
   useEffect(() => {
     setMode("edit");
@@ -157,24 +172,11 @@ export default function ConfigPanel({ onClose }: Props) {
       .catch(() => {});
   }, []);
 
-  // ── Load agent config + check active jobs when switching to agent tab ──
+  // ── Load agent config when switching to agent tab ──
   useEffect(() => {
     if (activeTab !== "agent") return;
     setSaved(false);
     setRestartNeeded(false);
-
-    // Check for active pipeline jobs — if any exist, editing is blocked
-    setActiveJobsLoading(true);
-    window.electronAPI
-      ?.getActiveJobs()
-      .then((jobs) => {
-        setActiveJobs(jobs || []);
-        setActiveJobsLoading(false);
-      })
-      .catch(() => {
-        setActiveJobs([]);
-        setActiveJobsLoading(false);
-      });
 
     if (agentConfig) return; // already loaded config data
 
@@ -310,12 +312,30 @@ export default function ConfigPanel({ onClose }: Props) {
       </div>
 
       <div className="config-body">
+        {/* ── Active jobs guard (all tabs) ── */}
+        {activeJobs.length > 0 && (
+          <div className="config-blocked-banner" style={{ marginBottom: 12 }}>
+            <strong>⛔ Editing blocked</strong> — {activeJobs.length} pipeline job{activeJobs.length > 1 ? "s" : ""} currently running:
+            <ul className="config-blocked-list">
+              {activeJobs.map((j: any) => (
+                <li key={j.job_id}>
+                  &ldquo;{j.title}&rdquo; — {j.status} ({(j.progress * 100).toFixed(0)}%)
+                </li>
+              ))}
+            </ul>
+            <p>
+              Configuration cannot be modified while jobs are in progress. Switch to <strong>👁️ View Current</strong> mode to review, or
+              wait for jobs to complete.
+            </p>
+          </div>
+        )}
+
         {/* ── TAB 1: LLM & Delivery Config ── */}
         {activeTab === "config" && mode === "edit" && (
           <>
             <p className="config-hint">
               Enter your API keys and credentials. Required fields are marked with <span className="config-required">*</span>. Values are stored in
-              your user data directory.
+              your user data directory{activeJobs.length > 0 ? <strong>. Editing disabled while {activeJobs.length} job(s) running</strong> : ""}.
             </p>
 
             {Array.from(sections.entries()).map(([sectionName, fields]) => (
@@ -336,6 +356,7 @@ export default function ConfigPanel({ onClose }: Props) {
                             value="deepseek"
                             checked={values.LLM_PROVIDER === "deepseek"}
                             onChange={() => handleChange("LLM_PROVIDER", "deepseek")}
+                            disabled={activeJobs.length > 0}
                           />
                           <span className="config-radio-label">DeepSeek (API)</span>
                           <span className="config-radio-desc">Cloud API — requires API key</span>
@@ -347,6 +368,7 @@ export default function ConfigPanel({ onClose }: Props) {
                             value="ollama"
                             checked={values.LLM_PROVIDER === "ollama"}
                             onChange={() => handleChange("LLM_PROVIDER", "ollama")}
+                            disabled={activeJobs.length > 0}
                           />
                           <span className="config-radio-label">Ollama (Local)</span>
                           <span className="config-radio-desc">Local LLM — no API key needed</span>
@@ -369,6 +391,7 @@ export default function ConfigPanel({ onClose }: Props) {
                               value={values[field.key] || ""}
                               onChange={(e) => handleChange(field.key, e.target.value)}
                               placeholder="sk-..."
+                              disabled={activeJobs.length > 0}
                             />
                           </div>
                         ))}
@@ -385,6 +408,7 @@ export default function ConfigPanel({ onClose }: Props) {
                               value={values[field.key] || ""}
                               onChange={(e) => handleChange(field.key, e.target.value)}
                               placeholder="Optional"
+                              disabled={activeJobs.length > 0}
                             />
                           </div>
                         ))}
@@ -395,7 +419,8 @@ export default function ConfigPanel({ onClose }: Props) {
                       <select
                         className="config-select"
                         value={values.WHISPER_MODEL_SIZE || "medium"}
-                        onChange={(e) => handleChange("WHISPER_MODEL_SIZE", e.target.value)}>
+                        onChange={(e) => handleChange("WHISPER_MODEL_SIZE", e.target.value)}
+                        disabled={activeJobs.length > 0}>
                         <option value="medium">medium — balanced speed & accuracy</option>
                         <option value="large">large — highest accuracy, slower</option>
                       </select>
@@ -409,6 +434,7 @@ export default function ConfigPanel({ onClose }: Props) {
                           type="checkbox"
                           checked={values.KEEP_TRANSCRIPT_TIMESTAMPS === "true"}
                           onChange={(e) => handleChange("KEEP_TRANSCRIPT_TIMESTAMPS", e.target.checked ? "true" : "false")}
+                          disabled={activeJobs.length > 0} />
                         />
                         <span className="config-toggle-slider" />
                         <span className="config-toggle-label">
@@ -437,6 +463,7 @@ export default function ConfigPanel({ onClose }: Props) {
                           value={values[field.key] || ""}
                           onChange={(e) => handleChange(field.key, e.target.value)}
                           placeholder={field.required ? "Enter your API key..." : "Optional"}
+                          disabled={activeJobs.length > 0}
                         />
                       ) : (
                         <input
@@ -445,6 +472,7 @@ export default function ConfigPanel({ onClose }: Props) {
                           value={values[field.key] || ""}
                           onChange={(e) => handleChange(field.key, e.target.value)}
                           placeholder={field.required ? "Required" : "Optional"}
+                          disabled={activeJobs.length > 0}
                         />
                       )}
                     </div>
@@ -516,24 +544,6 @@ export default function ConfigPanel({ onClose }: Props) {
 
         {activeTab === "agent" && !agentConfigLoading && !agentConfigError && agentConfig && mode === "edit" && (
           <>
-            {/* ── Active jobs guard ── */}
-            {activeJobs.length > 0 && (
-              <div className="config-blocked-banner">
-                <strong>⛔ Editing blocked</strong> — {activeJobs.length} pipeline job{activeJobs.length > 1 ? "s" : ""} currently running:
-                <ul className="config-blocked-list">
-                  {activeJobs.map((j) => (
-                    <li key={j.job_id}>
-                      "{j.title}" — {j.status} ({(j.progress * 100).toFixed(0)}%)
-                    </li>
-                  ))}
-                </ul>
-                <p>
-                  Agent instructions cannot be modified while jobs are in progress. Switch to <strong>👁️ View Current</strong> mode to review, or wait
-                  for jobs to complete then edit.
-                </p>
-              </div>
-            )}
-
             {activeJobsLoading && <p className="config-hint">Checking for active jobs…</p>}
 
             <p className="config-hint">
@@ -690,6 +700,7 @@ export default function ConfigPanel({ onClose }: Props) {
                       <input
                         type="checkbox"
                         checked={isChecked}
+                        disabled={activeJobs.length > 0}
                         onChange={() => {
                           const current =
                             values.LOG_ENABLED_SOURCES === "all"
@@ -717,7 +728,7 @@ export default function ConfigPanel({ onClose }: Props) {
               <p className="config-field-hint">
                 Only log entries at or above this severity will be written to disk. &quot;off&quot; disables all disk logging.
               </p>
-              <select className="config-select" value={values.LOG_LEVEL || "info"} onChange={(e) => handleChange("LOG_LEVEL", e.target.value)}>
+              <select className="config-select" value={values.LOG_LEVEL || "info"} onChange={(e) => handleChange("LOG_LEVEL", e.target.value)} disabled={activeJobs.length > 0}>
                 <option value="debug">debug — everything (most verbose)</option>
                 <option value="info">info — info + warnings + errors (recommended)</option>
                 <option value="warn">warn — warnings + errors only</option>
@@ -739,6 +750,7 @@ export default function ConfigPanel({ onClose }: Props) {
                     max={1000}
                     value={parseInt(values.LOG_MAX_FILE_SIZE_MB) || 0}
                     onChange={(e) => handleChange("LOG_MAX_FILE_SIZE_MB", String(e.target.value))}
+                    disabled={activeJobs.length > 0}
                   />
                   <p className="config-field-hint">0 = no size limit</p>
                 </div>
@@ -751,6 +763,7 @@ export default function ConfigPanel({ onClose }: Props) {
                     max={100}
                     value={parseInt(values.LOG_MAX_FILES) || 0}
                     onChange={(e) => handleChange("LOG_MAX_FILES", String(e.target.value))}
+                    disabled={activeJobs.length > 0}
                   />
                   <p className="config-field-hint">0 = keep all rotations</p>
                 </div>
@@ -864,9 +877,31 @@ export default function ConfigPanel({ onClose }: Props) {
         {saved && restartNeeded && <span className="config-warning">✓ Saved — ⚠️ Restart agent runner to apply changes</span>}
 
         {mode === "edit" && activeTab === "config" && (
-          <button className="config-save-btn" onClick={handleSave} disabled={saving || saved}>
-            {saving ? "Saving…" : saved ? "Saved ✓" : "Save Configuration"}
-          </button>
+          <>
+            {activeJobs.length > 0 ? (
+              <span className="config-footer-hint">
+                ⛔ Cannot save — {activeJobs.length} job{activeJobs.length > 1 ? "s" : ""} running. Wait for completion.
+              </span>
+            ) : (
+              <button className="config-save-btn" onClick={handleSave} disabled={saving || saved}>
+                {saving ? "Saving…" : saved ? "Saved ✓" : "Save Configuration"}
+              </button>
+            )}
+          </>
+        )}
+
+        {mode === "edit" && activeTab === "logging" && (
+          <>
+            {activeJobs.length > 0 ? (
+              <span className="config-footer-hint">
+                ⛔ Cannot save — {activeJobs.length} job{activeJobs.length > 1 ? "s" : ""} running. Wait for completion.
+              </span>
+            ) : (
+              <button className="config-save-btn" onClick={handleSave} disabled={saving || saved}>
+                {saving ? "Saving…" : saved ? "Saved ✓" : "Save Configuration"}
+              </button>
+            )}
+          </>
         )}
 
         {mode === "edit" && activeTab === "agent" && (

@@ -101,6 +101,23 @@ export interface ElectronAPI {
     electron: Array<{ type: string; pid: number; cpu: number | null; memory: number | null; peakMemory: number | null }>;
     children: Array<{ service: string; pid: number; cpu: number; memory: number; elapsed: number }>;
   }>;
+  // ── Auto-Update ──
+  getUpdateStatus: () => Promise<{
+    mode: "dev" | "packaged";
+    enabled: boolean;
+    lastCheck: string | null;
+    lastUpdate: string | null;
+    updateAvailable: string | null;
+    checking: boolean;
+    currentVersion: string;
+    error: string | null;
+    downloadProgress: number | null;
+    updateDownloaded: boolean;
+  }>;
+  checkForUpdates: () => Promise<{ updateAvailable: boolean; details: string | null; error: string | null }>;
+  setAutoUpdateEnabled: (enabled: boolean) => Promise<{ success: boolean }>;
+  downloadUpdate: () => Promise<{ success: boolean; error: string | null }>;
+  installUpdate: () => Promise<{ success: boolean }>;
   platform: string;
 }
 

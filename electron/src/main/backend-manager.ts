@@ -67,8 +67,17 @@ async function killProcess(proc: ChildProcess): Promise<void> {
     }
   } else {
     proc.kill("SIGTERM");
+    // Give the process 2 seconds to exit gracefully, then force-kill
+    await new Promise((r) => setTimeout(r, 2000));
+    try {
+      // Check if still alive — SIGKILL if so
+      process.kill(proc.pid, 0);
+      proc.kill("SIGKILL");
+      console.log(`[backend] Force-killed PID ${proc.pid} with SIGKILL (graceful shutdown timed out)`);
+    } catch {
+      // Process already exited — good
+    }
   }
-  await new Promise((r) => setTimeout(r, 1000));
 }
 
 /** Resolve the Python binary path, preferring the project venv. */

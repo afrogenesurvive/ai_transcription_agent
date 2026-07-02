@@ -17,7 +17,7 @@ interface Props {
   onClose: () => void;
 }
 
-type Tab = "live" | "files" | "database" | "performance";
+type Tab = "live" | "files" | "database" | "performance" | "updates";
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
@@ -548,11 +548,19 @@ const POLL_OPTIONS = [
 
 const MAX_HISTORY = 30;
 
+/**
+ * Module-level shared history buffer — persists across component remounts
+ * so switching sidebar views and back preserves the trend data.
+ */
+let sharedHistory: MetricSnapshot[] = [];
+let sharedLoading = true;
+
 function PerformanceTab() {
   const [rows, setRows] = useState<MetricRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(sharedLoading);
   const [pollIntervalMs, setPollIntervalMs] = useState(10000);
-  const [history, setHistory] = useState<MetricSnapshot[]>([]);
+  // Restore history from module-level buffer so trend survives remount
+  const [history, setHistory] = useState<MetricSnapshot[]>(sharedHistory);
 
   // Core polling logic
   useEffect(() => {
@@ -584,8 +592,9 @@ function PerformanceTab() {
         if (!cancelled) {
           setRows(merged);
           setLoading(false);
+          sharedLoading = false;
 
-          // Append to rolling history buffer
+          // Append to rolling history buffer (both state and module-level)
           const snap: MetricSnapshot = {
             timestamp: Date.now(),
             byKey: {},
@@ -596,7 +605,9 @@ function PerformanceTab() {
           }
           setHistory((prev) => {
             const next = [...prev, snap];
-            return next.length > MAX_HISTORY ? next.slice(next.length - MAX_HISTORY) : next;
+            const trimmed = next.length > MAX_HISTORY ? next.slice(next.length - MAX_HISTORY) : next;
+            sharedHistory = trimmed; // sync module-level for remount survival
+            return trimmed;
           });
         }
       } catch {
@@ -632,8 +643,26 @@ function PerformanceTab() {
         peakMemoryBytes: null,
         elapsedSec: m.elapsed,
       }));
-      setRows([...children, ...electron]);
+      const merged = [...children, ...electron];
+      setRows(merged);
       setLoading(false);
+      sharedLoading = false;
+
+      // Also append manual refresh to history
+      const snap: MetricSnapshot = {
+        timestamp: Date.now(),
+        byKey: {},
+      };
+      for (const r of merged) {
+        const key = `${r.label}::${r.pid}`;
+        snap.byKey[key] = { cpu: r.cpu, memoryBytes: r.memoryBytes };
+      }
+      setHistory((prev) => {
+        const next = [...prev, snap];
+        const trimmed = next.length > MAX_HISTORY ? next.slice(next.length - MAX_HISTORY) : next;
+        sharedHistory = trimmed;
+        return trimmed;
+      });
     });
   };
 
@@ -743,6 +772,180 @@ function PerformanceTab() {
   );
 }
 
+/* ── Updates Tab ── */
+
+function UpdatesTab() {
+  const [status, setStatus] = useState<any>(null);
+  const [working, setWorking] = useState(false);
+
+  const refresh = useCallback(async () => {
+    const s = await window.electronAPI?.getUpdateStatus();
+    setStatus(s);
+  }, []);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const handleCheck = useCallback(async () => {
+    setWorking(true);
+    await window.electronAPI?.checkForUpdates();
+    // Poll status until check completes
+    const poll = setInterval(async () => {
+      const s = await window.electronAPI?.getUpdateStatus();
+      setStatus(s);
+      if (!s?.checking) {
+        clearInterval(poll);
+        setWorking(false);
+      }
+    }, 1000);
+  }, []);
+
+  const handleDownload = useCallback(async () => {
+    setWorking(true);
+    await window.electronAPI?.downloadUpdate();
+    const poll = setInterval(async () => {
+      const s = await window.electronAPI?.getUpdateStatus();
+      setStatus(s);
+      if (s?.updateDownloaded || s?.error) {
+        clearInterval(poll);
+        setWorking(false);
+      }
+    }, 1000);
+  }, []);
+
+  const handleInstall = useCallback(async () => {
+    await window.electronAPI?.installUpdate();
+  }, []);
+
+  if (!status) {
+    return (
+      <div className="dev-panel-empty" style={{ padding: 24 }}>
+        Loading...
+      </div>
+    );
+  }
+
+  const modeLabel = status.mode === "packaged" ? "📦 Packaged App" : "🛠️ Development (git)";
+  const statusIcon = status.checking ? "🔄" : status.updateDownloaded ? "✅" : status.updateAvailable ? "⬇️" : "✓";
+  const versionLabel = status.mode === "packaged" ? `v${status.currentVersion}` : `branch: ${status.currentVersion}`;
+
+  return (
+    <div className="dev-panel-updates">
+      {/* Header card */}
+      <div className="config-section">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <h3 style={{ margin: 0 }}>🔄 Auto-Update</h3>
+          <span style={{ fontSize: 12, opacity: 0.7 }}>{modeLabel}</span>
+        </div>
+
+        <div className="config-field">
+          <label className="config-label">Version</label>
+          <div className="config-value-text">{versionLabel}</div>
+        </div>
+
+        <div className="config-field">
+          <label className="config-label">Status</label>
+          <div className="config-value-text">
+            {statusIcon} {status.checking ? "Checking for updates..." : ""}
+            {!status.checking && status.updateDownloaded ? "Update downloaded — ready to install" : ""}
+            {!status.checking && !status.updateDownloaded && status.updateAvailable ? `Update available: ${status.updateAvailable}` : ""}
+            {!status.checking && !status.updateDownloaded && !status.updateAvailable && !status.error ? "Up to date" : ""}
+            {status.error ? `Error: ${status.error}` : ""}
+          </div>
+        </div>
+
+        {status.lastCheck && (
+          <div className="config-field">
+            <label className="config-label">Last Check</label>
+            <div className="config-value-text">{new Date(status.lastCheck).toLocaleString()}</div>
+          </div>
+        )}
+
+        {status.lastUpdate && (
+          <div className="config-field">
+            <label className="config-label">Last Update</label>
+            <div className="config-value-text">{new Date(status.lastUpdate).toLocaleString()}</div>
+          </div>
+        )}
+
+        {status.downloadProgress !== null && (
+          <div className="config-field">
+            <label className="config-label">Download</label>
+            <div className="config-value-text">
+              <progress value={status.downloadProgress} max={100} style={{ width: 200, marginRight: 8 }} />
+              {status.downloadProgress}%
+            </div>
+          </div>
+        )}
+
+        {/* Actions */}
+        <div style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
+          <button className="btn-primary" onClick={handleCheck} disabled={working || status.checking}>
+            {working && status.checking ? "Checking..." : "🔍 Check for Updates"}
+          </button>
+
+          {status.mode === "packaged" && status.updateAvailable && !status.updateDownloaded && (
+            <button className="btn-primary" onClick={handleDownload} disabled={working}>
+              {working ? "Downloading..." : "⬇️ Download Update"}
+            </button>
+          )}
+
+          {status.updateDownloaded && (
+            <button className="btn-primary" onClick={handleInstall} style={{ background: "#2ea043" }}>
+              🔄 Restart &amp; Install
+            </button>
+          )}
+
+          <label style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto", cursor: "pointer", fontSize: 13 }}>
+            <input
+              type="checkbox"
+              checked={status.enabled}
+              disabled={working}
+              onChange={async (e) => {
+                await window.electronAPI?.setAutoUpdateEnabled(e.target.checked);
+                refresh();
+              }}
+            />
+            Auto-check periodically
+          </label>
+        </div>
+
+        {status.error && (
+          <div className="error-box" style={{ marginTop: 12 }}>
+            {status.error}
+          </div>
+        )}
+      </div>
+
+      {/* Info box */}
+      <div className="config-section" style={{ marginTop: 16 }}>
+        <h4 style={{ margin: "0 0 8px" }}>How it works</h4>
+        {status.mode === "dev" ? (
+          <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, lineHeight: 1.6 }}>
+            <li>Checks the Git repository every 12 hours for new commits</li>
+            <li>On finding updates: pulls, installs deps, rebuilds, and restarts</li>
+            <li>Only works in development mode (source code + git required)</li>
+          </ul>
+        ) : (
+          <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, lineHeight: 1.6 }}>
+            <li>Checks GitHub Releases every hour for new versions</li>
+            <li>
+              Click <strong>Download Update</strong> to download the new version
+            </li>
+            <li>
+              Click <strong>Restart &amp; Install</strong> to apply the update
+            </li>
+            <li>
+              Update source is configured in <code>electron/package.json → build.publish</code>
+            </li>
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ── DevPanel ── */
 
 export default function DevPanel({ onClose }: Props) {
@@ -764,6 +967,9 @@ export default function DevPanel({ onClose }: Props) {
         <button className={`dev-panel-tab ${activeTab === "performance" ? "dev-panel-tab--active" : ""}`} onClick={() => setActiveTab("performance")}>
           ⚡ Performance
         </button>
+        <button className={`dev-panel-tab ${activeTab === "updates" ? "dev-panel-tab--active" : ""}`} onClick={() => setActiveTab("updates")}>
+          🔄 Updates
+        </button>
         <div className="dev-panel-tabs-spacer" />
         <button className="dev-panel-btn dev-panel-btn-close" onClick={onClose} title="Close dev panel">
           ✕
@@ -775,6 +981,7 @@ export default function DevPanel({ onClose }: Props) {
       {activeTab === "files" && <LogFilesTab />}
       {activeTab === "database" && <DatabaseTab />}
       {activeTab === "performance" && <PerformanceTab />}
+      {activeTab === "updates" && <UpdatesTab />}
     </div>
   );
 }

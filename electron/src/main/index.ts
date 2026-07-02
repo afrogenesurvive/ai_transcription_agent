@@ -46,6 +46,7 @@ import {
   getMirrorDir,
 } from "./logger";
 import { getConfig, saveConfig, checkConfig, getConfigWithSources } from "./config";
+import { startAutoUpdater, stopAutoUpdater, registerAutoUpdateIpc, getUpdateState, checkAndUpdate } from "./auto-updater";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -102,6 +103,22 @@ function createTray() {
       click: () => {
         mainWindow?.show();
         mainWindow?.focus();
+      },
+    },
+    { type: "separator" },
+    {
+      label: "Check for Updates",
+      click: async () => {
+        const result = await checkAndUpdate(true);
+        const state = getUpdateState();
+        const version = state.currentVersion || "unknown";
+        if (result.updateAvailable && !result.error) {
+          new Notification({ title: "Updating", body: `Update found: ${result.details} on ${version}. Restarting...` }).show();
+        } else if (!result.updateAvailable && !result.error) {
+          new Notification({ title: "Up to Date", body: `Already up to date on ${version}.` }).show();
+        } else {
+          new Notification({ title: "Update Check Failed", body: result.error || "Unknown error" }).show();
+        }
       },
     },
     { type: "separator" },
@@ -370,6 +387,10 @@ ipcMain.handle("storage:usage", async () => {
   }
 });
 
+// ── Auto-Update IPC ──
+
+registerAutoUpdateIpc();
+
 // ── Performance Metrics IPC ──
 
 ipcMain.handle("metrics:getAll", async () => {
@@ -529,12 +550,9 @@ app.whenReady().then(async () => {
     addLog("main", "error", msg);
     dialog.showErrorBox("Backend Error", "Could not start the transcription backend. Make sure Python 3 and Node.js are installed.");
   }
-});
 
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
+  // Start auto-updater (checks for repo updates every 12 hours)
+  startAutoUpdater();
 });
 
 app.on("before-quit", (event) => {
@@ -560,6 +578,7 @@ app.on("before-quit", (event) => {
   tray = null;
   unsubscribeLogs();
   stopHealthMonitoring();
+  stopAutoUpdater();
   stopAll();
   // Kill any leftover processes on our ports (safety net)
   killProcessOnPort(5001);

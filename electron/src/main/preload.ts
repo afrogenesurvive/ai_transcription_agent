@@ -78,6 +78,24 @@ contextBridge.exposeInMainWorld("electronAPI", {
     children: Array<{ service: string; pid: number; cpu: number; memory: number; elapsed: number }>;
   }> => ipcRenderer.invoke("metrics:getAll"),
 
+  // ── Auto-Update ──
+  getUpdateStatus: (): Promise<{
+    mode: string;
+    enabled: boolean;
+    lastCheck: string | null;
+    lastUpdate: string | null;
+    updateAvailable: string | null;
+    checking: boolean;
+    currentVersion: string;
+    error: string | null;
+    downloadProgress: number | null;
+    updateDownloaded: boolean;
+  }> => ipcRenderer.invoke("auto-update:status"),
+  checkForUpdates: (): Promise<{ updateAvailable: boolean; details: string | null; error: string | null }> => ipcRenderer.invoke("auto-update:check"),
+  setAutoUpdateEnabled: (enabled: boolean): Promise<{ success: boolean }> => ipcRenderer.invoke("auto-update:setEnabled", enabled),
+  downloadUpdate: (): Promise<{ success: boolean; error: string | null }> => ipcRenderer.invoke("auto-update:download"),
+  installUpdate: (): Promise<{ success: boolean }> => ipcRenderer.invoke("auto-update:install"),
+
   // ── Platform ──
   platform: process.platform,
 });
