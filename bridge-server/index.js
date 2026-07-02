@@ -118,6 +118,7 @@ async function dispatch(tool, args) {
         job_id: args.jobId,
         transcript: args.transcript || [],
         rules: args.rules || [],
+        keep_timestamps: args.keepTimestamps ?? process.env.KEEP_TRANSCRIPT_TIMESTAMPS === "true",
       });
 
     case "transcribe_analyze":

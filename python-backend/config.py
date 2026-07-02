@@ -54,5 +54,8 @@ class Config:
     # Hugging Face auth (required for gated models like pyannote/speaker-diarization-3.1)
     HUGGING_FACE_TOKEN = os.getenv("HUGGING_FACE_TOKEN") or os.getenv("HF_TOKEN") or None
 
+    # Transcript refinement options
+    KEEP_TRANSCRIPT_TIMESTAMPS = os.getenv("KEEP_TRANSCRIPT_TIMESTAMPS", "false").lower() in ("true", "1", "yes")
+
 
 config = Config()

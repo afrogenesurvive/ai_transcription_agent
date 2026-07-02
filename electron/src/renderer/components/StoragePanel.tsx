@@ -226,6 +226,23 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
                         </>
                       )}
                     </div>
+                    {/* File path display */}
+                    {data[c.key]?.path && (
+                      <div
+                        style={{
+                          color: "var(--text-muted)",
+                          fontSize: 11,
+                          marginTop: 4,
+                          fontFamily: '"SF Mono", "Fira Code", "Cascadia Code", monospace',
+                          opacity: 0.7,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                        title={data[c.key].path ?? undefined}>
+                        📁 {data[c.key].path}
+                      </div>
+                    )}
                   </div>
                   {/* Size + percentage */}
                   <div style={{ textAlign: "right", flexShrink: 0 }}>

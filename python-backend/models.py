@@ -66,6 +66,7 @@ class RefineRequest(BaseModel):
     job_id: str
     transcript: List[TranscriptionSegment]
     rules: List[str] = Field(default_factory=list)
+    keep_timestamps: bool = False
 
 
 class SummarizeRequest(BaseModel):

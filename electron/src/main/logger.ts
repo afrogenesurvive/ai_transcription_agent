@@ -21,12 +21,69 @@ export interface LogEntry {
   message: string;
 }
 
+export interface LogFilter {
+  enabledSources: Set<"python" | "bridge" | "agent" | "main">;
+  minLevel: "debug" | "info" | "warn" | "error" | "off";
+  maxFileSizeBytes: number;
+  maxFiles: number;
+}
+
 const MAX_ENTRIES = 2000;
 const buffer: LogEntry[] = [];
 let subscribers: Array<(entry: LogEntry) => void> = [];
 let logDir: string | null = null;
 let currentLogDate: string | null = null;
 let writeStream: fs.WriteStream | null = null;
+let currentFilePath: string | null = null;
+
+// Default filter — write everything
+let logFilter: LogFilter = {
+  enabledSources: new Set(["python", "bridge", "agent", "main"]),
+  minLevel: "debug",
+  maxFileSizeBytes: 0,
+  maxFiles: 0,
+};
+
+const LEVEL_RANK: Record<string, number> = { debug: 0, info: 1, warn: 2, error: 3 };
+
+function shouldWriteToDisk(source: LogEntry["source"], level: LogEntry["level"]): boolean {
+  if (logFilter.minLevel === "off") return false;
+  if (!logFilter.enabledSources.has(source)) return false;
+  const entryRank = LEVEL_RANK[level] ?? 0;
+  const minRank = LEVEL_RANK[logFilter.minLevel] ?? 0;
+  return entryRank >= minRank;
+}
+
+/**
+ * Configure the log filter for disk writes.
+ * Call this after app config is loaded, and again whenever config changes.
+ * In-memory ring buffer is NEVER filtered — only disk writes are affected.
+ */
+export function configureLogFilter(filter: { enabledSources?: string; minLevel?: string; maxFileSizeMb?: string; maxFiles?: string }): void {
+  if (filter.enabledSources !== undefined) {
+    const sources =
+      filter.enabledSources === "all"
+        ? ["python", "bridge", "agent", "main"]
+        : filter.enabledSources
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+    logFilter.enabledSources = new Set(sources as ("python" | "bridge" | "agent" | "main")[]);
+  }
+  if (filter.minLevel !== undefined) {
+    const valid = ["debug", "info", "warn", "error", "off"];
+    if (valid.includes(filter.minLevel)) {
+      logFilter.minLevel = filter.minLevel as LogFilter["minLevel"];
+    }
+  }
+  if (filter.maxFileSizeMb !== undefined) {
+    const mb = parseInt(filter.maxFileSizeMb, 10);
+    logFilter.maxFileSizeBytes = mb > 0 ? mb * 1024 * 1024 : 0;
+  }
+  if (filter.maxFiles !== undefined) {
+    logFilter.maxFiles = parseInt(filter.maxFiles, 10) || 0;
+  }
+}
 
 function getDateStr(): string {
   const d = new Date();
@@ -42,12 +99,62 @@ function rotateFile(): void {
     writeStream = null;
   }
   currentLogDate = dateStr;
+  currentFilePath = null;
   if (!logDir) return;
   const filePath = path.join(logDir, `app-${dateStr}.log`);
   try {
     writeStream = fs.createWriteStream(filePath, { flags: "a" });
+    currentFilePath = filePath;
   } catch {
     // Can't write to log file — non-fatal
+  }
+}
+
+/**
+ * Check if the current log file has exceeded the max size.
+ * If so, rotate by renaming to .1 / .2 / .N and open a fresh file.
+ */
+function checkSizeRotation(): void {
+  if (!logFilter.maxFileSizeBytes || !currentFilePath || !writeStream) return;
+  try {
+    const stat = fs.statSync(currentFilePath);
+    if (stat.size < logFilter.maxFileSizeBytes) return;
+
+    // Close current stream
+    writeStream.end();
+    writeStream = null;
+
+    // Find next available rotation index
+    let idx = 1;
+    while (fs.existsSync(`${currentFilePath}.${idx}`)) idx++;
+
+    // Rename current → current.N
+    fs.renameSync(currentFilePath, `${currentFilePath}.${idx}`);
+
+    // Prune old rotations beyond maxFiles
+    if (logFilter.maxFiles > 0) {
+      const dateStr = getDateStr();
+      const pattern = `app-${dateStr}.log.`;
+      const files = fs
+        .readdirSync(logDir!)
+        .filter((f) => f.startsWith(pattern))
+        .map((f) => ({ name: f, num: parseInt(f.slice(pattern.length), 10) }))
+        .filter((f) => !isNaN(f.num))
+        .sort((a, b) => b.num - a.num);
+
+      for (const file of files.slice(logFilter.maxFiles - 1)) {
+        try {
+          fs.unlinkSync(path.join(logDir!, file.name));
+        } catch {
+          /* non-fatal */
+        }
+      }
+    }
+
+    // Reopen fresh file
+    writeStream = fs.createWriteStream(currentFilePath, { flags: "a" });
+  } catch {
+    // non-fatal
   }
 }
 
@@ -131,6 +238,7 @@ let _mirrorDir: string | null = null;
 
 function writeToFile(message: string): void {
   rotateFile();
+  checkSizeRotation();
   if (writeStream) {
     try {
       writeStream.write(message + "\n");
@@ -158,9 +266,11 @@ export function addLog(source: LogEntry["source"], level: LogEntry["level"], mes
   buffer.push(entry);
   if (buffer.length > MAX_ENTRIES) buffer.shift();
 
-  // Write to log file
-  const timeStr = new Date(timestamp).toISOString();
-  writeToFile(`[${timeStr}] [${source}] [${level}] ${message}`);
+  // Write to log file (filtered by config — in-memory buffer is NEVER filtered)
+  if (shouldWriteToDisk(source, level)) {
+    const timeStr = new Date(timestamp).toISOString();
+    writeToFile(`[${timeStr}] [${source}] [${level}] ${message}`);
+  }
 
   // Notify subscribers synchronously
   for (const fn of subscribers) fn(entry);

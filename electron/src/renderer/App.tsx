@@ -374,6 +374,17 @@ export default function App() {
                       />
                     )}
 
+                    {/* Clear button when job is done or failed — moves job to history */}
+                    {view === "results" &&
+                      statusData &&
+                      (statusData.status === "failed" || ["delivered", "refined", "summarized", "analyzed"].includes(statusData.status)) && (
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button className="btn-secondary" onClick={handleNew} style={{ flex: 1, marginTop: 0 }}>
+                            ✕ Clear &amp; Close
+                          </button>
+                        </div>
+                      )}
+
                     {view === "results" && statusHook.state === "error" && !statusData && (
                       <div className="panel actions-panel">
                         <h2>❌ Processing Failed</h2>
@@ -382,6 +393,9 @@ export default function App() {
                         </p>
                         <button className="btn-primary" onClick={handleNew}>
                           Try Again
+                        </button>
+                        <button className="btn-secondary" onClick={handleNew} style={{ marginTop: 8 }}>
+                          Clear &amp; Close
                         </button>
                       </div>
                     )}
@@ -393,7 +407,13 @@ export default function App() {
                           <button className="btn-primary" onClick={handleNew}>
                             Upload Another Meeting
                           </button>
+                          <button className="btn-secondary" onClick={handleNew}>
+                            Clear &amp; Close
+                          </button>
                         </div>
+                        <p className="config-hint" style={{ marginTop: 10, marginBottom: 0 }}>
+                          The job is saved to history and can be reopened anytime from the <strong>📋 History</strong> panel.
+                        </p>
                       </div>
                     )}
                   </>

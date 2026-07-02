@@ -477,6 +477,15 @@ interface MetricRow {
   pid: number | null;
   cpu: number | null;
   memoryBytes: number | null;
+  peakMemoryBytes: number | null;
+  elapsedSec: number | null;
+}
+
+/** A single point in the rolling history buffer */
+interface MetricSnapshot {
+  timestamp: number;
+  /** Keyed by "${label}::${pid}" */
+  byKey: Record<string, { cpu: number | null; memoryBytes: number | null }>;
 }
 
 function formatMem(bytes: number | null): string {
@@ -490,20 +499,62 @@ function formatCpu(val: number | null): string {
   return `${val.toFixed(1)}%`;
 }
 
+function formatElapsed(sec: number | null): string {
+  if (!sec) return "—";
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+/** Inline SVG sparkline — renders a tiny line chart */
+const SPARK_W = 80;
+const SPARK_H = 24;
+const SPARK_PAD = 2;
+
+function Sparkline({ data, color }: { data: (number | null)[]; color: string }) {
+  const valid = data.filter((v): v is number => v !== null && v !== undefined);
+  if (valid.length < 2) return <span style={{ color: "var(--text-muted)", fontSize: 10, width: SPARK_W, display: "inline-block" }}>—</span>;
+
+  const min = Math.min(...valid);
+  const max = Math.max(...valid);
+  const range = max - min || 1;
+  const w = SPARK_W - SPARK_PAD * 2;
+  const h = SPARK_H - SPARK_PAD * 2;
+
+  const points = valid
+    .map((v, i) => {
+      const x = SPARK_PAD + (i / (valid.length - 1)) * w;
+      const y = SPARK_PAD + h - ((v - min) / range) * h;
+      return `${x},${y}`;
+    })
+    .join(" ");
+
+  return (
+    <svg width={SPARK_W} height={SPARK_H} style={{ verticalAlign: "middle" }}>
+      <polyline points={points} fill="none" stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+const POLL_OPTIONS = [
+  { label: "2s", value: 2000 },
+  { label: "5s", value: 5000 },
+  { label: "10s", value: 10000 },
+  { label: "30s", value: 30000 },
+];
+
+const MAX_HISTORY = 30;
+
 function PerformanceTab() {
-  const [electronRows, setElectronRows] = useState<MetricRow[]>([]);
-  const [childRows, setChildRows] = useState<MetricRow[]>([]);
+  const [rows, setRows] = useState<MetricRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [pollIntervalMs, setPollIntervalMs] = useState(10000);
+  const [history, setHistory] = useState<MetricSnapshot[]>([]);
 
-  // Read polling interval from config on mount
-  useEffect(() => {
-    window.electronAPI?.getConfig().then((cfg) => {
-      const val = parseInt(cfg.PERF_METRICS_POLL_INTERVAL || "10000", 10);
-      if (val > 0) setPollIntervalMs(val);
-    });
-  }, []);
-
+  // Core polling logic
   useEffect(() => {
     let cancelled = false;
     const poll = async () => {
@@ -516,18 +567,37 @@ function PerformanceTab() {
           pid: m.pid,
           cpu: m.cpu,
           memoryBytes: m.memory,
+          peakMemoryBytes: m.peakMemory,
+          elapsedSec: null,
         }));
         const children: MetricRow[] = (data.children || []).map((m) => ({
           label: m.service.charAt(0).toUpperCase() + m.service.slice(1),
           pid: m.pid,
           cpu: m.cpu,
           memoryBytes: m.memory,
+          peakMemoryBytes: null,
+          elapsedSec: m.elapsed,
         }));
 
+        const merged = [...children, ...electron];
+
         if (!cancelled) {
-          setElectronRows(electron);
-          setChildRows(children);
+          setRows(merged);
           setLoading(false);
+
+          // Append to rolling history buffer
+          const snap: MetricSnapshot = {
+            timestamp: Date.now(),
+            byKey: {},
+          };
+          for (const r of merged) {
+            const key = `${r.label}::${r.pid}`;
+            snap.byKey[key] = { cpu: r.cpu, memoryBytes: r.memoryBytes };
+          }
+          setHistory((prev) => {
+            const next = [...prev, snap];
+            return next.length > MAX_HISTORY ? next.slice(next.length - MAX_HISTORY) : next;
+          });
         }
       } catch {
         // backend not reachable
@@ -542,41 +612,55 @@ function PerformanceTab() {
     };
   }, [pollIntervalMs]);
 
-  const allRows = [...childRows, ...electronRows];
+  const handleRefresh = () => {
+    setLoading(true);
+    window.electronAPI?.getPerformanceMetrics().then((data) => {
+      if (!data) return;
+      const electron: MetricRow[] = (data.electron || []).map((m) => ({
+        label: m.type === "Browser" ? "Main / Renderer" : m.type,
+        pid: m.pid,
+        cpu: m.cpu,
+        memoryBytes: m.memory,
+        peakMemoryBytes: m.peakMemory,
+        elapsedSec: null,
+      }));
+      const children: MetricRow[] = (data.children || []).map((m) => ({
+        label: m.service.charAt(0).toUpperCase() + m.service.slice(1),
+        pid: m.pid,
+        cpu: m.cpu,
+        memoryBytes: m.memory,
+        peakMemoryBytes: null,
+        elapsedSec: m.elapsed,
+      }));
+      setRows([...children, ...electron]);
+      setLoading(false);
+    });
+  };
+
   const intervalSec = (pollIntervalMs / 1000).toFixed(0);
 
   return (
     <>
       <div className="dev-panel-toolbar">
-        <span className="dev-panel-title">⚡ Performance</span>
-        <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Auto-refreshes every {intervalSec}s</span>
+        <span className="dev-panel-title">⚡ Live Monitoring</span>
+        <div className="dev-panel-filters">
+          <select
+            className="dev-panel-select"
+            value={pollIntervalMs}
+            onChange={(e) => setPollIntervalMs(Number(e.target.value))}
+            title="Polling interval">
+            {POLL_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                Every {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <span style={{ color: "var(--text-muted)", fontSize: 11 }}>
+          {history.length}/{MAX_HISTORY} samples
+        </span>
         <div className="dev-panel-actions">
-          <button
-            className="dev-panel-btn"
-            onClick={() => {
-              setLoading(true);
-              window.electronAPI?.getPerformanceMetrics().then((data) => {
-                if (!data) return;
-                setElectronRows(
-                  (data.electron || []).map((m) => ({
-                    label: m.type === "Browser" ? "Main / Renderer" : m.type,
-                    pid: m.pid,
-                    cpu: m.cpu,
-                    memoryBytes: m.memory,
-                  })),
-                );
-                setChildRows(
-                  (data.children || []).map((m) => ({
-                    label: m.service.charAt(0).toUpperCase() + m.service.slice(1),
-                    pid: m.pid,
-                    cpu: m.cpu,
-                    memoryBytes: m.memory,
-                  })),
-                );
-                setLoading(false);
-              });
-            }}
-            title="Refresh now">
+          <button className="dev-panel-btn" onClick={handleRefresh} title="Refresh now">
             ↻ Refresh
           </button>
         </div>
@@ -585,46 +669,70 @@ function PerformanceTab() {
       <div className="dev-panel-list">
         {loading && <div className="dev-panel-empty">Fetching metrics...</div>}
 
-        {!loading && allRows.length === 0 && <div className="dev-panel-empty">No process metrics available. Make sure services are running.</div>}
+        {!loading && rows.length === 0 && <div className="dev-panel-empty">No process metrics available. Make sure services are running.</div>}
 
-        {!loading && allRows.length > 0 && (
-          <table className="dev-panel-metrics-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        {!loading && rows.length > 0 && (
+          <table className="dev-panel-metrics-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
-              <tr style={{ borderBottom: "1px solid var(--border)", color: "var(--text-muted)" }}>
-                <th style={{ padding: "6px 12px", textAlign: "left" }}>Service</th>
-                <th style={{ padding: "6px 12px", textAlign: "right" }}>PID</th>
-                <th style={{ padding: "6px 12px", textAlign: "right" }}>CPU</th>
-                <th style={{ padding: "6px 12px", textAlign: "right" }}>Memory</th>
+              <tr style={{ borderBottom: "1px solid var(--border)", color: "var(--text-muted)", fontSize: 10 }}>
+                <th style={{ padding: "4px 8px", textAlign: "left" }}>Process</th>
+                <th style={{ padding: "4px 8px", textAlign: "right" }}>PID</th>
+                <th style={{ padding: "4px 8px", textAlign: "right" }}>CPU</th>
+                <th style={{ padding: "4px 8px", textAlign: "left" }}>CPU Trend</th>
+                <th style={{ padding: "4px 8px", textAlign: "right" }}>Memory</th>
+                <th style={{ padding: "4px 8px", textAlign: "right" }}>Peak</th>
+                <th style={{ padding: "4px 8px", textAlign: "left" }}>Mem Trend</th>
+                <th style={{ padding: "4px 8px", textAlign: "right" }}>Runtime</th>
               </tr>
             </thead>
             <tbody>
-              {allRows.map((r) => (
-                <tr key={`${r.label}-${r.pid}`} style={{ borderBottom: "1px solid var(--border)" }}>
-                  <td style={{ padding: "8px 12px" }}>
-                    <span
-                      style={{
-                        display: "inline-block",
-                        width: 8,
-                        height: 8,
-                        borderRadius: "50%",
-                        marginRight: 8,
-                        backgroundColor: r.cpu !== null && r.cpu > 50 ? "#f85149" : r.cpu !== null && r.cpu > 20 ? "#d29922" : "#3fb950",
-                      }}
-                    />
-                    {r.label}
-                  </td>
-                  <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "monospace", color: "var(--text-muted)" }}>{r.pid ?? "—"}</td>
-                  <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "monospace" }}>{formatCpu(r.cpu)}</td>
-                  <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: "monospace" }}>{formatMem(r.memoryBytes)}</td>
-                </tr>
-              ))}
+              {rows.map((r) => {
+                const key = `${r.label}::${r.pid}`;
+                const cpuHistory = history.map((s) => s.byKey[key]?.cpu ?? null);
+                const memHistory = history.map((s) => s.byKey[key]?.memoryBytes ?? null);
+                const cpuColor = r.cpu !== null ? (r.cpu > 50 ? "#f85149" : r.cpu > 20 ? "#d29922" : "#3fb950") : "#8b949e";
+                return (
+                  <tr key={key} style={{ borderBottom: "1px solid var(--border)" }}>
+                    <td style={{ padding: "6px 8px" }}>
+                      <span
+                        style={{
+                          display: "inline-block",
+                          width: 7,
+                          height: 7,
+                          borderRadius: "50%",
+                          marginRight: 6,
+                          backgroundColor: cpuColor,
+                        }}
+                      />
+                      {r.label}
+                    </td>
+                    <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: "monospace", color: "var(--text-muted)" }}>{r.pid ?? "—"}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: "monospace", color: cpuColor }}>{formatCpu(r.cpu)}</td>
+                    <td style={{ padding: "2px 8px", textAlign: "left" }}>
+                      <Sparkline data={cpuHistory} color={cpuColor} />
+                    </td>
+                    <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: "monospace" }}>{formatMem(r.memoryBytes)}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: "monospace", color: "var(--text-muted)" }}>
+                      {r.peakMemoryBytes ? formatMem(r.peakMemoryBytes) : "—"}
+                    </td>
+                    <td style={{ padding: "2px 8px", textAlign: "left" }}>
+                      <Sparkline data={memHistory} color="#58a6ff" />
+                    </td>
+                    <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: "monospace", color: "var(--text-muted)" }}>
+                      {formatElapsed(r.elapsedSec)}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
       </div>
 
       <div className="dev-panel-footer">
-        <span>{allRows.length} process(es)</span>
+        <span>
+          {rows.length} process(es) · polled {history.length}x
+        </span>
         <span>
           <span style={{ color: "#3fb950" }}>●</span> &lt;20% &nbsp;
           <span style={{ color: "#d29922" }}>●</span> 20–50% &nbsp;

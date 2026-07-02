@@ -63,11 +63,11 @@ export interface ConfigValueSource {
 }
 
 export interface StorageUsage {
-  logs: { bytes: number; human: string };
-  history: { bytes: number; human: string; job_count: number };
-  chroma: { bytes: number; human: string };
-  databases: { bytes: number; human: string };
-  system: { bytes: number; human: string };
+  logs: { bytes: number; human: string; path?: string | null };
+  history: { bytes: number; human: string; job_count: number; path?: string | null };
+  chroma: { bytes: number; human: string; path?: string | null };
+  databases: { bytes: number; human: string; path?: string | null };
+  system: { bytes: number; human: string; path?: string | null };
   total: { bytes: number; human: string };
   error?: string;
 }

@@ -33,7 +33,18 @@ import {
   killProcessOnPort,
   getChildPids,
 } from "./backend-manager";
-import { subscribe, getLogs, clearLogs, addLog, initFileLogging, listLogFiles, readLogFile, getLogDir, getMirrorDir } from "./logger";
+import {
+  subscribe,
+  getLogs,
+  clearLogs,
+  addLog,
+  initFileLogging,
+  configureLogFilter,
+  listLogFiles,
+  readLogFile,
+  getLogDir,
+  getMirrorDir,
+} from "./logger";
 import { getConfig, saveConfig, checkConfig, getConfigWithSources } from "./config";
 
 let mainWindow: BrowserWindow | null = null;
@@ -238,6 +249,16 @@ ipcMain.handle("config:save", async (_event, values: Record<string, string>) => 
   addLog("main", "info", "Config saving...");
   saveConfig(values);
 
+  // Re-apply log filter so changes take effect immediately (no restart needed)
+  const updatedConfig = getConfig();
+  configureLogFilter({
+    enabledSources: updatedConfig.LOG_ENABLED_SOURCES,
+    minLevel: updatedConfig.LOG_LEVEL,
+    maxFileSizeMb: updatedConfig.LOG_MAX_FILE_SIZE_MB,
+    maxFiles: updatedConfig.LOG_MAX_FILES,
+  });
+  addLog("main", "info", `Log filter updated: sources=${updatedConfig.LOG_ENABLED_SOURCES} level=${updatedConfig.LOG_LEVEL}`);
+
   // Check what changed
   const cfg = checkConfig();
   if (cfg.ok) {
@@ -429,7 +450,20 @@ app.whenReady().then(async () => {
   // Initialize file logging
   const userDataLogs = path.join(app.getPath("userData"), "logs");
   initFileLogging(userDataLogs);
-  addLog("main", "info", `App started — logs: ${userDataLogs}`);
+
+  // Apply log filter from config (controls which sources/levels write to disk)
+  const startupConfig = getConfig();
+  configureLogFilter({
+    enabledSources: startupConfig.LOG_ENABLED_SOURCES,
+    minLevel: startupConfig.LOG_LEVEL,
+    maxFileSizeMb: startupConfig.LOG_MAX_FILE_SIZE_MB,
+    maxFiles: startupConfig.LOG_MAX_FILES,
+  });
+  addLog(
+    "main",
+    "info",
+    `App started — logs: ${userDataLogs} | filter: sources=${startupConfig.LOG_ENABLED_SOURCES} level=${startupConfig.LOG_LEVEL}`,
+  );
 
   // Start periodic health monitoring
   startHealthMonitoring();

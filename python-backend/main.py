@@ -361,10 +361,15 @@ async def get_job_history():
         has_transcript = os.path.exists(transcript_path)
         # Use file mtime as a proxy for recency
         mtime = os.path.getmtime(status_path)
+        # Pipeline stage info: capture the final stage snapshot
+        pipeline_stage = status.get("status", "unknown")
+        pipeline_progress = status.get("progress", 0.0)
+        pipeline_error = status.get("error", None)
         jobs.append({
             "job_id": status.get("job_id", entry.name),
-            "status": status.get("status", "unknown"),
-            "progress": status.get("progress", 0.0),
+            "status": pipeline_stage,
+            "progress": pipeline_progress,
+            "error": pipeline_error,
             "title": metadata.get("title", "Untitled"),
             "event_type": metadata.get("event_type", ""),
             "attendees": metadata.get("attendees", []),
@@ -408,7 +413,7 @@ async def get_summary(job_id: str):
 
 @app.post("/agent/refine")
 async def agent_refine(req: RefineRequest):
-    print(f"[api] POST /agent/refine job_id={req.job_id} rules={req.rules}")
+    print(f"[api] POST /agent/refine job_id={req.job_id} rules={req.rules} keep_timestamps={req.keep_timestamps}")
     # If no transcript was passed in the request (e.g. the LLM tool schema
     # doesn't include it), read the existing stored transcript instead.
     if req.transcript:
@@ -421,12 +426,13 @@ async def agent_refine(req: RefineRequest):
         else:
             transcript = []
 
-    refined = _auto_refine(transcript, req.rules)
+    refined = _auto_refine(transcript, req.rules, req.keep_timestamps)
 
     uploader.save_transcript(req.job_id, refined)
     uploader.update_status(req.job_id, {"status": "refined"})
     print(f"[api] POST /agent/refine → refined {len(refined)} segments " +
-          f"(timestamps stripped, fillers removed, PII redacted" +
+          ("" if req.keep_timestamps else "(timestamps stripped, ") +
+          f"fillers removed, PII redacted" +
           (f", +{len(req.rules)} custom rule(s)" if req.rules else "") + ")")
     return {"transcript": refined}
 
@@ -1023,12 +1029,21 @@ async def storage_usage():
 
     total = logs_size + history_size + system_size + chroma_size + databases_size
 
+    # File paths for each category
+    storage_paths = {
+        "history": storage_path,
+        "logs": os.path.join(storage_path, "logs") if os.path.exists(os.path.join(storage_path, "logs")) else (config.ELECTRON_LOGS_DIR or None),
+        "chroma": os.path.join(storage_path, "chroma") if os.path.exists(os.path.join(storage_path, "chroma")) else None,
+        "databases": storage_path,
+        "system": base,
+    }
+
     return {
-        "logs": {"bytes": logs_size, "human": _format_bytes(logs_size)},
-        "history": {"bytes": history_size, "human": _format_bytes(history_size), "job_count": job_count},
-        "chroma": {"bytes": chroma_size, "human": _format_bytes(chroma_size)},
-        "databases": {"bytes": databases_size, "human": _format_bytes(databases_size)},
-        "system": {"bytes": system_size, "human": _format_bytes(system_size)},
+        "logs": {"bytes": logs_size, "human": _format_bytes(logs_size), "path": storage_paths["logs"]},
+        "history": {"bytes": history_size, "human": _format_bytes(history_size), "job_count": job_count, "path": storage_paths["history"]},
+        "chroma": {"bytes": chroma_size, "human": _format_bytes(chroma_size), "path": storage_paths["chroma"]},
+        "databases": {"bytes": databases_size, "human": _format_bytes(databases_size), "path": storage_paths["databases"]},
+        "system": {"bytes": system_size, "human": _format_bytes(system_size), "path": storage_paths["system"]},
         "total": {"bytes": total, "human": _format_bytes(total)},
     }
 
@@ -1284,11 +1299,11 @@ _FILLER_PATTERNS = [
 ]
 
 
-def _auto_refine(segments: list[dict], custom_rules: list[str]) -> list[dict]:
+def _auto_refine(segments: list[dict], custom_rules: list[str], keep_timestamps: bool = False) -> list[dict]:
     """Apply automatic transcript refinement to every segment.
 
     For each segment:
-      1. Strip timestamp metadata (``start``, ``end``, ``duration`` keys).
+      1. Strip timestamp metadata (``start``, ``end``, ``duration`` keys) — unless ``keep_timestamps`` is True.
       2. Strip filler words and discourse markers from the text.
       3. Redact PII (emails, phones, SSN, credit cards, account numbers).
       4. Apply any additional custom redaction rules passed by the LLM.
@@ -1299,8 +1314,12 @@ def _auto_refine(segments: list[dict], custom_rules: list[str]) -> list[dict]:
     fillers_re = re.compile('|'.join(_FILLER_PATTERNS), re.IGNORECASE)
     refined = []
     for seg in segments:
-        # 1. Strip timestamp metadata — keep only speaker label + cleaned text
-        clean = {"speaker": seg.get("speaker", "Unknown")}
+        if keep_timestamps:
+            # Preserve all original fields (speaker, text, start, end, duration)
+            clean = dict(seg)
+        else:
+            # 1. Strip timestamp metadata — keep only speaker label + cleaned text
+            clean = {"speaker": seg.get("speaker", "Unknown")}
         text = seg.get("text", "")
 
         # 2. Strip filler words

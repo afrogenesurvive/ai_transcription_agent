@@ -1299,6 +1299,26 @@ body {
   flex-shrink: 0;
 }
 
+/* ── Metrics Table (Performance Tab) ── */
+
+.dev-panel-metrics-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.dev-panel-metrics-table tbody tr:hover {
+  background: var(--surface);
+}
+
+.dev-panel-metrics-table tbody tr:last-child {
+  border-bottom: none !important;
+}
+
+.dev-panel-metrics-table svg {
+  display: block;
+}
+
 /* ── Scrollbar ── */
 
 ::-webkit-scrollbar {
@@ -1474,6 +1494,87 @@ body {
 .config-input::placeholder {
   color: var(--text-muted);
   opacity: 0.5;
+}
+
+.config-select {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: var(--font);
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238b949e' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 30px;
+}
+
+.config-select:focus {
+  border-color: var(--accent);
+}
+
+.config-select option {
+  background: var(--surface);
+  color: var(--text);
+}
+
+/* ── Config Panel — toggle switch ── */
+
+.config-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.config-toggle input {
+  display: none;
+}
+
+.config-toggle-slider {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  background: var(--border);
+  border-radius: 11px;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.config-toggle-slider::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  background: var(--text-muted);
+  border-radius: 50%;
+  transition:
+    transform 0.2s,
+    background 0.2s;
+}
+
+.config-toggle input:checked + .config-toggle-slider {
+  background: var(--accent);
+}
+
+.config-toggle input:checked + .config-toggle-slider::after {
+  transform: translateX(18px);
+  background: #fff;
+}
+
+.config-toggle-label {
+  font-size: 13px;
+  color: var(--text);
 }
 
 .config-footer {
@@ -1660,6 +1761,35 @@ body {
   font-size: 12px;
   color: var(--text-muted);
   word-break: break-all;
+}
+
+.config-view-value-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.config-view-value-row .config-view-value {
+  flex: 1;
+}
+
+.config-visibility-toggle {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+
+.config-visibility-toggle:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+  border-color: var(--accent);
 }
 
 .config-footer-hint {
@@ -3383,6 +3513,189 @@ body {
 .history-panel-delete-btn:disabled {
   opacity: 0.3;
   cursor: not-allowed;
+}
+
+/* ── History Panel — expandable pipeline detail ── */
+
+.history-panel-expand-icon {
+  font-size: 9px;
+  color: var(--text-muted);
+  margin-left: auto;
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+
+.history-pipeline-detail {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-top: 4px;
+  padding: 10px 12px;
+  overflow: hidden;
+  animation: hp-slideIn 0.2s ease;
+}
+
+@keyframes hp-slideIn {
+  from {
+    max-height: 0;
+    opacity: 0;
+  }
+  to {
+    max-height: 400px;
+    opacity: 1;
+  }
+}
+
+.history-pipeline-stepper {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.hp-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+  min-height: 28px;
+}
+
+.hp-step-line {
+  position: absolute;
+  left: 7px;
+  top: 16px;
+  bottom: 0;
+  width: 2px;
+  background: var(--border);
+  transition: background 0.3s;
+}
+
+.hp-step--done .hp-step-line {
+  background: var(--green);
+}
+
+.hp-step--active .hp-step-line {
+  background: var(--accent);
+}
+
+.hp-step:last-child .hp-step-line {
+  display: none;
+}
+
+.hp-step-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.hp-step--done .hp-step-dot {
+  background: var(--green);
+}
+
+.hp-step--active .hp-step-dot {
+  background: var(--accent);
+}
+
+.hp-step--pending .hp-step-dot {
+  background: var(--border);
+}
+
+.hp-step--error .hp-step-dot {
+  background: var(--red);
+}
+
+.hp-step-check {
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.hp-step-active-icon {
+  color: #fff;
+  font-size: 8px;
+}
+
+.hp-step-error-icon {
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.hp-step-pending-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  opacity: 0.4;
+}
+
+.hp-step-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  padding: 2px 0;
+}
+
+.hp-step-icon {
+  font-size: 12px;
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+}
+
+.hp-step-label {
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.hp-step--pending .hp-step-label {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+.hp-step-badge {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.hp-step-badge--done {
+  color: var(--green);
+  background: rgba(63, 185, 80, 0.12);
+}
+
+.hp-step-badge--active {
+  color: var(--accent);
+  background: rgba(88, 166, 255, 0.12);
+}
+
+.hp-step-badge--error {
+  color: var(--red);
+  background: rgba(248, 81, 73, 0.12);
+}
+
+.history-pipeline-error {
+  margin-top: 8px;
+  padding: 6px 10px;
+  background: rgba(248, 81, 73, 0.08);
+  border: 1px solid var(--red);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--red);
+  line-height: 1.4;
 }
 
 /* ═══════════════════════════════════════════════════════

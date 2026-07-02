@@ -10,7 +10,7 @@ Work through the steps below, calling **only the tools that are listed above**. 
 
 1. **Refine** — If `transcribe_refine` is available, call it to clean the transcript. This automatically strips timestamps, removes filler words (um, uh, ah, like, you know, etc.), and redacts PII (emails, phone numbers, SSNs, credit cards, account numbers). Pass additional `rules` if you need custom redactions (e.g., `["redact project names"]`).
 2. **Read Transcript** — If `transcribe_get_transcript` is available, call it to retrieve the refined, speaker-labeled transcript (use format "text" to see the full conversation).
-3. **Summarize** — If `transcribe_summarize` is available, call it with a structured summary containing:
+3. **Summarize (IMPORTANT — use the right tool)** — After reading the transcript, call `transcribe_summarize` with a structured summary you generate. Do NOT call `transcribe_get_summary` — that tool is only for reading back a summary that was already stored. The correct tool to CREATE and STORE a new summary is `transcribe_summarize`. Pass:
    - `executive_summary` (2-3 sentence overview)
    - `key_decisions` (list of decisions made)
    - `discussion_points` (list of topics covered)

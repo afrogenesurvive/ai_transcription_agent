@@ -20,7 +20,7 @@ interface Props {
 }
 
 type ConfigMode = "edit" | "view";
-type ConfigTab = "config" | "agent";
+type ConfigTab = "config" | "agent" | "logging";
 
 interface ConfigValues {
   [key: string]: string;
@@ -35,6 +35,12 @@ interface ConfigValues {
   TRELLO_KEY: string;
   TRELLO_TOKEN: string;
   HUGGING_FACE_TOKEN: string;
+  WHISPER_MODEL_SIZE: string;
+  KEEP_TRANSCRIPT_TIMESTAMPS: string;
+  LOG_ENABLED_SOURCES: string;
+  LOG_LEVEL: string;
+  LOG_MAX_FILE_SIZE_MB: string;
+  LOG_MAX_FILES: string;
 }
 
 interface ConfigSourceInfo {
@@ -60,6 +66,8 @@ const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secre
   { key: "OLLAMA_BASE_URL", label: "Ollama Base URL", required: false, secret: false, section: "LLM Provider" },
   { key: "OLLAMA_MODEL", label: "Ollama Model", required: false, secret: false, section: "LLM Provider" },
   { key: "HUGGING_FACE_TOKEN", label: "Hugging Face Token", required: false, secret: true, section: "LLM Provider" },
+  { key: "WHISPER_MODEL_SIZE", label: "Whisper Model Size", required: false, secret: false, section: "LLM Provider" },
+  { key: "KEEP_TRANSCRIPT_TIMESTAMPS", label: "Keep Transcript Timestamps", required: false, secret: false, section: "LLM Provider" },
   { key: "GMAIL_CLIENT_ID", label: "Gmail Client ID", required: false, secret: true, section: "Email Delivery" },
   { key: "GMAIL_CLIENT_SECRET", label: "Gmail Client Secret", required: false, secret: true, section: "Email Delivery" },
   { key: "GMAIL_REFRESH_TOKEN", label: "Gmail Refresh Token", required: false, secret: true, section: "Email Delivery" },
@@ -88,6 +96,17 @@ export default function ConfigPanel({ onClose }: Props) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set());
+
+  const toggleVisible = (key: keyof ConfigValues) => {
+    const k = key as string;
+    setVisibleKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+  };
 
   // ── Agent config state ──
   const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
@@ -118,12 +137,18 @@ export default function ConfigPanel({ onClose }: Props) {
         OLLAMA_BASE_URL: cfg.OLLAMA_BASE_URL || "http://127.0.0.1:11434/v1",
         OLLAMA_MODEL: cfg.OLLAMA_MODEL || "llama3.1:8b",
         HUGGING_FACE_TOKEN: cfg.HUGGING_FACE_TOKEN || "",
+        WHISPER_MODEL_SIZE: cfg.WHISPER_MODEL_SIZE || "medium",
+        KEEP_TRANSCRIPT_TIMESTAMPS: cfg.KEEP_TRANSCRIPT_TIMESTAMPS || "false",
         GMAIL_CLIENT_ID: cfg.GMAIL_CLIENT_ID || "",
         GMAIL_CLIENT_SECRET: cfg.GMAIL_CLIENT_SECRET || "",
         GMAIL_REFRESH_TOKEN: cfg.GMAIL_REFRESH_TOKEN || "",
         GMAIL_USER: cfg.GMAIL_USER || "",
         TRELLO_KEY: cfg.TRELLO_KEY || "",
         TRELLO_TOKEN: cfg.TRELLO_TOKEN || "",
+        LOG_ENABLED_SOURCES: cfg.LOG_ENABLED_SOURCES || "all",
+        LOG_LEVEL: cfg.LOG_LEVEL || "info",
+        LOG_MAX_FILE_SIZE_MB: cfg.LOG_MAX_FILE_SIZE_MB || "50",
+        LOG_MAX_FILES: cfg.LOG_MAX_FILES || "10",
       });
     });
     window.electronAPI
@@ -261,6 +286,9 @@ export default function ConfigPanel({ onClose }: Props) {
             <button className={`config-tab ${activeTab === "agent" ? "config-tab--active" : ""}`} onClick={() => setActiveTab("agent")}>
               🤖 Agent Instructions
             </button>
+            <button className={`config-tab ${activeTab === "logging" ? "config-tab--active" : ""}`} onClick={() => setActiveTab("logging")}>
+              📝 Logging
+            </button>
           </div>
           <div className="config-mode-toggle">
             <button className={`config-mode-btn ${mode === "edit" ? "config-mode-btn--active" : ""}`} onClick={() => setMode("edit")}>
@@ -347,7 +375,7 @@ export default function ConfigPanel({ onClose }: Props) {
 
                     {values.LLM_PROVIDER === "ollama" &&
                       fields
-                        .filter((f) => f.key !== "DEEPSEEK_API_KEY")
+                        .filter((f) => f.key !== "DEEPSEEK_API_KEY" && f.key !== "WHISPER_MODEL_SIZE" && f.key !== "KEEP_TRANSCRIPT_TIMESTAMPS")
                         .map((field) => (
                           <div key={field.key} className="config-field">
                             <label className="config-label">{field.label}</label>
@@ -360,6 +388,38 @@ export default function ConfigPanel({ onClose }: Props) {
                             />
                           </div>
                         ))}
+
+                    {/* Whisper Model Size — always shown */}
+                    <div className="config-field">
+                      <label className="config-label">Whisper Model Size</label>
+                      <select
+                        className="config-select"
+                        value={values.WHISPER_MODEL_SIZE || "medium"}
+                        onChange={(e) => handleChange("WHISPER_MODEL_SIZE", e.target.value)}>
+                        <option value="medium">medium — balanced speed & accuracy</option>
+                        <option value="large">large — highest accuracy, slower</option>
+                      </select>
+                    </div>
+
+                    {/* Keep Transcript Timestamps — toggle */}
+                    <div className="config-field">
+                      <label className="config-label">Transcript Timestamps</label>
+                      <label className="config-toggle">
+                        <input
+                          type="checkbox"
+                          checked={values.KEEP_TRANSCRIPT_TIMESTAMPS === "true"}
+                          onChange={(e) => handleChange("KEEP_TRANSCRIPT_TIMESTAMPS", e.target.checked ? "true" : "false")}
+                        />
+                        <span className="config-toggle-slider" />
+                        <span className="config-toggle-label">
+                          {values.KEEP_TRANSCRIPT_TIMESTAMPS === "true" ? "Keep timestamps in transcript" : "Strip timestamps from transcript"}
+                        </span>
+                      </label>
+                      <p className="config-field-hint" style={{ marginTop: 4 }}>
+                        When enabled, start/end times are preserved in the refined transcript. When disabled (default), timestamps are stripped during
+                        refinement.
+                      </p>
+                    </div>
                   </>
                 )}
 
@@ -415,14 +475,27 @@ export default function ConfigPanel({ onClose }: Props) {
                 <h3 className="config-section-title">{sectionName}</h3>
                 {fields.map((field) => {
                   const info = sourceInfo[field.key];
-                  const masked = field.secret && info?.value ? info.value.slice(0, 8) + "…" + info.value.slice(-4) : info?.value || "(not set)";
+                  const isSecret = field.secret && info?.value ? true : false;
+                  const fieldKey = field.key as string;
+                  const isVisible = visibleKeys.has(fieldKey);
+                  const displayValue = isSecret && !isVisible ? info.value.slice(0, 8) + "…" + info.value.slice(-4) : info.value || "(not set)";
                   return (
                     <div key={field.key} className="config-view-field">
                       <div className="config-view-label">
                         <span>{field.label}</span>
                         {info && <span className={`config-source-tag config-source-tag--${info.source}`}>{SOURCE_LABELS[info.source]}</span>}
                       </div>
-                      <div className="config-view-value">{masked}</div>
+                      <div className="config-view-value-row">
+                        <span className="config-view-value">{displayValue}</span>
+                        {isSecret && (
+                          <button
+                            className="config-visibility-toggle"
+                            onClick={() => toggleVisible(fieldKey)}
+                            title={isVisible ? "Hide value" : "Show value"}>
+                            {isVisible ? "🙈" : "👁️"}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
@@ -577,6 +650,141 @@ export default function ConfigPanel({ onClose }: Props) {
                   placeholder="send_delivery_email, save_to_drive, create_trello_action_items"
                   disabled={activeJobs.length > 0}
                 />
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ── TAB 3: Logging Config ── */}
+        {activeTab === "logging" && mode === "edit" && (
+          <>
+            <p className="config-hint">
+              Control which log sources and severity levels are written to disk log files. The in-memory log buffer (visible in the DevPanel) is never
+              affected — these settings only control disk space usage.
+            </p>
+
+            {/* Log Sources */}
+            <div className="config-section">
+              <h3 className="config-section-title">📡 Log Sources (disk writes)</h3>
+              <p className="config-field-hint">
+                Uncheck sources you don&apos;t want to write to log files. Reducing high-volume sources like python or bridge saves the most disk
+                space.
+              </p>
+              {["python", "bridge", "agent", "main"].map((source) => {
+                const enabledList =
+                  values.LOG_ENABLED_SOURCES === "all"
+                    ? ["python", "bridge", "agent", "main"]
+                    : values.LOG_ENABLED_SOURCES.split(",")
+                        .map((s) => s.trim())
+                        .filter(Boolean);
+                const isChecked = enabledList.includes(source);
+                const sourceLabels: Record<string, string> = {
+                  python: "Python Backend (API calls, transcription progress)",
+                  bridge: "Bridge Server (tool dispatch, proxy requests)",
+                  agent: "Agent Runner (pipeline steps, LLM calls)",
+                  main: "Electron Main Process (config saves, service mgmt)",
+                };
+                return (
+                  <div key={source} className="config-field">
+                    <label className="config-toggle">
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => {
+                          const current =
+                            values.LOG_ENABLED_SOURCES === "all"
+                              ? ["python", "bridge", "agent", "main"]
+                              : values.LOG_ENABLED_SOURCES.split(",")
+                                  .map((s) => s.trim())
+                                  .filter(Boolean);
+                          const updated = isChecked ? current.filter((s) => s !== source) : [...current, source];
+                          handleChange("LOG_ENABLED_SOURCES", updated.join(",") || "none");
+                        }}
+                      />
+                      <span className="config-toggle-slider" />
+                      <span className="config-toggle-label">
+                        <strong>{source}</strong> — {sourceLabels[source]}
+                      </span>
+                    </label>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Log Level */}
+            <div className="config-section">
+              <h3 className="config-section-title">🔉 Minimum Log Level</h3>
+              <p className="config-field-hint">
+                Only log entries at or above this severity will be written to disk. &quot;off&quot; disables all disk logging.
+              </p>
+              <select className="config-select" value={values.LOG_LEVEL || "info"} onChange={(e) => handleChange("LOG_LEVEL", e.target.value)}>
+                <option value="debug">debug — everything (most verbose)</option>
+                <option value="info">info — info + warnings + errors (recommended)</option>
+                <option value="warn">warn — warnings + errors only</option>
+                <option value="error">error — errors only</option>
+                <option value="off">off — disable all disk logging</option>
+              </select>
+            </div>
+
+            {/* File Rotation */}
+            <div className="config-section">
+              <h3 className="config-section-title">📦 File Rotation</h3>
+              <div className="config-field-row">
+                <div className="config-field config-field--compact">
+                  <label className="config-label">Max File Size (MB)</label>
+                  <input
+                    className="config-input config-input--number"
+                    type="number"
+                    min={0}
+                    max={1000}
+                    value={parseInt(values.LOG_MAX_FILE_SIZE_MB) || 0}
+                    onChange={(e) => handleChange("LOG_MAX_FILE_SIZE_MB", String(e.target.value))}
+                  />
+                  <p className="config-field-hint">0 = no size limit</p>
+                </div>
+                <div className="config-field config-field--compact">
+                  <label className="config-label">Max Rotated Files</label>
+                  <input
+                    className="config-input config-input--number"
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={parseInt(values.LOG_MAX_FILES) || 0}
+                    onChange={(e) => handleChange("LOG_MAX_FILES", String(e.target.value))}
+                  />
+                  <p className="config-field-hint">0 = keep all rotations</p>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {activeTab === "logging" && mode === "view" && (
+          <>
+            <p className="config-hint">
+              Current logging configuration. The in-memory log buffer (DevPanel) is never affected — only disk writes are controlled here.
+            </p>
+            <div className="config-section">
+              <h3 className="config-section-title">📡 Enabled Sources</h3>
+              <div className="config-view-field">
+                <div className="config-view-value">{sourceInfo.LOG_ENABLED_SOURCES?.value || "all"}</div>
+              </div>
+            </div>
+            <div className="config-section">
+              <h3 className="config-section-title">🔉 Minimum Level</h3>
+              <div className="config-view-field">
+                <div className="config-view-value">{sourceInfo.LOG_LEVEL?.value || "info"}</div>
+              </div>
+            </div>
+            <div className="config-section">
+              <h3 className="config-section-title">📦 Rotation</h3>
+              <div className="config-view-field">
+                <div className="config-view-label">Max File Size</div>
+                <div className="config-view-value">{sourceInfo.LOG_MAX_FILE_SIZE_MB?.value || "50"} MB</div>
+              </div>
+              <div className="config-view-field">
+                <div className="config-view-label">Max Rotated Files</div>
+                <div className="config-view-value">{sourceInfo.LOG_MAX_FILES?.value || "10"}</div>
               </div>
             </div>
           </>
