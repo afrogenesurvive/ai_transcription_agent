@@ -33,6 +33,8 @@ export interface AppConfig {
   TRELLO_TOKEN: string;
   /** Hugging Face token (required for gated models like pyannote/speaker-diarization-3.1) */
   HUGGING_FACE_TOKEN: string;
+  /** GitHub personal access token for private repo auto-updates */
+  GITHUB_TOKEN: string;
   /** Performance metrics polling interval (ms) for DevPanel */
   PERF_METRICS_POLL_INTERVAL: string;
   /** Whisper ASR model size: "medium" or "large" */
@@ -53,7 +55,7 @@ const DEFAULTS: AppConfig = {
   DEEPSEEK_API_KEY: "",
   LLM_PROVIDER: "deepseek",
   OLLAMA_BASE_URL: "http://127.0.0.1:11434/v1",
-  OLLAMA_MODEL: "llama3.1:8b",
+  OLLAMA_MODEL: "",
   GMAIL_CLIENT_ID: "",
   GMAIL_CLIENT_SECRET: "",
   GMAIL_REFRESH_TOKEN: "",
@@ -61,6 +63,7 @@ const DEFAULTS: AppConfig = {
   TRELLO_KEY: "",
   TRELLO_TOKEN: "",
   HUGGING_FACE_TOKEN: "",
+  GITHUB_TOKEN: "",
   PERF_METRICS_POLL_INTERVAL: "10000",
   WHISPER_MODEL_SIZE: "medium",
   KEEP_TRANSCRIPT_TIMESTAMPS: "false",
@@ -195,8 +198,14 @@ export function checkConfig(): { ok: boolean; missing: string[] } {
   invalidateConfigCache(); // Force re-read from disk so removed keys are detected
   const config = getConfig();
   const missing: string[] = [];
-  for (const key of REQUIRED_CONFIG_KEYS) {
-    if (!config[key]) missing.push(key);
+
+  // If using Ollama, DEEPSEEK_API_KEY is not required
+  if (config.LLM_PROVIDER === "ollama") {
+    // No required keys for Ollama — model check is handled elsewhere
+  } else {
+    for (const key of REQUIRED_CONFIG_KEYS) {
+      if (!config[key]) missing.push(key);
+    }
   }
   return { ok: missing.length === 0, missing };
 }
@@ -211,7 +220,7 @@ export function getChildEnv(): NodeJS.ProcessEnv {
     DEEPSEEK_API_KEY: config.DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY || "",
     LLM_PROVIDER: config.LLM_PROVIDER || process.env.LLM_PROVIDER || "deepseek",
     OLLAMA_BASE_URL: config.OLLAMA_BASE_URL || process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434/v1",
-    OLLAMA_MODEL: config.OLLAMA_MODEL || process.env.OLLAMA_MODEL || "llama3.1:8b",
+    OLLAMA_MODEL: config.OLLAMA_MODEL || process.env.OLLAMA_MODEL || "",
     GMAIL_CLIENT_ID: config.GMAIL_CLIENT_ID || process.env.GMAIL_CLIENT_ID || "",
     GMAIL_CLIENT_SECRET: config.GMAIL_CLIENT_SECRET || process.env.GMAIL_CLIENT_SECRET || "",
     GMAIL_REFRESH_TOKEN: config.GMAIL_REFRESH_TOKEN || process.env.GMAIL_REFRESH_TOKEN || "",
@@ -219,6 +228,8 @@ export function getChildEnv(): NodeJS.ProcessEnv {
     TRELLO_KEY: config.TRELLO_KEY || process.env.TRELLO_KEY || "",
     TRELLO_TOKEN: config.TRELLO_TOKEN || process.env.TRELLO_TOKEN || "",
     HUGGING_FACE_TOKEN: config.HUGGING_FACE_TOKEN || process.env.HUGGING_FACE_TOKEN || "",
+    GITHUB_TOKEN: config.GITHUB_TOKEN || process.env.GITHUB_TOKEN || "",
+    GH_TOKEN: config.GITHUB_TOKEN || process.env.GH_TOKEN || "", // electron-updater uses GH_TOKEN
     WHISPER_MODEL_SIZE: config.WHISPER_MODEL_SIZE || process.env.WHISPER_MODEL_SIZE || "medium",
     KEEP_TRANSCRIPT_TIMESTAMPS: config.KEEP_TRANSCRIPT_TIMESTAMPS || process.env.KEEP_TRANSCRIPT_TIMESTAMPS || "false",
     LOG_ENABLED_SOURCES: config.LOG_ENABLED_SOURCES || process.env.LOG_ENABLED_SOURCES || "all",

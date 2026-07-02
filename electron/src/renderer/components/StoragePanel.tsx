@@ -23,6 +23,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   chroma: "#3fb950",
   databases: "#bc8cff",
   system: "#8b949e",
+  ollama: "#ff6b6b",
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -31,6 +32,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   chroma: "🧠 ChromaDB",
   databases: "🗄️ Databases",
   system: "⚙️ System (Code & Config)",
+  ollama: "🤖 Ollama Models",
 };
 
 const CATEGORY_ITEMS: Array<{ key: string; icon: string; label: string }> = [
@@ -39,6 +41,7 @@ const CATEGORY_ITEMS: Array<{ key: string; icon: string; label: string }> = [
   { key: "chroma", icon: "🧠", label: "ChromaDB vector store (semantic memory)" },
   { key: "databases", icon: "🗄️", label: "Ephemeral memory + voiceprint databases" },
   { key: "system", icon: "⚙️", label: "Source code, config, dependencies" },
+  { key: "ollama", icon: "🤖", label: "Downloaded Ollama LLM models (~/.ollama)" },
 ];
 
 async function callBridge(tool: string, args: any = {}): Promise<any> {
@@ -113,7 +116,7 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
   // Compute bar widths as percentage of total
   const totalBytes = data?.total?.bytes || 1;
   const categories = data
-    ? (["history", "logs", "chroma", "databases", "system"] as const).map((key) => ({
+    ? (["history", "logs", "chroma", "databases", "system", "ollama"] as const).map((key) => ({
         key,
         bytes: data[key]?.bytes || 0,
         human: data[key]?.human || "0 B",

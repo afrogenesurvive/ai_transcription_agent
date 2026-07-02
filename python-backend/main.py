@@ -967,7 +967,7 @@ def _format_bytes(b: int) -> str:
 
 @app.get("/storage/usage")
 async def storage_usage():
-    """Report disk usage breakdown: logs, history (job storage), system files, ChromaDB."""
+    """Report disk usage breakdown: logs, history (job storage), system files, ChromaDB, Ollama models."""
     base = config._BASE  # project root
     storage_path = config.STORAGE_PATH
 
@@ -1027,7 +1027,11 @@ async def storage_usage():
             except OSError:
                 pass
 
-    total = logs_size + history_size + system_size + chroma_size + databases_size
+    # Ollama models — ~/.ollama directory (downloaded LLM models)
+    ollama_dir = os.path.expanduser("~/.ollama")
+    ollama_size = _dir_size(ollama_dir) if os.path.exists(ollama_dir) else 0
+
+    total = logs_size + history_size + system_size + chroma_size + databases_size + ollama_size
 
     # File paths for each category
     storage_paths = {
@@ -1036,6 +1040,7 @@ async def storage_usage():
         "chroma": os.path.join(storage_path, "chroma") if os.path.exists(os.path.join(storage_path, "chroma")) else None,
         "databases": storage_path,
         "system": base,
+        "ollama": ollama_dir if os.path.exists(ollama_dir) else None,
     }
 
     return {
@@ -1044,6 +1049,7 @@ async def storage_usage():
         "chroma": {"bytes": chroma_size, "human": _format_bytes(chroma_size), "path": storage_paths["chroma"]},
         "databases": {"bytes": databases_size, "human": _format_bytes(databases_size), "path": storage_paths["databases"]},
         "system": {"bytes": system_size, "human": _format_bytes(system_size), "path": storage_paths["system"]},
+        "ollama": {"bytes": ollama_size, "human": _format_bytes(ollama_size), "path": storage_paths["ollama"]},
         "total": {"bytes": total, "human": _format_bytes(total)},
     }
 

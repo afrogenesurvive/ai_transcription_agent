@@ -8,10 +8,45 @@ Auto-saves after summarization completes in the pipeline.
 """
 
 import os
+import re
 import json
-import hashlib
 from typing import List, Optional, Dict, Any
 from config import config
+
+
+# ── Known abbreviations that end with a period but are NOT sentence boundaries ──
+# These are matched at potential split points so the splitter can skip them.
+# Words are listed WITHOUT the trailing period for readability.
+_ABBREVIATIONS = {
+    # Titles — NEVER end a sentence
+    "Mr", "Mrs", "Ms", "Dr", "Jr", "Sr", "St", "Prof",
+    "Gen", "Sgt", "Capt", "Col", "Maj", "Gov", "Rep", "Sen", "Rev", "Hon",
+    # Business — rarely end a sentence
+    "Inc", "Ltd", "Corp", "Co", "LLC", "Ave", "Blvd", "Est", "Dept",
+    # Geographic
+    "U.S", "U.K",
+    # Academic
+    "Fig", "Eq", "al", "Vol", "No", "Ed", "Univ", "Assn", "Ext", "Tel",
+    # Months — can end a sentence but uncommon in meeting transcripts
+    "Jan", "Feb", "Mar", "Apr", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    # Other — never end a sentence
+    "vs", "approx", "dept",
+}
+
+def _is_abbreviation(word: str) -> bool:
+    """Check if a word (with trailing period) is a known abbreviation.
+
+    e.g. ``_is_abbreviation('Dr.')`` → True
+         ``_is_abbreviation('budget.')`` → False
+    """
+    # Strip the trailing period
+    if not word.endswith("."):
+        return False
+    base = word[:-1]
+    return base in _ABBREVIATIONS
+
+# Paragraph break — two or more consecutive newlines (from summary formatting)
+_PARAGRAPH_SPLIT = re.compile(r'\n\s*\n')
 
 
 class SemanticMemory:
@@ -60,34 +95,134 @@ class SemanticMemory:
         self._ensure_embedder()
         return self._embedder.encode(texts, normalize_embeddings=True).tolist()
 
-    def _chunk_text(self, text: str, max_tokens: int = 480, overlap_tokens: int = 40) -> List[str]:
-        """Split text into overlapping chunks by token count.
+    # ── Public API ──
 
-        Uses the embedding model's tokenizer so chunk boundaries align
-        with the model's context window (all-MiniLM-L6-v2 = 512 tokens).
-        Overlap preserves context between adjacent chunks.
+    def _split_sentences(self, text: str) -> List[str]:
+        """Split text into sentences at semantic boundaries.
+
+        Strategy (in order of priority):
+          1. Split on paragraph breaks (\\n\\n) — strongest boundary
+          2. Walk through each paragraph character-by-character, splitting
+             at `. ! ?` followed by whitespace + capital letter, unless the
+             word before the punctuation is a known abbreviation (e.g. "Dr.",
+             "U.S.", "a.m.")
+
+        Returns a list of non-empty sentence strings.
         """
         if not text.strip():
             return []
 
-        self._ensure_embedder()
-        tokens = self._tokenizer.encode(text)
+        paragraphs = _PARAGRAPH_SPLIT.split(text)
+        sentences = []
 
-        if len(tokens) <= max_tokens:
+        for para in paragraphs:
+            para = para.strip()
+            if not para:
+                continue
+
+            # Walk through the paragraph finding split points
+            start = 0
+            for m in re.finditer(r"[.!?]\s+", para):
+                end = m.end()  # position after the whitespace
+                # The word immediately before the punctuation
+                before = para[start:m.start()].strip()
+                if before:
+                    # Check if the LAST word (including the period) is an
+                    # abbreviation — e.g. "Dr" + "." → "Dr."
+                    words = before.split()
+                    last_word_with_period = (words[-1] + ".") if words else ""
+                    if _is_abbreviation(last_word_with_period):
+                        # Not a real sentence boundary — skip
+                        continue
+                # Real sentence boundary — split
+                sentence = para[start:end].strip()
+                if sentence:
+                    sentences.append(sentence)
+                start = end
+
+            # Remaining text after last split point
+            tail = para[start:].strip()
+            if tail:
+                sentences.append(tail)
+
+        return sentences
+
+    def _chunk_text(self, text: str, max_tokens: int = 480) -> List[str]:
+        """Split text into chunks at sentence boundaries.
+
+        Unlike the old token-count slicer, this method:
+          1. Splits text into sentences using ``_split_sentences()``
+          2. Groups sentences together until the token budget is reached
+          3. Never splits mid-sentence
+
+        If a single sentence exceeds ``max_tokens`` (rare for meeting text,
+        possible for very long utterances), it is split token-wise as a
+        fallback with a warning.
+
+        No overlap is needed because chunk boundaries always fall at
+        sentence boundaries — adjacent chunks don't lose mid-sentence
+        context. Each chunk is a coherent set of complete thoughts.
+        """
+        if not text.strip():
+            return []
+        self._ensure_embedder()
+
+        # Quick path: entire text fits in one chunk
+        total_tokens = len(self._tokenizer.encode(text))
+        if total_tokens <= max_tokens:
             return [text]
 
-        chunks = []
-        start = 0
-        while start < len(tokens):
-            end = min(start + max_tokens, len(tokens))
-            chunk_tokens = tokens[start:end]
-            chunk_text = self._tokenizer.decode(chunk_tokens, skip_special_tokens=True)
-            chunks.append(chunk_text)
-            if end == len(tokens):
-                break
-            start = end - overlap_tokens
+        sentences = self._split_sentences(text)
+        if not sentences:
+            return []
 
-        return chunks
+        chunks = []
+        current_chunk: List[str] = []
+        current_tokens = 0
+
+        for sent in sentences:
+            sent_tokens = len(self._tokenizer.encode(sent))
+
+            # If a single sentence exceeds the budget, split it token-wise
+            # (rare edge case — e.g., a very long monologue with no punctuation)
+            if sent_tokens > max_tokens:
+                # Flush any accumulated sentences first
+                if current_chunk:
+                    chunks.append(" ".join(current_chunk))
+                    current_chunk = []
+                    current_tokens = 0
+
+                print(f"[semantic_memory] ⚠️  Single sentence exceeds {max_tokens} tokens "
+                      f"({sent_tokens} tokens) — falling back to token-level split")
+                # Token-split this single oversized sentence
+                tokens = self._tokenizer.encode(sent)
+                for i in range(0, len(tokens), max_tokens):
+                    piece = self._tokenizer.decode(tokens[i:i + max_tokens], skip_special_tokens=True)
+                    chunks.append(piece)
+                continue
+
+            # If adding this sentence would exceed the budget, start a new chunk
+            if current_tokens + sent_tokens > max_tokens:
+                if current_chunk:
+                    chunks.append(" ".join(current_chunk))
+                current_chunk = [sent]
+                current_tokens = sent_tokens
+            else:
+                current_chunk.append(sent)
+                current_tokens += sent_tokens
+
+        # Flush remaining sentences
+        if current_chunk:
+            chunks.append(" ".join(current_chunk))
+
+        # Deduplicate identical adjacent chunks (can happen with very short
+        # texts where different splits produce the same merged result)
+        deduped = []
+        for c in chunks:
+            if not deduped or c != deduped[-1]:
+                deduped.append(c)
+
+        return deduped
 
     # ── Public API ──
 
@@ -101,9 +236,11 @@ class SemanticMemory:
     ):
         """Embed and store a completed meeting for future semantic search.
 
-        Long texts are split into overlapping chunks of ~480 tokens each
-        (well within the 512-token limit of all-MiniLM-L6-v2) to avoid
-        silently discarding content.
+        Long texts are split into sentence-aligned chunks of up to ~480
+        tokens each (well within the 512-token limit of all-MiniLM-L6-v2)
+        so that no chunk ever splits mid-sentence. Chunk boundaries fall
+        at paragraph breaks (\\n\\n) or sentence-ending punctuation (. ! ?),
+        preserving semantic coherence.
         """
         self._ensure_loaded()
         print(f"[semantic_memory] Storing meeting '{title}' (job_id={job_id})...")

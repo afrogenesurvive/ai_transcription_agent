@@ -96,6 +96,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
   downloadUpdate: (): Promise<{ success: boolean; error: string | null }> => ipcRenderer.invoke("auto-update:download"),
   installUpdate: (): Promise<{ success: boolean }> => ipcRenderer.invoke("auto-update:install"),
 
+  // ── Ollama Model Management ──
+  listOllamaModels: (): Promise<{ models: Array<{ name: string; size: number; modified_at: string }>; error: string | null }> =>
+    ipcRenderer.invoke("ollama:listModels"),
+  pullOllamaModel: (modelName: string): Promise<{ success: boolean; error: string | null }> => ipcRenderer.invoke("ollama:pullModel", modelName),
+
   // ── Platform ──
   platform: process.platform,
 });

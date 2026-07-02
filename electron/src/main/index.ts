@@ -471,13 +471,75 @@ ipcMain.handle("app:uninstall", async () => {
 
 ipcMain.handle("app:uninstallStatus", () => {
   // Returns info about what would be cleaned up (for UI confirmation dialogs)
+  const ollamaDir = require("path").join(require("os").homedir(), ".ollama");
   return {
     userDataPath: app.getPath("userData"),
     appPath: app.getPath("exe"),
-    ollamaAutoInstalled: require("fs").existsSync(
-      require("path").join(app.getPath("userData"), ".ollama-auto-installed"),
-    ),
+    ollamaAutoInstalled: require("fs").existsSync(require("path").join(app.getPath("userData"), ".ollama-auto-installed")),
+    ollamaModelsExist: require("fs").existsSync(ollamaDir),
+    ollamaModelsPath: ollamaDir,
   };
+});
+
+// ── Ollama Model Management IPC ──
+
+ipcMain.handle("ollama:listModels", async () => {
+  addLog("main", "info", "[ollama] Listing available models via REST API (GET /api/tags)");
+  const config = getConfig();
+  const baseUrl = (config.OLLAMA_BASE_URL || "http://127.0.0.1:11434/v1").replace(/\/v1\/?$/, "");
+  try {
+    const res = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => "");
+      addLog("main", "warn", `[ollama] GET /api/tags returned ${res.status}: ${errBody.slice(0, 300)}`);
+      return { models: [], error: `Ollama server returned ${res.status}` };
+    }
+    const data = await res.json();
+    const models = (data.models || []).map((m: any) => ({
+      name: m.name,
+      size: m.size,
+      modified_at: m.modified_at,
+    }));
+    if (models.length > 0) {
+      const details = models.map((m: any) => `${m.name} (${(m.size / (1024 * 1024 * 1024)).toFixed(2)} GB)`).join(", ");
+      addLog("main", "info", `[ollama] Found ${models.length} model(s): ${details}`);
+    } else {
+      addLog("main", "info", "[ollama] No models pulled yet");
+    }
+    return { models, error: null };
+  } catch (err: any) {
+    addLog("main", "warn", `[ollama] GET /api/tags failed: ${err.message}`);
+    return { models: [], error: `Cannot reach Ollama: ${err.message}` };
+  }
+});
+
+ipcMain.handle("ollama:pullModel", async (_event, modelName: string) => {
+  addLog("main", "info", `[ollama] Pulling model via REST API (POST /api/pull): ${modelName}`);
+  const config = getConfig();
+  const baseUrl = (config.OLLAMA_BASE_URL || "http://127.0.0.1:11434/v1").replace(/\/v1\/?$/, "");
+  try {
+    const startTime = Date.now();
+    const res = await fetch(`${baseUrl}/api/pull`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: modelName, stream: false }),
+      signal: AbortSignal.timeout(600_000), // 10 min timeout for large models
+    });
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    if (!res.ok) {
+      const errBody = await res.text();
+      addLog("main", "error", `[ollama] POST /api/pull ${modelName} failed after ${elapsed}s: ${res.status} ${errBody.slice(0, 500)}`);
+      return { success: false, error: `Ollama pull failed: ${errBody}` };
+    }
+    const data = await res.json();
+    addLog("main", "info", `[ollama] Successfully pulled model "${modelName}" in ${elapsed}s`);
+    if (data.digest) addLog("main", "info", `[ollama]   digest: ${data.digest}`);
+    if (data.size) addLog("main", "info", `[ollama]   size: ${(data.size / (1024 * 1024 * 1024)).toFixed(2)} GB`);
+    return { success: true, error: null };
+  } catch (err: any) {
+    addLog("main", "error", `[ollama] POST /api/pull ${modelName} failed: ${err.message}`);
+    return { success: false, error: `Pull failed: ${err.message}` };
+  }
 });
 
 // ── App Lifecycle ──

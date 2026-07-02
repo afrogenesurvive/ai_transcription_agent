@@ -35,6 +35,7 @@ interface ConfigValues {
   TRELLO_KEY: string;
   TRELLO_TOKEN: string;
   HUGGING_FACE_TOKEN: string;
+  GITHUB_TOKEN: string;
   WHISPER_MODEL_SIZE: string;
   KEEP_TRANSCRIPT_TIMESTAMPS: string;
   LOG_ENABLED_SOURCES: string;
@@ -66,6 +67,7 @@ const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secre
   { key: "OLLAMA_BASE_URL", label: "Ollama Base URL", required: false, secret: false, section: "LLM Provider" },
   { key: "OLLAMA_MODEL", label: "Ollama Model", required: false, secret: false, section: "LLM Provider" },
   { key: "HUGGING_FACE_TOKEN", label: "Hugging Face Token", required: false, secret: true, section: "LLM Provider" },
+  { key: "GITHUB_TOKEN", label: "GitHub PAT (for private repo auto-updates)", required: false, secret: true, section: "Auto-Update" },
   { key: "WHISPER_MODEL_SIZE", label: "Whisper Model Size", required: false, secret: false, section: "LLM Provider" },
   { key: "KEEP_TRANSCRIPT_TIMESTAMPS", label: "Keep Transcript Timestamps", required: false, secret: false, section: "LLM Provider" },
   { key: "GMAIL_CLIENT_ID", label: "Gmail Client ID", required: false, secret: true, section: "Email Delivery" },
@@ -87,6 +89,14 @@ const SOURCE_COLORS: Record<string, string> = {
   env_file: "var(--accent)",
   default: "var(--text-muted)",
 };
+
+function formatOllamaSize(bytes: number): string {
+  if (!bytes || bytes === 0) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
 
 export default function ConfigPanel({ onClose }: Props) {
   const [activeTab, setActiveTab] = useState<ConfigTab>("config");
@@ -112,6 +122,62 @@ export default function ConfigPanel({ onClose }: Props) {
   const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
   const [agentConfigLoading, setAgentConfigLoading] = useState(false);
   const [agentConfigError, setAgentConfigError] = useState<string | null>(null);
+  // ── Ollama model management state ──
+  const [ollamaModels, setOllamaModels] = useState<Array<{ name: string; size: number; modified_at: string }>>([]);
+  const [ollamaModelsLoading, setOllamaModelsLoading] = useState(false);
+  const [ollamaModelsError, setOllamaModelsError] = useState<string | null>(null);
+  const [pullingModel, setPullingModel] = useState<string | null>(null);
+  const [pullSuccess, setPullSuccess] = useState<string | null>(null);
+  const [pullError, setPullError] = useState<string | null>(null);
+
+  // Fetch Ollama models when provider is "ollama"
+  const fetchOllamaModels = useCallback(async () => {
+    if (values.LLM_PROVIDER !== "ollama") {
+      setOllamaModels([]);
+      setOllamaModelsError(null);
+      return;
+    }
+    setOllamaModelsLoading(true);
+    setOllamaModelsError(null);
+    try {
+      const result = await window.electronAPI?.listOllamaModels();
+      if (result) {
+        setOllamaModels(result.models || []);
+        if (result.error) setOllamaModelsError(result.error);
+      }
+    } catch (err: any) {
+      setOllamaModelsError(err.message || "Failed to list models");
+    } finally {
+      setOllamaModelsLoading(false);
+    }
+  }, [values.LLM_PROVIDER]);
+
+  // Fetch models when provider changes to "ollama"
+  useEffect(() => {
+    fetchOllamaModels();
+  }, [fetchOllamaModels]);
+
+  // Pull a model from Ollama
+  const handlePullModel = useCallback(async (modelName: string) => {
+    setPullingModel(modelName);
+    setPullSuccess(null);
+    setPullError(null);
+    try {
+      const result = await window.electronAPI?.pullOllamaModel(modelName);
+      if (result?.success) {
+        setPullSuccess(`✅ Model "${modelName}" pulled successfully`);
+        // Refresh the model list
+        await fetchOllamaModels();
+      } else {
+        setPullError(result?.error || `Failed to pull ${modelName}`);
+      }
+    } catch (err: any) {
+      setPullError(err.message || `Failed to pull ${modelName}`);
+    } finally {
+      setPullingModel(null);
+    }
+  }, [fetchOllamaModels]);
+
   // Active jobs guard — editing agent instructions is blocked while jobs run
   const [activeJobs, setActiveJobs] = useState<any[]>([]);
   const [activeJobsLoading, setActiveJobsLoading] = useState(false);
@@ -150,8 +216,9 @@ export default function ConfigPanel({ onClose }: Props) {
         DEEPSEEK_API_KEY: cfg.DEEPSEEK_API_KEY || "",
         LLM_PROVIDER: cfg.LLM_PROVIDER || "deepseek",
         OLLAMA_BASE_URL: cfg.OLLAMA_BASE_URL || "http://127.0.0.1:11434/v1",
-        OLLAMA_MODEL: cfg.OLLAMA_MODEL || "llama3.1:8b",
+        OLLAMA_MODEL: cfg.OLLAMA_MODEL || "",
         HUGGING_FACE_TOKEN: cfg.HUGGING_FACE_TOKEN || "",
+        GITHUB_TOKEN: cfg.GITHUB_TOKEN || "",
         WHISPER_MODEL_SIZE: cfg.WHISPER_MODEL_SIZE || "medium",
         KEEP_TRANSCRIPT_TIMESTAMPS: cfg.KEEP_TRANSCRIPT_TIMESTAMPS || "false",
         GMAIL_CLIENT_ID: cfg.GMAIL_CLIENT_ID || "",
@@ -412,6 +479,77 @@ export default function ConfigPanel({ onClose }: Props) {
                             />
                           </div>
                         ))}
+
+                    {/* ── Ollama Model Status — only when provider is ollama ── */}
+                    {values.LLM_PROVIDER === "ollama" && (
+                      <div className="config-section">
+                        <h3 className="config-section-title">🤖 Ollama Models</h3>
+
+                        {/* Loading state */}
+                        {ollamaModelsLoading && <p className="config-field-hint">Checking available models…</p>}
+
+                        {/* Connection error */}
+                        {ollamaModelsError && (
+                          <div className="config-ollama-error">
+                            ⚠️ {ollamaModelsError}
+                            <button className="config-ollama-retry-btn" onClick={fetchOllamaModels} disabled={ollamaModelsLoading}>
+                              ⟳ Retry
+                            </button>
+                          </div>
+                        )}
+
+                        {/* No models — show pull options */}
+                        {!ollamaModelsLoading && !ollamaModelsError && ollamaModels.length === 0 && (
+                          <div className="config-ollama-warning">
+                            <strong>🚫 No models available</strong>
+                            <p>
+                              Ollama is running but no models are pulled yet. Pull a model below to get started, or add one via the Ollama CLI.
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Available models list */}
+                        {ollamaModels.length > 0 && (
+                          <div className="config-ollama-model-list">
+                            <p className="config-field-hint">Available models on this system:</p>
+                            {ollamaModels.map((m) => (
+                              <div key={m.name} className="config-ollama-model-item">
+                                <span className="config-ollama-model-name">{m.name}</span>
+                                <span className="config-ollama-model-size">{formatOllamaSize(m.size)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Pull success/error feedback */}
+                        {pullSuccess && <div className="config-ollama-success">{pullSuccess}</div>}
+                        {pullError && <div className="config-ollama-error">{pullError}</div>}
+
+                        {/* Pull model buttons */}
+                        <div className="config-ollama-pull-section">
+                          <p className="config-field-hint">Pull a model for transcription processing:</p>
+                          <div className="config-ollama-pull-buttons">
+                            <button
+                              className="config-ollama-pull-btn"
+                              onClick={() => handlePullModel("deepseek-v2")}
+                              disabled={pullingModel !== null || activeJobs.length > 0}>
+                              {pullingModel === "deepseek-v2" ? "⟳ Pulling…" : "📥 Pull deepseek-v2"}
+                            </button>
+                            <button
+                              className="config-ollama-pull-btn"
+                              onClick={() => handlePullModel("qwen3:14b")}
+                              disabled={pullingModel !== null || activeJobs.length > 0}>
+                              {pullingModel === "qwen3:14b" ? "⟳ Pulling…" : "📥 Pull qwen3:14b"}
+                            </button>
+                          </div>
+                          {pullingModel && (
+                            <p className="config-field-hint" style={{ marginTop: 6 }}>
+                              Pulling <strong>{pullingModel}</strong> — this may take a few minutes depending on your connection speed.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
 
                     {/* Whisper Model Size — always shown */}
                     <div className="config-field">

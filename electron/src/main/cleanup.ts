@@ -55,6 +55,7 @@ export interface UninstallResult {
   success: boolean;
   userDataRemoved: boolean;
   ollamaRemoved: boolean;
+  ollamaModelsRemoved: boolean;
   errors: string[];
 }
 
@@ -75,12 +76,36 @@ function removeUserData(): boolean {
 }
 
 /**
+ * Remove the ~/.ollama models directory on any platform.
+ * Returns true if data was removed.
+ */
+function removeOllamaModels(): boolean {
+  const ollamaDir = path.join(require("os").homedir(), ".ollama");
+  if (!fs.existsSync(ollamaDir)) {
+    addLog("main", "info", "[cleanup] No Ollama models directory found at ~/.ollama");
+    return false;
+  }
+  try {
+    addLog("main", "info", `[cleanup] Removing Ollama models: ${ollamaDir}`);
+    fs.rmSync(ollamaDir, { recursive: true, force: true });
+    addLog("main", "info", "[cleanup] Ollama models removed");
+    return true;
+  } catch (err: any) {
+    addLog("main", "error", `[cleanup] Failed to remove Ollama models: ${err.message}`);
+    return false;
+  }
+}
+
+/**
  * Remove Ollama if it was auto-installed by this app.
  * Respects the sentinel file — will NOT touch a user-installed Ollama.
+ * Always removes downloaded models when uninstalling.
  */
 function removeOllama(): boolean {
   if (!isOllamaAutoInstalled()) {
     addLog("main", "info", "[cleanup] Ollama was not auto-installed by this app — skipping");
+    // Still remove models even if not auto-installed (user opted for uninstall)
+    removeOllamaModels();
     return false;
   }
 
@@ -100,7 +125,11 @@ function removeOllama(): boolean {
           // Give it a moment, then remove the directory if left behind
           setTimeout(() => {
             const dir = path.dirname(uninstaller);
-            try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ok */ }
+            try {
+              fs.rmSync(dir, { recursive: true, force: true });
+            } catch {
+              /* ok */
+            }
           }, 2000);
           break;
         }
@@ -111,13 +140,6 @@ function removeOllama(): boolean {
       if (fs.existsSync(appPath)) {
         fs.rmSync(appPath, { recursive: true, force: true });
         addLog("main", "info", "[cleanup] Removed /Applications/Ollama.app");
-      }
-      // Also remove Ollama data in ~/.ollama
-      const ollamaData = path.join(require("os").homedir(), ".ollama");
-      if (fs.existsSync(ollamaData)) {
-        addLog("main", "warn", "[cleanup] ~/.ollama/models left intact (keep downloaded models)");
-        // Don't remove models — they're large and user may want them.
-        // User can manually `rm -rf ~/.ollama` if desired.
       }
     } else {
       // Linux: remove ollama binary via package manager or direct removal
@@ -136,8 +158,15 @@ function removeOllama(): boolean {
       }
     }
 
+    // Remove downloaded models on all platforms
+    removeOllamaModels();
+
     // Remove the sentinel file
-    try { fs.unlinkSync(ollamaSentinelPath()); } catch { /* ok */ }
+    try {
+      fs.unlinkSync(ollamaSentinelPath());
+    } catch {
+      /* ok */
+    }
 
     addLog("main", "info", "[cleanup] Ollama removed");
     return true;
@@ -161,6 +190,7 @@ export async function uninstall(): Promise<UninstallResult> {
     success: true,
     userDataRemoved: false,
     ollamaRemoved: false,
+    ollamaModelsRemoved: false,
     errors: [],
   };
 
@@ -181,8 +211,11 @@ export async function uninstall(): Promise<UninstallResult> {
   // 2. Remove user data
   result.userDataRemoved = removeUserData();
 
-  // 3. Remove Ollama if auto-installed
+  // 3. Remove Ollama if auto-installed (also removes models)
   result.ollamaRemoved = removeOllama();
+  // Track whether models were removed separately (removeOllamaModels is called
+  // inside removeOllama regardless of auto-install status)
+  result.ollamaModelsRemoved = !fs.existsSync(path.join(require("os").homedir(), ".ollama"));
 
   result.success = result.errors.length === 0;
 
@@ -193,10 +226,7 @@ export async function uninstall(): Promise<UninstallResult> {
       const appBundle = path.dirname(path.dirname(appPath)); // /Applications/Transcription Agent.app
       addLog("main", "info", `[cleanup] Moving app to Trash: ${appBundle}`);
       // Use Finder to move to Trash (reliable cross-version method)
-      execSync(
-        `osascript -e 'tell app "Finder" to delete POSIX file "${appBundle.replace(/"/g, '\\"')}"'`,
-        { timeout: 10_000, stdio: "pipe" },
-      );
+      execSync(`osascript -e 'tell app "Finder" to delete POSIX file "${appBundle.replace(/"/g, '\\"')}"'`, { timeout: 10_000, stdio: "pipe" });
       addLog("main", "info", "[cleanup] App moved to Trash");
     } catch (err: any) {
       // Non-critical — user can manually trash it

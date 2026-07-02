@@ -68,6 +68,7 @@ export interface StorageUsage {
   chroma: { bytes: number; human: string; path?: string | null };
   databases: { bytes: number; human: string; path?: string | null };
   system: { bytes: number; human: string; path?: string | null };
+  ollama: { bytes: number; human: string; path?: string | null };
   total: { bytes: number; human: string };
   error?: string;
 }
@@ -101,6 +102,10 @@ export interface ElectronAPI {
     electron: Array<{ type: string; pid: number; cpu: number | null; memory: number | null; peakMemory: number | null }>;
     children: Array<{ service: string; pid: number; cpu: number; memory: number; elapsed: number }>;
   }>;
+  // ── Ollama Model Management ──
+  listOllamaModels: () => Promise<{ models: Array<{ name: string; size: number; modified_at: string }>; error: string | null }>;
+  pullOllamaModel: (modelName: string) => Promise<{ success: boolean; error: string | null }>;
+
   // ── Auto-Update ──
   getUpdateStatus: () => Promise<{
     mode: "dev" | "packaged";

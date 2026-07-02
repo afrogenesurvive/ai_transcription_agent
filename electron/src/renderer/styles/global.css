@@ -2072,6 +2072,145 @@ body {
   margin-bottom: 2px;
 }
 
+/* ── Ollama Model Section (ConfigPanel) ── */
+
+.config-ollama-warning {
+  background: rgba(210, 153, 34, 0.12);
+  border: 1px solid rgba(210, 153, 34, 0.35);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  color: var(--orange);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.config-ollama-warning strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--orange);
+}
+
+.config-ollama-warning p {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin: 0;
+}
+
+.config-ollama-error {
+  background: rgba(248, 81, 73, 0.1);
+  border: 1px solid rgba(248, 81, 73, 0.3);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  color: var(--red);
+  font-size: 12px;
+  line-height: 1.5;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.config-ollama-success {
+  background: rgba(63, 185, 80, 0.1);
+  border: 1px solid rgba(63, 185, 80, 0.3);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  color: var(--green);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.config-ollama-retry-btn {
+  background: none;
+  border: 1px solid var(--red);
+  color: var(--red);
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  font-family: var(--font);
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.config-ollama-retry-btn:hover:not(:disabled) {
+  background: var(--red);
+  color: #fff;
+}
+
+.config-ollama-retry-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.config-ollama-model-list {
+  margin-bottom: 12px;
+}
+
+.config-ollama-model-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+.config-ollama-model-name {
+  font-weight: 500;
+  color: var(--text);
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  font-size: 12px;
+}
+
+.config-ollama-model-size {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.config-ollama-pull-section {
+  margin-top: 8px;
+}
+
+.config-ollama-pull-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.config-ollama-pull-btn {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--font);
+  transition: all 0.15s;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.config-ollama-pull-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--surface-hover);
+  color: var(--accent);
+}
+
+.config-ollama-pull-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ── DevPanel — tab bar ── */
 
 .dev-panel-tabs {

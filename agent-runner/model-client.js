@@ -28,7 +28,16 @@ function createClient() {
 }
 
 function getModel() {
-  if (PROVIDER === "ollama") return process.env.OLLAMA_MODEL || "llama3.1:8b";
+  if (PROVIDER === "ollama") {
+    const model = process.env.OLLAMA_MODEL;
+    if (!model) {
+      throw new Error(
+        "OLLAMA_MODEL not configured. Set a model name in Config (e.g. deepseek-v2, qwen3:14b) " +
+          "or pull one from the Ollama section in the Configuration panel.",
+      );
+    }
+    return model;
+  }
   return process.env.API_AGENT_MODEL || "deepseek-v4-flash";
 }
 

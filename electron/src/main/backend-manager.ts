@@ -269,12 +269,18 @@ function ollamaInstallPaths(): string[] {
 function isOllamaInstalled(): boolean {
   for (const p of ollamaInstallPaths()) {
     try {
-      execSync(`"${p}" --version 2>/dev/null || ${p} --version`, { stdio: "pipe", timeout: 5000 });
+      const versionOutput = execSync(`"${p}" --version 2>/dev/null || ${p} --version`, {
+        encoding: "utf8",
+        stdio: "pipe",
+        timeout: 5000,
+      }).trim();
+      addLog("main", "info", `[ollama] Binary found at "${p}": ${versionOutput}`);
       return true;
     } catch {
       continue;
     }
   }
+  addLog("main", "warn", "[ollama] No Ollama binary found on system");
   return false;
 }
 
@@ -335,16 +341,27 @@ async function installOllama(): Promise<void> {
     const exePath = path.join(tmpDir, "OllamaSetup.exe");
     await downloadFile("https://ollama.com/download/OllamaSetup.exe", exePath);
     addLog("main", "info", "[ollama] Running OllamaSetup.exe (silent install)...");
-    execSync(`"${exePath}" /S`, { stdio: "inherit", timeout: 120_000 });
+    const winOutput = execSync(`"${exePath}" /S`, { encoding: "utf8", stdio: "pipe", timeout: 120_000 }).trim();
+    if (winOutput) addLog("main", "info", `[ollama:install] ${winOutput}`);
   } else if (process.platform === "darwin") {
     const zipPath = path.join(tmpDir, "Ollama-darwin.zip");
     await downloadFile("https://ollama.com/download/Ollama-darwin.zip", zipPath);
     addLog("main", "info", "[ollama] Extracting Ollama.app to /Applications...");
-    execSync(`unzip -o "${zipPath}" -d /Applications && rm -f "${zipPath}"`, { stdio: "inherit", timeout: 60_000 });
+    const macOutput = execSync(`unzip -o "${zipPath}" -d /Applications && rm -f "${zipPath}"`, {
+      encoding: "utf8",
+      stdio: "pipe",
+      timeout: 60_000,
+    }).trim();
+    if (macOutput) addLog("main", "info", `[ollama:install] ${macOutput.split("\n").slice(0, 5).join("; ")}...`);
   } else {
     // Linux — pipe install script directly into sh
     addLog("main", "info", "[ollama] Running Ollama Linux install script...");
-    execSync(`curl -fsSL https://ollama.com/install.sh | sh`, { stdio: "inherit", timeout: 120_000 });
+    const linuxOutput = execSync(`curl -fsSL https://ollama.com/install.sh | sh`, {
+      encoding: "utf8",
+      stdio: "pipe",
+      timeout: 120_000,
+    }).trim();
+    if (linuxOutput) addLog("main", "info", `[ollama:install] ${linuxOutput.split("\n").slice(-3).join("; ")}`);
   }
 
   // Write a sentinel so the uninstaller knows Ollama was auto-installed
@@ -360,19 +377,45 @@ async function installOllama(): Promise<void> {
 }
 
 /**
- * Try to fetch the Ollama server health endpoint.
+ * Try to fetch the Ollama server health endpoint using the REST API.
+ *
+ * Uses Ollama's REST API directly (no SDK) — the HTTP endpoint at /api/tags
+ * returns all pulled models if the server is running. This is the same API
+ * surfaced by the `ollama list` CLI command.
+ *
+ * The response is logged so users can see what models Ollama reports.
  */
 async function checkOllamaServer(baseUrl: string, timeoutMs = 3000): Promise<boolean> {
   try {
     const res = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(timeoutMs) });
+    if (res.ok) {
+      const data = await res.json();
+      const modelCount = (data.models || []).length;
+      addLog("main", "info", `[ollama] Server healthy at ${baseUrl} (${modelCount} model(s) pulled)`);
+      if (modelCount > 0) {
+        const names = data.models.map((m: any) => m.name).join(", ");
+        addLog("main", "info", `[ollama] Available models: ${names}`);
+      }
+    } else {
+      addLog("main", "warn", `[ollama] Server at ${baseUrl} returned status ${res.status}`);
+    }
     return res.ok;
-  } catch {
+  } catch (err: any) {
+    addLog("main", "debug", `[ollama] Server check failed for ${baseUrl}: ${err.message}`);
     return false;
   }
 }
 
 /**
  * Try to launch the Ollama app/server.
+ *
+ * Uses raw CLI commands (ollama serve, open -a Ollama, etc.) rather than an
+ * Ollama SDK. The Ollama server exposes its own REST API on :11434 which the
+ * app uses for model management (list, pull) and the OpenAI-compatible endpoint
+ * for LLM inference (via the openai npm package).
+ *
+ * CLI output is captured and routed through our logging system so users can
+ * see Ollama's own log messages in the DevPanel.
  */
 function launchOllama(): boolean {
   try {
@@ -386,16 +429,39 @@ function launchOllama(): boolean {
         }
       });
       const bin = installedPath || "ollama";
-      execSync(`"${bin}" serve`, { stdio: "ignore", timeout: 3000 });
+      addLog("main", "info", `[ollama] Launching: ${bin} serve`);
+      // Use spawn so we can capture output — but for the launch we use
+      // execSync to start it. On Windows the server detaches.
+      const output = execSync(`"${bin}" serve`, { encoding: "utf8", stdio: "pipe", timeout: 3000 }).trim();
+      if (output) addLog("main", "info", `[ollama:serve] ${output}`);
     } else if (process.platform === "darwin") {
-      execSync("open -a Ollama", { stdio: "ignore", timeout: 3000 });
+      addLog("main", "info", "[ollama] Launching: open -a Ollama");
+      // On macOS, Ollama runs as a GUI app (menu bar icon). We launch it via
+      // `open` which doesn't return server output. The server logs are
+      // accessible through the Ollama menu bar app or via the REST API.
+      // We cannot directly capture the server daemon's stdout/stderr here
+      // because it's launched by the GUI process, not by us.
+      const output = execSync("open -a Ollama", { encoding: "utf8", stdio: "pipe", timeout: 3000 }).trim();
+      if (output) addLog("main", "info", `[ollama:open] ${output}`);
     } else {
-      execSync("ollama serve", { stdio: "ignore", timeout: 3000 });
+      addLog("main", "info", "[ollama] Launching: ollama serve");
+      // On Linux, ollama serve runs in the foreground. We capture its initial
+      // output to confirm it started, then the process continues in background.
+      const output = execSync("ollama serve", { encoding: "utf8", stdio: "pipe", timeout: 3000 }).trim();
+      if (output) addLog("main", "info", `[ollama:serve] ${output}`);
     }
     addLog("main", "info", "[ollama] Launch command sent");
     return true;
-  } catch {
-    addLog("main", "warn", "[ollama] Could not launch Ollama");
+  } catch (err: any) {
+    // execSync throws on non-zero exit OR timeout. On macOS, `open` exits
+    // immediately and the Ollama server starts as a background daemon —
+    // its stdout/stderr are not captured by our execSync. The catch is
+    // expected for short-lived commands that exit before the Ollama server
+    // is fully ready. We rely on checkOllamaServer() for actual readiness.
+    // Log the error but don't treat it as a failure.
+    if (err.stdout) addLog("main", "info", `[ollama:launch:stdout] ${err.stdout.toString().trim()}`);
+    if (err.stderr) addLog("main", "warn", `[ollama:launch:stderr] ${err.stderr.toString().trim()}`);
+    addLog("main", "warn", `[ollama] Launch process exited: ${err.message}`);
     return false;
   }
 }

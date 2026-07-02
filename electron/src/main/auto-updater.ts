@@ -21,6 +21,7 @@ import fs from "fs";
 import { app, ipcMain, Notification } from "electron";
 import { addLog } from "./logger";
 import { stopAll } from "./backend-manager";
+import { getConfig } from "./config";
 
 const IS_WIN = process.platform === "win32";
 
@@ -57,6 +58,21 @@ interface UpdateState {
 }
 
 const isPackaged = app.isPackaged;
+
+// ── Seed GH_TOKEN from config for electron-updater (packaged mode) ──
+// electron-updater's GitHub provider reads process.env.GH_TOKEN at runtime.
+// Set it now so the user's PAT from config is available.
+(function initGitHubToken(): void {
+  try {
+    const token = getConfig().GITHUB_TOKEN;
+    if (token && !process.env.GH_TOKEN) {
+      process.env.GH_TOKEN = token;
+      addLog("main", "info", "[auto-update] GH_TOKEN set from app config");
+    }
+  } catch {
+    // Config not ready yet — will be retried in checkAndUpdate()
+  }
+})();
 
 let state: UpdateState = {
   mode: isPackaged ? "packaged" : "dev",
@@ -107,9 +123,59 @@ function currentBranch(): string {
   }
 }
 
+/**
+ * Get the configured GitHub PAT from the app config (if any).
+ * electron-updater also auto-picks up process.env.GH_TOKEN in packaged mode.
+ */
+function getGitHubToken(): string {
+  return getConfig().GITHUB_TOKEN || process.env.GH_TOKEN || "";
+}
+
+/**
+ * Rewrite the git remote origin URL to include a GitHub PAT for authentication.
+ *
+ * Transforms: https://github.com/owner/repo.git
+ *         → https://x-access-token:<PAT>@github.com/owner/repo.git
+ *
+ * Restores the original URL after the operation. No-op if no PAT is configured
+ * or the remote is already using SSH (git@).
+ */
+function withPatOrigin<T>(fn: () => T): T {
+  const pat = getGitHubToken();
+  if (!pat) return fn();
+
+  let originalUrl: string | null = null;
+  try {
+    originalUrl = git(["remote", "get-url", "origin"], 5000);
+    // Only rewrite HTTPS URLs — SSH URLs (git@) use keys, not tokens
+    if (originalUrl.startsWith("https://")) {
+      const authedUrl = originalUrl.replace("https://", `https://x-access-token:${pat}@`);
+      git(["remote", "set-url", "origin", authedUrl], 5000);
+      addLog("main", "info", "[auto-update] Using PAT-authenticated remote for git fetch");
+    }
+  } catch {
+    addLog("main", "warn", "[auto-update] Could not read git remote URL — proceeding without PAT");
+  }
+
+  try {
+    return fn();
+  } finally {
+    // Restore original URL
+    if (originalUrl) {
+      try {
+        git(["remote", "set-url", "origin", originalUrl], 5000);
+      } catch {
+        // non-critical
+      }
+    }
+  }
+}
+
 function fetchOrigin(): boolean {
   try {
-    git(["fetch", "origin"], GIT_FETCH_TIMEOUT_MS);
+    withPatOrigin(() => {
+      git(["fetch", "origin"], GIT_FETCH_TIMEOUT_MS);
+    });
     return true;
   } catch (err: any) {
     addLog("main", "error", `[auto-update] git fetch failed: ${err.message}`);
@@ -342,6 +408,18 @@ export async function checkAndUpdate(force = false): Promise<{
   if (state.checking) return { updateAvailable: false, details: null, error: "Already checking" };
   state.checking = true;
   state.error = null;
+
+  // Refresh GH_TOKEN from config in case user just saved it
+  try {
+    const token = getConfig().GITHUB_TOKEN;
+    if (token) {
+      if (!process.env.GH_TOKEN) process.env.GH_TOKEN = token;
+      if (!process.env.GITHUB_TOKEN) process.env.GITHUB_TOKEN = token;
+    }
+  } catch {
+    // config not ready
+  }
+
   try {
     return isPackaged ? await checkPackagedUpdate() : await checkDevUpdate(force);
   } finally {
