@@ -160,25 +160,28 @@ export default function ConfigPanel({ onClose }: Props) {
   }, [fetchOllamaModels]);
 
   // Pull a model from Ollama
-  const handlePullModel = useCallback(async (modelName: string) => {
-    setPullingModel(modelName);
-    setPullSuccess(null);
-    setPullError(null);
-    try {
-      const result = await window.electronAPI?.pullOllamaModel(modelName);
-      if (result?.success) {
-        setPullSuccess(`✅ Model "${modelName}" pulled successfully`);
-        // Refresh the model list
-        await fetchOllamaModels();
-      } else {
-        setPullError(result?.error || `Failed to pull ${modelName}`);
+  const handlePullModel = useCallback(
+    async (modelName: string) => {
+      setPullingModel(modelName);
+      setPullSuccess(null);
+      setPullError(null);
+      try {
+        const result = await window.electronAPI?.pullOllamaModel(modelName);
+        if (result?.success) {
+          setPullSuccess(`✅ Model "${modelName}" pulled successfully`);
+          // Refresh the model list
+          await fetchOllamaModels();
+        } else {
+          setPullError(result?.error || `Failed to pull ${modelName}`);
+        }
+      } catch (err: any) {
+        setPullError(err.message || `Failed to pull ${modelName}`);
+      } finally {
+        setPullingModel(null);
       }
-    } catch (err: any) {
-      setPullError(err.message || `Failed to pull ${modelName}`);
-    } finally {
-      setPullingModel(null);
-    }
-  }, [fetchOllamaModels]);
+    },
+    [fetchOllamaModels],
+  );
 
   // Active jobs guard — editing agent instructions is blocked while jobs run
   const [activeJobs, setActiveJobs] = useState<any[]>([]);
@@ -394,8 +397,8 @@ export default function ConfigPanel({ onClose }: Props) {
               ))}
             </ul>
             <p>
-              Configuration cannot be modified while jobs are in progress. Switch to <strong>👁️ View Current</strong> mode to review, or
-              wait for jobs to complete.
+              Configuration cannot be modified while jobs are in progress. Switch to <strong>👁️ View Current</strong> mode to review, or wait for jobs
+              to complete.
             </p>
           </div>
         )}
@@ -468,7 +471,14 @@ export default function ConfigPanel({ onClose }: Props) {
 
                     {values.LLM_PROVIDER === "ollama" &&
                       fields
-                        .filter((f) => f.key !== "DEEPSEEK_API_KEY" && f.key !== "OLLAMA_MODEL" && f.key !== "OLLAMA_NUM_CTX" && f.key !== "WHISPER_MODEL_SIZE" && f.key !== "KEEP_TRANSCRIPT_TIMESTAMPS")
+                        .filter(
+                          (f) =>
+                            f.key !== "DEEPSEEK_API_KEY" &&
+                            f.key !== "OLLAMA_MODEL" &&
+                            f.key !== "OLLAMA_NUM_CTX" &&
+                            f.key !== "WHISPER_MODEL_SIZE" &&
+                            f.key !== "KEEP_TRANSCRIPT_TIMESTAMPS",
+                        )
                         .map((field) => (
                           <div key={field.key} className="config-field">
                             <label className="config-label">{field.label}</label>
@@ -548,9 +558,7 @@ export default function ConfigPanel({ onClose }: Props) {
                         {!ollamaModelsLoading && !ollamaModelsError && ollamaModels.length === 0 && (
                           <div className="config-ollama-warning">
                             <strong>🚫 No models available</strong>
-                            <p>
-                              Ollama is running but no models are pulled yet. Pull a model below to get started, or add one via the Ollama CLI.
-                            </p>
+                            <p>Ollama is running but no models are pulled yet. Pull a model below to get started, or add one via the Ollama CLI.</p>
                           </div>
                         )}
 
@@ -618,7 +626,7 @@ export default function ConfigPanel({ onClose }: Props) {
                           type="checkbox"
                           checked={values.KEEP_TRANSCRIPT_TIMESTAMPS === "true"}
                           onChange={(e) => handleChange("KEEP_TRANSCRIPT_TIMESTAMPS", e.target.checked ? "true" : "false")}
-                          disabled={activeJobs.length > 0} />
+                          disabled={activeJobs.length > 0}
                         />
                         <span className="config-toggle-slider" />
                         <span className="config-toggle-label">
@@ -912,7 +920,11 @@ export default function ConfigPanel({ onClose }: Props) {
               <p className="config-field-hint">
                 Only log entries at or above this severity will be written to disk. &quot;off&quot; disables all disk logging.
               </p>
-              <select className="config-select" value={values.LOG_LEVEL || "info"} onChange={(e) => handleChange("LOG_LEVEL", e.target.value)} disabled={activeJobs.length > 0}>
+              <select
+                className="config-select"
+                value={values.LOG_LEVEL || "info"}
+                onChange={(e) => handleChange("LOG_LEVEL", e.target.value)}
+                disabled={activeJobs.length > 0}>
                 <option value="debug">debug — everything (most verbose)</option>
                 <option value="info">info — info + warnings + errors (recommended)</option>
                 <option value="warn">warn — warnings + errors only</option>
