@@ -21,6 +21,7 @@ import { stopAll } from "./backend-manager";
 const IS_WIN = process.platform === "win32";
 const IS_MAC = process.platform === "darwin";
 const OLLAMA_SENTINEL = ".ollama-auto-installed";
+const FFPEG_SENTINEL = ".ffmpeg-auto-installed";
 
 // ── Paths ──
 
@@ -49,6 +50,47 @@ function isOllamaAutoInstalled(): boolean {
   return fs.existsSync(ollamaSentinelPath());
 }
 
+// ── ffmpeg ──
+
+/** Path to the sentinel file that tracks whether this app auto-installed ffmpeg. */
+function ffmpegSentinelPath(): string {
+  return path.join(userDataDir(), FFPEG_SENTINEL);
+}
+
+/** Path where the managed ffmpeg binary was placed. */
+function ffmpegManagedPath(): string {
+  return path.join(userDataDir(), "bin", IS_WIN ? "ffmpeg.exe" : "ffmpeg");
+}
+
+/** Remove ffmpeg if it was auto-installed by this app. */
+function removeFfmpeg(): boolean {
+  if (!fs.existsSync(ffmpegSentinelPath())) {
+    addLog("main", "info", "[cleanup] ffmpeg was not auto-installed by this app — skipping");
+    return false;
+  }
+
+  addLog("main", "info", "[cleanup] Removing auto-installed ffmpeg...");
+  try {
+    const binPath = ffmpegManagedPath();
+    if (fs.existsSync(binPath)) {
+      fs.rmSync(binPath, { force: true });
+      addLog("main", "info", `[cleanup] Removed ffmpeg binary: ${binPath}`);
+    }
+    // Remove the bin directory if empty
+    const binDir = path.dirname(binPath);
+    if (fs.existsSync(binDir) && fs.readdirSync(binDir).length === 0) {
+      fs.rmSync(binDir, { recursive: true, force: true });
+    }
+    // Remove sentinel
+    fs.unlinkSync(ffmpegSentinelPath());
+    addLog("main", "info", "[cleanup] ffmpeg removed");
+    return true;
+  } catch (err: any) {
+    addLog("main", "error", `[cleanup] Failed to remove ffmpeg: ${err.message}`);
+    return false;
+  }
+}
+
 // ── Uninstall ──
 
 export interface UninstallResult {
@@ -56,6 +98,7 @@ export interface UninstallResult {
   userDataRemoved: boolean;
   ollamaRemoved: boolean;
   ollamaModelsRemoved: boolean;
+  ffmpegRemoved: boolean;
   errors: string[];
 }
 
@@ -191,6 +234,7 @@ export async function uninstall(): Promise<UninstallResult> {
     userDataRemoved: false,
     ollamaRemoved: false,
     ollamaModelsRemoved: false,
+    ffmpegRemoved: false,
     errors: [],
   };
 
@@ -217,9 +261,12 @@ export async function uninstall(): Promise<UninstallResult> {
   // inside removeOllama regardless of auto-install status)
   result.ollamaModelsRemoved = !fs.existsSync(path.join(require("os").homedir(), ".ollama"));
 
+  // 4. Remove ffmpeg if auto-installed
+  result.ffmpegRemoved = removeFfmpeg();
+
   result.success = result.errors.length === 0;
 
-  // 4. On macOS, move app to Trash automatically
+  // 5. On macOS, move app to Trash automatically
   if (IS_MAC && result.userDataRemoved) {
     try {
       const appPath = app.getPath("exe"); // e.g. /Applications/Transcription Agent.app/Contents/MacOS/Transcription Agent

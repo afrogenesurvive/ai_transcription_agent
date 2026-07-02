@@ -19,6 +19,7 @@ import {
   startBridgeServer,
   startAgentRunner,
   ensureOllamaRunning,
+  ensureFfmpegAvailable,
   stopAll,
   restartAll,
   restartPythonBackend,
@@ -612,6 +613,9 @@ app.whenReady().then(async () => {
 
   // Then start backend services
   try {
+    // Ensure ffmpeg is available for audio standardization
+    await ensureFfmpegAvailable();
+
     // Python and Bridge don't need API keys — always safe to start
     await startPythonBackend();
     await startBridgeServer();

@@ -144,10 +144,15 @@ export async function startPythonBackend(port = 5001): Promise<void> {
   console.log(`[backend] Starting Python backend at ${backendDir}`);
   console.log(`[backend] Using: ${pythonBin} ${pythonArgs.join(" ") || "(standalone binary)"}`);
 
+  // Determine ffmpeg path: managed binary (userData/bin/ffmpeg) or system PATH
+  const ffmpegPath = ffmpegTargetPath();
+  const ffmpegEnv = fs.existsSync(ffmpegPath) ? { FFMPEG_PATH: ffmpegPath } : {};
+
   pythonProcess = spawn(pythonBin, pythonArgs, {
     cwd: backendDir,
     env: {
       ...getChildEnv(),
+      ...ffmpegEnv,
       TRANSCRIPTION_PORT: String(port),
       TRANSCRIPTION_STORAGE: path.join(app.getPath("userData"), "storage"),
       TRANSCRIPTION_QUEUE_DIR: path.join(app.getPath("userData"), "queue"),
@@ -522,7 +527,156 @@ export async function ensureOllamaRunning(): Promise<boolean> {
   addLog("main", "warn", "[ollama] Ollama did not start in time — agent runner will retry on connection");
   return false;
 }
+// \u2500\u2500 ffmpeg \u2014 Download & Install \u2500\u2500
 
+/** Known ffmpeg install paths per platform. */
+function ffmpegInstallPaths(): string[] {
+  const managedPath = path.join(app.getPath("userData"), "bin", IS_WIN ? "ffmpeg.exe" : "ffmpeg");
+  return [managedPath, "ffmpeg"];
+}
+
+/** Path where we place the managed ffmpeg binary. */
+function ffmpegTargetPath(): string {
+  return path.join(app.getPath("userData"), "bin", IS_WIN ? "ffmpeg.exe" : "ffmpeg");
+}
+
+/** ffmpeg download URLs per platform. */
+function ffmpegDownloadUrl(): string {
+  if (IS_WIN) return "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
+  if (process.platform === "darwin") return "https://evermeet.cx/ffmpeg/ffmpeg-7.1.zip";
+  // Linux \u2014 johnvansickle.com static build
+  return "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz";
+}
+
+/** Check if ffmpeg is available (on PATH or already installed by us). */
+function isFfmpegInstalled(): boolean {
+  for (const p of ffmpegInstallPaths()) {
+    try {
+      execSync(`\"${p}\" -version 2>/dev/null || ${p} -version`, {
+        encoding: "utf8",
+        stdio: "pipe",
+        timeout: 5000,
+      }).trim();
+      return true;
+    } catch {
+      continue;
+    }
+  }
+  return false;
+}
+
+/**
+ * Download and extract ffmpeg to userData/bin/.
+ *
+ * - macOS: download .zip, extract single ffmpeg binary
+ * - Windows: download .zip, find ffmpeg.exe in the extracted tree
+ * - Linux: download .tar.xz, find ffmpeg binary
+ *
+ * Throws on failure.
+ */
+async function installFfmpeg(): Promise<void> {
+  const tmpDir = app.getPath("temp");
+  const targetDir = path.join(app.getPath("userData"), "bin");
+  fs.mkdirSync(targetDir, { recursive: true });
+
+  addLog("main", "info", `[ffmpeg] Not found \u2014 downloading & installing...`);
+
+  if (IS_WIN) {
+    const zipPath = path.join(tmpDir, "ffmpeg.zip");
+    await downloadFile(ffmpegDownloadUrl(), zipPath);
+
+    addLog("main", "info", "[ffmpeg] Extracting ffmpeg.zip...");
+    const extractDir = path.join(tmpDir, "ffmpeg_extract");
+    fs.mkdirSync(extractDir, { recursive: true });
+
+    // Use PowerShell to expand the zip
+    execSync(`powershell -Command \"Expand-Archive -Path '${zipPath}' -DestinationPath '${extractDir}' -Force\"`, { stdio: "pipe", timeout: 60_000 });
+
+    // Find ffmpeg.exe anywhere in the extracted tree
+    const result = execSync(`where /r \"${extractDir}\" ffmpeg.exe 2>nul || dir /s /b \"${extractDir}\"\\ffmpeg.exe 2>nul`, {
+      encoding: "utf8",
+      timeout: 10_000,
+    }).trim();
+    const exePath = result.split(/\r?\n/)[0];
+    if (!exePath) throw new Error("Could not find ffmpeg.exe in extracted archive");
+
+    fs.copyFileSync(exePath, ffmpegTargetPath());
+    addLog("main", "info", `[ffmpeg] Installed to ${ffmpegTargetPath()}`);
+
+    // Cleanup
+    fs.rmSync(zipPath, { force: true });
+    fs.rmSync(extractDir, { recursive: true, force: true });
+  } else {
+    const archivePath = path.join(tmpDir, "ffmpeg-archive");
+    const extractDir = path.join(tmpDir, "ffmpeg_extract");
+    fs.mkdirSync(extractDir, { recursive: true });
+
+    if (process.platform === "darwin") {
+      // macOS .zip
+      await downloadFile(ffmpegDownloadUrl(), archivePath);
+      addLog("main", "info", "[ffmpeg] Extracting zip...");
+      execSync(`unzip -o \"${archivePath}\" -d \"${extractDir}\"`, { stdio: "pipe", timeout: 30_000 });
+    } else {
+      // Linux .tar.xz
+      await downloadFile(ffmpegDownloadUrl(), archivePath);
+      addLog("main", "info", "[ffmpeg] Extracting tar.xz...");
+      execSync(`tar -xf \"${archivePath}\" -C \"${extractDir}\"`, { stdio: "pipe", timeout: 30_000 });
+    }
+
+    // Find the ffmpeg binary in the extracted tree
+    const result = execSync(`find \"${extractDir}\" -name \"ffmpeg\" -type f | head -1`, { encoding: "utf8", timeout: 10_000 }).trim();
+    if (!result) throw new Error("Could not find ffmpeg binary in extracted archive");
+
+    fs.copyFileSync(result, ffmpegTargetPath());
+    fs.chmodSync(ffmpegTargetPath(), 0o755);
+    addLog("main", "info", `[ffmpeg] Installed to ${ffmpegTargetPath()}`);
+
+    // Cleanup
+    fs.rmSync(archivePath, { force: true });
+    fs.rmSync(extractDir, { recursive: true, force: true });
+  }
+
+  // Write a sentinel so the uninstaller knows ffmpeg was auto-installed
+  try {
+    const sentinelPath = path.join(app.getPath("userData"), ".ffmpeg-auto-installed");
+    fs.writeFileSync(sentinelPath, new Date().toISOString(), "utf8");
+    addLog("main", "info", "[ffmpeg] Marked as auto-installed for clean uninstall");
+  } catch {
+    // non-critical
+  }
+
+  addLog("main", "info", "[ffmpeg] Installation complete");
+}
+
+/**
+ * Ensure ffmpeg is available before starting the Python backend.
+ *
+ * Steps:
+ *   1. Check if ffmpeg is on PATH or already managed
+ *   2. If not, download and install to userData/bin/
+ *   3. Set FFMPEG_PATH env var for the Python backend
+ */
+export async function ensureFfmpegAvailable(): Promise<string | null> {
+  addLog("main", "info", "[ffmpeg] Checking availability...");
+
+  if (isFfmpegInstalled()) {
+    addLog("main", "info", "[ffmpeg] Already available");
+    // Return the managed path if it exists, otherwise null (system PATH)
+    const managed = ffmpegTargetPath();
+    if (fs.existsSync(managed)) return managed;
+    return null;
+  }
+
+  addLog("main", "info", "[ffmpeg] Not found on system \u2014 will download and install");
+  try {
+    await installFfmpeg();
+    return ffmpegTargetPath();
+  } catch (err: any) {
+    addLog("main", "error", `[ffmpeg] Installation failed: ${err.message}`);
+    addLog("main", "warn", "[ffmpeg] Audio standardization will fail \u2014 install ffmpeg manually or check internet connection");
+    return null;
+  }
+}
 export async function startAgentRunner(): Promise<void> {
   const agentDir = resourcePath("agent-runner");
   const nodeBin = resolveNodeBin();
