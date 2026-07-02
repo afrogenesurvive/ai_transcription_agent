@@ -548,7 +548,10 @@ app.whenReady().then(async () => {
     const msg = `Failed to start backend: ${err.message}`;
     console.error(msg);
     addLog("main", "error", msg);
-    dialog.showErrorBox("Backend Error", "Could not start the transcription backend. Make sure Python 3 and Node.js are installed.");
+    dialog.showErrorBox(
+      "Backend Error",
+      "Could not start the transcription backend. If you're running a development build, make sure Python 3 and Node.js are installed. Packaged builds bundle all dependencies automatically.",
+    );
   }
 
   // Start auto-updater (checks for repo updates every 12 hours)

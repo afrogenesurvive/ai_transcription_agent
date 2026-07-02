@@ -10,6 +10,7 @@
  */
 
 import { spawn, ChildProcess, execSync } from "child_process";
+import fs from "fs";
 import path from "path";
 import { app } from "electron";
 import { addLog } from "./logger";
@@ -18,11 +19,26 @@ import { getChildEnv } from "./config";
 const isProd = app.isPackaged;
 const IS_WIN = process.platform === "win32";
 
-/** Platform-aware Python binary name */
+/** Platform-aware Python binary name (dev fallback) */
 const PYTHON_BIN = IS_WIN ? "python" : "python3";
 
-/** Platform-aware Node binary name */
-const NODE_BIN = IS_WIN ? "node.exe" : "node";
+/**
+ * Resolve the Node.js binary path.
+ *
+ * In production (packaged), uses the bundled binary from extraResources.
+ * In development, falls back to the system PATH.
+ */
+function resolveNodeBin(): string {
+  if (isProd) {
+    const bundled = path.join(process.resourcesPath, "node-bin", IS_WIN ? "node.exe" : "node");
+    if (fs.existsSync(bundled)) {
+      console.log(`[backend] Using bundled Node.js: ${bundled}`);
+      return bundled;
+    }
+    console.log(`[backend] Bundled Node.js not found at ${bundled} — falling back to system PATH`);
+  }
+  return IS_WIN ? "node.exe" : "node";
+}
 
 /** Kill any process listening on the given TCP port (macOS/Linux only). */
 export async function killProcessOnPort(port: number): Promise<void> {
@@ -80,13 +96,24 @@ async function killProcess(proc: ChildProcess): Promise<void> {
   }
 }
 
-/** Resolve the Python binary path, preferring the project venv. */
-function resolvePythonBin(backendDir: string): string {
-  // Try venv first (dev, or production if venv was bundled)
+/** Resolve the Python backend binary path. */
+function resolvePythonBin(backendDir: string): { bin: string; args: string[] } {
+  // Production (packaged): use PyInstaller standalone binary
+  if (isProd) {
+    const pyBin = path.join(backendDir, IS_WIN ? "main.exe" : "main");
+    if (fs.existsSync(pyBin)) {
+      console.log(`[backend] Using standalone Python binary: ${pyBin}`);
+      return { bin: pyBin, args: [] };
+    }
+    console.log(`[backend] Standalone binary not found at ${pyBin} — falling back to system Python`);
+  }
+
+  // Dev: try venv first, then system Python
   const venvPython = path.join(backendDir, IS_WIN ? "venv\\Scripts\\python.exe" : "venv", "bin", PYTHON_BIN);
-  if (require("fs").existsSync(venvPython)) return venvPython;
-  // Fall back to system Python (expected in production on end-user machines)
-  return PYTHON_BIN;
+  if (fs.existsSync(venvPython)) {
+    return { bin: venvPython, args: ["main.py"] };
+  }
+  return { bin: PYTHON_BIN, args: ["main.py"] };
 }
 
 // ── Python Backend ──
@@ -112,12 +139,12 @@ export async function startPythonBackend(port = 5001): Promise<void> {
   await killProcessOnPort(port);
 
   const backendDir = resourcePath("python-backend");
-  const pythonBin = resolvePythonBin(backendDir);
+  const { bin: pythonBin, args: pythonArgs } = resolvePythonBin(backendDir);
 
   console.log(`[backend] Starting Python backend at ${backendDir}`);
-  console.log(`[backend] Using: ${pythonBin} main.py`);
+  console.log(`[backend] Using: ${pythonBin} ${pythonArgs.join(" ") || "(standalone binary)"}`);
 
-  pythonProcess = spawn(pythonBin, ["main.py"], {
+  pythonProcess = spawn(pythonBin, pythonArgs, {
     cwd: backendDir,
     env: {
       ...getChildEnv(),
@@ -166,7 +193,7 @@ export async function startBridgeServer(bridgePort = 5010, pythonPort = 5001): P
   await killProcessOnPort(bridgePort);
 
   const bridgeDir = resourcePath("bridge-server");
-  const nodeBin = NODE_BIN;
+  const nodeBin = resolveNodeBin();
 
   console.log(`[bridge] Starting bridge server at ${bridgeDir}`);
 
@@ -219,11 +246,161 @@ export function isAgentRunning(): boolean {
   return agentProcess !== null && agentProcess.exitCode === null;
 }
 
+// ── Ollama — Download & Install ──
+
+/** Known Ollama install paths per platform. */
+function ollamaInstallPaths(): string[] {
+  if (IS_WIN) {
+    return [
+      path.join(process.env.LOCALAPPDATA || "", "Programs", "Ollama", "ollama.exe"),
+      path.join(process.env.PROGRAMFILES || "", "Ollama", "ollama.exe"),
+      path.join(process.env.PROGRAMFILES || "", "Ollama", "ollama.exe"),
+      "ollama",
+    ];
+  }
+  if (process.platform === "darwin") {
+    return ["/Applications/Ollama.app/Contents/MacOS/Ollama", "ollama"];
+  }
+  // Linux
+  return ["ollama"];
+}
+
+/** Check if the Ollama binary is installed on the system. */
+function isOllamaInstalled(): boolean {
+  for (const p of ollamaInstallPaths()) {
+    try {
+      execSync(`"${p}" --version 2>/dev/null || ${p} --version`, { stdio: "pipe", timeout: 5000 });
+      return true;
+    } catch {
+      continue;
+    }
+  }
+  return false;
+}
+
+/** Ollama download URLs per platform. */
+function ollamaDownloadUrl(): string {
+  if (IS_WIN) return "https://ollama.com/download/OllamaSetup.exe";
+  if (process.platform === "darwin") return "https://ollama.com/download/Ollama-darwin.zip";
+  return "https://ollama.com/install.sh"; // Linux
+}
+
+/**
+ * Download a file from a URL to a local path using fetch + streaming.
+ */
+async function downloadFile(url: string, destPath: string): Promise<void> {
+  addLog("main", "info", `[ollama] Downloading ${url} → ${destPath}...`);
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Download failed with status ${response.status} ${response.statusText}`);
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("No response body stream");
+
+  const writer = fs.createWriteStream(destPath);
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      writer.write(value);
+    }
+  } finally {
+    writer.end();
+    reader.releaseLock();
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    writer.on("finish", resolve);
+    writer.on("error", reject);
+  });
+}
+
+/**
+ * Install Ollama on the current platform.
+ *
+ * - macOS: download .zip, unzip to /Applications/Ollama.app
+ * - Windows: download .exe, run silently
+ * - Linux: pipe install.sh into sh
+ *
+ * Throws on failure.
+ */
+async function installOllama(): Promise<void> {
+  const tmpDir = app.getPath("temp");
+  addLog("main", "info", "[ollama] Ollama not found — downloading & installing...");
+
+  if (IS_WIN) {
+    const exePath = path.join(tmpDir, "OllamaSetup.exe");
+    await downloadFile("https://ollama.com/download/OllamaSetup.exe", exePath);
+    addLog("main", "info", "[ollama] Running OllamaSetup.exe (silent install)...");
+    execSync(`"${exePath}" /S`, { stdio: "inherit", timeout: 120_000 });
+  } else if (process.platform === "darwin") {
+    const zipPath = path.join(tmpDir, "Ollama-darwin.zip");
+    await downloadFile("https://ollama.com/download/Ollama-darwin.zip", zipPath);
+    addLog("main", "info", "[ollama] Extracting Ollama.app to /Applications...");
+    execSync(`unzip -o "${zipPath}" -d /Applications && rm -f "${zipPath}"`, { stdio: "inherit", timeout: 60_000 });
+  } else {
+    // Linux — pipe install script directly into sh
+    addLog("main", "info", "[ollama] Running Ollama Linux install script...");
+    execSync(`curl -fsSL https://ollama.com/install.sh | sh`, { stdio: "inherit", timeout: 120_000 });
+  }
+
+  addLog("main", "info", "[ollama] Installation complete");
+}
+
+/**
+ * Try to fetch the Ollama server health endpoint.
+ */
+async function checkOllamaServer(baseUrl: string, timeoutMs = 3000): Promise<boolean> {
+  try {
+    const res = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(timeoutMs) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Try to launch the Ollama app/server.
+ */
+function launchOllama(): boolean {
+  try {
+    if (IS_WIN) {
+      const installedPath = ollamaInstallPaths().find((p) => {
+        try {
+          execSync(`"${p}" --version`, { stdio: "pipe", timeout: 3000 });
+          return true;
+        } catch {
+          return false;
+        }
+      });
+      const bin = installedPath || "ollama";
+      execSync(`"${bin}" serve`, { stdio: "ignore", timeout: 3000 });
+    } else if (process.platform === "darwin") {
+      execSync("open -a Ollama", { stdio: "ignore", timeout: 3000 });
+    } else {
+      execSync("ollama serve", { stdio: "ignore", timeout: 3000 });
+    }
+    addLog("main", "info", "[ollama] Launch command sent");
+    return true;
+  } catch {
+    addLog("main", "warn", "[ollama] Could not launch Ollama");
+    return false;
+  }
+}
+
 // ── Ollama auto-start ──
 
 /**
- * If the LLM provider is Ollama, check if the server is running.
- * If not, attempt to start it (launch the Ollama application or ollama serve).
+ * If the LLM provider is Ollama, ensure the Ollama server is running.
+ *
+ * Steps:
+ *   1. Quick health check — if running, return
+ *   2. Check if installed — if not, download & install for the platform
+ *   3. Launch the Ollama application/server
+ *   4. Wait for health check to succeed
  *
  * Returns true if Ollama is (or became) available, false otherwise.
  * Non-blocking for the caller — the agent runner will retry on connection failure.
@@ -233,86 +410,47 @@ export async function ensureOllamaRunning(): Promise<boolean> {
   if (env.LLM_PROVIDER !== "ollama") return true; // not using Ollama
 
   const baseUrl = env.OLLAMA_BASE_URL || "http://127.0.0.1:11434";
-  console.log(`[ollama] Checking if Ollama is running at ${baseUrl}...`);
-  addLog("main", "info", `Checking Ollama at ${baseUrl}...`);
+  addLog("main", "info", `[ollama] Checking Ollama at ${baseUrl}...`);
 
-  // Try a quick health check
-  try {
-    const res = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(3000) });
-    if (res.ok) {
-      console.log(`[ollama] Ollama is already running`);
-      addLog("main", "info", "Ollama is already running");
+  // ── 1. Quick health check ──
+  if (await checkOllamaServer(baseUrl)) {
+    addLog("main", "info", "[ollama] Ollama is already running");
+    return true;
+  }
+
+  // ── 2. Check installed; download + install if missing ──
+  if (!isOllamaInstalled()) {
+    addLog("main", "info", "[ollama] Ollama is not installed — will download and install");
+    try {
+      await installOllama();
+    } catch (err: any) {
+      addLog("main", "error", `[ollama] Installation failed: ${err.message}`);
+      // Don't give up — the server might already be running from a previous install
+    }
+  }
+
+  // ── 3. Launch ──
+  addLog("main", "info", "[ollama] Launching Ollama...");
+  launchOllama();
+
+  // ── 4. Wait for it to come online ──
+  addLog("main", "info", "[ollama] Waiting for Ollama to start...");
+  for (let i = 0; i < 6; i++) {
+    await new Promise((r) => setTimeout(r, 3000));
+    if (await checkOllamaServer(baseUrl, 3000)) {
+      addLog("main", "info", "[ollama] Ollama is now running");
       return true;
     }
-  } catch {
-    // Not running — will attempt to start
+    addLog("main", "info", `[ollama] Still waiting... (attempt ${i + 1}/6)`);
   }
 
-  console.log(`[ollama] Ollama not detected — attempting to start...`);
-  addLog("main", "info", "Ollama not detected — attempting to start...");
-
-  try {
-    if (IS_WIN) {
-      // Try common Ollama install locations on Windows
-      const possiblePaths = [
-        path.join(process.env.LOCALAPPDATA || "", "Programs", "Ollama", "ollama.exe"),
-        path.join(process.env.PROGRAMFILES || "", "Ollama", "ollama.exe"),
-        "ollama", // fallback to PATH
-      ];
-      for (const ollamaBin of possiblePaths) {
-        try {
-          execSync(`"${ollamaBin}" serve`, { stdio: "ignore", timeout: 2000 });
-          console.log(`[ollama] Started: ${ollamaBin}`);
-          addLog("main", "info", `Started Ollama: ${ollamaBin}`);
-          break;
-        } catch {
-          continue;
-        }
-      }
-    } else {
-      // macOS / Linux: try `open -a Ollama` (macOS) or `ollama serve`
-      try {
-        if (process.platform === "darwin") {
-          execSync("open -a Ollama", { stdio: "ignore", timeout: 3000 });
-        } else {
-          execSync("ollama serve", { stdio: "ignore", timeout: 3000 });
-        }
-        console.log(`[ollama] Ollama launch command sent`);
-        addLog("main", "info", "Ollama launch command sent");
-      } catch {
-        // `open -a Ollama` might fail if Ollama.app isn't installed — non-fatal
-        console.log(`[ollama] Could not launch Ollama — user may need to start it manually`);
-        addLog("main", "warn", "Could not launch Ollama — user may need to start it manually");
-        return false;
-      }
-    }
-
-    // Wait a moment for Ollama to start, then check again
-    await new Promise((r) => setTimeout(r, 5000));
-    try {
-      const res = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(5000) });
-      if (res.ok) {
-        console.log(`[ollama] Ollama is now running`);
-        addLog("main", "info", "Ollama is now running");
-        return true;
-      }
-    } catch {
-      // Still not running
-    }
-
-    console.log(`[ollama] Ollama did not start in time — agent runner will retry`);
-    addLog("main", "warn", "Ollama did not start in time — agent runner will retry on connection");
-    return false;
-  } catch (err: any) {
-    console.log(`[ollama] Failed to start: ${err.message}`);
-    addLog("main", "error", `Failed to start Ollama: ${err.message}`);
-    return false;
-  }
+  addLog("main", "warn", "[ollama] Ollama did not start in time — agent runner will retry on connection");
+  return false;
 }
 
 export async function startAgentRunner(): Promise<void> {
   const agentDir = resourcePath("agent-runner");
-  const nodeBin = NODE_BIN;
+  const nodeBin = resolveNodeBin();
 
   console.log(`[agent] Starting agent runner at ${agentDir}`);
 

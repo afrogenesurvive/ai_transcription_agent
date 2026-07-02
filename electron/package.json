@@ -12,9 +12,10 @@
     "build": "tsc && vite build",
     "build:main": "tsc -p tsconfig.main.json",
     "start": "electron .",
-    "dist:win": "electron-builder --win",
-    "dist:mac": "electron-builder --mac",
-    "dist:linux": "electron-builder --linux"
+    "dist:prepare": "bash ../scripts/download-nodejs.sh && bash ../scripts/build-python-backend.sh",
+    "dist:win": "npm run dist:prepare && electron-builder --win",
+    "dist:mac": "npm run dist:prepare && electron-builder --mac",
+    "dist:linux": "npm run dist:prepare && electron-builder --linux"
   },
   "build": {
     "appId": "com.transcription.agent",
@@ -31,12 +32,17 @@
     ],
     "extraResources": [
       {
-        "from": "../python-backend",
+        "from": "../dist-resources/python-backend",
         "to": "python-backend",
         "filter": [
-          "**/*",
-          "!venv/**",
-          "!__pycache__/**"
+          "**/*"
+        ]
+      },
+      {
+        "from": "../dist-resources/node-bin",
+        "to": "node-bin",
+        "filter": [
+          "**/*"
         ]
       },
       {
