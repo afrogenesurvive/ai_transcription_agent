@@ -69,7 +69,13 @@
     },
     "win": {
       "target": "nsis",
-      "icon": null
+      "icon": null,
+      "nsis": {
+        "oneClick": false,
+        "allowToChangeInstallationDirectory": false,
+        "deleteAppDataOnUninstall": true,
+        "include": "build/cleanup.nsh"
+      }
     },
     "linux": {
       "target": "AppImage",

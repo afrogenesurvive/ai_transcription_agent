@@ -347,6 +347,15 @@ async function installOllama(): Promise<void> {
     execSync(`curl -fsSL https://ollama.com/install.sh | sh`, { stdio: "inherit", timeout: 120_000 });
   }
 
+  // Write a sentinel so the uninstaller knows Ollama was auto-installed
+  try {
+    const sentinelPath = path.join(app.getPath("userData"), ".ollama-auto-installed");
+    fs.writeFileSync(sentinelPath, new Date().toISOString(), "utf8");
+    addLog("main", "info", "[ollama] Marked as auto-installed for clean uninstall");
+  } catch {
+    // non-critical
+  }
+
   addLog("main", "info", "[ollama] Installation complete");
 }
 

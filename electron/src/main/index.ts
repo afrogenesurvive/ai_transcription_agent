@@ -47,6 +47,7 @@ import {
 } from "./logger";
 import { getConfig, saveConfig, checkConfig, getConfigWithSources } from "./config";
 import { startAutoUpdater, stopAutoUpdater, registerAutoUpdateIpc, getUpdateState, checkAndUpdate } from "./auto-updater";
+import { uninstall } from "./cleanup";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -453,6 +454,30 @@ ipcMain.handle("logs:readFile", async (_event, filePath: string, maxLines?: numb
 
 ipcMain.handle("logs:getPaths", () => {
   return { primary: getLogDir(), mirror: getMirrorDir() };
+});
+
+// ── Uninstall / Cleanup IPC ──
+
+ipcMain.handle("app:uninstall", async () => {
+  addLog("main", "info", "[ipc] Uninstall requested from UI");
+  const result = await uninstall();
+  if (result.success) {
+    addLog("main", "info", "[ipc] Uninstall completed successfully");
+  } else {
+    addLog("main", "error", `[ipc] Uninstall completed with errors: ${result.errors.join("; ")}`);
+  }
+  return result;
+});
+
+ipcMain.handle("app:uninstallStatus", () => {
+  // Returns info about what would be cleaned up (for UI confirmation dialogs)
+  return {
+    userDataPath: app.getPath("userData"),
+    appPath: app.getPath("exe"),
+    ollamaAutoInstalled: require("fs").existsSync(
+      require("path").join(app.getPath("userData"), ".ollama-auto-installed"),
+    ),
+  };
 });
 
 // ── App Lifecycle ──
