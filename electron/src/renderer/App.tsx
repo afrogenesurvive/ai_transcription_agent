@@ -23,6 +23,7 @@ import DevPanel from "./components/DevPanel";
 import ConfigPanel from "./components/ConfigPanel";
 import HistoryPanel from "./components/HistoryPanel";
 import StoragePanel from "./components/StoragePanel";
+import AboutPanel from "./components/AboutPanel";
 import ServerStatusBanner from "./components/ServerStatusBanner";
 import { useApi } from "./hooks/useApi";
 import { useJobStatus } from "./hooks/useJobStatus";
@@ -32,7 +33,7 @@ import type { JobStatus } from "./types";
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
 type View = "upload" | "processing" | "results";
-type SidebarView = "current" | "dev" | "config" | "storage";
+type SidebarView = "current" | "dev" | "config" | "storage" | "about";
 
 /**
  * Map tool-level skip_steps from job metadata to pipeline stage keys.
@@ -333,6 +334,16 @@ export default function App() {
             <span className="sidebar-btn-label">Config</span>
             {!configOk && <span className="sidebar-badge" />}
           </button>
+          <button
+            className={`sidebar-btn ${sidebarView === "about" ? "sidebar-btn--active" : ""}`}
+            onClick={() => {
+              setSidebarView("about");
+              setShowHistory(false);
+            }}
+            title="About Transcription Agent">
+            <span className="sidebar-btn-icon">ℹ️</span>
+            <span className="sidebar-btn-label">About</span>
+          </button>
         </nav>
 
         <main className="app-main">
@@ -490,6 +501,8 @@ export default function App() {
                   }}
                 />
               )}
+
+              {sidebarView === "about" && <AboutPanel onClose={() => setSidebarView("current")} />}
             </>
           )}
         </main>

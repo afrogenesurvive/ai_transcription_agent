@@ -14,6 +14,10 @@ import { spawn, execSync } from "child_process";
 import { app, BrowserWindow, Tray, Menu, nativeImage, Notification, ipcMain, dialog } from "electron";
 import path from "path";
 import pidusage from "pidusage";
+
+// Set app name before anything else — macOS menu bar and Windows taskbar
+// use this instead of the default "Electron".
+app.name = "Transcription Agent";
 import {
   startAll,
   startPythonBackend,
@@ -209,6 +213,35 @@ ipcMain.handle("backend:status", async () => {
 
 ipcMain.handle("app:version", () => {
   return app.getVersion();
+});
+
+ipcMain.handle("app:name", () => {
+  return app.getName();
+});
+
+ipcMain.handle("app:readme", () => {
+  // Try several paths for the README file (dev vs packaged)
+  const readmePath = (() => {
+    const candidates = [path.join(__dirname, "..", "..", "..", "README.md"), path.join(app.getAppPath(), "..", "README.md")];
+    if (app.isPackaged) {
+      candidates.unshift(path.join(process.resourcesPath, "..", "README.md"));
+    }
+    return candidates.find((p) => {
+      try {
+        return fs.statSync(p).isFile();
+      } catch {
+        return false;
+      }
+    });
+  })();
+  if (readmePath) {
+    try {
+      return fs.readFileSync(readmePath, "utf8");
+    } catch {
+      return "";
+    }
+  }
+  return "";
 });
 
 ipcMain.handle("jobs:getActive", async () => {
@@ -795,6 +828,10 @@ app.on("before-quit", (event) => {
   unsubscribeLogs();
   stopHealthMonitoring();
   stopAutoUpdater();
+  // Stop Ollama first (synchronously) — it uses execSync, so it must run
+  // before the async stopAll() which gets suspended and may not complete
+  // before app.exit(0) terminates the process.
+  stopOllamaServer();
   stopAll();
   // Kill any leftover processes on our ports (safety net)
   killProcessOnPort(5001);
