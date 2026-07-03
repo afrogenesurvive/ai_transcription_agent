@@ -1,14 +1,16 @@
 /**
- * useServerStatus — polls backend service health + diarization model status.
+ * useServerStatus — polls backend service health + diarization model + Ollama status.
  *
  * Exposes:
- *   services   — { python, bridge, agent } boolean | null
- *   diarizationOk — boolean | null
- *   allReady   — true when all three services + diarization are confirmed online
- *   checking   — true during a manual check
- *   checkServers() — manual re-check
+ *   services        — { python, bridge, agent } boolean | null
+ *   diarizationOk   — boolean | null
+ *   diarizationError — string | null
+ *   ollamaOk        — boolean | null
+ *   allReady        — true when all services + diarization are confirmed online
+ *   checking        — true during a manual check
+ *   checkServers()  — manual re-check
  *   restartService(name) — restart a single service via IPC
- *   restartAll() — restart all services via IPC
+ *   restartAll()    — restart all services via IPC
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -35,10 +37,11 @@ export function useServerStatus() {
   });
   const [diarizationOk, setDiarizationOk] = useState<boolean | null>(null);
   const [diarizationError, setDiarizationError] = useState<string | null>(null);
+  const [ollamaOk, setOllamaOk] = useState<boolean | null>(null);
   const [checking, setChecking] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  /** All three services online + diarization model available */
+  /** All services online + diarization model available */
   const allReady = SERVICES.every((s) => services[s] === true) && diarizationOk === true;
 
   /** Poll IPC for backend status */
@@ -79,18 +82,30 @@ export function useServerStatus() {
     }
   }, []);
 
+  /** Poll Ollama health */
+  const pollOllama = useCallback(async () => {
+    try {
+      const result = await window.electronAPI?.checkOllamaHealth();
+      setOllamaOk(result?.healthy ?? false);
+    } catch {
+      setOllamaOk(false);
+    }
+  }, []);
+
   // Poll on mount and every 5s
   useEffect(() => {
     pollStatus();
     pollDiarization();
+    pollOllama();
     intervalRef.current = setInterval(() => {
       pollStatus();
       pollDiarization();
+      pollOllama();
     }, 5000);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [pollStatus, pollDiarization]);
+  }, [pollStatus, pollDiarization, pollOllama]);
 
   /** Manual re-check with loading state */
   const checkServers = useCallback(async () => {
@@ -145,14 +160,32 @@ export function useServerStatus() {
     }
   }, [pollStatus, pollDiarization]);
 
+  /** Start Ollama server */
+  const startOllama = useCallback(async (): Promise<boolean> => {
+    try {
+      const result = await window.electronAPI?.startOllamaServer();
+      if (result?.success) {
+        await new Promise((r) => setTimeout(r, 2000));
+        await pollOllama();
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }, [pollOllama]);
+
   return {
     services,
     diarizationOk,
     diarizationError,
+    ollamaOk,
     allReady,
     checking,
     checkServers,
     restartService,
     restartAll,
+    startOllama,
+    pollOllama,
   };
 }

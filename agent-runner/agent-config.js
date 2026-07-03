@@ -85,6 +85,8 @@ const FALLBACK_PIPELINE = {
   max_pipeline_steps: 25,
   max_retries: 3,
   retry_base_delay_ms: 2000,
+  ollama_max_retries: 5,
+  ollama_retry_base_delay_ms: 5000,
   terminal_tools: ["send_delivery_email", "save_to_drive", "create_trello_action_items"],
   pipeline_hints: {
     transcribe_refine:
@@ -113,7 +115,7 @@ const FALLBACK_SYSTEM_PROMPT =
 /** @type {Array<{name: string, description: string, terminal: boolean, handler: string, inputSchema: object}>} */
 export const TOOLS = readJson("tools.json") || FALLBACK_TOOLS;
 
-/** @type {{max_pipeline_steps: number, max_retries: number, retry_base_delay_ms: number, terminal_tools: string[], pipeline_hints: Record<string, string>, event_templates: Record<string, string>}} */
+/** @type {{max_pipeline_steps: number, max_retries: number, retry_base_delay_ms: number, ollama_max_retries: number, ollama_retry_base_delay_ms: number, terminal_tools: string[], pipeline_hints: Record<string, string>, event_templates: Record<string, string>}} */
 export const PIPELINE_CONFIG = readJson("pipeline.json") || FALLBACK_PIPELINE;
 
 /** Convenience aliases */
@@ -122,6 +124,8 @@ export const TERMINAL_TOOLS = new Set(PIPELINE_CONFIG.terminal_tools || []);
 export const MAX_PIPELINE_STEPS = PIPELINE_CONFIG.max_pipeline_steps ?? 25;
 export const MAX_RETRIES = PIPELINE_CONFIG.max_retries ?? 3;
 export const RETRY_BASE_DELAY = PIPELINE_CONFIG.retry_base_delay_ms ?? 2000;
+export const OLLAMA_MAX_RETRIES = PIPELINE_CONFIG.ollama_max_retries ?? 5;
+export const OLLAMA_RETRY_BASE_DELAY = PIPELINE_CONFIG.ollama_retry_base_delay_ms ?? 5000;
 
 /** @type {string} */
 export const SYSTEM_PROMPT_TEMPLATE = readMarkdown("system-prompt.md") || FALLBACK_SYSTEM_PROMPT;

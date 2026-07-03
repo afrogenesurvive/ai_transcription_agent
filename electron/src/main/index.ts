@@ -595,6 +595,12 @@ ipcMain.handle("ollama:checkHealth", async () => {
   }
 });
 
+ipcMain.handle("ollama:startServer", async () => {
+  addLog("main", "info", "[ollama] Starting server per user request");
+  const started = await ensureOllamaRunning(true);
+  return { success: started, error: started ? null : "Failed to start Ollama server" };
+});
+
 ipcMain.handle("ollama:stopServer", async () => {
   addLog("main", "info", "[ollama] Stopping server per user request (provider switched away)");
   stopOllamaServer();

@@ -345,6 +345,7 @@ export default function App() {
               services={serverStatus.services}
               diarizationOk={serverStatus.diarizationOk}
               diarizationError={serverStatus.diarizationError}
+              ollamaOk={serverStatus.ollamaOk}
               checking={serverStatus.checking}
               allReady={serverStatus.allReady}
               onCheckServers={serverStatus.checkServers}

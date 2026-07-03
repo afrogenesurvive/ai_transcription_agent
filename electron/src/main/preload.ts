@@ -104,6 +104,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   }> => ipcRenderer.invoke("ollama:listModels"),
   pullOllamaModel: (modelName: string): Promise<{ success: boolean; error: string | null }> => ipcRenderer.invoke("ollama:pullModel", modelName),
   checkOllamaHealth: (): Promise<{ healthy: boolean; error: string | null }> => ipcRenderer.invoke("ollama:checkHealth"),
+  startOllamaServer: (): Promise<{ success: boolean; error: string | null }> => ipcRenderer.invoke("ollama:startServer"),
   stopOllamaServer: (): Promise<{ success: boolean }> => ipcRenderer.invoke("ollama:stopServer"),
 
   // ── Platform ──

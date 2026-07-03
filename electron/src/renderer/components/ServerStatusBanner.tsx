@@ -13,17 +13,20 @@ interface Props {
   services: Record<ServiceName, ServiceStatus>;
   diarizationOk: boolean | null;
   diarizationError: string | null;
+  ollamaOk: boolean | null;
   checking: boolean;
   allReady: boolean;
   onCheckServers: () => void;
   onRestartService: (name: ServiceName) => Promise<boolean>;
   onRestartAll: () => Promise<boolean>;
+  onStartOllama?: () => Promise<boolean>;
 }
 
-const SERVICE_ICONS: Record<ServiceName, string> = {
+const SERVICE_ICONS: Record<string, string> = {
   python: "🐍",
   bridge: "🌉",
   agent: "🤖",
+  diarization: "🧬",
 };
 
 const COUNTDOWN_SECONDS = 15;
@@ -32,11 +35,13 @@ export default function ServerStatusBanner({
   services,
   diarizationOk,
   diarizationError,
+  ollamaOk,
   checking,
   allReady,
   onCheckServers,
   onRestartService,
   onRestartAll,
+  onStartOllama,
 }: Props) {
   const [restarting, setRestarting] = useState<Record<string, boolean>>({});
   const [countdown, setCountdown] = useState(COUNTDOWN_SECONDS);
@@ -93,13 +98,19 @@ export default function ServerStatusBanner({
     setRestarting((prev) => ({ ...prev, _all: false }));
   }, [onRestartAll]);
 
-  const offlineItems: { name: ServiceName; label: string; icon: string }[] = [];
+  const offlineItems: { name: string; label: string; icon: string }[] = [];
   for (const svc of SERVICES) {
     if (services[svc] !== true) {
       offlineItems.push({ name: svc, label: SERVICE_LABELS[svc], icon: SERVICE_ICONS[svc] });
     }
   }
-  const diarizationOffline = diarizationOk === false;
+  if (diarizationOk !== true) {
+    offlineItems.push({
+      name: "diarization",
+      label: "Diarization Model",
+      icon: SERVICE_ICONS.diarization,
+    });
+  }
 
   const anyBusy = Object.values(restarting).some(Boolean) || checking;
 
@@ -122,39 +133,43 @@ export default function ServerStatusBanner({
 
         {/* Offline services list */}
         <div className="ssb-services">
-          {offlineItems.map(({ name, label, icon }) => (
-            <div key={name} className={`ssb-service ${services[name] === false ? "ssb-service--offline" : "ssb-service--unknown"}`}>
-              <div className="ssb-service-info">
-                <span className="ssb-service-icon">{icon}</span>
-                <div>
-                  <span className="ssb-service-name">{label}</span>
-                  <span className="ssb-service-status">{services[name] === null ? "checking…" : "offline"}</span>
+          {offlineItems.map((item) => {
+            const isDiarization = item.name === "diarization";
+            const svcStatus = isDiarization ? diarizationOk : services[item.name as ServiceName];
+            return (
+              <div key={item.name} className={`ssb-service ${svcStatus === false ? "ssb-service--offline" : "ssb-service--unknown"}`}>
+                <div className="ssb-service-info">
+                  <span className="ssb-service-icon">{item.icon}</span>
+                  <div>
+                    <span className="ssb-service-name">{item.label}</span>
+                    <span className="ssb-service-status">
+                      {svcStatus === null
+                        ? "checking…"
+                        : isDiarization
+                          ? diarizationError
+                            ? `unavailable — ${diarizationError.slice(0, 80)}`
+                            : "unavailable"
+                          : "offline"}
+                    </span>
+                  </div>
                 </div>
+                <button
+                  className={`ssb-restart-btn ${isDiarization ? "ssb-restart-btn--config" : ""}`}
+                  onClick={() => {
+                    if (isDiarization) {
+                      // Open config for HF token
+                      window.electronAPI?.getConfigWithSources();
+                    } else {
+                      handleRestartService(item.name as ServiceName);
+                    }
+                  }}
+                  disabled={countdownActive || anyBusy || svcStatus === null}
+                  title={countdownActive ? `Auto-checking in ${countdown}s…` : isDiarization ? "Configure HF token" : `Start ${item.label}`}>
+                  {isDiarization ? "⚙ Config" : restarting[item.name] ? "⟳ Starting…" : "▶ Start"}
+                </button>
               </div>
-              <button
-                className="ssb-restart-btn"
-                onClick={() => handleRestartService(name)}
-                disabled={countdownActive || anyBusy || services[name] === null}
-                title={countdownActive ? `Auto-checking in ${countdown}s…` : `Start ${label}`}>
-                {restarting[name] ? "⟳ Starting…" : "▶ Start"}
-              </button>
-            </div>
-          ))}
-
-          {diarizationOffline && (
-            <div className="ssb-service ssb-service--offline">
-              <div className="ssb-service-info">
-                <span className="ssb-service-icon">🧬</span>
-                <div>
-                  <span className="ssb-service-name">Diarization Model</span>
-                  <span className="ssb-service-status">{diarizationError ? `unavailable — ${diarizationError.slice(0, 80)}` : "unavailable"}</span>
-                </div>
-              </div>
-              <button className="ssb-restart-btn ssb-restart-btn--config" disabled={countdownActive} onClick={() => {}} title="Configure HF token">
-                ⚙ Config
-              </button>
-            </div>
-          )}
+            );
+          })}
         </div>
 
         {/* Actions */}

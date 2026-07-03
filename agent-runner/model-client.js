@@ -142,6 +142,17 @@ export async function callModel(context, toolDefs, systemMessageOverride) {
     throw new Error("DEEPSEEK_API_KEY not set — configure it in Config or .env");
   }
 
+  // Check Ollama health before each call to fail fast instead of retrying 3 times
+  if (PROVIDER === "ollama") {
+    const healthy = await checkOllamaHealth();
+    if (!healthy) {
+      throw new Error(
+        "Ollama server is not responding. Check that Ollama is running (http://127.0.0.1:11434/api/tags). " +
+          "Use the ▶ Start button in the status bar or start Ollama manually.",
+      );
+    }
+  }
+
   const tools = mapTools(toolDefs);
 
   // Use the pre-rendered system prompt if provided (with skipped sections

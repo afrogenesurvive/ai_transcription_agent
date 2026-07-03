@@ -2,6 +2,8 @@
   "max_pipeline_steps": 25,
   "max_retries": 3,
   "retry_base_delay_ms": 2000,
+  "ollama_max_retries": 5,
+  "ollama_retry_base_delay_ms": 5000,
   "terminal_tools": ["send_delivery_email", "save_to_drive", "create_trello_action_items"],
   "pipeline_hints": {
     "transcribe_refine": "Refinement cleaned filler words and PII (timestamps preserved). Next: Call transcribe_get_transcript to read the cleaned transcript, then call transcribe_summarize to generate a structured summary. Check the Memory Context above for continuity \u2014 reference past items where relevant.",

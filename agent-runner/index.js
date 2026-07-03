@@ -33,6 +33,8 @@ import {
   MAX_PIPELINE_STEPS,
   MAX_RETRIES,
   RETRY_BASE_DELAY,
+  OLLAMA_MAX_RETRIES,
+  OLLAMA_RETRY_BASE_DELAY,
   EVENT_TEMPLATES,
   SYSTEM_PROMPT_TEMPLATE,
 } from "./agent-config.js";
@@ -43,9 +45,12 @@ const QUEUE_DIR = process.env.TRANSCRIPTION_QUEUE_DIR || path.resolve(__dirname,
 const TRIGGER_FILE = path.join(QUEUE_DIR, ".transcription-trigger");
 const TASK_CHECK_INTERVAL = parseInt(process.env.TASK_CHECK_INTERVAL || "60000", 10);
 
+const LLM_PROVIDER = process.env.LLM_PROVIDER || "deepseek";
+
 // ── Config loaded from agent-config/tools.json + agent-config/pipeline.json ──
 // TOOLS, PIPELINE_HINTS, TERMINAL_TOOLS, MAX_PIPELINE_STEPS, MAX_RETRIES,
-// RETRY_BASE_DELAY, and EVENT_TEMPLATES are all imported from ./agent-config.js
+// RETRY_BASE_DELAY, OLLAMA_MAX_RETRIES, OLLAMA_RETRY_BASE_DELAY, and
+// EVENT_TEMPLATES are all imported from ./agent-config.js
 
 /**
  * Enqueue a failed event directly to the queue file and touch the trigger,
@@ -111,18 +116,22 @@ function enqueueFailed(event, errorMsg) {
 
 /**
  * Retry an async function with exponential backoff.
+ * Uses Ollama-specific retry config when LLM_PROVIDER is "ollama".
  * Returns the result on success, or throws after all retries are exhausted.
  */
-async function withRetry(fn, label, maxRetries = MAX_RETRIES) {
+async function withRetry(fn, label, maxRetries) {
+  const isOllama = LLM_PROVIDER === "ollama";
+  const retries = maxRetries ?? (isOllama ? OLLAMA_MAX_RETRIES : MAX_RETRIES);
+  const baseDelay = isOllama ? OLLAMA_RETRY_BASE_DELAY : RETRY_BASE_DELAY;
   let lastErr;
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       return await fn();
     } catch (err) {
       lastErr = err;
-      if (attempt < maxRetries) {
-        const delay = RETRY_BASE_DELAY * Math.pow(2, attempt - 1);
-        console.log(`   🔄 [RUNNER] ${label} failed (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms...`);
+      if (attempt < retries) {
+        const delay = baseDelay * Math.pow(2, attempt - 1);
+        console.log(`   🔄 [RUNNER] ${label} failed (attempt ${attempt}/${retries}), retrying in ${delay}ms...`);
         await new Promise((r) => setTimeout(r, delay));
       }
     }
@@ -357,7 +366,8 @@ async function processEvent(event) {
         decision: decision ? { name: decision.name, arguments: decision.arguments, usage: decision.usage } : null,
       });
     } catch (err) {
-      pipelineError = `LLM call failed after ${MAX_RETRIES} retries: ${err.message}`;
+      const llmRetries = LLM_PROVIDER === "ollama" ? OLLAMA_MAX_RETRIES : MAX_RETRIES;
+      pipelineError = `LLM call failed after ${llmRetries} retries: ${err.message}`;
       console.log(`   ❌ [RUNNER] ${pipelineError}`);
       logLlmData("step_error", { step, error: pipelineError });
       logAction({ eventId, eventType: event.type, action: "failed", detail: pipelineError });
@@ -410,7 +420,8 @@ async function processEvent(event) {
     try {
       result = await withRetry(() => executeToolCall(decision.name, decision.arguments), `${decision.name}`);
     } catch (err) {
-      pipelineError = `${decision.name} failed after ${MAX_RETRIES} retries: ${err.message}`;
+      const toolRetries = LLM_PROVIDER === "ollama" ? OLLAMA_MAX_RETRIES : MAX_RETRIES;
+      pipelineError = `${decision.name} failed after ${toolRetries} retries: ${err.message}`;
       console.log(`   ❌ [RUNNER] ${pipelineError}`);
       logAction({ eventId, eventType: event.type, action: "failed", detail: pipelineError });
       pipelineComplete = true;

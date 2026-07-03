@@ -32,10 +32,13 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
   });
   const [diarizationOk, setDiarizationOk] = useState<boolean | null>(null);
   const [diarizationError, setDiarizationError] = useState<string | null>(null);
+  const [ollamaOk, setOllamaOk] = useState<boolean | null>(null);
+  const [ollamaProvider, setOllamaProvider] = useState(false);
   const [version, setVersion] = useState("1.0.0");
   const [checking, setChecking] = useState(false);
   const [busy, setBusy] = useState<BusyService>(null);
   const [feedback, setFeedback] = useState<FeedbackMsg>(null);
+  const [ollamaStarting, setOllamaStarting] = useState(false);
   const feedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const checkTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -85,6 +88,26 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
     }
   }, []);
 
+  // Poll Ollama health
+  const pollOllama = useCallback(async () => {
+    try {
+      const result = await window.electronAPI?.checkOllamaHealth();
+      setOllamaOk(result?.healthy ?? false);
+    } catch {
+      setOllamaOk(false);
+    }
+  }, []);
+
+  // Check if LLM provider is Ollama
+  const checkProvider = useCallback(async () => {
+    try {
+      const cfg = await window.electronAPI?.getConfig();
+      setOllamaProvider(cfg?.LLM_PROVIDER === "ollama");
+    } catch {
+      setOllamaProvider(false);
+    }
+  }, []);
+
   useEffect(() => {
     pollStatus();
     const interval = setInterval(pollStatus, 5000);
@@ -96,6 +119,18 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
     const interval = setInterval(pollModels, 15000);
     return () => clearInterval(interval);
   }, [pollModels]);
+
+  useEffect(() => {
+    pollOllama();
+    const interval = setInterval(pollOllama, 15000);
+    return () => clearInterval(interval);
+  }, [pollOllama]);
+
+  useEffect(() => {
+    checkProvider();
+    const interval = setInterval(checkProvider, 30000);
+    return () => clearInterval(interval);
+  }, [checkProvider]);
 
   useEffect(() => {
     window.electronAPI
@@ -157,6 +192,68 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
   }, [pollStatus]);
 
   // ── Per-service actions ──
+
+  // ── Force-start Ollama ──
+
+  const handleStartOllama = useCallback(async () => {
+    setOllamaStarting(true);
+    showFeedback({ text: "Starting Ollama…", type: "checking" });
+    try {
+      const result = await window.electronAPI?.startOllamaServer();
+      if (result?.success) {
+        showFeedback({ text: "Ollama started ✓", type: "success" });
+        await pollOllama();
+      } else {
+        showFeedback({ text: `Ollama start failed: ${result?.error || "unknown"}`, type: "error" });
+      }
+    } catch {
+      showFeedback({ text: "Failed to start Ollama", type: "error" });
+    } finally {
+      setOllamaStarting(false);
+    }
+  }, [pollOllama]);
+
+  // ── Force-stop Ollama ──
+
+  const handleStopOllama = useCallback(async () => {
+    setBusy("ollama");
+    showFeedback({ text: "Stopping Ollama…", type: "checking" });
+    try {
+      const result = await window.electronAPI?.stopOllamaServer();
+      if (result?.success) {
+        setOllamaOk(false);
+        showFeedback({ text: "Ollama stopped", type: "error" });
+      } else {
+        showFeedback({ text: "Ollama stop failed", type: "error" });
+      }
+    } catch {
+      showFeedback({ text: "Failed to stop Ollama", type: "error" });
+    } finally {
+      setBusy(null);
+    }
+  }, []);
+
+  // ── Restart Ollama ──
+
+  const handleRestartOllama = useCallback(async () => {
+    setBusy("ollama");
+    showFeedback({ text: "Restarting Ollama…", type: "checking" });
+    try {
+      await window.electronAPI?.stopOllamaServer();
+      setOllamaOk(false);
+      const result = await window.electronAPI?.startOllamaServer();
+      if (result?.success) {
+        showFeedback({ text: "Ollama restarted ✓", type: "success" });
+        await pollOllama();
+      } else {
+        showFeedback({ text: `Ollama restart failed: ${result?.error || "unknown"}`, type: "error" });
+      }
+    } catch {
+      showFeedback({ text: "Failed to restart Ollama", type: "error" });
+    } finally {
+      setBusy(null);
+    }
+  }, [pollOllama]);
 
   const handleStopService = useCallback(async (svc: Service) => {
     setBusy(svc);
@@ -261,6 +358,31 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
               </span>
             </span>
           ))}
+          {/* Ollama status — after agent */}
+          <span
+            className="status-item"
+            title={ollamaProvider ? (ollamaOk ? "Ollama server is running" : "Ollama server is offline") : "Ollama is not the active LLM provider"}
+            style={{ opacity: ollamaProvider ? 1 : 0.4 }}>
+            <span className={`status-dot ${ollamaOk === null ? "unknown" : ollamaOk ? "online" : "offline"}`} />
+            <span className="service-label">Ollama</span>
+            <span className="service-actions">
+              {ollamaProvider && ollamaOk === true && (
+                <button className="micro-btn stop-btn" onClick={handleStopOllama} disabled={anyBusy} title="Force-stop Ollama server">
+                  ■
+                </button>
+              )}
+              {ollamaProvider && ollamaOk === false && (
+                <button className="micro-btn start-btn" onClick={handleStartOllama} disabled={anyBusy || ollamaStarting} title="Start Ollama server">
+                  {ollamaStarting ? "⟳" : "▶"}
+                </button>
+              )}
+              {ollamaProvider && ollamaOk === true && (
+                <button className="micro-btn restart-btn" onClick={handleRestartOllama} disabled={anyBusy} title="Restart Ollama server">
+                  ↻
+                </button>
+              )}
+            </span>
+          </span>
         </div>
 
         {feedback && <span className={`status-feedback status-feedback--${feedback.type}`}>{feedback.text}</span>}
