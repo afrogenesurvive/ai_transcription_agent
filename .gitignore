@@ -35,7 +35,6 @@ logs/
 # ── Build output & local data ──
 safe/
 dist/
-build/
 
 # ── Transcription Agent Service (self-contained, gitignored) ──
 transcription-agent/
@@ -91,3 +90,4 @@ AGENTS.md
 copilot-instructions.md
 
 assets/private
+*.tsbuildinfo

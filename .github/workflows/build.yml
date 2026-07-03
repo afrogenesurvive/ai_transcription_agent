@@ -1,0 +1,108 @@
+name: Build Windows Installer
+
+on:
+  # Manual trigger from GitHub Actions UI — use this for ad-hoc Windows builds
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "Platform to build for"
+        required: true
+        default: "windows"
+        type: choice
+        options:
+          - windows
+          - windows-mac
+          - windows-mac-linux
+
+  # Automatic trigger on version tags (e.g. git tag v0.0.3)
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  build-windows:
+    name: 🪟 Windows (NSIS)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Python dependencies
+        run: |
+          pip install -r python-backend/requirements.txt pyinstaller
+
+      - name: Install Node.js dependencies
+        working-directory: ./electron
+        run: npm install
+
+      - name: Build Windows installer
+        working-directory: ./electron
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run dist:win
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Windows-Installer
+          path: |
+            electron/dist/*.exe
+            electron/dist/*.exe.blockmap
+            electron/dist/latest.yml
+
+  # Optional: macOS + Linux builds (only when triggered with full platform)
+  build-extra:
+    name: ${{ matrix.os == 'macos-latest' && '🍎 macOS (DMG)' || '🐧 Linux (AppImage)' }}
+    runs-on: ${{ matrix.os }}
+    if: |
+      github.event_name == 'workflow_dispatch' &&
+      (inputs.platform == 'windows-mac' || inputs.platform == 'windows-mac-linux')
+
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            script: dist:mac
+            artifact: "Transcription-Agent-*.dmg"
+          - os: ubuntu-latest
+            script: dist:linux
+            artifact: "Transcription-Agent-*.AppImage"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Python dependencies
+        run: |
+          pip install -r python-backend/requirements.txt pyinstaller
+
+      - name: Install Node.js dependencies
+        working-directory: ./electron
+        run: npm install
+
+      - name: Build distributable
+        working-directory: ./electron
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run ${{ matrix.script }}
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os == 'macos-latest' && 'macOS-Installer' || 'Linux-Installer' }}
+          path: electron/dist/${{ matrix.artifact }}

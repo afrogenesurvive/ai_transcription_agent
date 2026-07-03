@@ -67,9 +67,40 @@
       }
     ],
     "mac": {
-      "target": "dmg",
       "icon": null,
-      "category": "public.app-category.productivity"
+      "category": "public.app-category.productivity",
+      "artifactName": "Transcription-Agent-${version}-${arch}.${ext}",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "dmg": {
+        "title": "Transcription Agent ${version}",
+        "artifactName": "Transcription-Agent-${version}-${arch}.dmg",
+        "contents": [
+          {
+            "x": 130,
+            "y": 220,
+            "type": "file",
+            "name": "Transcription Agent.app"
+          },
+          {
+            "x": 410,
+            "y": 220,
+            "type": "link",
+            "path": "/Applications"
+          }
+        ],
+        "window": {
+          "width": 540,
+          "height": 380
+        }
+      }
     },
     "win": {
       "target": "nsis",
@@ -78,12 +109,29 @@
         "oneClick": false,
         "allowToChangeInstallationDirectory": false,
         "deleteAppDataOnUninstall": true,
-        "include": "build/cleanup.nsh"
+        "include": "build/installer.nsh",
+        "perMachine": true,
+        "runAfterFinish": true,
+        "installerIcon": null,
+        "installerHeaderIcon": null,
+        "installerSidebar": null,
+        "uninstallerIcon": null,
+        "uninstallDisplayName": "Transcription Agent ${version}"
       }
     },
     "linux": {
-      "target": "AppImage",
-      "icon": null
+      "icon": null,
+      "category": "AudioVideo",
+      "packageCategory": "AudioVideo",
+      "description": "AI Meeting Transcription Agent — automatic speech-to-text, speaker diarization, summarization, and memory",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
     }
   },
   "dependencies": {
