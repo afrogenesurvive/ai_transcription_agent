@@ -89,10 +89,10 @@ class SemanticMemory:
         # self._embedder set while self._tokenizer is still None (which would
         # cause subsequent calls to return early without fixing the tokenizer).
         embedder = SentenceTransformer(
-            "all-MiniLM-L6-v2",
+            "sentence-transformers/all-MiniLM-L6-v2",
             cache_folder=os.path.join(config.STORAGE_PATH, ".model_cache"),
         )
-        tokenizer = AutoTokenizer.from_pretrained("all-MiniLM-L6-v2")
+        tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
         self._embedder = embedder
         self._tokenizer = tokenizer
 
@@ -248,6 +248,7 @@ class SemanticMemory:
         preserving semantic coherence.
         """
         self._ensure_loaded()
+        self._ensure_embedder()
         print(f"[semantic_memory] Storing meeting '{title}' (job_id={job_id})...")
 
         # Build searchable text from summary fields
@@ -335,7 +336,6 @@ class SemanticMemory:
         results = self._collection.query(
             query_embeddings=[query_embedding],
             n_results=n_results * 5,
-            kwargs={"ef_search": 50},
         )
 
         output = []

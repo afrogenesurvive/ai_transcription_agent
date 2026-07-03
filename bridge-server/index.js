@@ -82,7 +82,9 @@ async function callPython(method, path, body = null) {
     console.error(`[bridge]   ← Python ${resp.status} (${elapsed}ms): ${JSON.stringify(data)}`);
     // Extract a clean message from Python's HTTPException body
     const detail = data.detail || data.error || data.message || JSON.stringify(data);
-    throw new Error(detail);
+    const err = new Error(detail);
+    err.statusCode = resp.status;
+    throw err;
   }
   console.log(`[bridge]   ← Python ${resp.status} (${elapsed}ms)`);
   return data;
@@ -452,8 +454,9 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ error: "Not found" }));
     }
   } catch (err) {
-    console.error(`[bridge] Error: ${err.message}`);
-    res.writeHead(500, { "Content-Type": "application/json" });
+    const statusCode = err.statusCode || 500;
+    console.error(`[bridge] Error (${statusCode}): ${err.message}`);
+    res.writeHead(statusCode, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: err.message }));
   }
 });

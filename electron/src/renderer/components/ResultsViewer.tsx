@@ -531,8 +531,16 @@ function TokensTab({ jobId }: { jobId: string }) {
           body: JSON.stringify({ tool: "transcribe_get_token_usage", args: { jobId } }),
         });
         if (!res.ok) {
-          if (res.status === 404) throw new Error("Token usage not available for this job");
-          throw new Error(`Bridge error: ${res.status}`);
+          // Try to extract the server's error message for a friendlier display
+          let serverMsg = "";
+          try {
+            const body = await res.json();
+            serverMsg = body.error || "";
+          } catch {
+            /* ignore */
+          }
+          if (res.status === 404) throw new Error(serverMsg || "Token usage not available for this job");
+          throw new Error(serverMsg || `Bridge error: ${res.status}`);
         }
         const data = await res.json();
         if (!cancelled) setUsage(data);

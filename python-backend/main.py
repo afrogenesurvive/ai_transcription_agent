@@ -450,7 +450,7 @@ async def memory_search(req: MemorySearchRequest):
     print(f"[api] POST /memory/search query='{req.query}' n_results={req.n_results}")
     try:
         results = semantic_memory.search(req.query, n_results=req.n_results)
-        print(f"[api] POST /memory/search → {len(results.get('results', results))} result(s)")
+        print(f"[api] POST /memory/search → {len(results)} result(s)")
         return {"results": results}
     except Exception as e:
         print(f"[api] POST /memory/search ERROR: {e}")
@@ -1303,24 +1303,32 @@ _FILLER_PATTERNS = [
 def _auto_refine(segments: list[dict], custom_rules: list[str], keep_timestamps: bool = True) -> list[dict]:
     """Apply automatic transcript refinement to every segment.
 
+    ``start`` and ``end`` fields are always preserved so the UI can display
+    timestamps even when ``keep_timestamps`` is False. The flag only controls
+    whether the optional ``duration`` field is kept.
+
     For each segment:
-      1. Strip timestamp metadata (``start``, ``end``, ``duration`` keys) — unless ``keep_timestamps`` is True (default).
-      2. Strip filler words and discourse markers from the text.
-      3. Redact PII (emails, phones, SSN, credit cards, account numbers).
-      4. Apply any additional custom redaction rules passed by the LLM.
-      5. Collapse multiple spaces and trim.
+      1. Strip filler words and discourse markers from the text.
+      2. Redact PII (emails, phones, SSN, credit cards, account numbers).
+      3. Apply any additional custom redaction rules passed by the LLM.
+      4. Collapse multiple spaces and trim.
 
     Returns a new list of refined segment dicts (the original is not mutated).
     """
     fillers_re = re.compile('|'.join(_FILLER_PATTERNS), re.IGNORECASE)
     refined = []
     for seg in segments:
+        # Always preserve speaker, start, end — these are structural fields
+        # needed by the UI, not secrets/PII.
+        clean = {
+            "speaker": seg.get("speaker", "Unknown"),
+            "start": seg.get("start"),
+            "end": seg.get("end"),
+        }
         if keep_timestamps:
-            # Preserve all original fields (speaker, text, start, end, duration)
-            clean = dict(seg)
-        else:
-            # 1. Strip timestamp metadata — keep only speaker label + cleaned text
-            clean = {"speaker": seg.get("speaker", "Unknown")}
+            # Also preserve optional duration
+            if "duration" in seg:
+                clean["duration"] = seg["duration"]
         text = seg.get("text", "")
 
         # 2. Strip filler words

@@ -66,20 +66,30 @@ function enqueueFailed(event, errorMsg) {
     const queueFile = path.join(queueDir, "transcription.jsonl");
     const triggerFile = path.join(queueDir, ".transcription-trigger");
 
+    // Carry forward skip_steps and original metadata so the retry pipeline
+    // has the same constraints as the original run. Without this, the LLM
+    // gets ALL tools (including analyze, delivery, etc.) and wastes tokens
+    // re-running the full pipeline.
+    const originalData = event.data || {};
     const failedEvent = {
       id: crypto.randomUUID(),
       source: "agent-runner",
       type: "failed",
       data: {
-        jobId: event.data?.jobId || event.id,
-        title: event.data?.title || "Unknown",
+        jobId: originalData.jobId || event.id,
+        title: originalData.title || "Unknown",
         error: errorMsg,
         originalType: event.type,
+        // Preserve skip_steps so the retry doesn't expose irrelevant tools
+        skip_steps: originalData.skip_steps,
+        // Preserve transcript so the retry has immediate access to it
+        transcript: originalData.transcript,
+        attendees: originalData.attendees,
+        eventType: originalData.eventType,
       },
       queuedAt: new Date().toISOString(),
     };
 
-    fs.mkdirSync(queueDir, { recursive: true });
     fs.appendFileSync(queueFile, JSON.stringify(failedEvent) + "\n", "utf8");
 
     // Touch the trigger so the poller/mainLoop picks it up
@@ -375,6 +385,24 @@ async function processEvent(event) {
       logAction({ eventId, eventType: event.type, action: "complete", detail: `ended at step ${step}, no LLM decision` });
       pipelineComplete = true;
       break;
+    }
+
+    // ── Validate: reject tools that are no longer in the available set ──
+    // The LLM can sometimes return tool calls for tools that were locked
+    // (e.g. transcribe_get_transcript after the first read). This guard
+    // silently skips them instead of executing, preventing wasted tokens
+    // and bogus errors like "Transcript not ready" with missing job IDs.
+    if (!availableTools.some((t) => t.name === decision.name)) {
+      console.log(`   ⏭️  [RUNNER] LLM returned locked/removed tool "${decision.name}" — skipping`);
+      logAction({
+        eventId,
+        eventType: event.type,
+        action: "skipped",
+        detail: `LLM returned locked tool "${decision.name}" at step ${step}`,
+      });
+      // Append a note to context so the LLM doesn't retry the same tool
+      context += `\n\n[Step ${step}] Tool "${decision.name}" is no longer available. Choose a different tool.`;
+      continue;
     }
 
     console.log(`   🎯 [RUNNER] ${decision.name}`);

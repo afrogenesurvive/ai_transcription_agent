@@ -1,11 +1,19 @@
 /**
  * Hook — polls a job's status until it reaches a terminal state.
  * Automatically starts polling when jobId becomes non-null.
+ *
+ * Grace period for "failed": the agent runner may retry a failed job and
+ * eventually succeed. We keep polling for 2 minutes after the first
+ * "failed" sighting before declaring the job truly failed. If the status
+ * recovers (e.g. changes back to "refined" → "complete"), polling continues
+ * normally until "complete" or "delivered".
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
 
 type PollingState = "idle" | "polling" | "complete" | "error";
+
+const FAILED_GRACE_PERIOD_MS = 2 * 60 * 1000; // 2 minutes
 
 export function useJobStatus(jobId: string | null, fetcher: (id: string) => Promise<any>) {
   const [data, setData] = useState<any>(null);
@@ -14,13 +22,15 @@ export function useJobStatus(jobId: string | null, fetcher: (id: string) => Prom
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
+  const firstFailedAt = useRef<number | null>(null);
 
   // Only truly terminal statuses — "transcribed", "ready_for_agent", "refined",
   // "summarized", and "analyzed" are intermediate ML/LLM pipeline stages that
   // the agent runner transitions through. The job is only fully done when the
-  // agent runner explicitly marks it "complete" (success) or "delivered", or
-  // the backend marks it "failed".
-  const terminalStatuses = useRef(new Set(["complete", "delivered", "failed"])).current;
+  // agent runner explicitly marks it "complete" (success) or "delivered".
+  // "failed" is terminal ONLY after a grace period allows the agent runner
+  // to retry and potentially succeed.
+  const successStatuses = useRef(new Set(["complete", "delivered"])).current;
   // Safety timeout: if the job hasn't reached a terminal state within 10 minutes,
   // force-complete to prevent infinite polling (e.g. if the agent runner crashed).
   const POLLING_TIMEOUT_MS = 10 * 60 * 1000;
@@ -39,6 +49,7 @@ export function useJobStatus(jobId: string | null, fetcher: (id: string) => Prom
     setState("polling");
     setError(null);
     setData(null);
+    firstFailedAt.current = null;
 
     const startedAt = Date.now();
 
@@ -56,8 +67,34 @@ export function useJobStatus(jobId: string | null, fetcher: (id: string) => Prom
           return;
         }
 
-        if (terminalStatuses.has(result.status)) {
-          setState(result.status === "failed" ? "error" : "complete");
+        // ── Graceful "failed" handling ──
+        // The agent runner may retry a failed job (re-enqueues a "failed"
+        // event which gets processed again). If the status was "failed"
+        // but recovers to any other status, reset the grace timer and
+        // keep polling. Only declare terminal failure after the grace
+        // period elapses with no recovery.
+        if (result.status === "failed") {
+          if (firstFailedAt.current === null) {
+            firstFailedAt.current = Date.now();
+            console.log(`[useJobStatus] ${jobId} → failed, grace period started`);
+          } else if (Date.now() - firstFailedAt.current > FAILED_GRACE_PERIOD_MS) {
+            console.log(`[useJobStatus] ${jobId} — grace period expired, declaring failed`);
+            setState("error");
+            setError(result.error || "Processing failed");
+            stopPolling();
+          }
+          // Still polling within grace period — don't stop
+          return;
+        }
+
+        // Status recovered from "failed" → reset grace timer
+        if (firstFailedAt.current !== null) {
+          console.log(`[useJobStatus] ${jobId} recovered from failed → ${result.status}, resetting grace`);
+          firstFailedAt.current = null;
+        }
+
+        if (successStatuses.has(result.status)) {
+          setState("complete");
           stopPolling();
         }
       } catch (err: any) {
@@ -71,7 +108,7 @@ export function useJobStatus(jobId: string | null, fetcher: (id: string) => Prom
     intervalRef.current = setInterval(poll, 10000);
 
     return () => stopPolling();
-  }, [jobId, stopPolling, terminalStatuses]);
+  }, [jobId, stopPolling, successStatuses]);
 
   return { data, state, error, startPolling: () => {}, stopPolling };
 }

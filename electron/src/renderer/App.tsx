@@ -23,8 +23,10 @@ import DevPanel from "./components/DevPanel";
 import ConfigPanel from "./components/ConfigPanel";
 import HistoryPanel from "./components/HistoryPanel";
 import StoragePanel from "./components/StoragePanel";
+import ServerStatusBanner from "./components/ServerStatusBanner";
 import { useApi } from "./hooks/useApi";
 import { useJobStatus } from "./hooks/useJobStatus";
+import { useServerStatus } from "./hooks/useServerStatus";
 import type { JobStatus } from "./types";
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
@@ -78,43 +80,13 @@ export default function App() {
     setStorageRefreshTrigger((n) => n + 1);
   }, []);
 
-  // Fetch diarization model status on mount
+  // ── Server & diarization health ──
+  const serverStatus = useServerStatus();
+
+  // Keep diarizationAvailable in sync with server hook for downstream use
   useEffect(() => {
-    let cancelled = false;
-    let isFirstCheck = true;
-    const checkModel = async () => {
-      try {
-        const res = await fetch(`${BRIDGE_URL}/tools/call`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tool: "transcribe_models_status", args: {} }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (!cancelled) {
-            setDiarizationAvailable(data.diarization_available);
-            // Show notification on first check if diarization model is unavailable
-            if (isFirstCheck && !data.diarization_available) {
-              const reason = data.diarization_error
-                ? `Diarization model unavailable: ${data.diarization_error.slice(0, 120)}`
-                : "Diarization model unavailable — speaker identification will be limited";
-              setNotification(reason);
-              setTimeout(() => setNotification(null), 8000);
-            }
-            isFirstCheck = false;
-          }
-        }
-      } catch {
-        /* backend not reachable */
-      }
-    };
-    checkModel();
-    const interval = setInterval(checkModel, 30000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, []);
+    setDiarizationAvailable(serverStatus.diarizationOk);
+  }, [serverStatus.diarizationOk]);
 
   // Check config on mount
   useEffect(() => {
@@ -174,7 +146,7 @@ export default function App() {
           // Guard: only process if state is still "complete" (avoid stale closure)
           if (stateSnapshot !== "complete") return;
           if (transcriptData) {
-            setTranscript({ ...transcriptData, summary: summaryData?.summary });
+            setTranscript({ ...transcriptData, summary: summaryData });
             setView("results");
           } else {
             setNotification("Transcription completed but transcript data unavailable");
@@ -243,7 +215,7 @@ export default function App() {
           api.getStatus(jobId).catch(() => null),
         ]);
         if (transcriptData) {
-          setTranscript({ ...transcriptData, summary: summaryData?.summary });
+          setTranscript({ ...transcriptData, summary: summaryData });
           // Store metadata from status if available (title, attendees, etc.)
           if (statusData?.metadata) {
             setJobMetadata(statusData.metadata);
@@ -324,7 +296,6 @@ export default function App() {
             onClick={() => {
               setSidebarView("current");
               setShowHistory((v) => !v);
-              // Don't clear historyJobId — user may toggle back to see results
             }}
             title="Job history">
             <span className="sidebar-btn-icon">📋</span>
@@ -346,7 +317,7 @@ export default function App() {
               setSidebarView("dev");
               setShowHistory(false);
             }}
-            title="Developer tools">
+            title="Developer tools — always available">
             <span className="sidebar-btn-icon">🛠️</span>
             <span className="sidebar-btn-label">Dev</span>
           </button>
@@ -365,131 +336,150 @@ export default function App() {
         </nav>
 
         <main className="app-main">
-          {sidebarView === "current" && (
-            <>
-              <div className="left-col" id="left-col">
-                {showHistory ? (
-                  <HistoryPanel
-                    onSelectJob={loadHistoryJob}
-                    currentJobId={historyJobId || jobId}
-                    onNotify={notify}
-                    onStorageChanged={onStorageChanged}
-                  />
-                ) : (
-                  <>
-                    {view === "upload" && <UploadPanel onUpload={handleUpload} uploading={uploading} />}
-
-                    {(view === "processing" || view === "results") && statusData && (
-                      <PipelineProgress
-                        status={statusData.status}
-                        progress={statusData.progress}
-                        error={statusData.error}
-                        onCancel={view === "processing" ? handleCancel : undefined}
-                        cancelling={cancelling}
-                        diarizationAvailable={diarizationAvailable}
-                        skippedSteps={computeSkippedStages(statusData)}
-                      />
-                    )}
-
-                    {/* Clear button when job is done or failed — moves job to history */}
-                    {view === "results" &&
-                      statusData &&
-                      (statusData.status === "failed" || ["delivered", "refined", "summarized", "analyzed"].includes(statusData.status)) && (
-                        <div style={{ display: "flex", gap: 8 }}>
-                          <button className="btn-secondary" onClick={handleNew} style={{ flex: 1, marginTop: 0 }}>
-                            ✕ Clear &amp; Close
-                          </button>
-                        </div>
-                      )}
-
-                    {view === "results" && statusHook.state === "error" && !statusData && (
-                      <div className="panel actions-panel">
-                        <h2>❌ Processing Failed</h2>
-                        <p className="error-box" style={{ marginBottom: 12 }}>
-                          {statusHook.error || "Unknown error"}
-                        </p>
-                        <button className="btn-primary" onClick={handleNew}>
-                          Try Again
-                        </button>
-                        <button className="btn-secondary" onClick={handleNew} style={{ marginTop: 8 }}>
-                          Clear &amp; Close
-                        </button>
-                      </div>
-                    )}
-
-                    {view === "results" && statusHook.state !== "error" && statusData?.status !== "failed" && (
-                      <div className="panel actions-panel">
-                        <h2>What would you like to do next?</h2>
-                        <div className="rv-actions-grid">
-                          <button className="btn-primary" onClick={handleNew}>
-                            Upload Another Meeting
-                          </button>
-                          <button className="btn-secondary" onClick={handleNew}>
-                            Clear &amp; Close
-                          </button>
-                        </div>
-                        <p className="config-hint" style={{ marginTop: 10, marginBottom: 0 }}>
-                          The job is saved to history and can be reopened anytime from the <strong>📋 History</strong> panel.
-                        </p>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-
-              <div className="right-col">
-                {/* Show results for a history job (history panel visible in left column) */}
-                {historyJobId && (
-                  <ResultsViewer
-                    jobId={historyJobId}
-                    segments={transcript?.transcript}
-                    summary={transcript?.summary}
-                    metadata={jobMetadata}
-                    jobStatus={historyJobStatus?.status}
-                    jobProgress={historyJobStatus?.progress}
-                    jobError={historyJobStatus?.error}
-                  />
-                )}
-                {/* Processing placeholder — hidden when viewing history */}
-                {!historyJobId && view === "processing" && (
-                  <div className="panel transcript-panel">
-                    <h2>Transcript</h2>
-                    <p className="placeholder">
-                      Your results will appear here automatically once processing is complete. You&#39;ll be able to browse the full transcript,
-                      summary, and audio recording.
-                    </p>
-                  </div>
-                )}
-                {/* Live results from current upload — hidden when viewing history */}
-                {!historyJobId && view === "results" && jobId && (
-                  <ResultsViewer
-                    jobId={jobId}
-                    segments={transcript?.transcript}
-                    summary={transcript?.summary}
-                    metadata={jobMetadata}
-                    jobStatus={statusData?.status}
-                    jobProgress={statusData?.progress}
-                    jobError={statusData?.error}
-                  />
-                )}
-              </div>
-            </>
-          )}
-
+          {/* ── Dev view: always interactive (logs help debug startup) ── */}
           {sidebarView === "dev" && <DevPanel onClose={() => setSidebarView("current")} />}
 
-          {sidebarView === "storage" && (
-            <StoragePanel onClose={() => setSidebarView("current")} onNotify={notify} refreshTrigger={storageRefreshTrigger} />
+          {/* ── When servers aren't all ready, gate non-dev views ── */}
+          {sidebarView !== "dev" && !serverStatus.allReady && (
+            <ServerStatusBanner
+              services={serverStatus.services}
+              diarizationOk={serverStatus.diarizationOk}
+              diarizationError={serverStatus.diarizationError}
+              checking={serverStatus.checking}
+              onCheckServers={serverStatus.checkServers}
+              onRestartService={serverStatus.restartService}
+              onRestartAll={serverStatus.restartAll}
+            />
           )}
 
-          {sidebarView === "config" && (
-            <ConfigPanel
-              key="config-panel"
-              onClose={() => {
-                setSidebarView("current");
-                window.electronAPI?.checkConfig().then((r) => setConfigOk(r.ok));
-              }}
-            />
+          {/* ── Normal content (all servers + diarization ready) ── */}
+          {sidebarView !== "dev" && serverStatus.allReady && (
+            <>
+              {sidebarView === "current" && (
+                <>
+                  <div className="left-col" id="left-col">
+                    {showHistory ? (
+                      <HistoryPanel
+                        onSelectJob={loadHistoryJob}
+                        currentJobId={historyJobId || jobId}
+                        onNotify={notify}
+                        onStorageChanged={onStorageChanged}
+                      />
+                    ) : (
+                      <>
+                        {view === "upload" && <UploadPanel onUpload={handleUpload} uploading={uploading} />}
+
+                        {(view === "processing" || view === "results") && statusData && (
+                          <PipelineProgress
+                            status={statusData.status}
+                            progress={statusData.progress}
+                            error={statusData.error}
+                            onCancel={view === "processing" ? handleCancel : undefined}
+                            cancelling={cancelling}
+                            diarizationAvailable={diarizationAvailable}
+                            skippedSteps={computeSkippedStages(statusData)}
+                          />
+                        )}
+
+                        {/* Clear button when job is done or failed — moves job to history */}
+                        {view === "results" &&
+                          statusData &&
+                          (statusData.status === "failed" || ["delivered", "refined", "summarized", "analyzed"].includes(statusData.status)) && (
+                            <div style={{ display: "flex", gap: 8 }}>
+                              <button className="btn-secondary" onClick={handleNew} style={{ flex: 1, marginTop: 0 }}>
+                                ✕ Clear &amp; Close
+                              </button>
+                            </div>
+                          )}
+
+                        {view === "results" && statusHook.state === "error" && !statusData && (
+                          <div className="panel actions-panel">
+                            <h2>❌ Processing Failed</h2>
+                            <p className="error-box" style={{ marginBottom: 12 }}>
+                              {statusHook.error || "Unknown error"}
+                            </p>
+                            <button className="btn-primary" onClick={handleNew}>
+                              Try Again
+                            </button>
+                            <button className="btn-secondary" onClick={handleNew} style={{ marginTop: 8 }}>
+                              Clear &amp; Close
+                            </button>
+                          </div>
+                        )}
+
+                        {view === "results" && statusHook.state !== "error" && statusData?.status !== "failed" && (
+                          <div className="panel actions-panel">
+                            <h2>What would you like to do next?</h2>
+                            <div className="rv-actions-grid">
+                              <button className="btn-primary" onClick={handleNew}>
+                                Upload Another Meeting
+                              </button>
+                              <button className="btn-secondary" onClick={handleNew}>
+                                Clear &amp; Close
+                              </button>
+                            </div>
+                            <p className="config-hint" style={{ marginTop: 10, marginBottom: 0 }}>
+                              The job is saved to history and can be reopened anytime from the <strong>📋 History</strong> panel.
+                            </p>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  <div className="right-col">
+                    {/* Show results for a history job (history panel visible in left column) */}
+                    {historyJobId && (
+                      <ResultsViewer
+                        jobId={historyJobId}
+                        segments={transcript?.transcript}
+                        summary={transcript?.summary}
+                        metadata={jobMetadata}
+                        jobStatus={historyJobStatus?.status}
+                        jobProgress={historyJobStatus?.progress}
+                        jobError={historyJobStatus?.error}
+                      />
+                    )}
+                    {/* Processing placeholder — hidden when viewing history */}
+                    {!historyJobId && view === "processing" && (
+                      <div className="panel transcript-panel">
+                        <h2>Transcript</h2>
+                        <p className="placeholder">
+                          Your results will appear here automatically once processing is complete. You&#39;ll be able to browse the full transcript,
+                          summary, and audio recording.
+                        </p>
+                      </div>
+                    )}
+                    {/* Live results from current upload — hidden when viewing history */}
+                    {!historyJobId && view === "results" && jobId && (
+                      <ResultsViewer
+                        jobId={jobId}
+                        segments={transcript?.transcript}
+                        summary={transcript?.summary}
+                        metadata={jobMetadata}
+                        jobStatus={statusData?.status}
+                        jobProgress={statusData?.progress}
+                        jobError={statusData?.error}
+                      />
+                    )}
+                  </div>
+                </>
+              )}
+
+              {sidebarView === "storage" && (
+                <StoragePanel onClose={() => setSidebarView("current")} onNotify={notify} refreshTrigger={storageRefreshTrigger} />
+              )}
+
+              {sidebarView === "config" && (
+                <ConfigPanel
+                  key="config-panel"
+                  onClose={() => {
+                    setSidebarView("current");
+                    window.electronAPI?.checkConfig().then((r) => setConfigOk(r.ok));
+                  }}
+                />
+              )}
+            </>
           )}
         </main>
       </div>

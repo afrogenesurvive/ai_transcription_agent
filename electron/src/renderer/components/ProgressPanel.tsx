@@ -8,7 +8,7 @@
  *   ❌ Failed stage (red with error message)
  */
 
-import React from "react";
+import React, { useState } from "react";
 
 interface Props {
   status: string;
@@ -118,6 +118,7 @@ function getStageState(
 }
 
 export default function PipelineProgress({ status, progress, error, onCancel, cancelling, diarizationAvailable, skippedSteps }: Props) {
+  const [showConfirmCancel, setShowConfirmCancel] = useState(false);
   const pct = Math.round(progress * 100);
   const isFailed = status === "failed";
   const isComplete = ["delivered", "refined", "summarized", "analyzed"].includes(status);
@@ -199,10 +200,36 @@ export default function PipelineProgress({ status, progress, error, onCancel, ca
       {/* ── Stop button (during active processing) ── */}
       {isProcessing && onCancel && (
         <div className="pp-stop-row">
-          <button className="pp-stop-btn" onClick={onCancel} disabled={cancelling}>
+          <button className="pp-stop-btn" onClick={() => setShowConfirmCancel(true)} disabled={cancelling}>
             {cancelling ? "⏳ Stopping…" : "⏹ Stop Processing"}
           </button>
           <span className="pp-stop-hint">Stops the pipeline and marks the job as cancelled.</span>
+        </div>
+      )}
+
+      {/* ── Stop confirmation dialog ── */}
+      {showConfirmCancel && (
+        <div className="pp-confirm-overlay" onClick={() => setShowConfirmCancel(false)}>
+          <div className="pp-confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="pp-confirm-header">⏹ Stop Processing?</div>
+            <p className="pp-confirm-body">
+              Are you sure you want to cancel this transcription job? The current progress will be lost and the job will be marked as cancelled. This
+              cannot be undone.
+            </p>
+            <div className="pp-confirm-actions">
+              <button className="pp-confirm-cancel-btn" onClick={() => setShowConfirmCancel(false)}>
+                Continue Processing
+              </button>
+              <button
+                className="pp-confirm-stop-btn"
+                onClick={() => {
+                  setShowConfirmCancel(false);
+                  onCancel();
+                }}>
+                Yes, Stop It
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
