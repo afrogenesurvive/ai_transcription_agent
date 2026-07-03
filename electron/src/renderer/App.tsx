@@ -63,6 +63,7 @@ export default function App() {
   const [cancelling, setCancelling] = useState(false);
   const [diarizationAvailable, setDiarizationAvailable] = useState<boolean | null>(null);
   const [historyJobId, setHistoryJobId] = useState<string | null>(null);
+  const [historyJobStatus, setHistoryJobStatus] = useState<{ status: string; progress: number; error?: string | null } | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [storageRefreshTrigger, setStorageRefreshTrigger] = useState(0);
 
@@ -233,6 +234,12 @@ export default function App() {
           if (statusData?.metadata) {
             setJobMetadata(statusData.metadata);
           }
+          // Store status info for the Pipeline tab
+          setHistoryJobStatus(
+            statusData
+              ? { status: statusData.status, progress: statusData.progress, error: statusData.error }
+              : null,
+          );
           setView("results");
         } else {
           setNotification("Transcript data unavailable for this job");
@@ -423,7 +430,15 @@ export default function App() {
               <div className="right-col">
                 {/* Show results for a history job (history panel visible in left column) */}
                 {historyJobId && (
-                  <ResultsViewer jobId={historyJobId} segments={transcript?.transcript} summary={transcript?.summary} metadata={jobMetadata} />
+                  <ResultsViewer
+                    jobId={historyJobId}
+                    segments={transcript?.transcript}
+                    summary={transcript?.summary}
+                    metadata={jobMetadata}
+                    jobStatus={historyJobStatus?.status}
+                    jobProgress={historyJobStatus?.progress}
+                    jobError={historyJobStatus?.error}
+                  />
                 )}
                 {/* Processing placeholder — hidden when viewing history */}
                 {!historyJobId && view === "processing" && (
@@ -437,7 +452,15 @@ export default function App() {
                 )}
                 {/* Live results from current upload — hidden when viewing history */}
                 {!historyJobId && view === "results" && jobId && (
-                  <ResultsViewer jobId={jobId} segments={transcript?.transcript} summary={transcript?.summary} metadata={jobMetadata} />
+                  <ResultsViewer
+                    jobId={jobId}
+                    segments={transcript?.transcript}
+                    summary={transcript?.summary}
+                    metadata={jobMetadata}
+                    jobStatus={statusData?.status}
+                    jobProgress={statusData?.progress}
+                    jobError={statusData?.error}
+                  />
                 )}
               </div>
             </>

@@ -445,6 +445,14 @@ body {
   background: linear-gradient(90deg, var(--green), #56d364);
 }
 
+.pp-bar-label {
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 6px 0 0;
+}
+
 /* Stepper */
 
 .pp-stepper {
@@ -2810,6 +2818,22 @@ body {
 }
 
 /* ── Audio Tab ── */
+
+.rv-tab-content--pipeline {
+  padding: 16px 0;
+}
+
+.rv-tab-content--pipeline .pp-bar-track {
+  margin: 0 20px;
+}
+
+.rv-tab-content--pipeline .pp-stepper {
+  padding: 12px 20px 4px;
+}
+
+.rv-tab-content--pipeline .pp-error-box {
+  margin: 12px 20px 16px;
+}
 
 .rv-tab-content--audio {
   display: flex;

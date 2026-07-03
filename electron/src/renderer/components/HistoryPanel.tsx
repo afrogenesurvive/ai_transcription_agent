@@ -16,44 +16,6 @@ interface JobSummary {
   mtime: number;
 }
 
-/* ── Pipeline stage definitions (mirrors ProgressPanel) ── */
-
-interface StageDef {
-  key: string;
-  icon: string;
-  label: string;
-  matches: string[];
-}
-
-const PIPELINE_STAGES: StageDef[] = [
-  { key: "uploaded", icon: "📤", label: "Uploading", matches: ["uploaded"] },
-  { key: "initializing", icon: "🔧", label: "Getting Ready", matches: ["initializing"] },
-  { key: "diarization", icon: "🔬", label: "Identifying Speakers", matches: ["processing_diarization"] },
-  { key: "voiceprints", icon: "🧬", label: "Matching Voices", matches: ["matching_voiceprints"] },
-  { key: "transcription", icon: "🎤", label: "Transcribing Speech", matches: ["processing_transcription"] },
-  { key: "aligning", icon: "🔗", label: "Building Transcript", matches: ["aligning"] },
-  {
-    key: "agent",
-    icon: "🤖",
-    label: "AI Processing",
-    matches: ["transcribed", "ready_for_agent", "labeling_needed", "refined", "summarized", "analyzed"],
-  },
-  { key: "delivery", icon: "📬", label: "Delivering Results", matches: ["delivered"] },
-];
-
-const COMPLETE_STATUSES = new Set(["delivered", "refined", "summarized", "analyzed"]);
-
-function getStageState(stage: StageDef, jobStatus: string, isFailed: boolean, isComplete: boolean): "done" | "active" | "pending" | "error" {
-  if (isFailed && stage.matches.includes(jobStatus)) return "error";
-  if (isFailed) return "done";
-  if (isComplete) return "done";
-  if (stage.matches.includes(jobStatus)) return "active";
-  const currentIdx = PIPELINE_STAGES.findIndex((s) => s.matches.includes(jobStatus));
-  const stageIdx = PIPELINE_STAGES.findIndex((s) => s.key === stage.key);
-  if (stageIdx < currentIdx) return "done";
-  return "pending";
-}
-
 interface Props {
   onSelectJob: (jobId: string) => void;
   currentJobId: string | null;
@@ -130,7 +92,6 @@ export default function HistoryPanel({ onSelectJob, currentJobId, onNotify, onSt
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-  const [expandedJob, setExpandedJob] = useState<string | null>(null);
 
   const loadHistory = useCallback(async () => {
     setLoading(true);
@@ -184,21 +145,16 @@ export default function HistoryPanel({ onSelectJob, currentJobId, onNotify, onSt
 
       <div className="history-panel-list">
         {jobs.map((job) => {
-          const isFailed = job.status === "failed";
-          const isComplete = COMPLETE_STATUSES.has(job.status);
-          const isExpanded = expandedJob === job.job_id;
           return (
             <div key={job.job_id} className="history-panel-item-wrapper">
               <div
                 className={`history-panel-item ${currentJobId === job.job_id ? "history-panel-item--active" : ""}`}
                 onClick={() => {
-                  setExpandedJob(isExpanded ? null : job.job_id);
                   onSelectJob(job.job_id);
                 }}>
                 <div className="history-panel-item-top">
                   <span className="history-panel-item-icon">{STATUS_ICON[job.status] || "📄"}</span>
                   <span className="history-panel-item-title">{job.title}</span>
-                  <span className="history-panel-expand-icon">{isExpanded ? "▲" : "▼"}</span>
                 </div>
                 <div className="history-panel-item-meta">
                   <span className="history-panel-item-status">{STATUS_LABEL[job.status] || job.status}</span>
@@ -207,36 +163,6 @@ export default function HistoryPanel({ onSelectJob, currentJobId, onNotify, onSt
                 {job.attendees && job.attendees.length > 0 && <div className="history-panel-item-attendees">{job.attendees.join(", ")}</div>}
                 {!job.has_transcript && job.status !== "failed" && <div className="history-panel-item-warning">No transcript data</div>}
               </div>
-
-              {/* ── Expandable pipeline stage detail ── */}
-              {isExpanded && (
-                <div className="history-pipeline-detail">
-                  <div className="history-pipeline-stepper">
-                    {PIPELINE_STAGES.map((stage) => {
-                      const state = getStageState(stage, job.status, isFailed, isComplete);
-                      return (
-                        <div key={stage.key} className={`hp-step hp-step--${state}`}>
-                          <div className="hp-step-line" />
-                          <div className="hp-step-dot">
-                            {state === "done" && <span className="hp-step-check">✓</span>}
-                            {state === "active" && <span className="hp-step-active-icon">●</span>}
-                            {state === "error" && <span className="hp-step-error-icon">✕</span>}
-                            {state === "pending" && <span className="hp-step-pending-dot" />}
-                          </div>
-                          <div className="hp-step-content">
-                            <span className="hp-step-icon">{stage.icon}</span>
-                            <span className="hp-step-label">{stage.label}</span>
-                            {state === "done" && <span className="hp-step-badge hp-step-badge--done">Done</span>}
-                            {state === "active" && <span className="hp-step-badge hp-step-badge--active">Active</span>}
-                            {state === "error" && <span className="hp-step-badge hp-step-badge--error">Error</span>}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  {isFailed && job.error && <div className="history-pipeline-error">❌ {job.error}</div>}
-                </div>
-              )}
               <button
                 className="history-panel-delete-btn"
                 onClick={(e) => {
