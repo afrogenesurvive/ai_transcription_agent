@@ -15,7 +15,7 @@ import type { TranscriptionSegment, AnalysisData } from "../types";
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
-type TabId = "audio" | "transcript" | "summary" | "analysis" | "logs" | "tokens";
+type TabId = "pipeline" | "audio" | "transcript" | "summary" | "analysis" | "logs" | "tokens";
 
 interface Tab {
   id: TabId;
@@ -24,6 +24,7 @@ interface Tab {
 }
 
 const TABS: Tab[] = [
+  { id: "pipeline", label: "Pipeline", icon: "🔬" },
   { id: "audio", label: "Audio", icon: "🔊" },
   { id: "transcript", label: "Transcript", icon: "📝" },
   { id: "summary", label: "Summary", icon: "📋" },
@@ -46,6 +47,10 @@ interface Props {
     attendees?: string[];
     event_type?: string;
   };
+  /** Pipeline status info for the Pipeline tab */
+  jobStatus?: string;
+  jobProgress?: number;
+  jobError?: string | null;
 }
 
 /* ── Helpers ── */
@@ -626,10 +631,114 @@ function TokensTab({ jobId }: { jobId: string }) {
   );
 }
 
+/* ── Pipeline stage definitions (mirrors ProgressPanel) ── */
+
+interface StageDef {
+  key: string;
+  icon: string;
+  label: string;
+  description: string;
+  matches: string[];
+}
+
+const PIPELINE: StageDef[] = [
+  { key: "uploaded", icon: "📤", label: "Uploading", description: "Receiving your audio file", matches: ["uploaded"] },
+  { key: "initializing", icon: "🔧", label: "Getting Ready", description: "Preparing the transcription system", matches: ["initializing"] },
+  { key: "diarization", icon: "🔬", label: "Identifying Speakers", description: "Detecting who speaks and when", matches: ["processing_diarization"] },
+  { key: "voiceprints", icon: "🧬", label: "Matching Voices", description: "Matching voices to known attendees", matches: ["matching_voiceprints"] },
+  { key: "transcription", icon: "🎤", label: "Transcribing Speech", description: "Converting speech to text", matches: ["processing_transcription"] },
+  { key: "aligning", icon: "🔗", label: "Building Transcript", description: "Matching words to each speaker", matches: ["aligning"] },
+  {
+    key: "agent",
+    icon: "🤖",
+    label: "AI Processing",
+    description: "Refining, summarizing & analyzing",
+    matches: ["transcribed", "ready_for_agent", "labeling_needed", "refined", "summarized", "analyzed"],
+  },
+  { key: "delivery", icon: "📬", label: "Delivering Results", description: "Sending via email, Trello & Drive", matches: ["delivered"] },
+];
+
+const COMPLETE_STATUSES = new Set(["delivered", "refined", "summarized", "analyzed"]);
+
+function getStageState(stage: StageDef, status: string, isFailed: boolean, isComplete: boolean): "done" | "active" | "pending" | "error" {
+  if (isFailed && stage.matches.includes(status)) return "error";
+  if (isFailed) return "done";
+  if (isComplete) return "done";
+  if (stage.matches.includes(status)) return "active";
+  const currentIdx = PIPELINE.findIndex((s) => s.matches.includes(status));
+  const stageIdx = PIPELINE.findIndex((s) => s.key === stage.key);
+  if (stageIdx < currentIdx) return "done";
+  return "pending";
+}
+
+/* ── Tab: Pipeline ── */
+
+function PipelineTab({ status, progress, error }: { status: string; progress: number; error?: string | null }) {
+  const isFailed = status === "failed";
+  const isComplete = COMPLETE_STATUSES.has(status);
+
+  return (
+    <div className="rv-tab-content rv-tab-content--pipeline">
+      {/* Progress bar */}
+      <div className="pp-bar-track">
+        <div
+          className={`pp-bar-fill ${isFailed ? "pp-bar-fill--error" : isComplete ? "pp-bar-fill--done" : ""}`}
+          style={{ width: `${Math.min(progress, 100)}%` }}
+        />
+      </div>
+      <div className="pp-bar-label">
+        {isFailed ? "❌ Failed" : isComplete ? "✅ Complete" : `${Math.round(progress)}%`}
+      </div>
+
+      {/* Pipeline stepper */}
+      <div className="pp-stepper">
+        {PIPELINE.map((stage) => {
+          const state = getStageState(stage, status, isFailed, isComplete);
+          return (
+            <div key={stage.key} className={`pp-step pp-step--${state}`}>
+              <div className="pp-step-line" />
+              <div className="pp-step-dot">
+                {state === "done" && <span className="pp-step-check">✓</span>}
+                {state === "active" && <span className="pp-step-spinner" />}
+                {state === "error" && <span className="pp-step-check" style={{ color: "#fff" }}>✕</span>}
+                {state === "pending" && <span className="pp-step-pending-dot" />}
+              </div>
+              <div className="pp-step-content">
+                <span className="pp-step-icon">{stage.icon}</span>
+                <div className="pp-step-text">
+                  <span className="pp-step-label">{stage.label}</span>
+                  {(state === "done" || state === "active" || state === "error") && (
+                    <span className="pp-step-desc">{stage.description}</span>
+                  )}
+                </div>
+                {state === "done" && <span className="pp-step-done-badge">Done</span>}
+                {state === "active" && <span className="pp-step-active-badge">In progress</span>}
+                {state === "error" && <span className="pp-step-done-badge" style={{ color: "var(--red)", background: "rgba(248, 81, 73, 0.12)" }}>Error</span>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {isFailed && error && (
+        <div className="pp-error-box">
+          <span className="pp-error-header">❌ Error</span>
+          <p style={{ margin: "6px 0 0", fontSize: 12, lineHeight: 1.5 }}>{error}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Main ResultsViewer ── */
 
-export default function ResultsViewer({ jobId, segments, summary, metadata }: Props) {
-  const [activeTab, setActiveTab] = useState<TabId>("summary");
+export default function ResultsViewer({ jobId, segments, summary, metadata, jobStatus, jobProgress, jobError }: Props) {
+  const [activeTab, setActiveTab] = useState<TabId>("pipeline");
+
+  // Reset to first tab when switching to a different job
+  useEffect(() => {
+    setActiveTab("pipeline");
+  }, [jobId]);
   const [analysis, setAnalysis] = useState<AnalysisData | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(true);
 
@@ -697,6 +806,9 @@ export default function ResultsViewer({ jobId, segments, summary, metadata }: Pr
 
       {/* Tab content */}
       <div className="rv-body">
+        {activeTab === "pipeline" && (
+          <PipelineTab status={jobStatus || "unknown"} progress={jobProgress ?? 0} error={jobError} />
+        )}
         {activeTab === "audio" && <AudioTab jobId={jobId} metadata={metadata} />}
         {activeTab === "transcript" && <TranscriptTab segments={segments} />}
         {activeTab === "summary" && <SummaryTab summary={summary} />}
