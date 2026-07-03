@@ -4991,6 +4991,17 @@ body {
   color: var(--accent);
 }
 
+.ssb-restart-btn--ollama {
+  background: transparent;
+  color: var(--orange);
+}
+
+.ssb-restart-btn--ollama:hover:not(:disabled) {
+  background: var(--orange);
+  color: #fff;
+  border-color: var(--orange);
+}
+
 .ssb-actions {
   display: flex;
   gap: 8px;

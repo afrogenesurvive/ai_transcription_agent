@@ -29,7 +29,7 @@ const SERVICE_LABELS: Record<ServiceName, string> = {
 export type { ServiceName, ServiceStatus };
 export { SERVICES, SERVICE_LABELS };
 
-export function useServerStatus() {
+export function useServerStatus(ollamaRequired = false) {
   const [services, setServices] = useState<Record<ServiceName, ServiceStatus>>({
     python: null,
     bridge: null,
@@ -41,8 +41,8 @@ export function useServerStatus() {
   const [checking, setChecking] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  /** All services online + diarization model available */
-  const allReady = SERVICES.every((s) => services[s] === true) && diarizationOk === true;
+  /** All services online + diarization model available + Ollama (if required) */
+  const allReady = SERVICES.every((s) => services[s] === true) && diarizationOk === true && (!ollamaRequired || ollamaOk === true);
 
   /** Poll IPC for backend status */
   const pollStatus = useCallback(async () => {

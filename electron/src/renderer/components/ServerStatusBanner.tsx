@@ -14,6 +14,7 @@ interface Props {
   diarizationOk: boolean | null;
   diarizationError: string | null;
   ollamaOk: boolean | null;
+  ollamaRequired: boolean;
   checking: boolean;
   allReady: boolean;
   onCheckServers: () => void;
@@ -36,6 +37,7 @@ export default function ServerStatusBanner({
   diarizationOk,
   diarizationError,
   ollamaOk,
+  ollamaRequired,
   checking,
   allReady,
   onCheckServers,
@@ -49,9 +51,19 @@ export default function ServerStatusBanner({
   const [visible, setVisible] = useState(true);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasTriggeredCheck = useRef(false);
+  const initialMount = useRef(true);
 
   // Countdown timer: 15 → 0, then trigger auto-check
+  // Skip the countdown entirely if everything is already ready on mount
   useEffect(() => {
+    if (initialMount.current) {
+      initialMount.current = false;
+      if (allReady) {
+        setVisible(false);
+        setCountdownActive(false);
+        return;
+      }
+    }
     if (!countdownActive) return;
     countdownRef.current = setInterval(() => {
       setCountdown((prev) => {
@@ -111,6 +123,13 @@ export default function ServerStatusBanner({
       icon: SERVICE_ICONS.diarization,
     });
   }
+  if (ollamaRequired && ollamaOk !== true) {
+    offlineItems.push({
+      name: "ollama",
+      label: "Ollama Server",
+      icon: "🦙",
+    });
+  }
 
   const anyBusy = Object.values(restarting).some(Boolean) || checking;
 
@@ -135,7 +154,8 @@ export default function ServerStatusBanner({
         <div className="ssb-services">
           {offlineItems.map((item) => {
             const isDiarization = item.name === "diarization";
-            const svcStatus = isDiarization ? diarizationOk : services[item.name as ServiceName];
+            const isOllama = item.name === "ollama";
+            const svcStatus = isDiarization ? diarizationOk : isOllama ? ollamaOk : services[item.name as ServiceName];
             return (
               <div key={item.name} className={`ssb-service ${svcStatus === false ? "ssb-service--offline" : "ssb-service--unknown"}`}>
                 <div className="ssb-service-info">
@@ -149,16 +169,19 @@ export default function ServerStatusBanner({
                           ? diarizationError
                             ? `unavailable — ${diarizationError.slice(0, 80)}`
                             : "unavailable"
-                          : "offline"}
+                          : isOllama
+                            ? "not running"
+                            : "offline"}
                     </span>
                   </div>
                 </div>
                 <button
-                  className={`ssb-restart-btn ${isDiarization ? "ssb-restart-btn--config" : ""}`}
+                  className={`ssb-restart-btn ${isDiarization ? "ssb-restart-btn--config" : isOllama ? "ssb-restart-btn--ollama" : ""}`}
                   onClick={() => {
                     if (isDiarization) {
-                      // Open config for HF token
                       window.electronAPI?.getConfigWithSources();
+                    } else if (isOllama) {
+                      onStartOllama?.();
                     } else {
                       handleRestartService(item.name as ServiceName);
                     }
@@ -197,6 +220,12 @@ export default function ServerStatusBanner({
               className={`ssb-mini-dot ${diarizationOk === true ? "ssb-mini-dot--ok" : diarizationOk === false ? "ssb-mini-dot--err" : "ssb-mini-dot--unk"}`}
             />{" "}
             Diarization
+          </span>
+          <span className="ssb-footer-dot">
+            <span
+              className={`ssb-mini-dot ${ollamaOk === true ? "ssb-mini-dot--ok" : ollamaOk === false ? "ssb-mini-dot--err" : "ssb-mini-dot--unk"}`}
+            />{" "}
+            Ollama
           </span>
         </div>
       </div>

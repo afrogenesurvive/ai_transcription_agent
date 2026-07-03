@@ -63,6 +63,7 @@ export default function App() {
   const [notification, setNotification] = useState<string | null>(null);
   const [sidebarView, setSidebarView] = useState<SidebarView>("current");
   const [configOk, setConfigOk] = useState(true);
+  const [ollamaRequired, setOllamaRequired] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [diarizationAvailable, setDiarizationAvailable] = useState<boolean | null>(null);
   const [historyJobId, setHistoryJobId] = useState<string | null>(null);
@@ -82,14 +83,14 @@ export default function App() {
   }, []);
 
   // ── Server & diarization health ──
-  const serverStatus = useServerStatus();
+  const serverStatus = useServerStatus(ollamaRequired);
 
   // Keep diarizationAvailable in sync with server hook for downstream use
   useEffect(() => {
     setDiarizationAvailable(serverStatus.diarizationOk);
   }, [serverStatus.diarizationOk]);
 
-  // Check config on mount
+  // Check config on mount — detect whether Ollama is the provider
   useEffect(() => {
     window.electronAPI?.checkConfig().then((result: { ok: boolean; missing: string[] }) => {
       setConfigOk(result.ok);
@@ -98,6 +99,9 @@ export default function App() {
         setNotification(`Config incomplete: missing ${items}`);
         setTimeout(() => setNotification(null), 8000);
       }
+    });
+    window.electronAPI?.getConfig().then((cfg) => {
+      setOllamaRequired(cfg?.LLM_PROVIDER === "ollama");
     });
   }, []);
 
@@ -351,17 +355,19 @@ export default function App() {
           {sidebarView === "dev" && <DevPanel onClose={() => setSidebarView("current")} />}
 
           {/* ── Server status popover overlay ── */}
-          {sidebarView !== "dev" && !serverStatus.allReady && (
+          {sidebarView !== "dev" && (
             <ServerStatusBanner
               services={serverStatus.services}
               diarizationOk={serverStatus.diarizationOk}
               diarizationError={serverStatus.diarizationError}
               ollamaOk={serverStatus.ollamaOk}
+              ollamaRequired={ollamaRequired}
               checking={serverStatus.checking}
               allReady={serverStatus.allReady}
               onCheckServers={serverStatus.checkServers}
               onRestartService={serverStatus.restartService}
               onRestartAll={serverStatus.restartAll}
+              onStartOllama={serverStatus.startOllama}
             />
           )}
 
