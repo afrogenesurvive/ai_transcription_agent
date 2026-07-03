@@ -339,21 +339,22 @@ export default function App() {
           {/* ── Dev view: always interactive (logs help debug startup) ── */}
           {sidebarView === "dev" && <DevPanel onClose={() => setSidebarView("current")} />}
 
-          {/* ── When servers aren't all ready, gate non-dev views ── */}
+          {/* ── Server status popover overlay ── */}
           {sidebarView !== "dev" && !serverStatus.allReady && (
             <ServerStatusBanner
               services={serverStatus.services}
               diarizationOk={serverStatus.diarizationOk}
               diarizationError={serverStatus.diarizationError}
               checking={serverStatus.checking}
+              allReady={serverStatus.allReady}
               onCheckServers={serverStatus.checkServers}
               onRestartService={serverStatus.restartService}
               onRestartAll={serverStatus.restartAll}
             />
           )}
 
-          {/* ── Normal content (all servers + diarization ready) ── */}
-          {sidebarView !== "dev" && serverStatus.allReady && (
+          {/* ── Normal content (always visible behind popover) ── */}
+          {sidebarView !== "dev" && (
             <>
               {sidebarView === "current" && (
                 <>
@@ -417,6 +418,15 @@ export default function App() {
                               <button className="btn-secondary" onClick={handleNew}>
                                 Clear &amp; Close
                               </button>
+                              {(!["complete", "delivered"].includes(statusData?.status) || statusHook.state === "polling") && (
+                                <button
+                                  className="btn-secondary"
+                                  onClick={handleCancel}
+                                  disabled={cancelling}
+                                  style={{ borderColor: "var(--red)", color: "var(--red)" }}>
+                                  {cancelling ? "⏳ Cancelling…" : "⏹ Cancel Job"}
+                                </button>
+                              )}
                             </div>
                             <p className="config-hint" style={{ marginTop: 10, marginBottom: 0 }}>
                               The job is saved to history and can be reopened anytime from the <strong>📋 History</strong> panel.

@@ -1,13 +1,11 @@
 /**
- * ServerStatusBanner — full-page interstitial shown in Current/New views
- * when backend services are not all running.
- *
- * Renders a clear status card for each offline service with a restart button,
- * plus a "Restart All" shortcut. Only the Dev view remains interactive when
- * this is shown — all other sidebar views redirect here.
+ * ServerStatusBanner — popover/dialog overlay shown when backend services
+ * are not all running. Displays over the current view with a 15-second
+ * countdown timer before auto-checking servers. Shows restart buttons
+ * only after the countdown completes.
  */
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import type { ServiceName, ServiceStatus } from "../hooks/useServerStatus";
 import { SERVICES, SERVICE_LABELS } from "../hooks/useServerStatus";
 
@@ -16,6 +14,7 @@ interface Props {
   diarizationOk: boolean | null;
   diarizationError: string | null;
   checking: boolean;
+  allReady: boolean;
   onCheckServers: () => void;
   onRestartService: (name: ServiceName) => Promise<boolean>;
   onRestartAll: () => Promise<boolean>;
@@ -27,16 +26,57 @@ const SERVICE_ICONS: Record<ServiceName, string> = {
   agent: "🤖",
 };
 
+const COUNTDOWN_SECONDS = 15;
+
 export default function ServerStatusBanner({
   services,
   diarizationOk,
   diarizationError,
   checking,
+  allReady,
   onCheckServers,
   onRestartService,
   onRestartAll,
 }: Props) {
   const [restarting, setRestarting] = useState<Record<string, boolean>>({});
+  const [countdown, setCountdown] = useState(COUNTDOWN_SECONDS);
+  const [countdownActive, setCountdownActive] = useState(true);
+  const [visible, setVisible] = useState(true);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hasTriggeredCheck = useRef(false);
+
+  // Countdown timer: 15 → 0, then trigger auto-check
+  useEffect(() => {
+    if (!countdownActive) return;
+    countdownRef.current = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          if (countdownRef.current) clearInterval(countdownRef.current);
+          countdownRef.current = null;
+          setCountdownActive(false);
+          // Trigger auto-check once
+          if (!hasTriggeredCheck.current) {
+            hasTriggeredCheck.current = true;
+            onCheckServers();
+          }
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => {
+      if (countdownRef.current) clearInterval(countdownRef.current);
+    };
+  }, [countdownActive, onCheckServers]);
+
+  // When servers become all ready, close the popover
+  useEffect(() => {
+    if (allReady && !countdownActive) {
+      // Small delay so the user sees the green state briefly
+      const t = setTimeout(() => setVisible(false), 800);
+      return () => clearTimeout(t);
+    }
+  }, [allReady, countdownActive]);
 
   const handleRestartService = useCallback(
     async (name: ServiceName) => {
@@ -59,21 +99,23 @@ export default function ServerStatusBanner({
       offlineItems.push({ name: svc, label: SERVICE_LABELS[svc], icon: SERVICE_ICONS[svc] });
     }
   }
-  // Diarization is a model check, not a server — show separately
   const diarizationOffline = diarizationOk === false;
 
   const anyBusy = Object.values(restarting).some(Boolean) || checking;
 
+  if (!visible) return null;
+
   return (
-    <div className="ssb-container">
-      <div className="ssb-card">
+    <div className="ssb-overlay">
+      <div className="ssb-card ssb-card--popover">
         <div className="ssb-header">
           <span className="ssb-icon">⚠️</span>
           <div>
             <h2 className="ssb-title">Services Not Ready</h2>
             <p className="ssb-subtitle">
-              Some backend services are offline. Start or restart them below, or switch to the <strong>🛠️ Dev</strong> panel to view logs while
-              waiting.
+              Some backend services are offline. Auto-checking server status in <strong>{countdown}s</strong>
+              {!countdownActive && checking && " — checking now…"}
+              {!countdownActive && !checking && " — check complete"}
             </p>
           </div>
         </div>
@@ -92,8 +134,8 @@ export default function ServerStatusBanner({
               <button
                 className="ssb-restart-btn"
                 onClick={() => handleRestartService(name)}
-                disabled={anyBusy || services[name] === null}
-                title={`Start ${label}`}>
+                disabled={countdownActive || anyBusy || services[name] === null}
+                title={countdownActive ? `Auto-checking in ${countdown}s…` : `Start ${label}`}>
                 {restarting[name] ? "⟳ Starting…" : "▶ Start"}
               </button>
             </div>
@@ -108,7 +150,7 @@ export default function ServerStatusBanner({
                   <span className="ssb-service-status">{diarizationError ? `unavailable — ${diarizationError.slice(0, 80)}` : "unavailable"}</span>
                 </div>
               </div>
-              <button className="ssb-restart-btn ssb-restart-btn--config" onClick={() => {}} title="Configure HF token">
+              <button className="ssb-restart-btn ssb-restart-btn--config" disabled={countdownActive} onClick={() => {}} title="Configure HF token">
                 ⚙ Config
               </button>
             </div>
@@ -117,11 +159,11 @@ export default function ServerStatusBanner({
 
         {/* Actions */}
         <div className="ssb-actions">
-          <button className="ssb-btn ssb-btn--primary" onClick={handleRestartAll} disabled={anyBusy}>
-            {restarting._all ? "⟳ Restarting All…" : "🔄 Restart All Services"}
+          <button className="ssb-btn ssb-btn--primary" onClick={handleRestartAll} disabled={countdownActive || anyBusy}>
+            {countdownActive ? `⏳ Wait ${countdown}s…` : restarting._all ? "⟳ Restarting All…" : "🔄 Restart All Services"}
           </button>
-          <button className="ssb-btn ssb-btn--secondary" onClick={onCheckServers} disabled={anyBusy}>
-            {checking ? "⟳ Checking…" : "↻ Re-check"}
+          <button className="ssb-btn ssb-btn--secondary" onClick={onCheckServers} disabled={countdownActive || anyBusy}>
+            {countdownActive ? `⏳ ${countdown}s` : checking ? "⟳ Checking…" : "↻ Re-check"}
           </button>
         </div>
 

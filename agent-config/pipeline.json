@@ -1,5 +1,5 @@
 {
-  "max_pipeline_steps": 15,
+  "max_pipeline_steps": 25,
   "max_retries": 3,
   "retry_base_delay_ms": 2000,
   "terminal_tools": ["send_delivery_email", "save_to_drive", "create_trello_action_items"],

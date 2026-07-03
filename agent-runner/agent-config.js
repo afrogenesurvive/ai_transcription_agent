@@ -82,7 +82,7 @@ const FALLBACK_TOOLS = [
 ];
 
 const FALLBACK_PIPELINE = {
-  max_pipeline_steps: 15,
+  max_pipeline_steps: 25,
   max_retries: 3,
   retry_base_delay_ms: 2000,
   terminal_tools: ["send_delivery_email", "save_to_drive", "create_trello_action_items"],
@@ -119,7 +119,7 @@ export const PIPELINE_CONFIG = readJson("pipeline.json") || FALLBACK_PIPELINE;
 /** Convenience aliases */
 export const PIPELINE_HINTS = PIPELINE_CONFIG.pipeline_hints;
 export const TERMINAL_TOOLS = new Set(PIPELINE_CONFIG.terminal_tools || []);
-export const MAX_PIPELINE_STEPS = PIPELINE_CONFIG.max_pipeline_steps ?? 15;
+export const MAX_PIPELINE_STEPS = PIPELINE_CONFIG.max_pipeline_steps ?? 25;
 export const MAX_RETRIES = PIPELINE_CONFIG.max_retries ?? 3;
 export const RETRY_BASE_DELAY = PIPELINE_CONFIG.retry_base_delay_ms ?? 2000;
 

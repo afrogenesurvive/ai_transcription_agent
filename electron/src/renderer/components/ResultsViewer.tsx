@@ -380,7 +380,6 @@ function LogsTab({ jobId }: { jobId: string }) {
   const [jobLogFiles, setJobLogFiles] = useState<{ file: string; content: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedLogFile, setSelectedLogFile] = useState<string | null>(null);
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [levelFilter, setLevelFilter] = useState<string>("all");
   const logRef = useRef<HTMLDivElement>(null);
@@ -412,23 +411,6 @@ function LogsTab({ jobId }: { jobId: string }) {
       cancelled = true;
     };
   }, [jobId]);
-
-  // Also try to get global log files via Electron IPC
-  const [electronLogFiles, setElectronLogFiles] = useState<any[]>([]);
-  useEffect(() => {
-    window.electronAPI
-      ?.listLogFiles()
-      .then((files) => {
-        setElectronLogFiles(files || []);
-      })
-      .catch(() => {});
-  }, []);
-
-  const handleReadElectronLog = async (filePath: string) => {
-    setSelectedLogFile(filePath);
-    const lines = (await window.electronAPI?.readLogFile(filePath, 500)) || [];
-    setLogs(lines);
-  };
 
   // Filter logs by source and level
   const filteredLogs = logs.filter((line) => {
@@ -484,7 +466,7 @@ function LogsTab({ jobId }: { jobId: string }) {
       {/* Filter toolbar */}
       {logs.length > 0 && (
         <div className="rv-logs-toolbar">
-          <span className="rv-logs-toolbar-title">🪵 Pipeline Logs</span>
+          <span className="rv-logs-toolbar-title">🪵 Job Log Files</span>
           <div className="rv-logs-toolbar-filters">
             <select className="rv-logs-filter-select" value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
               <option value="all">All sources</option>
@@ -525,24 +507,6 @@ function LogsTab({ jobId }: { jobId: string }) {
               <span>No logs match the current filters.</span>
             </div>
           )}
-        </div>
-      )}
-
-      {/* Global log file picker (from Electron) */}
-      {electronLogFiles.length > 0 && (
-        <div className="rv-logs-section">
-          <h4 className="rv-logs-section-title">📂 Global Log Files</h4>
-          <div className="rv-logs-file-browser">
-            {electronLogFiles.map((f) => (
-              <button
-                key={f.path}
-                className={`rv-logs-file-btn ${selectedLogFile === f.path ? "rv-logs-file-btn--active" : ""}`}
-                onClick={() => handleReadElectronLog(f.path)}>
-                <span className="rv-logs-file-btn-name">{f.name}</span>
-                <span className="rv-logs-file-btn-meta">{formatBytes(f.size)}</span>
-              </button>
-            ))}
-          </div>
         </div>
       )}
 

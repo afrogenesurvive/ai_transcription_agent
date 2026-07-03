@@ -235,7 +235,7 @@ export default function ConfigPanel({ onClose }: Props) {
   // Local edit buffers
   const [editSystemPrompt, setEditSystemPrompt] = useState("");
   const [editPipelineHints, setEditPipelineHints] = useState<Record<string, string>>({});
-  const [editMaxSteps, setEditMaxSteps] = useState(15);
+  const [editMaxSteps, setEditMaxSteps] = useState(25);
   const [editMaxRetries, setEditMaxRetries] = useState(3);
   const [editRetryDelay, setEditRetryDelay] = useState(2000);
   const [editTerminalTools, setEditTerminalTools] = useState("");
@@ -313,7 +313,7 @@ export default function ConfigPanel({ onClose }: Props) {
         setAgentConfig(cfg as AgentConfig);
         setEditSystemPrompt(cfg.systemPrompt || "");
         setEditPipelineHints(cfg.pipeline?.pipeline_hints || {});
-        setEditMaxSteps(cfg.pipeline?.max_pipeline_steps ?? 15);
+        setEditMaxSteps(cfg.pipeline?.max_pipeline_steps ?? 25);
         setEditMaxRetries(cfg.pipeline?.max_retries ?? 3);
         setEditRetryDelay(cfg.pipeline?.retry_base_delay_ms ?? 2000);
         setEditTerminalTools((cfg.pipeline?.terminal_tools || []).join(", "));
@@ -1198,7 +1198,7 @@ export default function ConfigPanel({ onClose }: Props) {
               <h3 className="config-section-title">⚙️ Constants</h3>
               <div className="config-view-field">
                 <div className="config-view-label">Max Steps</div>
-                <div className="config-view-value">{agentConfig.pipeline?.max_pipeline_steps ?? 15}</div>
+                <div className="config-view-value">{agentConfig.pipeline?.max_pipeline_steps ?? 25}</div>
               </div>
               <div className="config-view-field">
                 <div className="config-view-label">Max Retries</div>
