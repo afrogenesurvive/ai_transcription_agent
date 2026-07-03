@@ -241,6 +241,80 @@ export default function ConfigPanel({ onClose }: Props) {
   const [editTerminalTools, setEditTerminalTools] = useState("");
   const [restartNeeded, setRestartNeeded] = useState(false);
 
+  // ── Export / Import state ──
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [exportResult, setExportResult] = useState<string | null>(null);
+  const [importResult, setImportResult] = useState<string | null>(null);
+
+  const handleExport = useCallback(async () => {
+    setExporting(true);
+    setExportResult(null);
+    try {
+      const result = await window.electronAPI?.exportConfig();
+      if (result?.success) {
+        setExportResult(`✅ Exported to ${result.filePath}`);
+      } else if (result?.cancelled) {
+        setExportResult(null);
+      } else {
+        setExportResult(`❌ Export failed: ${result?.error || "Unknown error"}`);
+      }
+    } catch (err: any) {
+      setExportResult(`❌ Export failed: ${err.message}`);
+    } finally {
+      setExporting(false);
+    }
+  }, []);
+
+  const handleImport = useCallback(async () => {
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const result = await window.electronAPI?.importConfig();
+      if (result?.success) {
+        const agentMsg = result.agentConfigImported ? " (agent instructions included)" : "";
+        setImportResult(`✅ Configuration imported successfully${agentMsg}`);
+        // Reload config values after import
+        window.electronAPI?.getConfig().then((cfg) => {
+          setValues({
+            DEEPSEEK_API_KEY: cfg.DEEPSEEK_API_KEY || "",
+            LLM_PROVIDER: cfg.LLM_PROVIDER || "deepseek",
+            OLLAMA_BASE_URL: cfg.OLLAMA_BASE_URL || "http://127.0.0.1:11434/v1",
+            OLLAMA_MODEL: cfg.OLLAMA_MODEL || "",
+            OLLAMA_NUM_CTX: cfg.OLLAMA_NUM_CTX || "32768",
+            HUGGING_FACE_TOKEN: cfg.HUGGING_FACE_TOKEN || "",
+            GITHUB_TOKEN: cfg.GITHUB_TOKEN || "",
+            WHISPER_MODEL_SIZE: cfg.WHISPER_MODEL_SIZE || "medium",
+            KEEP_TRANSCRIPT_TIMESTAMPS: cfg.KEEP_TRANSCRIPT_TIMESTAMPS || "false",
+            GMAIL_CLIENT_ID: cfg.GMAIL_CLIENT_ID || "",
+            GMAIL_CLIENT_SECRET: cfg.GMAIL_CLIENT_SECRET || "",
+            GMAIL_REFRESH_TOKEN: cfg.GMAIL_REFRESH_TOKEN || "",
+            GMAIL_USER: cfg.GMAIL_USER || "",
+            TRELLO_KEY: cfg.TRELLO_KEY || "",
+            TRELLO_TOKEN: cfg.TRELLO_TOKEN || "",
+            LOG_ENABLED_SOURCES: cfg.LOG_ENABLED_SOURCES || "all",
+            LOG_LEVEL: cfg.LOG_LEVEL || "info",
+            LOG_MAX_FILE_SIZE_MB: cfg.LOG_MAX_FILE_SIZE_MB || "50",
+            LOG_MAX_FILES: cfg.LOG_MAX_FILES || "10",
+            LOG_LLM_DATA: cfg.LOG_LLM_DATA || "false",
+          });
+        });
+        window.electronAPI
+          ?.getConfigWithSources()
+          .then(setSourceInfo)
+          .catch(() => {});
+      } else if (result?.cancelled) {
+        setImportResult(null);
+      } else {
+        setImportResult(`❌ Import failed: ${result?.error || "Unknown error"}`);
+      }
+    } catch (err: any) {
+      setImportResult(`❌ Import failed: ${err.message}`);
+    } finally {
+      setImporting(false);
+    }
+  }, []);
+
   // ── Check active jobs on mount (blocks editing on ALL tabs while running) ──
   useEffect(() => {
     setActiveJobsLoading(true);
@@ -423,6 +497,15 @@ export default function ConfigPanel({ onClose }: Props) {
                 handleRefreshSources();
               }}>
               👁️ View Current
+            </button>
+          </div>
+          {/* Export / Import buttons */}
+          <div className="config-io-buttons">
+            <button className="config-io-btn" onClick={handleExport} disabled={exporting} title="Export configuration to a file">
+              {exporting ? "⟳" : "📤"} Export
+            </button>
+            <button className="config-io-btn" onClick={handleImport} disabled={importing} title="Import configuration from a file">
+              {importing ? "⟳" : "📥"} Import
             </button>
           </div>
           <button className="config-close-btn" onClick={onClose}>
@@ -1239,6 +1322,8 @@ export default function ConfigPanel({ onClose }: Props) {
       </div>
 
       <div className="config-footer">
+        {exportResult && <span className="config-success">{exportResult}</span>}
+        {importResult && <span className="config-success">{importResult}</span>}
         {error && <span className="config-error">{error}</span>}
         {saved && !restartNeeded && <span className="config-success">✓ Configuration saved</span>}
         {saved && restartNeeded && <span className="config-warning">✓ Saved — ⚠️ Restart agent runner to apply changes</span>}

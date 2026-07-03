@@ -403,6 +403,166 @@ ipcMain.handle("config:getWithSources", () => {
   return getConfigWithSources();
 });
 
+// ── Config Export / Import IPC ──
+
+ipcMain.handle("config:export", async () => {
+  addLog("main", "info", "Config export requested");
+  try {
+    // Read user config file
+    const userDataPath = app.getPath("userData");
+    const configPath = path.join(userDataPath, "config.json");
+    let userConfig: Record<string, any> = {};
+    if (fs.existsSync(configPath)) {
+      const raw = fs.readFileSync(configPath, "utf8");
+      userConfig = JSON.parse(raw);
+    }
+
+    // Try to read agent config from bridge
+    let agentConfig: any = null;
+    try {
+      const res = await fetch("http://127.0.0.1:5010/agent/config", {
+        signal: AbortSignal.timeout(3000),
+      });
+      if (res.ok) agentConfig = await res.json();
+    } catch {
+      addLog("main", "warn", "Agent config unavailable for export — bridge not reachable");
+    }
+
+    const exportData = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      userConfig,
+      agentConfig,
+    };
+
+    // Show save dialog
+    const result = await dialog.showSaveDialog(mainWindow!, {
+      title: "Export Configuration",
+      defaultPath: path.join(app.getPath("documents"), `transcription-agent-config-${new Date().toISOString().slice(0, 10)}.json`),
+      filters: [{ name: "JSON Config", extensions: ["json"] }],
+    });
+
+    if (result.canceled || !result.filePath) {
+      addLog("main", "info", "Config export cancelled by user");
+      return { success: false, cancelled: true };
+    }
+
+    fs.writeFileSync(result.filePath, JSON.stringify(exportData, null, 2), "utf8");
+    addLog("main", "info", `Config exported to ${result.filePath}`);
+    return { success: true, filePath: result.filePath };
+  } catch (err: any) {
+    addLog("main", "error", `Config export failed: ${err.message}`);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle("config:import", async () => {
+  addLog("main", "info", "Config import requested");
+  try {
+    // Show open dialog
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      title: "Import Configuration",
+      filters: [{ name: "JSON Config", extensions: ["json"] }],
+      properties: ["openFile"],
+    });
+
+    if (result.canceled || result.filePaths.length === 0) {
+      addLog("main", "info", "Config import cancelled by user");
+      return { success: false, cancelled: true };
+    }
+
+    const filePath = result.filePaths[0];
+    const raw = fs.readFileSync(filePath, "utf8");
+    const importData = JSON.parse(raw);
+
+    // Validate format
+    if (!importData.version || !importData.userConfig) {
+      return { success: false, error: "Invalid config file format — missing version or userConfig" };
+    }
+
+    // Import user config
+    saveConfig(importData.userConfig);
+    addLog("main", "info", "User config imported successfully");
+
+    // Re-apply log filter so changes take effect immediately
+    const updatedConfig = getConfig();
+    configureLogFilter({
+      enabledSources: updatedConfig.LOG_ENABLED_SOURCES,
+      minLevel: updatedConfig.LOG_LEVEL,
+      maxFileSizeMb: updatedConfig.LOG_MAX_FILE_SIZE_MB,
+      maxFiles: updatedConfig.LOG_MAX_FILES,
+    });
+    addLog("main", "info", `Log filter updated: sources=${updatedConfig.LOG_ENABLED_SOURCES} level=${updatedConfig.LOG_LEVEL}`);
+
+    // Check config completeness
+    const cfgCheck = checkConfig();
+    if (cfgCheck.ok) {
+      addLog("main", "info", `Config OK — ${cfgCheck.missing.length} missing values`);
+    } else {
+      addLog("main", "warn", `Config incomplete — missing: ${cfgCheck.missing.join(", ")}`);
+    }
+
+    // If using Ollama, ensure the server is running before restarting the agent
+    if (updatedConfig.LLM_PROVIDER === "ollama") {
+      try {
+        const started = await ensureOllamaRunning();
+        if (!started) {
+          addLog("main", "warn", "[ollama] Server did not start — agent runner may fail to connect, check logs for details");
+        }
+      } catch (err: any) {
+        addLog("main", "error", `[ollama] Unexpected error starting Ollama: ${err.message}`);
+      }
+    } else if (ollamaStartedByUs()) {
+      addLog("main", "info", "[ollama] Provider switched away from Ollama — stopping server");
+      stopOllamaServer();
+    }
+
+    // Restart agent runner so it picks up the new env vars
+    try {
+      if (isAgentRunning()) {
+        await restartAgentRunner();
+        addLog("main", "info", "Agent runner restarted after config import");
+      } else {
+        await startAgentRunner();
+        addLog("main", "info", "Agent runner started after config import");
+      }
+    } catch (err: any) {
+      addLog("main", "error", `Failed to restart agent runner: ${err.message}`);
+    }
+
+    // Import agent config if present (agent-specific instructions like prompts & pipeline hints)
+    let agentConfigImported = false;
+    if (importData.agentConfig) {
+      try {
+        const agentPayload: any = {};
+        if (importData.agentConfig.systemPrompt) agentPayload.systemPrompt = importData.agentConfig.systemPrompt;
+        if (importData.agentConfig.pipeline) agentPayload.pipeline = importData.agentConfig.pipeline;
+        if (importData.agentConfig.tools) agentPayload.tools = importData.agentConfig.tools;
+
+        const res = await fetch("http://127.0.0.1:5010/agent/config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(agentPayload),
+          signal: AbortSignal.timeout(5000),
+        });
+        if (res.ok) {
+          agentConfigImported = true;
+          addLog("main", "info", "Agent config imported successfully via bridge");
+        } else {
+          addLog("main", "warn", `Agent config import returned status ${res.status}`);
+        }
+      } catch {
+        addLog("main", "warn", "Agent config import skipped — bridge not reachable");
+      }
+    }
+
+    return { success: true, agentConfigImported, filePath };
+  } catch (err: any) {
+    addLog("main", "error", `Config import failed: ${err.message}`);
+    return { success: false, error: err.message };
+  }
+});
+
 // ── Agent Config IPC ──
 
 ipcMain.handle("agent-config:get", async () => {
