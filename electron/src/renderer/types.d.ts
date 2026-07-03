@@ -103,8 +103,13 @@ export interface ElectronAPI {
     children: Array<{ service: string; pid: number; cpu: number; memory: number; elapsed: number }>;
   }>;
   // ── Ollama Model Management ──
-  listOllamaModels: () => Promise<{ models: Array<{ name: string; size: number; modified_at: string }>; error: string | null }>;
+  listOllamaModels: () => Promise<{
+    models: Array<{ name: string; size: number; modified_at: string }>;
+    error: string | null;
+    wasStarted?: boolean;
+  }>;
   pullOllamaModel: (modelName: string) => Promise<{ success: boolean; error: string | null }>;
+  stopOllamaServer: () => Promise<{ success: boolean }>;
 
   // ── Auto-Update ──
   getUpdateStatus: () => Promise<{

@@ -33,6 +33,8 @@ import {
   stopHealthMonitoring,
   killProcessOnPort,
   getChildPids,
+  ollamaStartedByUs,
+  stopOllamaServer,
 } from "./backend-manager";
 import {
   subscribe,
@@ -286,6 +288,15 @@ ipcMain.handle("config:save", async (_event, values: Record<string, string>) => 
     addLog("main", "warn", `Config incomplete — missing: ${cfg.missing.join(", ")}`);
   }
 
+  // If using Ollama, ensure the server is running before restarting the agent
+  if (updatedConfig.LLM_PROVIDER === "ollama") {
+    try {
+      await ensureOllamaRunning();
+    } catch (err: any) {
+      addLog("main", "warn", `[ollama] Could not start Ollama: ${err.message}`);
+    }
+  }
+
   // Restart agent runner so it picks up the new env vars (e.g. DEEPSEEK_API_KEY)
   // If it wasn't running (due to missing config), start it now.
   try {
@@ -488,12 +499,14 @@ ipcMain.handle("ollama:listModels", async () => {
   addLog("main", "info", "[ollama] Listing available models via REST API (GET /api/tags)");
   const config = getConfig();
   const baseUrl = (config.OLLAMA_BASE_URL || "http://127.0.0.1:11434/v1").replace(/\/v1\/?$/, "");
-  try {
+
+  // Helper to actually fetch models. Returns { models, error, statusCode? }.
+  const fetchModels = async (): Promise<{ models: any[]; error: string | null; statusCode?: number }> => {
     const res = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(5000) });
     if (!res.ok) {
       const errBody = await res.text().catch(() => "");
       addLog("main", "warn", `[ollama] GET /api/tags returned ${res.status}: ${errBody.slice(0, 300)}`);
-      return { models: [], error: `Ollama server returned ${res.status}` };
+      return { models: [], error: `Ollama server returned ${res.status}`, statusCode: res.status };
     }
     const data = await res.json();
     const models = (data.models || []).map((m: any) => ({
@@ -508,10 +521,35 @@ ipcMain.handle("ollama:listModels", async () => {
       addLog("main", "info", "[ollama] No models pulled yet");
     }
     return { models, error: null };
-  } catch (err: any) {
-    addLog("main", "warn", `[ollama] GET /api/tags failed: ${err.message}`);
-    return { models: [], error: `Cannot reach Ollama: ${err.message}` };
+  };
+
+  // Attempt the initial fetch
+  let result = await fetchModels().catch((err: any) => ({
+    models: [],
+    error: `Cannot reach Ollama: ${err.message}`,
+    statusCode: undefined,
+  }));
+
+  // If it failed (either non-OK response or network error), try starting Ollama and retry once
+  if (result.error) {
+    addLog("main", "info", `[ollama] Attempt ${result.statusCode ? `HTTP ${result.statusCode}` : "failed"} — trying to start Ollama server...`);
+    const started = await ensureOllamaRunning(true); // force=true: skip LLM_PROVIDER config guard
+    if (started) {
+      addLog("main", "info", "[ollama] Ollama started — retrying model list");
+      result = await fetchModels().catch((err: any) => ({
+        models: [],
+        error: `Cannot reach Ollama: ${err.message}`,
+      }));
+    }
   }
+
+  return { models: result.models, error: result.error, wasStarted: ollamaStartedByUs() };
+});
+
+ipcMain.handle("ollama:stopServer", async () => {
+  addLog("main", "info", "[ollama] Stopping server per user request (provider switched away)");
+  stopOllamaServer();
+  return { success: true };
 });
 
 ipcMain.handle("ollama:pullModel", async (_event, modelName: string) => {

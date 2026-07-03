@@ -473,28 +473,39 @@ function launchOllama(): boolean {
 
 // ── Ollama auto-start ──
 
+/** Tracks whether we launched Ollama ourselves (vs. it was already running). */
+let _ollamaStartedByUs = false;
+
+/** Returns true if this session started Ollama (and thus should stop it). */
+export function ollamaStartedByUs(): boolean {
+  return _ollamaStartedByUs;
+}
+
 /**
  * If the LLM provider is Ollama, ensure the Ollama server is running.
  *
  * Steps:
  *   1. Quick health check — if running, return
- *   2. Check if installed — if not, download & install for the platform
+ *   2. Check installed — if not, download & install for the platform
  *   3. Launch the Ollama application/server
  *   4. Wait for health check to succeed
  *
  * Returns true if Ollama is (or became) available, false otherwise.
  * Non-blocking for the caller — the agent runner will retry on connection failure.
  */
-export async function ensureOllamaRunning(): Promise<boolean> {
+export async function ensureOllamaRunning(force = false): Promise<boolean> {
   const env = getChildEnv();
-  if (env.LLM_PROVIDER !== "ollama") return true; // not using Ollama
+  if (!force && env.LLM_PROVIDER !== "ollama") return true; // not using Ollama
 
-  const baseUrl = env.OLLAMA_BASE_URL || "http://127.0.0.1:11434";
+  // Strip /v1 suffix if present — it's only for the OpenAI-compatible endpoint,
+  // not for Ollama's own API (e.g. /api/tags, /api/pull)
+  const baseUrl = (env.OLLAMA_BASE_URL || "http://127.0.0.1:11434").replace(/\/v1\/?$/, "");
   addLog("main", "info", `[ollama] Checking Ollama at ${baseUrl}...`);
 
   // ── 1. Quick health check ──
   if (await checkOllamaServer(baseUrl)) {
     addLog("main", "info", "[ollama] Ollama is already running");
+    _ollamaStartedByUs = false;
     return true;
   }
 
@@ -519,6 +530,7 @@ export async function ensureOllamaRunning(): Promise<boolean> {
     await new Promise((r) => setTimeout(r, 3000));
     if (await checkOllamaServer(baseUrl, 3000)) {
       addLog("main", "info", "[ollama] Ollama is now running");
+      _ollamaStartedByUs = true;
       return true;
     }
     addLog("main", "info", `[ollama] Still waiting... (attempt ${i + 1}/6)`);
@@ -526,6 +538,29 @@ export async function ensureOllamaRunning(): Promise<boolean> {
 
   addLog("main", "warn", "[ollama] Ollama did not start in time — agent runner will retry on connection");
   return false;
+}
+
+/**
+ * Stop the Ollama server process.
+ * Platform-specific — uses the most reliable method per OS.
+ */
+export function stopOllamaServer(): void {
+  addLog("main", "info", "[ollama] Stopping Ollama server...");
+  try {
+    if (IS_WIN) {
+      execSync("taskkill /IM ollama.exe /F", { stdio: "pipe", timeout: 5000 });
+    } else if (process.platform === "darwin") {
+      // On macOS, Ollama runs as a GUI app. Use AppleScript to quit gracefully.
+      execSync("osascript -e 'quit app \"Ollama\"'", { stdio: "pipe", timeout: 5000 });
+    } else {
+      execSync("pkill -x ollama", { stdio: "pipe", timeout: 5000 });
+    }
+    addLog("main", "info", "[ollama] Ollama stopped");
+  } catch (err: any) {
+    // Process may already be gone — not an error
+    addLog("main", "debug", `[ollama] Stop command note: ${err.message}`);
+  }
+  _ollamaStartedByUs = false;
 }
 // \u2500\u2500 ffmpeg \u2014 Download & Install \u2500\u2500
 

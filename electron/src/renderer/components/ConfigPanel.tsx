@@ -131,6 +131,8 @@ export default function ConfigPanel({ onClose }: Props) {
   const [pullingModel, setPullingModel] = useState<string | null>(null);
   const [pullSuccess, setPullSuccess] = useState<string | null>(null);
   const [pullError, setPullError] = useState<string | null>(null);
+  // Tracks whether the Ollama server was started by us (so we can stop it)
+  const [ollamaWasStartedByUs, setOllamaWasStartedByUs] = useState(false);
 
   // Fetch Ollama models when provider is "ollama"
   const fetchOllamaModels = useCallback(async () => {
@@ -146,6 +148,7 @@ export default function ConfigPanel({ onClose }: Props) {
       if (result) {
         setOllamaModels(result.models || []);
         if (result.error) setOllamaModelsError(result.error);
+        if (result.wasStarted) setOllamaWasStartedByUs(true);
       }
     } catch (err: any) {
       setOllamaModelsError(err.message || "Failed to list models");
@@ -158,6 +161,15 @@ export default function ConfigPanel({ onClose }: Props) {
   useEffect(() => {
     fetchOllamaModels();
   }, [fetchOllamaModels]);
+
+  // Stop Ollama if the user switches away from the Ollama provider
+  // and we were the ones who started it
+  useEffect(() => {
+    if (values.LLM_PROVIDER !== "ollama" && ollamaWasStartedByUs) {
+      setOllamaWasStartedByUs(false);
+      window.electronAPI?.stopOllamaServer();
+    }
+  }, [values.LLM_PROVIDER, ollamaWasStartedByUs]);
 
   // Pull a model from Ollama
   const handlePullModel = useCallback(
@@ -498,7 +510,7 @@ export default function ConfigPanel({ onClose }: Props) {
                       <div className="config-section">
                         <h3 className="config-section-title">🧠 Model & Context Window</h3>
 
-                        {/* Model selector — fixed options: qwen3.5, deepseekv2 */}
+                        {/* Model selector — fixed options: qwen3.6, deepseekv2 */}
                         <div className="config-field-row">
                           <div className="config-field config-field--compact">
                             <label className="config-label">
@@ -506,10 +518,10 @@ export default function ConfigPanel({ onClose }: Props) {
                             </label>
                             <select
                               className="config-select"
-                              value={values.OLLAMA_MODEL || "qwen3.5"}
+                              value={values.OLLAMA_MODEL || "qwen3.6"}
                               onChange={(e) => handleChange("OLLAMA_MODEL", e.target.value)}
                               disabled={activeJobs.length > 0}>
-                              <option value="qwen3.5">qwen3.5</option>
+                              <option value="qwen3.6">qwen3.6</option>
                               <option value="deepseekv2">deepseekv2</option>
                             </select>
                           </div>
@@ -586,14 +598,46 @@ export default function ConfigPanel({ onClose }: Props) {
                             <button
                               className="config-ollama-pull-btn"
                               onClick={() => handlePullModel("deepseek-v2")}
-                              disabled={pullingModel !== null || activeJobs.length > 0}>
-                              {pullingModel === "deepseek-v2" ? "⟳ Pulling…" : "📥 Pull deepseek-v2"}
+                              disabled={
+                                pullingModel !== null ||
+                                activeJobs.length > 0 ||
+                                ollamaModelsError !== null ||
+                                ollamaModels.some((m) => m.name === "deepseek-v2" || m.name === "deepseek-v2:latest")
+                              }
+                              title={
+                                ollamaModelsError
+                                  ? "Ollama server is not reachable"
+                                  : ollamaModels.some((m) => m.name === "deepseek-v2" || m.name === "deepseek-v2:latest")
+                                    ? "deepseek-v2 is already pulled"
+                                    : ""
+                              }>
+                              {pullingModel === "deepseek-v2"
+                                ? "⟳ Pulling…"
+                                : ollamaModels.some((m) => m.name === "deepseek-v2" || m.name === "deepseek-v2:latest")
+                                  ? "✅ deepseek-v2 pulled"
+                                  : "📥 Pull deepseek-v2"}
                             </button>
                             <button
                               className="config-ollama-pull-btn"
                               onClick={() => handlePullModel("qwen3.6:27b")}
-                              disabled={pullingModel !== null || activeJobs.length > 0}>
-                              {pullingModel === "qwen3.6:27b" ? "⟳ Pulling…" : "📥 Pull qwen3.6:27b"}
+                              disabled={
+                                pullingModel !== null ||
+                                activeJobs.length > 0 ||
+                                ollamaModelsError !== null ||
+                                ollamaModels.some((m) => m.name === "qwen3.6:27b" || m.name === "qwen3.6:27b:latest")
+                              }
+                              title={
+                                ollamaModelsError
+                                  ? "Ollama server is not reachable"
+                                  : ollamaModels.some((m) => m.name === "qwen3.6:27b" || m.name === "qwen3.6:27b:latest")
+                                    ? "qwen3.6:27b is already pulled"
+                                    : ""
+                              }>
+                              {pullingModel === "qwen3.6:27b"
+                                ? "⟳ Pulling…"
+                                : ollamaModels.some((m) => m.name === "qwen3.6:27b" || m.name === "qwen3.6:27b:latest")
+                                  ? "✅ qwen3.6:27b pulled"
+                                  : "📥 Pull qwen3.6:27b"}
                             </button>
                           </div>
                           {pullingModel && (
