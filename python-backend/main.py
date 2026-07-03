@@ -639,6 +639,18 @@ async def cancel_job(job_id: str):
     return {"job_id": job_id, "status": "cancelled", "cancelled": True}
 
 
+@app.post("/transcribe/fail/{job_id}")
+async def fail_job(job_id: str, error: str = "Processing failed"):
+    """Mark a job as failed with a specific error message. Called by the agent runner when the LLM pipeline fails."""
+    s = uploader.get_status(job_id)
+    if s["status"] == "not_found":
+        raise HTTPException(404, "Job not found")
+    uploader.update_status(job_id, {"status": "failed", "error": error, "progress": 0.0})
+    _active_jobs.pop(job_id, None)
+    print(f"[api] POST /transcribe/fail/{job_id} → failed: {error[:120]}")
+    return {"job_id": job_id, "status": "failed", "error": error}
+
+
 # ── Job Deletion ──
 
 import shutil
@@ -1276,11 +1288,11 @@ _FILLER_PATTERNS = [
 ]
 
 
-def _auto_refine(segments: list[dict], custom_rules: list[str], keep_timestamps: bool = False) -> list[dict]:
+def _auto_refine(segments: list[dict], custom_rules: list[str], keep_timestamps: bool = True) -> list[dict]:
     """Apply automatic transcript refinement to every segment.
 
     For each segment:
-      1. Strip timestamp metadata (``start``, ``end``, ``duration`` keys) — unless ``keep_timestamps`` is True.
+      1. Strip timestamp metadata (``start``, ``end``, ``duration`` keys) — unless ``keep_timestamps`` is True (default).
       2. Strip filler words and discourse markers from the text.
       3. Redact PII (emails, phones, SSN, credit cards, account numbers).
       4. Apply any additional custom redaction rules passed by the LLM.

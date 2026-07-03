@@ -408,7 +408,15 @@ async function processEvent(event) {
   if (pipelineError) {
     console.log(`   ❌ [RUNNER] Pipeline failed for job ${tag}: ${pipelineError}`);
     logAction({ eventId, eventType: event.type, action: "failed", detail: pipelineError });
-    // Enqueue a failed event so the UI and user know what happened
+    // Directly fail the job on the Python backend so the UI sees the error
+    try {
+      const jobId = jobData.jobId || eventId;
+      await executeToolCall("transcribe_fail_job", { jobId, error: pipelineError });
+      console.log(`   ✅ [RUNNER] Job ${jobId.slice(0, 8)} marked as failed on backend`);
+    } catch (failErr) {
+      console.log(`   ⚠️  [RUNNER] Could not update job status to failed: ${failErr.message}`);
+    }
+    // Also enqueue a failed event as a fallback
     await enqueueFailed(event, pipelineError);
   } else {
     console.log(`   ✅ [RUNNER] Pipeline finished for job ${tag}`);

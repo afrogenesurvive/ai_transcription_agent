@@ -201,12 +201,16 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
           <span className="status-item">
             <span className={`status-dot ${configOk ? "online" : "offline"}`} />
             <span className="service-label">Config</span>
-            {!configOk && (
-              <button className="micro-btn start-btn" onClick={onOpenConfig} disabled={anyBusy} title="Configure API key">
-                ⚙
-              </button>
-            )}
-            {configOk && (
+            {!configOk ? (
+              <>
+                <button className="micro-btn start-btn" onClick={onOpenConfig} disabled={anyBusy} title="Configure API key">
+                  ⚙
+                </button>
+                <span className="config-warn-badge" title="LLM provider not configured — jobs will fail">
+                  ⚠️
+                </span>
+              </>
+            ) : (
               <button className="micro-btn restart-btn" onClick={onOpenConfig} disabled={anyBusy} title="Edit configuration">
                 ⚙
               </button>
