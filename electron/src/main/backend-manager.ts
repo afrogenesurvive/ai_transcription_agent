@@ -264,7 +264,7 @@ function ollamaInstallPaths(): string[] {
     ];
   }
   if (process.platform === "darwin") {
-    return ["/Applications/Ollama.app/Contents/MacOS/Ollama", "ollama"];
+    return ["/Applications/Ollama.app/Contents/MacOS/Ollama", "/opt/homebrew/bin/ollama", "/usr/local/bin/ollama", "ollama"];
   }
   // Linux
   return ["ollama"];
@@ -412,63 +412,74 @@ async function checkOllamaServer(baseUrl: string, timeoutMs = 3000): Promise<boo
 }
 
 /**
- * Try to launch the Ollama app/server.
+ * Try to launch the Ollama server in the background.
  *
- * Uses raw CLI commands (ollama serve, open -a Ollama, etc.) rather than an
- * Ollama SDK. The Ollama server exposes its own REST API on :11434 which the
- * app uses for model management (list, pull) and the OpenAI-compatible endpoint
- * for LLM inference (via the openai npm package).
+ * Uses `spawn` with `detached: true` and `.unref()` so the Ollama server
+ * runs independently as a daemon — NOT as a child of execSync (which would
+ * kill it on timeout, since ollama serve runs continuously).
  *
- * CLI output is captured and routed through our logging system so users can
- * see Ollama's own log messages in the DevPanel.
+ * CLI output is routed through our logging system via pipe listeners.
+ * The caller (ensureOllamaRunning) polls checkOllamaServer() to confirm
+ * the server is actually ready before returning.
  */
 function launchOllama(): boolean {
-  try {
-    if (IS_WIN) {
-      const installedPath = ollamaInstallPaths().find((p) => {
-        try {
-          execSync(`"${p}" --version`, { stdio: "pipe", timeout: 3000 });
-          return true;
-        } catch {
-          return false;
-        }
-      });
-      const bin = installedPath || "ollama";
-      addLog("main", "info", `[ollama] Launching: ${bin} serve`);
-      // Use spawn so we can capture output — but for the launch we use
-      // execSync to start it. On Windows the server detaches.
-      const output = execSync(`"${bin}" serve`, { encoding: "utf8", stdio: "pipe", timeout: 3000 }).trim();
-      if (output) addLog("main", "info", `[ollama:serve] ${output}`);
-    } else if (process.platform === "darwin") {
-      addLog("main", "info", "[ollama] Launching: open -a Ollama");
-      // On macOS, Ollama runs as a GUI app (menu bar icon). We launch it via
-      // `open` which doesn't return server output. The server logs are
-      // accessible through the Ollama menu bar app or via the REST API.
-      // We cannot directly capture the server daemon's stdout/stderr here
-      // because it's launched by the GUI process, not by us.
-      const output = execSync("open -a Ollama", { encoding: "utf8", stdio: "pipe", timeout: 3000 }).trim();
-      if (output) addLog("main", "info", `[ollama:open] ${output}`);
-    } else {
-      addLog("main", "info", "[ollama] Launching: ollama serve");
-      // On Linux, ollama serve runs in the foreground. We capture its initial
-      // output to confirm it started, then the process continues in background.
-      const output = execSync("ollama serve", { encoding: "utf8", stdio: "pipe", timeout: 3000 }).trim();
-      if (output) addLog("main", "info", `[ollama:serve] ${output}`);
+  const findBinary = (): string | null => {
+    for (const p of ollamaInstallPaths()) {
+      try {
+        addLog("main", "debug", `[ollama] Checking binary at: ${p}`);
+        execSync(`"${p}" --version`, { stdio: "pipe", timeout: 3000 });
+        addLog("main", "info", `[ollama] Found binary at: ${p}`);
+        return p;
+      } catch {
+        addLog("main", "debug", `[ollama] Binary not found at: ${p}`);
+        continue;
+      }
     }
-    addLog("main", "info", "[ollama] Launch command sent");
-    return true;
-  } catch (err: any) {
-    // execSync throws on non-zero exit OR timeout. On macOS, `open` exits
-    // immediately and the Ollama server starts as a background daemon —
-    // its stdout/stderr are not captured by our execSync. The catch is
-    // expected for short-lived commands that exit before the Ollama server
-    // is fully ready. We rely on checkOllamaServer() for actual readiness.
-    // Log the error but don't treat it as a failure.
-    if (err.stdout) addLog("main", "info", `[ollama:launch:stdout] ${err.stdout.toString().trim()}`);
-    if (err.stderr) addLog("main", "warn", `[ollama:launch:stderr] ${err.stderr.toString().trim()}`);
-    addLog("main", "warn", `[ollama] Launch process exited: ${err.message}`);
+    return null;
+  };
+
+  const bin = findBinary();
+  if (!bin) {
+    addLog("main", "error", "[ollama] Cannot launch — Ollama binary not found");
     return false;
   }
+
+  addLog("main", "info", `[ollama] Launching: ${bin} serve`);
+
+  const proc = spawn(bin, ["serve"], {
+    detached: true,
+    stdio: ["ignore", "pipe", "pipe"],
+    // Inherit the current environment so OLLAMA_HOST etc. are picked up
+    env: { ...process.env },
+  });
+
+  // Log stdout/stderr for debugging (don't buffer — pipe directly)
+  proc.stdout?.on("data", (d: Buffer) => {
+    const lines = d.toString().trim().split("\n");
+    for (const line of lines) {
+      if (line) addLog("main", "info", `[ollama:serve] ${line}`);
+    }
+  });
+  proc.stderr?.on("data", (d: Buffer) => {
+    const lines = d.toString().trim().split("\n");
+    for (const line of lines) {
+      if (line) addLog("main", "warn", `[ollama:serve:err] ${line}`);
+    }
+  });
+
+  proc.on("error", (err) => {
+    addLog("main", "error", `[ollama] Failed to spawn: ${err.message}`);
+  });
+
+  proc.on("exit", (code, signal) => {
+    addLog("main", "info", `[ollama] Process exited — code=${code} signal=${signal}`);
+  });
+
+  // Detach — allow parent to exit independently
+  proc.unref();
+
+  addLog("main", "info", `[ollama] Spawned PID ${proc.pid} — waiting for server to become ready...`);
+  return true;
 }
 
 // ── Ollama auto-start ──
@@ -526,17 +537,58 @@ export async function ensureOllamaRunning(force = false): Promise<boolean> {
 
   // ── 4. Wait for it to come online ──
   addLog("main", "info", "[ollama] Waiting for Ollama to start...");
-  for (let i = 0; i < 6; i++) {
+  const MAX_RETRIES = 12; // ~36 seconds total
+  for (let i = 0; i < MAX_RETRIES; i++) {
     await new Promise((r) => setTimeout(r, 3000));
     if (await checkOllamaServer(baseUrl, 3000)) {
       addLog("main", "info", "[ollama] Ollama is now running");
       _ollamaStartedByUs = true;
       return true;
     }
-    addLog("main", "info", `[ollama] Still waiting... (attempt ${i + 1}/6)`);
+    addLog("main", "info", `[ollama] Still waiting... (attempt ${i + 1}/${MAX_RETRIES})`);
+
+    // On macOS, if the app bundle binary didn't start the server,
+    // try the standalone `ollama` CLI binary as a fallback.
+    if (process.platform === "darwin" && i === 2) {
+      const altPaths = ["/opt/homebrew/bin/ollama", "/usr/local/bin/ollama", "ollama"];
+      const cliBin = altPaths.find((p) => {
+        try {
+          execSync(p === "ollama" ? "ollama --version" : `"${p}" --version`, { stdio: "pipe", timeout: 3000 });
+          return true;
+        } catch {
+          return false;
+        }
+      });
+      if (cliBin) {
+        addLog("main", "info", `[ollama] Trying standalone CLI: ${cliBin} serve`);
+        const fallbackProc = spawn(cliBin, ["serve"], {
+          detached: true,
+          stdio: ["ignore", "pipe", "pipe"],
+          env: { ...process.env },
+        });
+        fallbackProc.stdout?.on("data", (d: Buffer) => {
+          for (const line of d.toString().trim().split("\n")) {
+            if (line) addLog("main", "info", `[ollama:serve:fallback] ${line}`);
+          }
+        });
+        fallbackProc.stderr?.on("data", (d: Buffer) => {
+          for (const line of d.toString().trim().split("\n")) {
+            if (line) addLog("main", "warn", `[ollama:serve:fallback:err] ${line}`);
+          }
+        });
+        fallbackProc.on("error", (err) => addLog("main", "error", `[ollama] Fallback spawn failed: ${err.message}`));
+        fallbackProc.on("exit", (code, signal) => {
+          addLog("main", "info", `[ollama] Fallback process exited — code=${code} signal=${signal}`);
+        });
+        fallbackProc.unref();
+        addLog("main", "info", "[ollama] Spawned fallback `ollama serve` from standalone CLI");
+      } else {
+        addLog("main", "warn", "[ollama] No standalone ollama CLI found — server may not be available");
+      }
+    }
   }
 
-  addLog("main", "warn", "[ollama] Ollama did not start in time — agent runner will retry on connection");
+  addLog("main", "warn", "[ollama] Ollama did not start in time after " + MAX_RETRIES * 3 + "s — agent runner will retry on connection");
   return false;
 }
 
@@ -546,16 +598,53 @@ export async function ensureOllamaRunning(force = false): Promise<boolean> {
  */
 export function stopOllamaServer(): void {
   addLog("main", "info", "[ollama] Stopping Ollama server...");
+
+  // Log what processes we're about to try to kill (for diagnostics)
+  if (process.platform === "darwin" || process.platform === "linux") {
+    try {
+      const before = execSync("pgrep -ifl ollama 2>/dev/null || true", { encoding: "utf8", timeout: 3000 }).trim();
+      if (before) {
+        addLog("main", "info", `[ollama] Processes matching "ollama" before stop:\n${before}`);
+      } else {
+        addLog("main", "debug", "[ollama] No Ollama processes found before stop");
+      }
+    } catch {
+      // pgrep not available or failed — non-critical
+    }
+  }
+
   try {
     if (IS_WIN) {
       execSync("taskkill /IM ollama.exe /F", { stdio: "pipe", timeout: 5000 });
+      addLog("main", "info", "[ollama] taskkill /IM ollama.exe /F succeeded");
     } else if (process.platform === "darwin") {
-      // On macOS, Ollama runs as a GUI app. Use AppleScript to quit gracefully.
-      execSync("osascript -e 'quit app \"Ollama\"'", { stdio: "pipe", timeout: 5000 });
+      // On macOS, Ollama may run as a CLI serve process (name "ollama" or "Ollama")
+      // or as a GUI app. Use substring-match pkill to catch both cases,
+      // plus osascript to quit the GUI app if it's running.
+      const pkillOut = execSync("pkill ollama 2>&1; exit 0", { encoding: "utf8", timeout: 5000 }).trim();
+      addLog("main", "info", `[ollama] pkill ollama: ${pkillOut || "no output (processes killed or none found)"}`);
+      const osaOut = execSync("osascript -e 'quit app \"Ollama\"' 2>&1; exit 0", { encoding: "utf8", timeout: 5000 }).trim();
+      if (osaOut) addLog("main", "info", `[ollama] osascript quit Ollama.app: ${osaOut}`);
     } else {
-      execSync("pkill -x ollama", { stdio: "pipe", timeout: 5000 });
+      const pkillOut = execSync("pkill -x ollama 2>&1; exit 0", { encoding: "utf8", timeout: 5000 }).trim();
+      addLog("main", "info", `[ollama] pkill -x ollama: ${pkillOut || "no output (process killed or none found)"}`);
     }
-    addLog("main", "info", "[ollama] Ollama stopped");
+
+    // Verify nothing is left
+    if (!IS_WIN) {
+      try {
+        const remaining = execSync("pgrep -ifl ollama 2>/dev/null || true", { encoding: "utf8", timeout: 3000 }).trim();
+        if (remaining) {
+          addLog("main", "warn", `[ollama] Some processes may still remain:\n${remaining}`);
+        } else {
+          addLog("main", "info", "[ollama] No remaining Ollama processes — server stopped successfully");
+        }
+      } catch {
+        // non-critical
+      }
+    } else {
+      addLog("main", "info", "[ollama] Ollama stop commands completed");
+    }
   } catch (err: any) {
     // Process may already be gone — not an error
     addLog("main", "debug", `[ollama] Stop command note: ${err.message}`);
@@ -811,6 +900,10 @@ export async function stopAll(): Promise<void> {
   await stopAgentRunner();
   await stopBridgeServer();
   await stopPythonBackend();
+  // Stop Ollama only if this session started it
+  if (_ollamaStartedByUs) {
+    stopOllamaServer();
+  }
 }
 
 export async function restartAll(): Promise<void> {

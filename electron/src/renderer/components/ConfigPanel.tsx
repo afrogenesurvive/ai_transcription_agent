@@ -601,15 +601,18 @@ export default function ConfigPanel({ onClose }: Props) {
                               disabled={
                                 pullingModel !== null ||
                                 activeJobs.length > 0 ||
+                                ollamaModelsLoading ||
                                 ollamaModelsError !== null ||
                                 ollamaModels.some((m) => m.name === "deepseek-v2" || m.name === "deepseek-v2:latest")
                               }
                               title={
-                                ollamaModelsError
-                                  ? "Ollama server is not reachable"
-                                  : ollamaModels.some((m) => m.name === "deepseek-v2" || m.name === "deepseek-v2:latest")
-                                    ? "deepseek-v2 is already pulled"
-                                    : ""
+                                ollamaModelsLoading
+                                  ? "Checking Ollama connection…"
+                                  : ollamaModelsError
+                                    ? "Ollama server is not reachable"
+                                    : ollamaModels.some((m) => m.name === "deepseek-v2" || m.name === "deepseek-v2:latest")
+                                      ? "deepseek-v2 is already pulled"
+                                      : ""
                               }>
                               {pullingModel === "deepseek-v2"
                                 ? "⟳ Pulling…"
@@ -623,15 +626,18 @@ export default function ConfigPanel({ onClose }: Props) {
                               disabled={
                                 pullingModel !== null ||
                                 activeJobs.length > 0 ||
+                                ollamaModelsLoading ||
                                 ollamaModelsError !== null ||
                                 ollamaModels.some((m) => m.name === "qwen3.6:27b" || m.name === "qwen3.6:27b:latest")
                               }
                               title={
-                                ollamaModelsError
-                                  ? "Ollama server is not reachable"
-                                  : ollamaModels.some((m) => m.name === "qwen3.6:27b" || m.name === "qwen3.6:27b:latest")
-                                    ? "qwen3.6:27b is already pulled"
-                                    : ""
+                                ollamaModelsLoading
+                                  ? "Checking Ollama connection…"
+                                  : ollamaModelsError
+                                    ? "Ollama server is not reachable"
+                                    : ollamaModels.some((m) => m.name === "qwen3.6:27b" || m.name === "qwen3.6:27b:latest")
+                                      ? "qwen3.6:27b is already pulled"
+                                      : ""
                               }>
                               {pullingModel === "qwen3.6:27b"
                                 ? "⟳ Pulling…"

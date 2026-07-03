@@ -288,13 +288,20 @@ ipcMain.handle("config:save", async (_event, values: Record<string, string>) => 
     addLog("main", "warn", `Config incomplete — missing: ${cfg.missing.join(", ")}`);
   }
 
-  // If using Ollama, ensure the server is running before restarting the agent
+  // If using Ollama, ensure the server is running before restarting the agent.
+  // If switching away from Ollama, stop the server if we started it.
   if (updatedConfig.LLM_PROVIDER === "ollama") {
     try {
-      await ensureOllamaRunning();
+      const started = await ensureOllamaRunning();
+      if (!started) {
+        addLog("main", "warn", "[ollama] Server did not start — agent runner may fail to connect, check logs for details");
+      }
     } catch (err: any) {
-      addLog("main", "warn", `[ollama] Could not start Ollama: ${err.message}`);
+      addLog("main", "error", `[ollama] Unexpected error starting Ollama: ${err.message}`);
     }
+  } else if (ollamaStartedByUs()) {
+    addLog("main", "info", "[ollama] Provider switched away from Ollama — stopping server");
+    stopOllamaServer();
   }
 
   // Restart agent runner so it picks up the new env vars (e.g. DEEPSEEK_API_KEY)
