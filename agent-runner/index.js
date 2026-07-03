@@ -53,6 +53,14 @@ const TASK_CHECK_INTERVAL = parseInt(process.env.TASK_CHECK_INTERVAL || "60000",
  * This mirrors what the Python agent_bridge.py's enqueue_failed does.
  */
 function enqueueFailed(event, errorMsg) {
+  // Guard against infinite loops: if the event is already a retry from the
+  // agent-runner (e.g., "No handler" errors), don't re-enqueue — it will
+  // just fail again with the same error and burn tokens forever.
+  if (event.source === "agent-runner") {
+    console.log(`   ⛔ [RUNNER] Not re-enqueuing failed event from agent-runner (source=${event.source}) — prevents infinite loop`);
+    return;
+  }
+
   try {
     const queueDir = process.env.TRANSCRIPTION_QUEUE_DIR || path.resolve(__dirname, "..", "queue");
     const queueFile = path.join(queueDir, "transcription.jsonl");
@@ -409,9 +417,13 @@ async function processEvent(event) {
     // tool from the available set so the LLM cannot loop on it. The transcript
     // content is already embedded in the context — re-reading it would only
     // bloat the context window and waste tokens.
+    // Also lock speaker-labeling tools — the LLM must summarize before labeling,
+    // otherwise it gets sidetracked and never returns to call transcribe_summarize.
     if (decision.name === "transcribe_get_transcript") {
-      availableTools = availableTools.filter((t) => t.name !== "transcribe_get_transcript");
-      console.log(`   🔒 [RUNNER] transcribe_get_transcript locked — transcript already in context`);
+      availableTools = availableTools.filter(
+        (t) => t.name !== "transcribe_get_transcript" && t.name !== "transcribe_label_speaker" && t.name !== "transcribe_list_voiceprints",
+      );
+      console.log(`   🔒 [RUNNER] transcribe_get_transcript + labeling tools locked — must summarize first`);
     }
 
     // Check if this was a terminal delivery tool — pipeline ends

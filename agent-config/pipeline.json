@@ -10,7 +10,7 @@
     "transcribe_analyze": "Next: Call transcribe_save_context to persist the meeting to semantic + ephemeral memory. All entries are timestamped and preserved for audit \u2014 nothing is deduplicated at the code level.",
     "transcribe_save_context": "Next: Call transcribe_prepare_delivery to package results for delivery.",
     "transcribe_prepare_delivery": "Next: Deliver results using send_delivery_email, save_to_drive, or create_trello_action_items.",
-    "transcribe_label_speaker": "Next: If more unknown speakers remain, call transcribe_label_speaker again; otherwise the pipeline is complete."
+    "transcribe_label_speaker": "Next: If more unknown speakers remain, call transcribe_label_speaker again. Otherwise, call transcribe_summarize to generate a structured summary from the transcript you already read."
   },
   "event_templates": {
     "ready_for_processing": "Actions: refine transcript (removes fillers and PII, preserves timestamps), extract action items, generate summary, generate analysis, prepare delivery.\nExisting memory context is provided below \u2014 use it for continuity and to identify recurring topics. Repetition is signal (e.g., same action item across weeks = blocker).\nIf an action item from a previous meeting is resolved here, note it as completed.\nTranscript ({{segment_count}} segments):\n{{transcript_preview}}",

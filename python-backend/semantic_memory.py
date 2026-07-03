@@ -81,15 +81,20 @@ class SemanticMemory:
         )
 
     def _ensure_embedder(self):
-        if self._embedder is not None:
+        if self._embedder is not None and self._tokenizer is not None:
             return
         from sentence_transformers import SentenceTransformer
         from transformers import AutoTokenizer
-        self._embedder = SentenceTransformer(
+        # Assign to locals first so a failure in AutoTokenizer doesn't leave
+        # self._embedder set while self._tokenizer is still None (which would
+        # cause subsequent calls to return early without fixing the tokenizer).
+        embedder = SentenceTransformer(
             "all-MiniLM-L6-v2",
             cache_folder=os.path.join(config.STORAGE_PATH, ".model_cache"),
         )
-        self._tokenizer = AutoTokenizer.from_pretrained("all-MiniLM-L6-v2")
+        tokenizer = AutoTokenizer.from_pretrained("all-MiniLM-L6-v2")
+        self._embedder = embedder
+        self._tokenizer = tokenizer
 
     def _embed(self, texts: List[str]) -> List[List[float]]:
         self._ensure_embedder()
