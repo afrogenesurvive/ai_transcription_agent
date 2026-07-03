@@ -697,12 +697,19 @@ const PIPELINE: StageDef[] = [
     icon: "🤖",
     label: "AI Processing",
     description: "Refining, summarizing & analyzing",
-    matches: ["transcribed", "ready_for_agent", "labeling_needed", "refined", "summarized", "analyzed"],
+    matches: ["transcribed", "ready_for_agent", "labeling_needed", "refined", "summarized"],
+  },
+  {
+    key: "memory",
+    icon: "🧠",
+    label: "Saving to Memory",
+    description: "Storing meeting context for future reference",
+    matches: ["analyzed"],
   },
   { key: "delivery", icon: "📬", label: "Delivering Results", description: "Sending via email, Trello & Drive", matches: ["delivered"] },
 ];
 
-const COMPLETE_STATUSES = new Set(["delivered", "refined", "summarized", "analyzed"]);
+const COMPLETE_STATUSES = new Set(["delivered", "complete"]);
 
 function getStageState(stage: StageDef, status: string, isFailed: boolean, isComplete: boolean): "done" | "active" | "pending" | "error" {
   if (isFailed && stage.matches.includes(status)) return "error";

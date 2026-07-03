@@ -83,7 +83,14 @@ const PIPELINE: StageDef[] = [
     icon: "🤖",
     label: "AI Processing",
     description: "Refining, summarizing & analyzing",
-    matches: ["transcribed", "ready_for_agent", "labeling_needed", "refined", "summarized", "analyzed"],
+    matches: ["transcribed", "ready_for_agent", "labeling_needed", "refined", "summarized"],
+  },
+  {
+    key: "memory",
+    icon: "🧠",
+    label: "Saving to Memory",
+    description: "Storing meeting context for future reference",
+    matches: ["analyzed"],
   },
   {
     key: "delivery",
@@ -121,7 +128,7 @@ export default function PipelineProgress({ status, progress, error, onCancel, ca
   const [showConfirmCancel, setShowConfirmCancel] = useState(false);
   const pct = Math.round(progress * 100);
   const isFailed = status === "failed";
-  const isComplete = ["delivered", "refined", "summarized", "analyzed"].includes(status);
+  const isComplete = ["delivered", "complete"].includes(status);
   const isProcessing = !isFailed && !isComplete;
 
   const activeStage = PIPELINE.find((s) => s.matches.includes(status));

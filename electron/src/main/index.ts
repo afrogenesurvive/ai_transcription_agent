@@ -53,7 +53,7 @@ import {
   getLogDir,
   getMirrorDir,
 } from "./logger";
-import { getConfig, saveConfig, checkConfig, getConfigWithSources } from "./config";
+import { getConfig, getChildEnv, saveConfig, checkConfig, getConfigWithSources } from "./config";
 import { startAutoUpdater, stopAutoUpdater, registerAutoUpdateIpc, getUpdateState, checkAndUpdate } from "./auto-updater";
 import { uninstall } from "./cleanup";
 
@@ -168,12 +168,15 @@ function createTray() {
 // ── Notifications ──
 
 function sendNotification(title: string, body: string) {
-  if (mainWindow && !mainWindow.isFocused()) {
-    new Notification({ title, body }).show();
-  }
+  // Show a top-level OS notification regardless of window focus
+  new Notification({ title, body }).show();
 }
 
 // ── IPC Handlers ──
+
+ipcMain.handle("notification:show", (_event, title: string, body: string) => {
+  sendNotification(title, body);
+});
 
 ipcMain.handle("dialog:selectAudio", async () => {
   const result = await dialog.showOpenDialog(mainWindow!, {
@@ -608,13 +611,19 @@ ipcMain.handle("ollama:listModels", async () => {
   // Attempt the initial list
   let result = listModels();
 
-  // If it failed, try starting Ollama and retry once
+  // If it failed, try starting Ollama and retry once — but only if the
+  // configured LLM provider is Ollama, to avoid starting it unnecessarily.
   if (result.error) {
-    addLog("main", "info", `[ollama] ollama list failed — trying to start Ollama server...`);
-    const started = await ensureOllamaRunning(true); // force=true: skip LLM_PROVIDER config guard
-    if (started) {
-      addLog("main", "info", "[ollama] Ollama started — retrying model list");
-      result = listModels();
+    const env = getChildEnv();
+    if (env.LLM_PROVIDER === "ollama") {
+      addLog("main", "info", `[ollama] ollama list failed — trying to start Ollama server...`);
+      const started = await ensureOllamaRunning(true);
+      if (started) {
+        addLog("main", "info", "[ollama] Ollama started — retrying model list");
+        result = listModels();
+      }
+    } else {
+      addLog("main", "debug", "[ollama] Not starting Ollama — LLM provider is not set to ollama");
     }
   }
 
@@ -783,7 +792,9 @@ app.whenReady().then(async () => {
     await startPythonBackend();
     await startBridgeServer();
 
-    // Start Ollama eagerly if it's the configured LLM provider
+    // Start Ollama eagerly only if it's the configured LLM provider
+    // (ensureOllamaRunning checks the config internally, but be explicit here too)
+    addLog("main", "debug", `[ollama] LLM_PROVIDER=${getConfig().LLM_PROVIDER} — will start Ollama only if set to "ollama"`);
     await ensureOllamaRunning();
 
     // Agent runner needs DEEPSEEK_API_KEY (or Ollama) — skip if missing

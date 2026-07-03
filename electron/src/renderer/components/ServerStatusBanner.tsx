@@ -30,7 +30,7 @@ const SERVICE_ICONS: Record<string, string> = {
   diarization: "🧬",
 };
 
-const COUNTDOWN_SECONDS = 15;
+const COUNTDOWN_SECONDS = 20;
 
 export default function ServerStatusBanner({
   services,
@@ -86,14 +86,15 @@ export default function ServerStatusBanner({
     };
   }, [countdownActive, onCheckServers]);
 
-  // When servers become all ready, close the popover
+  // When servers become all ready, close the popover immediately
+  // regardless of whether the countdown is still active
   useEffect(() => {
-    if (allReady && !countdownActive) {
+    if (allReady) {
       // Small delay so the user sees the green state briefly
       const t = setTimeout(() => setVisible(false), 800);
       return () => clearTimeout(t);
     }
-  }, [allReady, countdownActive]);
+  }, [allReady]);
 
   const handleRestartService = useCallback(
     async (name: ServiceName) => {

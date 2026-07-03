@@ -98,6 +98,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   downloadUpdate: (): Promise<{ success: boolean; error: string | null }> => ipcRenderer.invoke("auto-update:download"),
   installUpdate: (): Promise<{ success: boolean }> => ipcRenderer.invoke("auto-update:install"),
 
+  // ── Native Notifications ──
+  showNotification: (title: string, body: string): Promise<void> => ipcRenderer.invoke("notification:show", title, body),
+
   // ── Ollama Model Management ──
   listOllamaModels: (): Promise<{
     models: Array<{ name: string; size: number; modified_at: string }>;

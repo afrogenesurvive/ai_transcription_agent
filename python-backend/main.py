@@ -550,16 +550,41 @@ async def memory_save_context(req: SaveMeetingContextRequest):
 
 @app.get("/transcribe/audio/{job_id}")
 async def get_audio(job_id: str):
-    """Serve the standardized WAV audio file for playback in the UI."""
+    """Serve the audio file for playback in the UI.
+
+    Tries in order:
+      1. standardized.wav (16kHz mono — preferred for processing)
+      2. Any original.* file (raw uploaded format)
+    """
     from fastapi.responses import FileResponse
+    from pathlib import Path
     try:
-        audio_path = uploader.get_audio_path(job_id)
-        if not os.path.exists(audio_path):
-            raise HTTPException(404, "Audio file not found")
-        print(f"[api] GET /transcribe/audio/{job_id} → serving {audio_path}")
-        return FileResponse(audio_path, media_type="audio/wav", filename=f"{job_id}.wav")
-    except FileNotFoundError:
-        raise HTTPException(404, "Audio not found for job")
+        job_dir = os.path.join(config.STORAGE_PATH, job_id)
+        if not os.path.isdir(job_dir):
+            raise HTTPException(404, f"Job directory not found: {job_id}")
+
+        # Try standardized.wav first, then fall back to original file
+        wav_path = os.path.join(job_dir, "standardized.wav")
+        if os.path.exists(wav_path):
+            audio_path = wav_path
+            media_type = "audio/wav"
+        else:
+            # Fall back to any original.* file
+            orig_files = sorted(Path(job_dir).glob("original.*"))
+            if not orig_files:
+                raise HTTPException(404, "No audio file found for this job")
+            audio_path = str(orig_files[0])
+            ext = os.path.splitext(audio_path)[1].lower()
+            mime_map = {
+                ".wav": "audio/wav", ".mp3": "audio/mpeg", ".m4a": "audio/mp4",
+                ".flac": "audio/flac", ".ogg": "audio/ogg", ".webm": "audio/webm",
+            }
+            media_type = mime_map.get(ext, "audio/wav")
+
+        print(f"[api] GET /transcribe/audio/{job_id} → serving {audio_path} ({media_type})")
+        return FileResponse(audio_path, media_type=media_type, filename=f"{job_id}{os.path.splitext(audio_path)[1]}")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(500, f"Failed to serve audio: {e}")
 

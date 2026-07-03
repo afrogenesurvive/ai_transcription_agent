@@ -143,6 +143,11 @@ export default function App() {
   React.useEffect(() => {
     if (statusHook.state === "complete" && jobId) {
       const stateSnapshot = statusHook.state;
+      const jobTitle = jobMetadata?.title || "Untitled Meeting";
+
+      // Show top-level OS notification (macOS / Windows)
+      window.electronAPI?.showNotification("✅ Transcription Complete", `"${jobTitle}" — your transcript and summary are ready.`);
+
       Promise.all([
         getTranscriptRef.current?.(jobId) ?? Promise.reject(new Error("no fetcher")),
         (getSummaryRef.current?.(jobId) ?? Promise.reject(new Error("no fetcher"))).catch(() => null),
@@ -168,7 +173,9 @@ export default function App() {
     if (statusHook.state === "error" && jobId) {
       // Use the backend's error message if available, otherwise the network error
       const errMsg = statusHook.data?.error || statusHook.error || "Processing failed — check the Logs tab for details";
+      const jobTitle = jobMetadata?.title || "Untitled Meeting";
       setNotification(errMsg);
+      window.electronAPI?.showNotification("❌ Transcription Failed", `"${jobTitle}" — ${errMsg}`);
       setTimeout(() => setNotification(null), 10000);
       // Transition to results view so the user can see the error + logs
       setView("results");
@@ -291,6 +298,8 @@ export default function App() {
               setSidebarView("current");
               setShowHistory(false);
               setHistoryJobId(null);
+              // If there's no active job, go back to the upload form
+              if (!jobId) setView("upload");
             }}
             title="Current job">
             <span className="sidebar-btn-icon">🏠</span>
@@ -299,6 +308,12 @@ export default function App() {
           <button
             className={`sidebar-btn ${showHistory && sidebarView === "current" ? "sidebar-btn--active" : ""}`}
             onClick={() => {
+              // When toggling history off, clear the history job and
+              // return to upload if there's no active job
+              if (showHistory) {
+                setHistoryJobId(null);
+                if (!jobId) setView("upload");
+              }
               setSidebarView("current");
               setShowHistory((v) => !v);
             }}

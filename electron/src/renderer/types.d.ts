@@ -104,6 +104,9 @@ export interface ElectronAPI {
     electron: Array<{ type: string; pid: number; cpu: number | null; memory: number | null; peakMemory: number | null }>;
     children: Array<{ service: string; pid: number; cpu: number; memory: number; elapsed: number }>;
   }>;
+  // ── Native Notifications ──
+  showNotification: (title: string, body: string) => Promise<void>;
+
   // ── Ollama Model Management ──
   listOllamaModels: () => Promise<{
     models: Array<{ name: string; size: number; modified_at: string }>;

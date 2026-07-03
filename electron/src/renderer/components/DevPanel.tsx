@@ -543,6 +543,69 @@ function DatabaseTab() {
     });
   };
 
+  // ── Column resizing ──
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
+  const [textWrapEnabled, setTextWrapEnabled] = useState(false);
+  const resizingRef = useRef<{ columnKey: string; startX: number; startWidth: number } | null>(null);
+
+  const handleResizeStart = useCallback((columnKey: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const th = (e.target as HTMLElement).closest("th");
+    const currentWidth = th?.offsetWidth || 100;
+    resizingRef.current = { columnKey, startX: e.clientX, startWidth: currentWidth };
+
+    const handleMouseMove = (me: MouseEvent) => {
+      if (!resizingRef.current) return;
+      const { columnKey, startX, startWidth } = resizingRef.current;
+      const diff = me.clientX - startX;
+      const newWidth = Math.max(40, startWidth + diff);
+      setColumnWidths((prev) => ({ ...prev, [columnKey]: newWidth }));
+    };
+
+    const handleMouseUp = () => {
+      resizingRef.current = null;
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.body.classList.remove("dev-panel-db-resizing");
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    document.body.classList.add("dev-panel-db-resizing");
+  }, []);
+
+  // Clear column widths when switching tables/views
+  useEffect(() => {
+    setColumnWidths({});
+  }, [selectedTable, activeView]);
+
+  // Render a resize handle for a column header
+  const renderResizeHandle = (columnKey: string) => (
+    <div className="dev-panel-db-resize-handle" onMouseDown={(e) => handleResizeStart(columnKey, e)} />
+  );
+
+  // Render a column header with resize handle
+  const renderTh = (label: string, columnKey?: string) => {
+    const key = columnKey || label;
+    const width = columnWidths[key];
+    return (
+      <th key={key} style={width ? { width, minWidth: 40, maxWidth: 800 } : {}}>
+        <div className="dev-panel-db-th-wrap">
+          <span>{label}</span>
+          {renderResizeHandle(key)}
+        </div>
+      </th>
+    );
+  };
+
+  // Render a cell with wrap/nowrap class
+  const renderTd = (content: React.ReactNode, key: string) => (
+    <td key={key} className={textWrapEnabled ? "dev-panel-db-cell-wrap" : "dev-panel-db-cell-nowrap"}>
+      {content}
+    </td>
+  );
+
   return (
     <>
       {/* Toolbar */}
@@ -563,6 +626,12 @@ function DatabaseTab() {
           </div>
         </div>
         <div className="dev-panel-actions">
+          <button
+            className={`dev-panel-db-wrap-toggle ${textWrapEnabled ? "dev-panel-db-wrap-toggle--active" : ""}`}
+            onClick={() => setTextWrapEnabled((v) => !v)}
+            title={textWrapEnabled ? "Disable text wrapping" : "Enable text wrapping"}>
+            {textWrapEnabled ? "📄 Wrap ON" : "📄 Wrap"}
+          </button>
           <button className="dev-panel-btn" onClick={handleRefresh} title="Refresh database">
             ↻ Refresh
           </button>
@@ -611,10 +680,8 @@ function DatabaseTab() {
                   <table className="dev-panel-db-table">
                     <thead>
                       <tr>
-                        <th className="dev-panel-db-cell-expand" />
-                        {tableColumns.map((col) => (
-                          <th key={col}>{col}</th>
-                        ))}
+                        <th className="dev-panel-db-cell-expand" style={{ width: 28, minWidth: 28 }} />
+                        {tableColumns.map((col) => renderTh(col))}
                       </tr>
                     </thead>
                     <tbody>
@@ -627,9 +694,7 @@ function DatabaseTab() {
                               <td className="dev-panel-db-cell-expand">
                                 <span className="dev-panel-db-expand-icon">{isExpanded ? "▼" : "▶"}</span>
                               </td>
-                              {tableColumns.map((col) => (
-                                <td key={col}>{renderCell(row[col])}</td>
-                              ))}
+                              {tableColumns.map((col) => renderTd(renderCell(row[col]), col))}
                             </tr>
                             {isExpanded && (
                               <tr className="dev-panel-db-detail-row">
@@ -681,12 +746,12 @@ function DatabaseTab() {
                 <table className="dev-panel-db-table">
                   <thead>
                     <tr>
-                      <th className="dev-panel-db-cell-expand" />
-                      <th>Title</th>
-                      <th>Job ID</th>
-                      <th>Type</th>
-                      <th>Attendees</th>
-                      <th>Timestamp</th>
+                      <th className="dev-panel-db-cell-expand" style={{ width: 28, minWidth: 28 }} />
+                      {renderTh("Title", "semantic-title")}
+                      {renderTh("Job ID", "semantic-job_id")}
+                      {renderTh("Type", "semantic-type")}
+                      {renderTh("Attendees", "semantic-attendees")}
+                      {renderTh("Timestamp", "semantic-timestamp")}
                     </tr>
                   </thead>
                   <tbody>
@@ -699,11 +764,11 @@ function DatabaseTab() {
                             <td className="dev-panel-db-cell-expand">
                               <span className="dev-panel-db-expand-icon">{isExpanded ? "▼" : "▶"}</span>
                             </td>
-                            <td>{m.title}</td>
-                            <td className="dev-panel-db-cell-mono">{m.job_id?.slice(0, 12)}…</td>
-                            <td>{m.type}</td>
-                            <td>{m.attendees || "—"}</td>
-                            <td>{m.timestamp || "—"}</td>
+                            {renderTd(m.title, "title")}
+                            {renderTd(<span className="dev-panel-db-cell-mono">{m.job_id?.slice(0, 12)}…</span>, "job_id")}
+                            {renderTd(m.type, "type")}
+                            {renderTd(m.attendees || "—", "attendees")}
+                            {renderTd(m.timestamp || "—", "timestamp")}
                           </tr>
                           {isExpanded && (
                             <tr className="dev-panel-db-detail-row">

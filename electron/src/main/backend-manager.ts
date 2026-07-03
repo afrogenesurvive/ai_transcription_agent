@@ -615,15 +615,25 @@ export function stopOllamaServer(): void {
       addLog("main", "info", "[ollama] taskkill /IM ollama.exe /F succeeded");
     } else if (process.platform === "darwin") {
       // On macOS, Ollama may run as a CLI serve process (name "ollama" or "Ollama")
-      // or as a GUI app. Use substring-match pkill to catch both cases,
+      // or as a GUI app. Use case-insensitive pkill (-i) to catch both,
       // plus osascript to quit the GUI app if it's running.
-      const pkillOut = execSync("pkill ollama 2>&1; exit 0", { encoding: "utf8", timeout: 5000 }).trim();
-      addLog("main", "info", `[ollama] pkill ollama: ${pkillOut || "no output (processes killed or none found)"}`);
+      // First send SIGTERM for graceful shutdown
+      const pkillOut = execSync("pkill -i ollama 2>&1; exit 0", { encoding: "utf8", timeout: 5000 }).trim();
+      addLog("main", "info", `[ollama] pkill -i ollama: ${pkillOut || "no output (processes killed or none found)"}`);
+      // Brief pause to let processes terminate gracefully
+      execSync("sleep 1", { stdio: "pipe", timeout: 2000 });
+      // Then force-kill any remaining processes with SIGKILL (-9)
+      const pkill9Out = execSync("pkill -i -9 ollama 2>&1; exit 0", { encoding: "utf8", timeout: 5000 }).trim();
+      if (pkill9Out) addLog("main", "info", `[ollama] pkill -9 follow-up: ${pkill9Out}`);
       const osaOut = execSync("osascript -e 'quit app \"Ollama\"' 2>&1; exit 0", { encoding: "utf8", timeout: 5000 }).trim();
       if (osaOut) addLog("main", "info", `[ollama] osascript quit Ollama.app: ${osaOut}`);
     } else {
-      const pkillOut = execSync("pkill -x ollama 2>&1; exit 0", { encoding: "utf8", timeout: 5000 }).trim();
-      addLog("main", "info", `[ollama] pkill -x ollama: ${pkillOut || "no output (process killed or none found)"}`);
+      // First send SIGTERM, then SIGKILL after a brief pause
+      const pkillOut = execSync("pkill -i ollama 2>&1; exit 0", { encoding: "utf8", timeout: 5000 }).trim();
+      addLog("main", "info", `[ollama] pkill -i ollama: ${pkillOut || "no output (process killed or none found)"}`);
+      execSync("sleep 1", { stdio: "pipe", timeout: 2000 });
+      const pkill9Out = execSync("pkill -i -9 ollama 2>&1; exit 0", { encoding: "utf8", timeout: 5000 }).trim();
+      if (pkill9Out) addLog("main", "info", `[ollama] pkill -9 follow-up: ${pkill9Out}`);
     }
 
     // Verify nothing is left
