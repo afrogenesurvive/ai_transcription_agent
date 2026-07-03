@@ -382,31 +382,30 @@ async function installOllama(): Promise<void> {
 }
 
 /**
- * Try to fetch the Ollama server health endpoint using the REST API.
- *
- * Uses Ollama's REST API directly (no SDK) — the HTTP endpoint at /api/tags
- * returns all pulled models if the server is running. This is the same API
- * surfaced by the `ollama list` CLI command.
- *
- * The response is logged so users can see what models Ollama reports.
+ * Check if the Ollama server is running using the CLI.
+ * Runs `ollama list` — returns true (server up) or false (down/unreachable).
  */
-async function checkOllamaServer(baseUrl: string, timeoutMs = 3000): Promise<boolean> {
+function checkOllamaServer(): boolean {
   try {
-    const res = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(timeoutMs) });
-    if (res.ok) {
-      const data = await res.json();
-      const modelCount = (data.models || []).length;
-      addLog("main", "info", `[ollama] Server healthy at ${baseUrl} (${modelCount} model(s) pulled)`);
-      if (modelCount > 0) {
-        const names = data.models.map((m: any) => m.name).join(", ");
-        addLog("main", "info", `[ollama] Available models: ${names}`);
-      }
-    } else {
-      addLog("main", "warn", `[ollama] Server at ${baseUrl} returned status ${res.status}`);
+    const output = execSync("ollama list", {
+      encoding: "utf8",
+      stdio: "pipe",
+      timeout: 5000,
+    }).trim();
+    const lines = output.split("\n").filter((l) => l.trim());
+    const modelCount = Math.max(0, lines.length - 1); // Subtract header row
+    addLog("main", "info", `[ollama] Server healthy (${modelCount} model(s) pulled)`);
+    if (modelCount > 0) {
+      const names = lines
+        .slice(1)
+        .map((l) => l.trim().split(/\s{2,}/)[0])
+        .filter(Boolean)
+        .join(", ");
+      addLog("main", "info", `[ollama] Available models: ${names}`);
     }
-    return res.ok;
+    return true;
   } catch (err: any) {
-    addLog("main", "debug", `[ollama] Server check failed for ${baseUrl}: ${err.message}`);
+    addLog("main", "debug", `[ollama] Server check failed: ${err.message}`);
     return false;
   }
 }
@@ -508,13 +507,10 @@ export async function ensureOllamaRunning(force = false): Promise<boolean> {
   const env = getChildEnv();
   if (!force && env.LLM_PROVIDER !== "ollama") return true; // not using Ollama
 
-  // Strip /v1 suffix if present — it's only for the OpenAI-compatible endpoint,
-  // not for Ollama's own API (e.g. /api/tags, /api/pull)
-  const baseUrl = (env.OLLAMA_BASE_URL || "http://127.0.0.1:11434").replace(/\/v1\/?$/, "");
-  addLog("main", "info", `[ollama] Checking Ollama at ${baseUrl}...`);
+  addLog("main", "info", `[ollama] Checking Ollama (OLLAMA_BASE_URL=${env.OLLAMA_BASE_URL || "http://127.0.0.1:11434/v1"})...`);
 
   // ── 1. Quick health check ──
-  if (await checkOllamaServer(baseUrl)) {
+  if (checkOllamaServer()) {
     addLog("main", "info", "[ollama] Ollama is already running");
     _ollamaStartedByUs = false;
     return true;
@@ -540,7 +536,7 @@ export async function ensureOllamaRunning(force = false): Promise<boolean> {
   const MAX_RETRIES = 12; // ~36 seconds total
   for (let i = 0; i < MAX_RETRIES; i++) {
     await new Promise((r) => setTimeout(r, 3000));
-    if (await checkOllamaServer(baseUrl, 3000)) {
+    if (checkOllamaServer()) {
       addLog("main", "info", "[ollama] Ollama is now running");
       _ollamaStartedByUs = true;
       return true;
@@ -900,10 +896,10 @@ export async function stopAll(): Promise<void> {
   await stopAgentRunner();
   await stopBridgeServer();
   await stopPythonBackend();
-  // Stop Ollama only if this session started it
-  if (_ollamaStartedByUs) {
-    stopOllamaServer();
-  }
+  // Always attempt to stop Ollama on quit — the server may have been started
+  // by this app or independently; stopOllamaServer is idempotent if no
+  // Ollama processes are found.
+  stopOllamaServer();
 }
 
 export async function restartAll(): Promise<void> {

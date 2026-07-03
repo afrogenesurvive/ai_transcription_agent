@@ -10,6 +10,7 @@
  */
 
 import fs from "fs";
+import { spawn, execSync } from "child_process";
 import { app, BrowserWindow, Tray, Menu, nativeImage, Notification, ipcMain, dialog } from "electron";
 import path from "path";
 import pidusage from "pidusage";
@@ -503,54 +504,64 @@ ipcMain.handle("app:uninstallStatus", () => {
 // ── Ollama Model Management IPC ──
 
 ipcMain.handle("ollama:listModels", async () => {
-  addLog("main", "info", "[ollama] Listing available models via REST API (GET /api/tags)");
-  const config = getConfig();
-  const baseUrl = (config.OLLAMA_BASE_URL || "http://127.0.0.1:11434/v1").replace(/\/v1\/?$/, "");
+  addLog("main", "info", "[ollama] Listing available models via CLI: ollama list");
 
-  // Helper to actually fetch models. Returns { models, error, statusCode? }.
-  const fetchModels = async (): Promise<{ models: any[]; error: string | null; statusCode?: number }> => {
-    const res = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(5000) });
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => "");
-      addLog("main", "warn", `[ollama] GET /api/tags returned ${res.status}: ${errBody.slice(0, 300)}`);
-      return { models: [], error: `Ollama server returned ${res.status}`, statusCode: res.status };
+  const listModels = (): { models: any[]; error: string | null } => {
+    try {
+      const output = execSync("ollama list", {
+        encoding: "utf8",
+        stdio: "pipe",
+        timeout: 5000,
+      }).trim();
+      const lines = output.split("\n").filter((l) => l.trim());
+      // Header: NAME  ID  SIZE  MODIFIED
+      const models = lines
+        .slice(1)
+        .map((line) => {
+          const parts = line.trim().split(/\s{2,}/);
+          return {
+            name: parts[0] || "",
+            size: parseSizeToBytes(parts[2] || "0"),
+            modified_at: parts.slice(3).join(" ") || "",
+          };
+        })
+        .filter((m) => m.name);
+      if (models.length > 0) {
+        const details = models.map((m) => `${m.name} (${(m.size / (1024 * 1024 * 1024)).toFixed(2)} GB)`).join(", ");
+        addLog("main", "info", `[ollama] Found ${models.length} model(s): ${details}`);
+      } else {
+        addLog("main", "info", "[ollama] No models pulled yet");
+      }
+      return { models, error: null };
+    } catch (err: any) {
+      return { models: [], error: `Cannot reach Ollama: ${err.message}` };
     }
-    const data = await res.json();
-    const models = (data.models || []).map((m: any) => ({
-      name: m.name,
-      size: m.size,
-      modified_at: m.modified_at,
-    }));
-    if (models.length > 0) {
-      const details = models.map((m: any) => `${m.name} (${(m.size / (1024 * 1024 * 1024)).toFixed(2)} GB)`).join(", ");
-      addLog("main", "info", `[ollama] Found ${models.length} model(s): ${details}`);
-    } else {
-      addLog("main", "info", "[ollama] No models pulled yet");
-    }
-    return { models, error: null };
   };
 
-  // Attempt the initial fetch
-  let result = await fetchModels().catch((err: any) => ({
-    models: [],
-    error: `Cannot reach Ollama: ${err.message}`,
-    statusCode: undefined,
-  }));
+  // Attempt the initial list
+  let result = listModels();
 
-  // If it failed (either non-OK response or network error), try starting Ollama and retry once
+  // If it failed, try starting Ollama and retry once
   if (result.error) {
-    addLog("main", "info", `[ollama] Attempt ${result.statusCode ? `HTTP ${result.statusCode}` : "failed"} — trying to start Ollama server...`);
+    addLog("main", "info", `[ollama] ollama list failed — trying to start Ollama server...`);
     const started = await ensureOllamaRunning(true); // force=true: skip LLM_PROVIDER config guard
     if (started) {
       addLog("main", "info", "[ollama] Ollama started — retrying model list");
-      result = await fetchModels().catch((err: any) => ({
-        models: [],
-        error: `Cannot reach Ollama: ${err.message}`,
-      }));
+      result = listModels();
     }
   }
 
   return { models: result.models, error: result.error, wasStarted: ollamaStartedByUs() };
+
+  /** Parse a human-readable size string (e.g. "17 GB", "500 MB") to bytes. */
+  function parseSizeToBytes(sizeStr: string): number {
+    const match = sizeStr.trim().match(/^([\d.]+)\s*(B|KB|MB|GB|TB)$/i);
+    if (!match) return 0;
+    const num = parseFloat(match[1]);
+    const unit = match[2].toUpperCase();
+    const units: Record<string, number> = { B: 1, KB: 1024, MB: 1024 ** 2, GB: 1024 ** 3, TB: 1024 ** 4 };
+    return Math.round(num * (units[unit] || 1));
+  }
 });
 
 ipcMain.handle("ollama:stopServer", async () => {
@@ -560,32 +571,52 @@ ipcMain.handle("ollama:stopServer", async () => {
 });
 
 ipcMain.handle("ollama:pullModel", async (_event, modelName: string) => {
-  addLog("main", "info", `[ollama] Pulling model via REST API (POST /api/pull): ${modelName}`);
-  const config = getConfig();
-  const baseUrl = (config.OLLAMA_BASE_URL || "http://127.0.0.1:11434/v1").replace(/\/v1\/?$/, "");
-  try {
+  addLog("main", "info", `[ollama] Pulling model via CLI: ollama pull ${modelName}`);
+  return new Promise<{ success: boolean; error: string | null }>((resolve) => {
     const startTime = Date.now();
-    const res = await fetch(`${baseUrl}/api/pull`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: modelName, stream: false }),
-      signal: AbortSignal.timeout(600_000), // 10 min timeout for large models
+    const proc = spawn("ollama", ["pull", modelName], {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env },
     });
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    if (!res.ok) {
-      const errBody = await res.text();
-      addLog("main", "error", `[ollama] POST /api/pull ${modelName} failed after ${elapsed}s: ${res.status} ${errBody.slice(0, 500)}`);
-      return { success: false, error: `Ollama pull failed: ${errBody}` };
-    }
-    const data = await res.json();
-    addLog("main", "info", `[ollama] Successfully pulled model "${modelName}" in ${elapsed}s`);
-    if (data.digest) addLog("main", "info", `[ollama]   digest: ${data.digest}`);
-    if (data.size) addLog("main", "info", `[ollama]   size: ${(data.size / (1024 * 1024 * 1024)).toFixed(2)} GB`);
-    return { success: true, error: null };
-  } catch (err: any) {
-    addLog("main", "error", `[ollama] POST /api/pull ${modelName} failed: ${err.message}`);
-    return { success: false, error: `Pull failed: ${err.message}` };
-  }
+
+    let stdout = "";
+    let stderr = "";
+
+    proc.stdout?.on("data", (d: Buffer) => {
+      const text = d.toString();
+      stdout += text;
+      // Log progress lines from the pull output
+      for (const line of text.trim().split("\n")) {
+        if (line) addLog("main", "info", `[ollama:pull] ${line}`);
+      }
+    });
+
+    proc.stderr?.on("data", (d: Buffer) => {
+      const text = d.toString();
+      stderr += text;
+      for (const line of text.trim().split("\n")) {
+        if (line) addLog("main", "warn", `[ollama:pull:err] ${line}`);
+      }
+    });
+
+    proc.on("error", (err) => {
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      addLog("main", "error", `[ollama] Pull ${modelName} failed after ${elapsed}s: ${err.message}`);
+      resolve({ success: false, error: `Pull failed: ${err.message}` });
+    });
+
+    proc.on("exit", (code) => {
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      if (code === 0) {
+        addLog("main", "info", `[ollama] Successfully pulled model "${modelName}" in ${elapsed}s`);
+        resolve({ success: true, error: null });
+      } else {
+        const errMsg = stderr.trim() || `ollama pull exited with code ${code}`;
+        addLog("main", "error", `[ollama] Pull ${modelName} failed after ${elapsed}s (exit ${code}): ${errMsg}`);
+        resolve({ success: false, error: errMsg });
+      }
+    });
+  });
 });
 
 // ── App Lifecycle ──
@@ -667,6 +698,15 @@ app.whenReady().then(async () => {
 
     // Agent runner needs DEEPSEEK_API_KEY (or Ollama) — skip if missing
     const cfg = checkConfig();
+
+    // Log whether Ollama is reachable, regardless of provider (for diagnostics)
+    try {
+      execSync("ollama list", { encoding: "utf8", stdio: "pipe", timeout: 3000 });
+      addLog("main", "info", "[ollama] Ollama server is reachable on this system");
+    } catch {
+      addLog("main", "debug", "[ollama] Ollama server is not reachable (not installed or not running)");
+    }
+
     if (cfg.ok) {
       addLog("main", "info", `Config OK — starting agent runner`);
       // If using Ollama, try to ensure the server is running first
