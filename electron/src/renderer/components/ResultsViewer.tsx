@@ -65,7 +65,10 @@ function speakerColor(speaker: string): string {
   return SPEAKER_COLORS[Math.abs(hash) % SPEAKER_COLORS.length];
 }
 
-function formatTime(seconds: number): string {
+function formatTime(seconds: number | null | undefined): string {
+  if (seconds == null || isNaN(seconds) || !isFinite(seconds)) {
+    return "--:--";
+  }
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m}:${s.toString().padStart(2, "0")}`;
@@ -644,7 +647,13 @@ interface StageDef {
 const PIPELINE: StageDef[] = [
   { key: "uploaded", icon: "📤", label: "Uploading", description: "Receiving your audio file", matches: ["uploaded"] },
   { key: "initializing", icon: "🔧", label: "Getting Ready", description: "Preparing the transcription system", matches: ["initializing"] },
-  { key: "diarization", icon: "🔬", label: "Identifying Speakers", description: "Detecting who speaks and when", matches: ["processing_diarization"] },
+  {
+    key: "diarization",
+    icon: "🔬",
+    label: "Identifying Speakers",
+    description: "Detecting who speaks and when",
+    matches: ["processing_diarization"],
+  },
   { key: "voiceprints", icon: "🧬", label: "Matching Voices", description: "Matching voices to known attendees", matches: ["matching_voiceprints"] },
   { key: "transcription", icon: "🎤", label: "Transcribing Speech", description: "Converting speech to text", matches: ["processing_transcription"] },
   { key: "aligning", icon: "🔗", label: "Building Transcript", description: "Matching words to each speaker", matches: ["aligning"] },
@@ -686,9 +695,7 @@ function PipelineTab({ status, progress, error }: { status: string; progress: nu
           style={{ width: `${Math.min(progress, 100)}%` }}
         />
       </div>
-      <div className="pp-bar-label">
-        {isFailed ? "❌ Failed" : isComplete ? "✅ Complete" : `${Math.round(progress)}%`}
-      </div>
+      <div className="pp-bar-label">{isFailed ? "❌ Failed" : isComplete ? "✅ Complete" : `${Math.round(progress)}%`}</div>
 
       {/* Pipeline stepper */}
       <div className="pp-stepper">
@@ -700,20 +707,26 @@ function PipelineTab({ status, progress, error }: { status: string; progress: nu
               <div className="pp-step-dot">
                 {state === "done" && <span className="pp-step-check">✓</span>}
                 {state === "active" && <span className="pp-step-spinner" />}
-                {state === "error" && <span className="pp-step-check" style={{ color: "#fff" }}>✕</span>}
+                {state === "error" && (
+                  <span className="pp-step-check" style={{ color: "#fff" }}>
+                    ✕
+                  </span>
+                )}
                 {state === "pending" && <span className="pp-step-pending-dot" />}
               </div>
               <div className="pp-step-content">
                 <span className="pp-step-icon">{stage.icon}</span>
                 <div className="pp-step-text">
                   <span className="pp-step-label">{stage.label}</span>
-                  {(state === "done" || state === "active" || state === "error") && (
-                    <span className="pp-step-desc">{stage.description}</span>
-                  )}
+                  {(state === "done" || state === "active" || state === "error") && <span className="pp-step-desc">{stage.description}</span>}
                 </div>
                 {state === "done" && <span className="pp-step-done-badge">Done</span>}
                 {state === "active" && <span className="pp-step-active-badge">In progress</span>}
-                {state === "error" && <span className="pp-step-done-badge" style={{ color: "var(--red)", background: "rgba(248, 81, 73, 0.12)" }}>Error</span>}
+                {state === "error" && (
+                  <span className="pp-step-done-badge" style={{ color: "var(--red)", background: "rgba(248, 81, 73, 0.12)" }}>
+                    Error
+                  </span>
+                )}
               </div>
             </div>
           );
@@ -806,9 +819,7 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
 
       {/* Tab content */}
       <div className="rv-body">
-        {activeTab === "pipeline" && (
-          <PipelineTab status={jobStatus || "unknown"} progress={jobProgress ?? 0} error={jobError} />
-        )}
+        {activeTab === "pipeline" && <PipelineTab status={jobStatus || "unknown"} progress={jobProgress ?? 0} error={jobError} />}
         {activeTab === "audio" && <AudioTab jobId={jobId} metadata={metadata} />}
         {activeTab === "transcript" && <TranscriptTab segments={segments} />}
         {activeTab === "summary" && <SummaryTab summary={summary} />}

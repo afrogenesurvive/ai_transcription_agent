@@ -682,6 +682,26 @@ export default function ConfigPanel({ onClose }: Props) {
               <span className="config-source-tag config-source-tag--default">Default</span>
             </div>
 
+            {/* ── LLM provider misconfiguration warning ── */}
+            {(() => {
+              const info = sourceInfo;
+              const provider = info.LLM_PROVIDER?.value || "deepseek";
+              const apiKey = info.DEEPSEEK_API_KEY?.value || "";
+              const ollamaModel = info.OLLAMA_MODEL?.value || "";
+              const providerMissing = (provider === "deepseek" && !apiKey) || (provider === "ollama" && !ollamaModel);
+              if (!providerMissing) return null;
+              const message =
+                provider === "deepseek"
+                  ? "DeepSeek API key is not set — the agent runner will fail to process jobs."
+                  : "No Ollama model is configured — the agent runner will fail to process jobs.";
+              return (
+                <div className="config-llm-warning">
+                  <strong>⚠️ LLM Provider Misconfigured</strong>
+                  <p>{message}</p>
+                </div>
+              );
+            })()}
+
             {Array.from(sections.entries()).map(([sectionName, fields]) => (
               <div key={sectionName} className="config-section">
                 <h3 className="config-section-title">{sectionName}</h3>

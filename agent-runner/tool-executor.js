@@ -104,6 +104,7 @@ const HANDLERS = {
   transcribe_label_speaker: (a) => callBridge("transcribe_label_speaker", a),
   transcribe_list_voiceprints: () => callBridge("transcribe_list_voiceprints", {}),
   transcribe_prepare_delivery: (a) => callBridge("transcribe_prepare_delivery", a),
+  transcribe_fail_job: (a) => callBridge("transcribe_fail_job", a),
   send_delivery_email: (a) => sendEmail(a.to, a.subject, a.body, a.transcript),
   create_trello_action_items: (a) => createTrelloCards(a.listId, a.actionItems),
   save_to_drive: (a) => saveToDrive(a.folderName, a.title, a.transcript, a.summary),

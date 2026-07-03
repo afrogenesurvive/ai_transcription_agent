@@ -146,6 +146,23 @@ body {
   margin-top: -4px;
 }
 
+.config-warn-badge {
+  font-size: 11px;
+  margin-left: 2px;
+  cursor: help;
+  animation: config-warn-pulse 2s ease-in-out infinite;
+}
+
+@keyframes config-warn-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
 /* ── Main Content ── */
 
 .app-main {
@@ -2103,6 +2120,27 @@ body {
   color: var(--text-muted);
   font-size: 12px;
   margin: 0;
+}
+
+.config-llm-warning {
+  background: rgba(210, 153, 34, 0.12);
+  border: 1px solid rgba(210, 153, 34, 0.35);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  color: var(--orange);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.config-llm-warning strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--orange);
+}
+.config-llm-warning p {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin: 4px 0 0;
 }
 
 .config-ollama-error {

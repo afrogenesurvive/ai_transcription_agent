@@ -118,7 +118,7 @@ async function dispatch(tool, args) {
         job_id: args.jobId,
         transcript: args.transcript || [],
         rules: args.rules || [],
-        keep_timestamps: args.keepTimestamps ?? process.env.KEEP_TRANSCRIPT_TIMESTAMPS === "true",
+        keep_timestamps: args.keepTimestamps ?? process.env.KEEP_TRANSCRIPT_TIMESTAMPS !== "false",
       });
 
     case "transcribe_analyze":
@@ -211,6 +211,9 @@ async function dispatch(tool, args) {
 
     case "transcribe_cancel":
       return await callPython("POST", `/transcribe/cancel/${args.jobId}`);
+
+    case "transcribe_fail_job":
+      return await callPython("POST", `/transcribe/fail/${args.jobId}?error=${encodeURIComponent(args.error || "Processing failed")}`);
 
     case "transcribe_active":
       return await callPython("GET", "/transcribe/active");
