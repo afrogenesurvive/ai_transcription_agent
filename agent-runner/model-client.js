@@ -3,9 +3,14 @@
  *
  * LLM_PROVIDER=deepseek (default, requires DEEPSEEK_API_KEY)
  * LLM_PROVIDER=ollama   (uses OLLAMA_BASE_URL + OLLAMA_MODEL)
+ *
+ * When using Ollama, a periodic health check is started to monitor the
+ * Ollama server and log its status. The health check interval is controlled
+ * by the OLLAMA_HEALTH_CHECK_INTERVAL env var (default: 60000ms).
  */
 
 import path from "path";
+import fs from "fs";
 import OpenAI from "openai";
 import { fileURLToPath } from "url";
 import { SYSTEM_PROMPT_TEMPLATE } from "./agent-config.js";
@@ -13,12 +18,82 @@ import { SYSTEM_PROMPT_TEMPLATE } from "./agent-config.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PROVIDER = process.env.LLM_PROVIDER || "deepseek";
+const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434";
+const HEALTH_CHECK_INTERVAL = parseInt(process.env.OLLAMA_HEALTH_CHECK_INTERVAL || "60000", 10);
+
+let healthCheckTimer = null;
+let lastHealthStatus = null;
+
+/**
+ * Check the Ollama server health by hitting its /api/tags endpoint.
+ * Returns true if the server is reachable, false otherwise.
+ */
+export async function checkOllamaHealth() {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(`${OLLAMA_BASE_URL}/api/tags`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (res.ok) {
+      lastHealthStatus = true;
+      return true;
+    }
+    lastHealthStatus = false;
+    return false;
+  } catch {
+    lastHealthStatus = false;
+    return false;
+  }
+}
+
+/**
+ * Get the last known Ollama health status.
+ */
+export function getLastOllamaHealth() {
+  return lastHealthStatus;
+}
+
+/**
+ * Start the periodic Ollama health check.
+ * Only starts if the provider is ollama.
+ * Logs the result on each check.
+ */
+export function startOllamaHealthCheck() {
+  if (PROVIDER !== "ollama") return;
+  if (healthCheckTimer) return; // already running
+
+  console.log(`   🩺 [MODEL] Starting Ollama health check (interval: ${HEALTH_CHECK_INTERVAL}ms)`);
+
+  // Immediate first check
+  (async () => {
+    const healthy = await checkOllamaHealth();
+    console.log(`   🩺 [MODEL] Ollama health check: ${healthy ? "✅ UP" : "❌ DOWN"}`);
+  })();
+
+  healthCheckTimer = setInterval(async () => {
+    const healthy = await checkOllamaHealth();
+    console.log(`   🩺 [MODEL] Ollama health check: ${healthy ? "✅ UP" : "❌ DOWN"}`);
+  }, HEALTH_CHECK_INTERVAL);
+}
+
+/**
+ * Stop the periodic Ollama health check.
+ */
+export function stopOllamaHealthCheck() {
+  if (healthCheckTimer) {
+    clearInterval(healthCheckTimer);
+    healthCheckTimer = null;
+    console.log(`   🩺 [MODEL] Ollama health check stopped`);
+  }
+}
 
 function createClient() {
   if (PROVIDER === "ollama") {
     return new OpenAI({
       apiKey: "ollama",
-      baseURL: process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434/v1",
+      baseURL: `${OLLAMA_BASE_URL}/v1`,
     });
   }
   return new OpenAI({
@@ -43,6 +118,9 @@ function getModel() {
 
 const client = createClient();
 const MODEL = getModel();
+
+// Start health check on module load if using Ollama
+startOllamaHealthCheck();
 
 function getNumCtx() {
   if (PROVIDER !== "ollama") return undefined;

@@ -195,6 +195,15 @@ async function dispatch(tool, args) {
     case "memory_semantic_meetings":
       return await callPython("GET", "/memory/semantic/meetings");
 
+    case "memory_semantic_stats":
+      return await callPython("GET", "/memory/semantic/stats");
+
+    case "memory_semantic_overlap":
+      return await callPython("GET", "/memory/semantic/overlap");
+
+    case "memory_semantic_search":
+      return await callPython("GET", `/memory/semantic/search?query=${encodeURIComponent(args.query || "")}&n=${args.n || 5}`);
+
     case "transcribe_get_audio":
       // Returns the audio stream URL — frontend constructs the URL directly
       return { url: `${PYTHON_API}/transcribe/audio/${args.jobId}` };

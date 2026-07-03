@@ -581,6 +581,20 @@ ipcMain.handle("ollama:listModels", async () => {
   }
 });
 
+ipcMain.handle("ollama:checkHealth", async () => {
+  try {
+    const res = await fetch("http://127.0.0.1:11434/api/tags", {
+      signal: AbortSignal.timeout(5000),
+    });
+    const healthy = res.ok;
+    addLog("main", "debug", `[ollama] Health check: ${healthy ? "UP" : "DOWN"}`);
+    return { healthy, error: null };
+  } catch (err: any) {
+    addLog("main", "debug", `[ollama] Health check failed: ${err.message}`);
+    return { healthy: false, error: err.message };
+  }
+});
+
 ipcMain.handle("ollama:stopServer", async () => {
   addLog("main", "info", "[ollama] Stopping server per user request (provider switched away)");
   stopOllamaServer();

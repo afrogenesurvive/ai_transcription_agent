@@ -196,11 +196,29 @@ function LiveLogsTab() {
 
 /* ── Log Files Tab ── */
 
+/** Try to detect a source tag like [python], [bridge], [agent], [main] in a log line. */
+function detectLogSource(line: string): string | null {
+  const match = line.match(/\[(python|bridge|agent|main)\]/i);
+  return match ? match[1].toLowerCase() : null;
+}
+
+/** Try to detect a log level like error, warn, info, debug in a log line. */
+function detectLogLevel(line: string): string | null {
+  const lower = line.toLowerCase();
+  if (/\berror\b/.test(lower) || /\b❌\b/.test(line)) return "error";
+  if (/\bwarn(ing)?\b/.test(lower) || /\b⚠️\b/.test(line)) return "warn";
+  if (/\bdebug\b/.test(lower)) return "debug";
+  if (/\binfo\b/.test(lower) || /\b✅\b/.test(line) || /\b📝\b/.test(line)) return "info";
+  return null;
+}
+
 function LogFilesTab() {
   const [files, setFiles] = useState<LogFileInfo[]>([]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<string[]>([]);
   const [logPaths, setLogPaths] = useState<{ primary: string | null; mirror: string | null }>({ primary: null, mirror: null });
+  const [logSourceFilter, setLogSourceFilter] = useState<string>("all");
+  const [logLevelFilter, setLogLevelFilter] = useState<string>("all");
   const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -236,6 +254,19 @@ function LogFilesTab() {
       setFileContent(lines);
     }
   }, [selectedFile]);
+
+  // Filter file content by source and level
+  const filteredContent = fileContent.filter((line) => {
+    if (logSourceFilter !== "all") {
+      const detected = detectLogSource(line);
+      if (detected !== logSourceFilter) return false;
+    }
+    if (logLevelFilter !== "all") {
+      const detected = detectLogLevel(line);
+      if (detected !== logLevelFilter) return false;
+    }
+    return true;
+  });
 
   return (
     <>
@@ -279,8 +310,35 @@ function LogFilesTab() {
         <div className="dev-panel-file-content" ref={contentRef}>
           {!selectedFile && <div className="dev-panel-empty">Select a log file to view its contents.</div>}
           {selectedFile && fileContent.length === 0 && <div className="dev-panel-empty">(empty file)</div>}
+
+          {/* Filter toolbar — shown when a file is selected */}
+          {selectedFile && fileContent.length > 0 && (
+            <div className="dev-panel-file-filter-bar">
+              <select className="dev-panel-file-filter-select" value={logSourceFilter} onChange={(e) => setLogSourceFilter(e.target.value)}>
+                <option value="all">All sources</option>
+                <option value="python">Python</option>
+                <option value="bridge">Bridge</option>
+                <option value="agent">Agent</option>
+                <option value="main">Main</option>
+              </select>
+              <select className="dev-panel-file-filter-select" value={logLevelFilter} onChange={(e) => setLogLevelFilter(e.target.value)}>
+                <option value="all">All levels</option>
+                <option value="info">Info</option>
+                <option value="warn">Warnings</option>
+                <option value="error">Errors</option>
+                <option value="debug">Debug</option>
+              </select>
+              <span className="dev-panel-file-filter-count">
+                {filteredContent.length} / {fileContent.length} lines
+              </span>
+            </div>
+          )}
+
+          {selectedFile && filteredContent.length === 0 && fileContent.length > 0 && (
+            <div className="dev-panel-empty">No lines match the current filters.</div>
+          )}
           {selectedFile &&
-            fileContent.map((line, i) => (
+            filteredContent.map((line, i) => (
               <div key={i} className="dev-panel-file-line">
                 {line}
               </div>
@@ -291,7 +349,11 @@ function LogFilesTab() {
       {/* Footer with stats */}
       <div className="dev-panel-footer">
         <span>{files.length} file(s)</span>
-        {selectedFile && <span>{fileContent.length} lines</span>}
+        {selectedFile && (
+          <span>
+            {filteredContent.length} / {fileContent.length} lines
+          </span>
+        )}
       </div>
     </>
   );
@@ -315,6 +377,30 @@ interface MeetingInfo {
   timestamp: string;
 }
 
+interface SemanticStats {
+  total_chunks: number;
+  unique_meetings: number;
+  chunks_by_type: Record<string, number>;
+  embedding_dimension: number | null;
+  collection_hnsw_space: string;
+}
+
+interface AttendeeOverlap {
+  name: string;
+  meeting_count: number;
+  meetings: Array<{ job_id: string; title: string }>;
+}
+
+interface KeywordOverlap {
+  word: string;
+  meeting_count: number;
+}
+
+interface SemanticOverlap {
+  common_attendees: AttendeeOverlap[];
+  keyword_overlap: KeywordOverlap[];
+}
+
 async function callBridge(tool: string, args: any = {}): Promise<any> {
   try {
     const res = await fetch(`${BRIDGE_URL}/tools/call`, {
@@ -335,9 +421,56 @@ function DatabaseTab() {
   const [tableColumns, setTableColumns] = useState<string[]>([]);
   const [tableTotal, setTableTotal] = useState(0);
   const [meetings, setMeetings] = useState<MeetingInfo[]>([]);
+  const [semanticStats, setSemanticStats] = useState<SemanticStats | null>(null);
+  const [semanticOverlap, setSemanticOverlap] = useState<SemanticOverlap | null>(null);
   const [activeView, setActiveView] = useState<"ephemeral" | "semantic">("ephemeral");
   const [loading, setLoading] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
+
+  // ── Search relevance state ──
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<any[] | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleSearch = useCallback(async (query: string) => {
+    if (!query.trim()) {
+      setSearchResults(null);
+      setSearchError(null);
+      return;
+    }
+    setSearchLoading(true);
+    setSearchError(null);
+    const result = await callBridge("memory_semantic_search", { query: query.trim(), n: 10 });
+    if (result) {
+      if (result.status === "ok") {
+        setSearchResults(result.results || []);
+      } else {
+        setSearchError(result.error || "Search failed");
+        setSearchResults(null);
+      }
+    } else {
+      setSearchError("Bridge unreachable");
+      setSearchResults(null);
+    }
+    setSearchLoading(false);
+  }, []);
+
+  const handleSearchInputChange = useCallback(
+    (value: string) => {
+      setSearchQuery(value);
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+      searchTimerRef.current = setTimeout(() => handleSearch(value), 400);
+    },
+    [handleSearch],
+  );
+
+  const handleClearSearch = useCallback(() => {
+    setSearchQuery("");
+    setSearchResults(null);
+    setSearchError(null);
+  }, []);
 
   const loadTables = useCallback(async () => {
     setLoading(true);
@@ -348,8 +481,14 @@ function DatabaseTab() {
 
   const loadMeetings = useCallback(async () => {
     setLoading(true);
-    const result = await callBridge("memory_semantic_meetings");
-    if (result?.meetings) setMeetings(result.meetings);
+    const [meetingsResult, statsResult, overlapResult] = await Promise.all([
+      callBridge("memory_semantic_meetings"),
+      callBridge("memory_semantic_stats"),
+      callBridge("memory_semantic_overlap"),
+    ]);
+    if (meetingsResult?.meetings) setMeetings(meetingsResult.meetings);
+    if (statsResult?.status === "ok") setSemanticStats(statsResult);
+    if (overlapResult?.status === "ok") setSemanticOverlap(overlapResult);
     setLoading(false);
   }, []);
 
@@ -360,6 +499,7 @@ function DatabaseTab() {
 
   const handleSelectTable = useCallback(async (tableName: string) => {
     setSelectedTable(tableName);
+    setExpandedRows(new Set()); // Clear expanded state when switching tables
     setLoading(true);
     const result = await callBridge("memory_ephemeral_table", { tableName, limit: 100, offset: 0 });
     if (result) {
@@ -376,11 +516,31 @@ function DatabaseTab() {
     if (selectedTable) handleSelectTable(selectedTable);
   }, [loadTables, loadMeetings, handleSelectTable, selectedTable]);
 
-  // Render a cell value safely
+  // Render a cell value safely (truncated for table display)
   const renderCell = (val: any): string => {
     if (val === null || val === undefined) return "—";
     if (typeof val === "object") return JSON.stringify(val).slice(0, 80);
     return String(val);
+  };
+
+  // Render a cell value fully (for expanded detail view)
+  const renderCellFull = (val: any): string => {
+    if (val === null || val === undefined) return "—";
+    if (typeof val === "object") return JSON.stringify(val, null, 2);
+    return String(val);
+  };
+
+  // Track which rows are expanded (uses row index for ephemeral, meeting id for semantic)
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+
+  const toggleRow = (id: string | number) => {
+    const key = String(id);
+    setExpandedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   };
 
   return (
@@ -440,24 +600,57 @@ function DatabaseTab() {
               {!selectedTable && <div className="dev-panel-empty">Select a table to view its rows.</div>}
               {selectedTable && tableRows.length === 0 && <div className="dev-panel-empty">(empty table)</div>}
               {selectedTable && tableRows.length > 0 && (
-                <table className="dev-panel-db-table">
-                  <thead>
-                    <tr>
-                      {tableColumns.map((col) => (
-                        <th key={col}>{col}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tableRows.map((row, i) => (
-                      <tr key={i}>
+                <>
+                  {expandedRows.size > 0 && (
+                    <div className="dev-panel-db-collapse-bar">
+                      <button className="dev-panel-db-collapse-btn" onClick={() => setExpandedRows(new Set())}>
+                        ▲ Collapse all
+                      </button>
+                    </div>
+                  )}
+                  <table className="dev-panel-db-table">
+                    <thead>
+                      <tr>
+                        <th className="dev-panel-db-cell-expand" />
                         {tableColumns.map((col) => (
-                          <td key={col}>{renderCell(row[col])}</td>
+                          <th key={col}>{col}</th>
                         ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {tableRows.map((row, i) => {
+                        const rowKey = `ephemeral-${selectedTable}-${i}`;
+                        const isExpanded = expandedRows.has(rowKey);
+                        return (
+                          <React.Fragment key={rowKey}>
+                            <tr className={`dev-panel-db-row ${isExpanded ? "dev-panel-db-row--expanded" : ""}`} onClick={() => toggleRow(rowKey)}>
+                              <td className="dev-panel-db-cell-expand">
+                                <span className="dev-panel-db-expand-icon">{isExpanded ? "▼" : "▶"}</span>
+                              </td>
+                              {tableColumns.map((col) => (
+                                <td key={col}>{renderCell(row[col])}</td>
+                              ))}
+                            </tr>
+                            {isExpanded && (
+                              <tr className="dev-panel-db-detail-row">
+                                <td colSpan={tableColumns.length + 1}>
+                                  <div className="dev-panel-db-detail">
+                                    {tableColumns.map((col) => (
+                                      <div key={col} className="dev-panel-db-detail-field">
+                                        <span className="dev-panel-db-detail-label">{col}</span>
+                                        <pre className="dev-panel-db-detail-value">{renderCellFull(row[col])}</pre>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </>
               )}
             </div>
           </>
@@ -467,29 +660,252 @@ function DatabaseTab() {
           <div className="dev-panel-db-content" ref={contentRef}>
             {loading && meetings.length === 0 && <div className="dev-panel-empty">Loading...</div>}
             {!loading && meetings.length === 0 && <div className="dev-panel-empty">No meetings stored in ChromaDB.</div>}
+
+            {/* Stats bar */}
             {meetings.length > 0 && (
-              <table className="dev-panel-db-table">
-                <thead>
-                  <tr>
-                    <th>Title</th>
-                    <th>Job ID</th>
-                    <th>Type</th>
-                    <th>Attendees</th>
-                    <th>Timestamp</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {meetings.map((m) => (
-                    <tr key={m.id}>
-                      <td>{m.title}</td>
-                      <td className="dev-panel-db-cell-mono">{m.job_id?.slice(0, 12)}…</td>
-                      <td>{m.type}</td>
-                      <td>{m.attendees || "—"}</td>
-                      <td>{m.timestamp || "—"}</td>
+              <div className="dev-panel-db-stats">
+                <span>{meetings.length} meeting(s) stored</span>
+                <span className="dev-panel-db-stats-hint">Each meeting has summary + transcript chunks with embeddings</span>
+              </div>
+            )}
+
+            {meetings.length > 0 && (
+              <>
+                {expandedRows.size > 0 && (
+                  <div className="dev-panel-db-collapse-bar">
+                    <button className="dev-panel-db-collapse-btn" onClick={() => setExpandedRows(new Set())}>
+                      ▲ Collapse all
+                    </button>
+                  </div>
+                )}
+                <table className="dev-panel-db-table">
+                  <thead>
+                    <tr>
+                      <th className="dev-panel-db-cell-expand" />
+                      <th>Title</th>
+                      <th>Job ID</th>
+                      <th>Type</th>
+                      <th>Attendees</th>
+                      <th>Timestamp</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {meetings.map((m) => {
+                      const rowKey = `semantic-${m.id}`;
+                      const isExpanded = expandedRows.has(rowKey);
+                      return (
+                        <React.Fragment key={m.id}>
+                          <tr className={`dev-panel-db-row ${isExpanded ? "dev-panel-db-row--expanded" : ""}`} onClick={() => toggleRow(rowKey)}>
+                            <td className="dev-panel-db-cell-expand">
+                              <span className="dev-panel-db-expand-icon">{isExpanded ? "▼" : "▶"}</span>
+                            </td>
+                            <td>{m.title}</td>
+                            <td className="dev-panel-db-cell-mono">{m.job_id?.slice(0, 12)}…</td>
+                            <td>{m.type}</td>
+                            <td>{m.attendees || "—"}</td>
+                            <td>{m.timestamp || "—"}</td>
+                          </tr>
+                          {isExpanded && (
+                            <tr className="dev-panel-db-detail-row">
+                              <td colSpan={6}>
+                                <div className="dev-panel-db-detail">
+                                  <div className="dev-panel-db-detail-field">
+                                    <span className="dev-panel-db-detail-label">Full Job ID</span>
+                                    <pre className="dev-panel-db-detail-value">{m.job_id}</pre>
+                                  </div>
+                                  <div className="dev-panel-db-detail-field">
+                                    <span className="dev-panel-db-detail-label">ChromaDB ID</span>
+                                    <pre className="dev-panel-db-detail-value">{m.id}</pre>
+                                  </div>
+                                  <div className="dev-panel-db-detail-field">
+                                    <span className="dev-panel-db-detail-label">Attendees (full)</span>
+                                    <pre className="dev-panel-db-detail-value">{m.attendees || "—"}</pre>
+                                  </div>
+                                  <div className="dev-panel-db-detail-field">
+                                    <span className="dev-panel-db-detail-label">Meeting Type</span>
+                                    <pre className="dev-panel-db-detail-value">{m.type}</pre>
+                                  </div>
+                                  <div className="dev-panel-db-detail-field">
+                                    <span className="dev-panel-db-detail-label">Timestamp</span>
+                                    <pre className="dev-panel-db-detail-value">{m.timestamp || "—"}</pre>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </>
+            )}
+
+            {/* ── Embedding Stats ── */}
+            {semanticStats && (
+              <div className="dev-panel-db-section">
+                <h4 className="dev-panel-db-section-title">📊 Embedding Stats</h4>
+                <div className="dev-panel-db-stat-cards">
+                  <div className="dev-panel-db-stat-card">
+                    <span className="dev-panel-db-stat-value">{semanticStats.unique_meetings}</span>
+                    <span className="dev-panel-db-stat-label">Meetings</span>
+                  </div>
+                  <div className="dev-panel-db-stat-card">
+                    <span className="dev-panel-db-stat-value">{semanticStats.total_chunks}</span>
+                    <span className="dev-panel-db-stat-label">Total Chunks</span>
+                  </div>
+                  {semanticStats.embedding_dimension && (
+                    <div className="dev-panel-db-stat-card">
+                      <span className="dev-panel-db-stat-value">{semanticStats.embedding_dimension}</span>
+                      <span className="dev-panel-db-stat-label">Vector Dims</span>
+                    </div>
+                  )}
+                  <div className="dev-panel-db-stat-card">
+                    <span className="dev-panel-db-stat-value">{semanticStats.collection_hnsw_space}</span>
+                    <span className="dev-panel-db-stat-label">Distance Metric</span>
+                  </div>
+                </div>
+                {/* Chunk type breakdown */}
+                {Object.keys(semanticStats.chunks_by_type).length > 0 && (
+                  <div className="dev-panel-db-chart">
+                    {Object.entries(semanticStats.chunks_by_type).map(([type, count]) => (
+                      <div key={type} className="dev-panel-db-chart-bar">
+                        <span className="dev-panel-db-chart-label">{type}</span>
+                        <div className="dev-panel-db-chart-track">
+                          <div
+                            className="dev-panel-db-chart-fill"
+                            style={{
+                              width: `${(count / semanticStats.total_chunks) * 100}%`,
+                              background: type === "meeting_summary" ? "var(--accent)" : "var(--green)",
+                            }}
+                          />
+                        </div>
+                        <span className="dev-panel-db-chart-count">{count}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Cross-Meeting Overlap ── */}
+            {semanticOverlap && (
+              <div className="dev-panel-db-section">
+                <h4 className="dev-panel-db-section-title">🔄 Cross-Meeting Overlap</h4>
+
+                {/* Common attendees */}
+                {semanticOverlap.common_attendees.length > 0 && (
+                  <div className="dev-panel-db-overlap-group">
+                    <h5 className="dev-panel-db-overlap-title">👥 Common Attendees</h5>
+                    {semanticOverlap.common_attendees.map((att) => (
+                      <div key={att.name} className="dev-panel-db-overlap-item">
+                        <div className="dev-panel-db-overlap-item-header">
+                          <span className="dev-panel-db-overlap-name">{att.name}</span>
+                          <span className="dev-panel-db-overlap-count">{att.meeting_count} meetings</span>
+                        </div>
+                        <div className="dev-panel-db-overlap-meetings">
+                          {att.meetings.map((m) => (
+                            <span key={m.job_id} className="dev-panel-db-overlap-tag" title={m.job_id}>
+                              {m.title}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {semanticOverlap.common_attendees.length === 0 && (
+                  <p className="dev-panel-db-empty-hint">No attendees appear in multiple meetings yet.</p>
+                )}
+
+                {/* Keyword overlap */}
+                {semanticOverlap.keyword_overlap.length > 0 && (
+                  <div className="dev-panel-db-overlap-group">
+                    <h5 className="dev-panel-db-overlap-title">🏷️ Shared Keywords</h5>
+                    <div className="dev-panel-db-tag-cloud">
+                      {semanticOverlap.keyword_overlap.map((kw) => (
+                        <span
+                          key={kw.word}
+                          className="dev-panel-db-tag"
+                          style={{
+                            opacity: Math.max(0.5, Math.min(1, kw.meeting_count / semanticOverlap.keyword_overlap[0].meeting_count)),
+                          }}>
+                          {kw.word}
+                          <sup className="dev-panel-db-tag-count">{kw.meeting_count}</sup>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {semanticOverlap.keyword_overlap.length === 0 && (
+                  <p className="dev-panel-db-empty-hint">No shared keywords found across meetings yet.</p>
+                )}
+              </div>
+            )}
+
+            {/* ── Search Relevance ── */}
+            {meetings.length > 0 && (
+              <div className="dev-panel-db-section">
+                <h4 className="dev-panel-db-section-title">🔍 Search Relevance</h4>
+
+                {/* Search input */}
+                <div className="dev-panel-db-search-bar">
+                  <span className="dev-panel-db-search-icon">🔍</span>
+                  <input
+                    className="dev-panel-db-search-input"
+                    type="text"
+                    placeholder="Search meetings by natural language query…"
+                    value={searchQuery}
+                    onChange={(e) => handleSearchInputChange(e.target.value)}
+                  />
+                  {searchQuery && (
+                    <button className="dev-panel-db-search-clear" onClick={handleClearSearch} title="Clear search">
+                      ✕
+                    </button>
+                  )}
+                  {searchLoading && <span className="dev-panel-db-search-spinner" />}
+                </div>
+
+                {/* Error state */}
+                {searchError && <div className="dev-panel-db-search-error">❌ {searchError}</div>}
+
+                {/* Results */}
+                {searchResults !== null && !searchLoading && (
+                  <div className="dev-panel-db-search-results">
+                    {searchResults.length === 0 ? (
+                      <p className="dev-panel-db-empty-hint">No matching meetings found for &ldquo;{searchQuery}&rdquo;.</p>
+                    ) : (
+                      <>
+                        <p className="dev-panel-db-search-count">
+                          {searchResults.length} result(s) for &ldquo;{searchQuery}&rdquo;
+                        </p>
+                        {searchResults.map((r, i) => (
+                          <div key={r.job_id || i} className="dev-panel-db-search-result">
+                            <div className="dev-panel-db-search-result-header">
+                              <span className="dev-panel-db-search-result-title">{r.title || "Untitled"}</span>
+                              <span className="dev-panel-db-search-result-score">{(r.score !== undefined ? 1 - r.score : 0).toFixed(3)}</span>
+                            </div>
+                            <div className="dev-panel-db-search-result-meta">
+                              <span className="dev-panel-db-cell-mono">{r.job_id?.slice(0, 12)}…</span>
+                              <span className="dev-panel-db-search-result-divider">·</span>
+                              <span>{r.metadata?.type || "—"}</span>
+                            </div>
+                            {r.document && <pre className="dev-panel-db-search-result-snippet">{r.document}</pre>}
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* Initial state */}
+                {searchResults === null && !searchLoading && (
+                  <p className="dev-panel-db-empty-hint">
+                    Type a natural-language query above to find relevant meetings. For example: <em>&ldquo;budget discussion&rdquo;</em> or{" "}
+                    <em>&ldquo;Q4 planning&rdquo;</em>.
+                  </p>
+                )}
+              </div>
             )}
           </div>
         )}

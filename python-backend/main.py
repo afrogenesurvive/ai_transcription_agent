@@ -1080,6 +1080,180 @@ async def memory_semantic_meetings():
         raise HTTPException(500, f"Failed to list meetings: {e}")
 
 
+@app.get("/memory/semantic/stats")
+async def memory_semantic_stats():
+    """Get embedding collection stats (read-only, for DevPanel)."""
+    print(f"[api] GET /memory/semantic/stats")
+    try:
+        semantic_memory._ensure_loaded()
+        coll = semantic_memory._collection
+        all_data = coll.get(include=["metadatas"])
+        total_chunks = len(all_data["ids"]) if all_data and all_data["ids"] else 0
+
+        # Count unique meetings
+        seen_jobs = set()
+        type_counts = {}
+        for meta in (all_data.get("metadatas") or []):
+            if meta:
+                jid = meta.get("job_id", "")
+                if jid:
+                    seen_jobs.add(jid)
+                ctype = meta.get("type", "unknown")
+                type_counts[ctype] = type_counts.get(ctype, 0) + 1
+
+        # Get embedding dimension from the collection
+        dimension = None
+        try:
+            if total_chunks > 0:
+                sample = coll.get(ids=[all_data["ids"][0]], include=["embeddings"])
+                if sample.get("embeddings"):
+                    dimension = len(sample["embeddings"][0])
+        except Exception:
+            pass
+
+        # Get collection metadata for total vector count
+        collection_meta = coll.metadata or {}
+
+        return {
+            "total_chunks": total_chunks,
+            "unique_meetings": len(seen_jobs),
+            "chunks_by_type": type_counts,
+            "embedding_dimension": dimension,
+            "collection_hnsw_space": collection_meta.get("hnsw:space", "cosine"),
+            "status": "ok",
+        }
+    except Exception as e:
+        print(f"[api] GET /memory/semantic/stats ERROR: {e}")
+        raise HTTPException(500, f"Failed to get stats: {e}")
+
+
+@app.get("/memory/semantic/search")
+async def memory_semantic_search(query: str = "", n: int = 5):
+    """Search semantic memory by natural language query (read-only, for DevPanel)."""
+    print(f"[api] GET /memory/semantic/search?q={query}&n={n}")
+    if not query.strip():
+        return {"results": [], "query": query, "status": "ok"}
+    try:
+        results = semantic_memory.search(query, n_results=n)
+        return {"results": results, "query": query, "status": "ok"}
+    except Exception as e:
+        print(f"[api] GET /memory/semantic/search ERROR: {e}")
+        raise HTTPException(500, f"Search failed: {e}")
+
+
+@app.get("/memory/semantic/overlap")
+async def memory_semantic_overlap():
+    """Analyze cross-meeting overlap — common attendees, shared keywords (read-only, for DevPanel).
+
+    Returns:
+      - common_attendees: attendees that appear in 2+ meetings with meeting titles
+      - keyword_overlap: top keywords that appear across multiple meeting summaries
+    """
+    print(f"[api] GET /memory/semantic/overlap")
+    try:
+        semantic_memory._ensure_loaded()
+        coll = semantic_memory._collection
+        all_data = coll.get(include=["metadatas", "documents"])
+
+        if not all_data or not all_data["ids"]:
+            return {"common_attendees": [], "keyword_overlap": [], "status": "ok"}
+
+        # ── Attendee overlap ──
+        # Build: attendee_name -> [{job_id, title}]
+        attendee_map = {}
+        meeting_titles = {}
+        for i in range(len(all_data["ids"])):
+            meta = all_data["metadatas"][i] if all_data.get("metadatas") else {}
+            job_id = meta.get("job_id", "")
+            title = meta.get("title", "Unknown")
+            if job_id:
+                meeting_titles[job_id] = title
+            attendees_str = meta.get("attendees", "").strip()
+            if attendees_str:
+                for att in [a.strip() for a in attendees_str.split(",") if a.strip()]:
+                    if att not in attendee_map:
+                        attendee_map[att] = {}
+                    if job_id:
+                        attendee_map[att][job_id] = title
+
+        # Filter to attendees in 2+ meetings
+        common_attendees = []
+        for att, meetings_dict in attendee_map.items():
+            if len(meetings_dict) >= 2:
+                common_attendees.append({
+                    "name": att,
+                    "meeting_count": len(meetings_dict),
+                    "meetings": [{"job_id": jid, "title": title} for jid, title in meetings_dict.items()],
+                })
+        common_attendees.sort(key=lambda x: -x["meeting_count"])
+
+        # ── Keyword overlap ──
+        # Collect summary documents per meeting, extract common keywords
+        from collections import Counter
+        import re
+
+        meeting_keywords = {}  # job_id -> set of lowercase words
+        for i in range(len(all_data["ids"])):
+            meta = all_data["metadatas"][i] if all_data.get("metadatas") else {}
+            if meta.get("type") != "meeting_summary":
+                continue
+            job_id = meta.get("job_id", "")
+            doc = all_data["documents"][i] if all_data.get("documents") else ""
+            if job_id and doc:
+                # Extract meaningful words (3+ chars, not numbers)
+                words = set(
+                    w.lower() for w in re.findall(r'\b[a-zA-Z]{3,}\b', doc)
+                    if w.lower() not in _STOP_WORDS
+                )
+                if job_id not in meeting_keywords:
+                    meeting_keywords[job_id] = set()
+                meeting_keywords[job_id].update(words)
+
+        # Find words that appear across multiple meetings
+        word_meeting_count = Counter()
+        for jid, words in meeting_keywords.items():
+            for w in words:
+                word_meeting_count[w] += 1
+
+        keyword_overlap = [
+            {"word": word, "meeting_count": count}
+            for word, count in word_meeting_count.most_common(30)
+            if count >= 2
+        ]
+
+        return {
+            "common_attendees": common_attendees,
+            "keyword_overlap": keyword_overlap,
+            "status": "ok",
+        }
+    except Exception as e:
+        print(f"[api] GET /memory/semantic/overlap ERROR: {e}")
+        raise HTTPException(500, f"Failed to get overlap: {e}")
+
+
+# ── Stop words for keyword overlap analysis ──
+
+_STOP_WORDS = {
+    "the", "and", "for", "that", "this", "with", "have", "will", "was",
+    "are", "not", "but", "from", "they", "you", "all", "can", "has",
+    "had", "its", "than", "been", "more", "also", "very", "just",
+    "about", "over", "into", "them", "then", "some", "what", "when",
+    "where", "which", "their", "there", "these", "those", "would",
+    "could", "should", "after", "such", "only", "other", "each",
+    "well", "did", "does", "done", "going", "make", "made", "take",
+    "took", "think", "know", "like", "need", "want", "see", "way",
+    "back", "much", "still", "also", "even", "may", "might", "must",
+    "new", "now", "one", "two", "use", "used", "get", "got", "say",
+    "said", "tell", "told", "ask", "asked", "put", "set", "let",
+    "come", "came", "went", "go", "yes", "sure", "okay", "right",
+    "look", "looks", "looking", "thing", "things", "really", "actually",
+    "basically", "probably", "maybe", "please", "thank", "thanks",
+    "yes", "no", "well", "good", "great", "best", "better", "first",
+    "last", "next", "previous", "following", "done", "doing", "does",
+    "being", "been", "having", "getting", "making", "taking",
+}
+
+
 # ── Pipeline management ──
 
 def _start_pipeline_async(job_id: str):

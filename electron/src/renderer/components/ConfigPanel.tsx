@@ -158,6 +158,39 @@ export default function ConfigPanel({ onClose }: Props) {
     }
   }, [values.LLM_PROVIDER]);
 
+  // ── Ollama server health check state ──
+  const [ollamaHealthy, setOllamaHealthy] = useState<boolean | null>(null);
+  const [ollamaHealthChecking, setOllamaHealthChecking] = useState(false);
+
+  // Poll Ollama health when provider is "ollama"
+  const checkOllamaHealth = useCallback(async () => {
+    if (values.LLM_PROVIDER !== "ollama") {
+      setOllamaHealthy(null);
+      return;
+    }
+    setOllamaHealthChecking(true);
+    try {
+      const result = await window.electronAPI?.checkOllamaHealth();
+      setOllamaHealthy(result?.healthy ?? false);
+    } catch {
+      setOllamaHealthy(false);
+    } finally {
+      setOllamaHealthChecking(false);
+    }
+  }, [values.LLM_PROVIDER]);
+
+  useEffect(() => {
+    if (values.LLM_PROVIDER !== "ollama") {
+      setOllamaHealthy(null);
+      return;
+    }
+    // Check immediately
+    checkOllamaHealth();
+    // Then poll every 15 seconds
+    const interval = setInterval(checkOllamaHealth, 15000);
+    return () => clearInterval(interval);
+  }, [values.LLM_PROVIDER, checkOllamaHealth]);
+
   // Fetch models when provider changes to "ollama"
   useEffect(() => {
     fetchOllamaModels();
@@ -461,6 +494,26 @@ export default function ConfigPanel({ onClose }: Props) {
                           <span className="config-radio-desc">Local LLM — no API key needed</span>
                         </label>
                       </div>
+                      {/* ── Ollama server status indicator ── */}
+                      {values.LLM_PROVIDER === "ollama" && (
+                        <div className="config-ollama-status">
+                          {ollamaHealthChecking && ollamaHealthy === null ? (
+                            <span className="config-ollama-status-indicator config-ollama-status--checking" title="Checking Ollama server…">
+                              ⟳ Checking…
+                            </span>
+                          ) : ollamaHealthy ? (
+                            <span className="config-ollama-status-indicator config-ollama-status--up" title="Ollama server is reachable">
+                              <span className="config-ollama-status-dot config-ollama-status-dot--up" />
+                              Server Online
+                            </span>
+                          ) : (
+                            <span className="config-ollama-status-indicator config-ollama-status--down" title="Ollama server is not reachable">
+                              <span className="config-ollama-status-dot config-ollama-status-dot--down" />
+                              Server Offline
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     {values.LLM_PROVIDER === "deepseek" &&
@@ -554,6 +607,23 @@ export default function ConfigPanel({ onClose }: Props) {
                     {values.LLM_PROVIDER === "ollama" && (
                       <div className="config-section">
                         <h3 className="config-section-title">🤖 Ollama Models</h3>
+
+                        {/* Server status line */}
+                        <div className="config-ollama-status config-ollama-status--section">
+                          {ollamaHealthChecking && ollamaHealthy === null ? (
+                            <span className="config-ollama-status-indicator config-ollama-status--checking">⟳ Checking server…</span>
+                          ) : ollamaHealthy ? (
+                            <span className="config-ollama-status-indicator config-ollama-status--up">
+                              <span className="config-ollama-status-dot config-ollama-status-dot--up" />
+                              Server Online
+                            </span>
+                          ) : (
+                            <span className="config-ollama-status-indicator config-ollama-status--down">
+                              <span className="config-ollama-status-dot config-ollama-status-dot--down" />
+                              Server Offline
+                            </span>
+                          )}
+                        </div>
 
                         {/* Loading state */}
                         {ollamaModelsLoading && <p className="config-field-hint">Checking available models…</p>}

@@ -359,12 +359,30 @@ function AnalysisTab({ analysis }: { analysis: AnalysisData | null }) {
 
 /* ── Tab: Logs ── */
 
+/** Try to detect a source tag like [python], [bridge], [agent], [main] in a log line. */
+function detectSource(line: string): string | null {
+  const match = line.match(/\[(python|bridge|agent|main)\]/i);
+  return match ? match[1].toLowerCase() : null;
+}
+
+/** Try to detect a log level like error, warn, info, debug in a log line. */
+function detectLevel(line: string): string | null {
+  const lower = line.toLowerCase();
+  if (/\berror\b/.test(lower) || /\b❌\b/.test(line)) return "error";
+  if (/\bwarn(ing)?\b/.test(lower) || /\b⚠️\b/.test(line)) return "warn";
+  if (/\bdebug\b/.test(lower)) return "debug";
+  if (/\binfo\b/.test(lower) || /\b✅\b/.test(line) || /\b📝\b/.test(line)) return "info";
+  return null;
+}
+
 function LogsTab({ jobId }: { jobId: string }) {
   const [logs, setLogs] = useState<string[]>([]);
   const [jobLogFiles, setJobLogFiles] = useState<{ file: string; content: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedLogFile, setSelectedLogFile] = useState<string | null>(null);
+  const [sourceFilter, setSourceFilter] = useState<string>("all");
+  const [levelFilter, setLevelFilter] = useState<string>("all");
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -412,6 +430,19 @@ function LogsTab({ jobId }: { jobId: string }) {
     setLogs(lines);
   };
 
+  // Filter logs by source and level
+  const filteredLogs = logs.filter((line) => {
+    if (sourceFilter !== "all") {
+      const detectedSource = detectSource(line);
+      if (detectedSource !== sourceFilter) return false;
+    }
+    if (levelFilter !== "all") {
+      const detectedLevel = detectLevel(line);
+      if (detectedLevel !== levelFilter) return false;
+    }
+    return true;
+  });
+
   if (loading) {
     return (
       <div className="rv-tab-content">
@@ -450,18 +481,50 @@ function LogsTab({ jobId }: { jobId: string }) {
         </div>
       )}
 
+      {/* Filter toolbar */}
+      {logs.length > 0 && (
+        <div className="rv-logs-toolbar">
+          <span className="rv-logs-toolbar-title">🪵 Pipeline Logs</span>
+          <div className="rv-logs-toolbar-filters">
+            <select className="rv-logs-filter-select" value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
+              <option value="all">All sources</option>
+              <option value="python">Python</option>
+              <option value="bridge">Bridge</option>
+              <option value="agent">Agent</option>
+              <option value="main">Main</option>
+            </select>
+            <select className="rv-logs-filter-select" value={levelFilter} onChange={(e) => setLevelFilter(e.target.value)}>
+              <option value="all">All levels</option>
+              <option value="info">Info</option>
+              <option value="warn">Warnings</option>
+              <option value="error">Errors</option>
+              <option value="debug">Debug</option>
+            </select>
+            <span className="rv-logs-filter-count">
+              {filteredLogs.length} / {logs.length} entries
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Filtered pipeline logs */}
       {logs.length > 0 && (
         <div className="rv-logs-section">
-          <h4 className="rv-logs-section-title">🪵 Pipeline Logs (filtered for this job)</h4>
-          <div className="rv-logs-list" ref={logRef}>
-            {logs.map((line, i) => (
-              <div key={i} className="rv-log-line">
-                <span className="rv-log-line-num">{i + 1}</span>
-                <span className="rv-log-line-text">{line}</span>
-              </div>
-            ))}
-          </div>
+          {filteredLogs.length > 0 ? (
+            <div className="rv-logs-list" ref={logRef}>
+              {filteredLogs.map((line, i) => (
+                <div key={i} className="rv-log-line">
+                  <span className="rv-log-line-num">{i + 1}</span>
+                  <span className="rv-log-line-text">{line}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rv-logs-empty-filter">
+              <span className="rv-logs-empty-filter-icon">🔍</span>
+              <span>No logs match the current filters.</span>
+            </div>
+          )}
         </div>
       )}
 

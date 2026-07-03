@@ -2193,6 +2193,77 @@ body {
 
 /* ── Ollama Model Section (ConfigPanel) ── */
 
+/* ── Ollama Server Status Indicator ── */
+
+.config-ollama-status {
+  display: flex;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.config-ollama-status--section {
+  margin-bottom: 10px;
+  padding: 6px 0;
+}
+
+.config-ollama-status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+
+.config-ollama-status--up {
+  color: var(--green);
+  background: rgba(63, 185, 80, 0.1);
+  border: 1px solid rgba(63, 185, 80, 0.25);
+}
+
+.config-ollama-status--down {
+  color: var(--red);
+  background: rgba(248, 81, 73, 0.1);
+  border: 1px solid rgba(248, 81, 73, 0.25);
+}
+
+.config-ollama-status--checking {
+  color: var(--text-muted);
+  background: rgba(139, 148, 158, 0.08);
+  border: 1px solid var(--border);
+  animation: config-status-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes config-status-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.config-ollama-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.config-ollama-status-dot--up {
+  background: var(--green);
+  box-shadow: 0 0 4px rgba(63, 185, 80, 0.6);
+}
+
+.config-ollama-status-dot--down {
+  background: var(--red);
+  box-shadow: 0 0 4px rgba(248, 81, 73, 0.6);
+}
+
 .config-ollama-warning {
   background: rgba(210, 153, 34, 0.12);
   border: 1px solid rgba(210, 153, 34, 0.35);
@@ -2443,6 +2514,46 @@ body {
   font-family: var(--font);
 }
 
+/* ── DevPanel — log file filter bar ── */
+
+.dev-panel-file-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.dev-panel-file-filter-select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 4px 8px;
+  font-size: 11px;
+  font-family: var(--font);
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s;
+  min-width: 100px;
+}
+
+.dev-panel-file-filter-select:hover,
+.dev-panel-file-filter-select:focus {
+  border-color: var(--accent);
+}
+
+.dev-panel-file-filter-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  margin-left: auto;
+}
+
 .dev-panel-file-content {
   flex: 1;
   overflow-y: auto;
@@ -2553,6 +2664,483 @@ body {
 .dev-panel-db-cell-mono {
   font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
   color: var(--text-muted);
+}
+
+/* ── DevPanel — expandable rows ── */
+
+.dev-panel-db-row {
+  cursor: pointer;
+  user-select: none;
+}
+
+.dev-panel-db-row:hover {
+  background: var(--surface-hover) !important;
+}
+
+.dev-panel-db-row--expanded {
+  background: rgba(88, 166, 255, 0.04);
+}
+
+.dev-panel-db-row--expanded td {
+  border-bottom-color: transparent;
+}
+
+.dev-panel-db-cell-expand {
+  width: 28px;
+  min-width: 28px;
+  padding: 4px 6px !important;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.dev-panel-db-expand-icon {
+  font-size: 9px;
+  color: var(--text-muted);
+  display: inline-block;
+  transition: transform 0.15s;
+}
+
+.dev-panel-db-detail-row td {
+  padding: 0 !important;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.dev-panel-db-detail {
+  padding: 12px 16px 12px 44px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dev-panel-db-detail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.dev-panel-db-detail-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.dev-panel-db-detail-value {
+  margin: 0;
+  font-size: 12px;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.5;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+/* ── DevPanel — semantic view stats & info ── */
+
+.dev-panel-db-stats {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.dev-panel-db-stats-hint {
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+/* ── DevPanel — semantic stats section ── */
+
+.dev-panel-db-section {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dev-panel-db-section:last-child {
+  border-bottom: none;
+}
+
+.dev-panel-db-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin: 0 0 12px;
+}
+
+.dev-panel-db-stat-cards {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.dev-panel-db-stat-card {
+  flex: 1;
+  min-width: 80px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dev-panel-db-stat-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1.2;
+}
+
+.dev-panel-db-stat-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+/* ── Chunk type bar chart ── */
+
+.dev-panel-db-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.dev-panel-db-chart-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dev-panel-db-chart-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 120px;
+  text-align: right;
+  text-transform: capitalize;
+}
+
+.dev-panel-db-chart-track {
+  flex: 1;
+  height: 18px;
+  background: var(--bg);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.dev-panel-db-chart-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.4s ease;
+  min-width: 4px;
+}
+
+.dev-panel-db-chart-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  min-width: 30px;
+}
+
+/* ── Collapse all bar ── */
+
+.dev-panel-db-collapse-bar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.dev-panel-db-collapse-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.dev-panel-db-collapse-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(88, 166, 255, 0.08);
+}
+
+/* ── Search relevance ── */
+
+.dev-panel-db-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  transition: border-color 0.15s;
+}
+
+.dev-panel-db-search-bar:focus-within {
+  border-color: var(--accent);
+}
+
+.dev-panel-db-search-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.dev-panel-db-search-input {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 13px;
+  font-family: var(--font);
+  outline: none;
+}
+
+.dev-panel-db-search-input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+.dev-panel-db-search-clear {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+
+.dev-panel-db-search-clear:hover {
+  color: var(--text);
+}
+
+.dev-panel-db-search-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: pp-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+.dev-panel-db-search-error {
+  background: rgba(248, 81, 73, 0.08);
+  border: 1px solid rgba(248, 81, 73, 0.25);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  color: var(--red);
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+
+.dev-panel-db-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dev-panel-db-search-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0 0 4px;
+}
+
+.dev-panel-db-search-result {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+
+.dev-panel-db-search-result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.dev-panel-db-search-result-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.dev-panel-db-search-result-score {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--green);
+  background: rgba(63, 185, 80, 0.1);
+  padding: 1px 8px;
+  border-radius: 8px;
+}
+
+.dev-panel-db-search-result-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.dev-panel-db-search-result-divider {
+  opacity: 0.4;
+}
+
+.dev-panel-db-search-result-snippet {
+  margin: 0;
+  font-size: 11px;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  color: var(--text-muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.5;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+/* ── Cross-meeting overlap ── */
+
+.dev-panel-db-overlap-group {
+  margin-bottom: 16px;
+}
+
+.dev-panel-db-overlap-group:last-child {
+  margin-bottom: 0;
+}
+
+.dev-panel-db-overlap-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 10px;
+}
+
+.dev-panel-db-overlap-item {
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 6px;
+}
+
+.dev-panel-db-overlap-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.dev-panel-db-overlap-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.dev-panel-db-overlap-count {
+  font-size: 10px;
+  color: var(--accent);
+  font-weight: 500;
+  background: rgba(88, 166, 255, 0.1);
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+
+.dev-panel-db-overlap-meetings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.dev-panel-db-overlap-tag {
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Keyword tag cloud ── */
+
+.dev-panel-db-tag-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.dev-panel-db-tag {
+  font-size: 12px;
+  color: var(--accent);
+  background: rgba(88, 166, 255, 0.08);
+  border: 1px solid rgba(88, 166, 255, 0.2);
+  padding: 3px 8px;
+  border-radius: 12px;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.dev-panel-db-tag:hover {
+  background: rgba(88, 166, 255, 0.15);
+  border-color: var(--accent);
+}
+
+.dev-panel-db-tag-count {
+  font-size: 9px;
+  color: var(--text-muted);
+  margin-left: 3px;
+  vertical-align: super;
+}
+
+/* ── Empty / hint text ── */
+
+.dev-panel-db-empty-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.dev-panel-db-empty-hint-sub {
+  font-size: 11px;
+  opacity: 0.7;
 }
 
 .dev-panel-view-toggle {
@@ -3345,6 +3933,73 @@ body {
   padding: 0;
   display: flex;
   flex-direction: column;
+}
+
+/* ── Logs Filter Toolbar ── */
+
+.rv-logs-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 18px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.rv-logs-toolbar-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+}
+
+.rv-logs-toolbar-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rv-logs-filter-select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 4px 8px;
+  font-size: 11px;
+  font-family: var(--font);
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s;
+  min-width: 100px;
+}
+
+.rv-logs-filter-select:hover,
+.rv-logs-filter-select:focus {
+  border-color: var(--accent);
+}
+
+.rv-logs-filter-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.rv-logs-empty-filter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px 18px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.rv-logs-empty-filter-icon {
+  font-size: 16px;
 }
 
 .rv-logs-section {
