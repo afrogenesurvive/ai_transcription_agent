@@ -97,7 +97,7 @@ class AudioUploader:
 
     def save_transcript_text(self, job_id: str, transcript: list):
         """Save the transcript as a plain-text .txt file (readable, no JSON)."""
-        lines = [f"[{s['start']:.1f}s] {s['speaker']}: {s['text']}" for s in transcript]
+        lines = [f"[{s.get('start', 0.0):.1f}s] {s['speaker']}: {s['text']}" for s in transcript]
         text = "\n".join(lines)
         path = os.path.join(self.storage_path, job_id, "transcript.txt")
         with open(path, "w") as f:

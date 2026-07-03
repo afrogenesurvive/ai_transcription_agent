@@ -389,10 +389,37 @@ async function processEvent(event) {
       }
     }
 
-    // Append result summary to context so the LLM knows what happened
-    const resultSummary =
-      result && typeof result === "object" && !Array.isArray(result) ? JSON.stringify(result).slice(0, 500) : String(result || "ok").slice(0, 500);
-    context += `\n\n[Step ${step} Complete] Tool: ${decision.name}\nResult: ${resultSummary}`;
+    // Append result to context so the LLM knows what happened.
+    // For transcribe_get_transcript, format the full transcript as readable text
+    // so the LLM can actually see the content and summarize it. Otherwise the
+    // LLM gets only a 500-char snippet and loops calling the tool repeatedly.
+    let resultBlock;
+    if (decision.name === "transcribe_get_transcript" && result?.transcript) {
+      const segs = result.transcript;
+      const MAX_TRANSCRIPT_SEGMENTS = 200;
+      const lines = segs.slice(0, MAX_TRANSCRIPT_SEGMENTS).map((s) => `[${(s.start || 0).toFixed(1)}s] ${s.speaker || "?"}: ${s.text || ""}`);
+      const remaining = segs.length - MAX_TRANSCRIPT_SEGMENTS;
+      resultBlock = `Full transcript (${segs.length} segments):\n${lines.join("\n")}`;
+      if (remaining > 0) {
+        resultBlock += `\n... (${remaining} more segments omitted — use the transcript above to generate the summary)`;
+      }
+      console.log(
+        `   📝 [RUNNER] Transcript included in context (${segs.length} segments, showing ${Math.min(segs.length, MAX_TRANSCRIPT_SEGMENTS)})`,
+      );
+    } else if (decision.name === "transcribe_get_transcript" && result?.text) {
+      const text = result.text;
+      const MAX_TRANSCRIPT_CHARS = 15000;
+      resultBlock = `Transcript text (${text.length} chars):\n${text.slice(0, MAX_TRANSCRIPT_CHARS)}`;
+      if (text.length > MAX_TRANSCRIPT_CHARS) {
+        resultBlock += `\n... (${text.length - MAX_TRANSCRIPT_CHARS} more chars omitted — use the excerpt above to generate the summary)`;
+      }
+      console.log(
+        `   📝 [RUNNER] Transcript text included in context (${text.length} chars, showing ${Math.min(text.length, MAX_TRANSCRIPT_CHARS)})`,
+      );
+    } else {
+      resultBlock = JSON.stringify(result || "ok").slice(0, 500);
+    }
+    context += `\n\n[Step ${step} Complete] Tool: ${decision.name}\nResult: ${resultBlock}`;
 
     // Add a hint about the next logical pipeline step, skipping over any
     // tools that are in the skip list.
@@ -420,6 +447,16 @@ async function processEvent(event) {
     await enqueueFailed(event, pipelineError);
   } else {
     console.log(`   ✅ [RUNNER] Pipeline finished for job ${tag}`);
+    // Mark the job as complete on the backend so the frontend knows all
+    // processing (including LLM summarization, analysis, memory context)
+    // is done and the summary.json is ready to be fetched.
+    try {
+      const jobId = jobData.jobId || eventId;
+      await executeToolCall("transcribe_complete_job", { jobId });
+      console.log(`   ✅ [RUNNER] Job ${jobId.slice(0, 8)} marked as complete on backend`);
+    } catch (completeErr) {
+      console.log(`   ⚠️  [RUNNER] Could not update job status to complete: ${completeErr.message}`);
+    }
   }
 
   // ── Save token usage data to the job's storage directory ──

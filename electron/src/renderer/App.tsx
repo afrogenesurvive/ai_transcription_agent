@@ -14,7 +14,7 @@
  *   └──────────────────────────────────────────────┘
  */
 
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import UploadPanel from "./components/UploadPanel";
 import PipelineProgress from "./components/ProgressPanel";
 import ResultsViewer from "./components/ResultsViewer";
@@ -137,10 +137,12 @@ export default function App() {
     return () => cleanup?.();
   }, []);
 
-  // Poll job status
+  // Poll job status — stabilize the fetcher ref to avoid restarting polling on re-render
+  const fetcherRef = useRef<(id: string) => Promise<any>>();
+  fetcherRef.current = (id: string) => api.getStatus(id);
   const statusHook = useJobStatus(
     jobId,
-    useCallback((id: string) => api.getStatus(id), [api]),
+    useCallback((id: string) => fetcherRef.current?.(id) ?? Promise.reject(new Error("no fetcher")), []),
   );
 
   // Track status data for progress display
@@ -154,11 +156,23 @@ export default function App() {
     }
   }, [statusHook.data]);
 
+  // Stable refs for API calls so the effect below doesn't re-run on every render
+  const getTranscriptRef = useRef<(id: string) => Promise<any>>();
+  const getSummaryRef = useRef<(id: string) => Promise<any>>();
+  getTranscriptRef.current = (id: string) => api.getTranscript(id);
+  getSummaryRef.current = (id: string) => api.getSummary(id);
+
   // When polling completes, fetch transcript + summary + metadata
   React.useEffect(() => {
     if (statusHook.state === "complete" && jobId) {
-      Promise.all([api.getTranscript(jobId), api.getSummary(jobId).catch(() => null)])
+      const stateSnapshot = statusHook.state;
+      Promise.all([
+        getTranscriptRef.current?.(jobId) ?? Promise.reject(new Error("no fetcher")),
+        (getSummaryRef.current?.(jobId) ?? Promise.reject(new Error("no fetcher"))).catch(() => null),
+      ])
         .then(([transcriptData, summaryData]) => {
+          // Guard: only process if state is still "complete" (avoid stale closure)
+          if (stateSnapshot !== "complete") return;
           if (transcriptData) {
             setTranscript({ ...transcriptData, summary: summaryData?.summary });
             setView("results");
@@ -182,7 +196,7 @@ export default function App() {
       // Transition to results view so the user can see the error + logs
       setView("results");
     }
-  }, [statusHook.state, jobId, api]);
+  }, [statusHook.state, jobId]);
 
   // Handle upload submit
   const handleUpload = async (file: File, title: string, attendees: string[], skipSteps: string[]) => {
@@ -235,11 +249,7 @@ export default function App() {
             setJobMetadata(statusData.metadata);
           }
           // Store status info for the Pipeline tab
-          setHistoryJobStatus(
-            statusData
-              ? { status: statusData.status, progress: statusData.progress, error: statusData.error }
-              : null,
-          );
+          setHistoryJobStatus(statusData ? { status: statusData.status, progress: statusData.progress, error: statusData.error } : null);
           setView("results");
         } else {
           setNotification("Transcript data unavailable for this job");

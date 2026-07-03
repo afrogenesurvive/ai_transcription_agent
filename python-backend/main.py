@@ -298,7 +298,7 @@ async def get_transcript(job_id: str, format: str = "json"):
         transcript = json.load(f)
     print(f"[api] GET /transcribe/transcript/{job_id} → {len(transcript)} segments (format={format})")
     if format == "text":
-        lines = [f"[{s['start']:.1f}s] {s['speaker']}: {s['text']}" for s in transcript]
+        lines = [f"[{s.get('start', 0.0):.1f}s] {s['speaker']}: {s['text']}" for s in transcript]
         return {"text": "\n".join(lines)}
     return {"transcript": transcript}
 
@@ -649,6 +649,18 @@ async def fail_job(job_id: str, error: str = "Processing failed"):
     _active_jobs.pop(job_id, None)
     print(f"[api] POST /transcribe/fail/{job_id} → failed: {error[:120]}")
     return {"job_id": job_id, "status": "failed", "error": error}
+
+
+@app.post("/transcribe/complete/{job_id}")
+async def complete_job(job_id: str):
+    """Mark a job as complete. Called by the agent runner when the LLM pipeline finishes successfully."""
+    s = uploader.get_status(job_id)
+    if s["status"] == "not_found":
+        raise HTTPException(404, "Job not found")
+    uploader.update_status(job_id, {"status": "complete", "progress": 1.0})
+    _active_jobs.pop(job_id, None)
+    print(f"[api] POST /transcribe/complete/{job_id} → complete")
+    return {"job_id": job_id, "status": "complete"}
 
 
 # ── Job Deletion ──

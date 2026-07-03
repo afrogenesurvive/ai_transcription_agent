@@ -215,6 +215,9 @@ async function dispatch(tool, args) {
     case "transcribe_fail_job":
       return await callPython("POST", `/transcribe/fail/${args.jobId}?error=${encodeURIComponent(args.error || "Processing failed")}`);
 
+    case "transcribe_complete_job":
+      return await callPython("POST", `/transcribe/complete/${args.jobId}`);
+
     case "transcribe_active":
       return await callPython("GET", "/transcribe/active");
 

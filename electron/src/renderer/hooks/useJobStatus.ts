@@ -15,7 +15,15 @@ export function useJobStatus(jobId: string | null, fetcher: (id: string) => Prom
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
 
-  const terminalStatuses = useRef(new Set(["transcribed", "ready_for_agent", "refined", "summarized", "delivered", "failed"])).current;
+  // Only truly terminal statuses — "transcribed", "ready_for_agent", "refined",
+  // "summarized", and "analyzed" are intermediate ML/LLM pipeline stages that
+  // the agent runner transitions through. The job is only fully done when the
+  // agent runner explicitly marks it "complete" (success) or "delivered", or
+  // the backend marks it "failed".
+  const terminalStatuses = useRef(new Set(["complete", "delivered", "failed"])).current;
+  // Safety timeout: if the job hasn't reached a terminal state within 10 minutes,
+  // force-complete to prevent infinite polling (e.g. if the agent runner crashed).
+  const POLLING_TIMEOUT_MS = 10 * 60 * 1000;
 
   const stopPolling = useCallback(() => {
     if (intervalRef.current) {
@@ -32,10 +40,21 @@ export function useJobStatus(jobId: string | null, fetcher: (id: string) => Prom
     setError(null);
     setData(null);
 
+    const startedAt = Date.now();
+
     const poll = async () => {
       try {
         const result = await fetcherRef.current(jobId);
         setData(result);
+
+        // Safety timeout — if we've been polling too long, treat it as complete
+        // so the user can see whatever data exists (transcript, partial results)
+        if (Date.now() - startedAt > POLLING_TIMEOUT_MS) {
+          console.log(`[useJobStatus] Polling timeout for ${jobId} — forcing complete`);
+          setState("complete");
+          stopPolling();
+          return;
+        }
 
         if (terminalStatuses.has(result.status)) {
           setState(result.status === "failed" ? "error" : "complete");
