@@ -86,6 +86,23 @@ function createWindow() {
     mainWindow?.show();
   });
 
+  // Add right-click context menu (Copy, Select All, etc.)
+  mainWindow.webContents.on("context-menu", (_event, params) => {
+    const { editFlags, isEditable } = params;
+    const template: Electron.MenuItemConstructorOptions[] = [];
+    if (isEditable) {
+      template.push({ role: "undo", label: "Undo" }, { role: "redo", label: "Redo" }, { type: "separator" });
+      template.push({ role: "cut", label: "Cut", enabled: editFlags.canCut });
+      template.push({ role: "copy", label: "Copy", enabled: editFlags.canCopy });
+      template.push({ role: "paste", label: "Paste", enabled: editFlags.canPaste });
+    } else {
+      template.push({ role: "copy", label: "Copy", enabled: editFlags.canCopy });
+    }
+    template.push({ type: "separator" }, { role: "selectAll", label: "Select All", enabled: editFlags.canSelectAll });
+    const menu = Menu.buildFromTemplate(template);
+    menu.popup({ window: mainWindow! });
+  });
+
   mainWindow.on("close", (event) => {
     // Minimize to tray instead of closing (unless we're actually quitting)
     if (!isQuitting) {

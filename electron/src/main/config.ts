@@ -51,6 +51,8 @@ export interface AppConfig {
   LOG_MAX_FILE_SIZE_MB: string;
   /** Maximum number of rotated log files to keep (0 = no limit) */
   LOG_MAX_FILES: string;
+  /** Log LLM input/output data to job storage directory */
+  LOG_LLM_DATA: string;
 }
 
 const DEFAULTS: AppConfig = {
@@ -74,6 +76,7 @@ const DEFAULTS: AppConfig = {
   LOG_LEVEL: "info",
   LOG_MAX_FILE_SIZE_MB: "50",
   LOG_MAX_FILES: "10",
+  LOG_LLM_DATA: "false",
 };
 
 /** Keys the UI considers "required" before the pipeline can run. */
@@ -239,6 +242,7 @@ export function getChildEnv(): NodeJS.ProcessEnv {
     LOG_LEVEL: config.LOG_LEVEL || process.env.LOG_LEVEL || "info",
     LOG_MAX_FILE_SIZE_MB: config.LOG_MAX_FILE_SIZE_MB || process.env.LOG_MAX_FILE_SIZE_MB || "50",
     LOG_MAX_FILES: config.LOG_MAX_FILES || process.env.LOG_MAX_FILES || "10",
+    LOG_LLM_DATA: config.LOG_LLM_DATA || process.env.LOG_LLM_DATA || "false",
     // Storage paths — only override in packaged (prod) mode so DBs land in a
     // writable location. In dev the Python backend defaults to the project-
     // relative storage/ dir, which is already writable.

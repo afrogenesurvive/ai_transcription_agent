@@ -685,17 +685,17 @@ function getStageState(stage: StageDef, status: string, isFailed: boolean, isCom
 function PipelineTab({ status, progress, error }: { status: string; progress: number; error?: string | null }) {
   const isFailed = status === "failed";
   const isComplete = COMPLETE_STATUSES.has(status);
+  // Progress comes in as 0-1; for completed jobs the backend may return a
+  // small value (e.g. 0.01), so always clamp to 100% when complete.
+  const barWidth = isComplete ? "100%" : `${Math.min(Math.round(progress * 100), 100)}%`;
 
   return (
     <div className="rv-tab-content rv-tab-content--pipeline">
       {/* Progress bar */}
       <div className="pp-bar-track">
-        <div
-          className={`pp-bar-fill ${isFailed ? "pp-bar-fill--error" : isComplete ? "pp-bar-fill--done" : ""}`}
-          style={{ width: `${Math.min(progress, 100)}%` }}
-        />
+        <div className={`pp-bar-fill ${isFailed ? "pp-bar-fill--error" : isComplete ? "pp-bar-fill--done" : ""}`} style={{ width: barWidth }} />
       </div>
-      <div className="pp-bar-label">{isFailed ? "❌ Failed" : isComplete ? "✅ Complete" : `${Math.round(progress)}%`}</div>
+      <div className="pp-bar-label">{isFailed ? "❌ Failed" : isComplete ? "✅ Complete" : `${Math.round(progress * 100)}%`}</div>
 
       {/* Pipeline stepper */}
       <div className="pp-stepper">
@@ -811,8 +811,8 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
           {metadata?.title && <span className="rv-panel-subtitle">{metadata.title}</span>}
         </div>
         <div className="rv-panel-header-right">
-          <span className="rv-job-badge" title="Job ID">
-            🆔 {jobId.slice(0, 8)}…
+          <span className="rv-job-badge" title={jobId}>
+            🆔 {jobId}
           </span>
         </div>
       </div>

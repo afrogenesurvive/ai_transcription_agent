@@ -217,7 +217,7 @@ async function processEvent(event) {
   }
 
   // Filter the available tools: remove any that are in the skip list
-  const availableTools = TOOLS.filter((t) => !skippedTools.has(t.name));
+  let availableTools = TOOLS.filter((t) => !skippedTools.has(t.name));
 
   // ── Render the system prompt ──
   // Generate a version of the system prompt with skipped sections removed
@@ -290,6 +290,29 @@ async function processEvent(event) {
     return hint;
   }
 
+  // ── LLM data logging ──
+  // When LOG_LLM_DATA=true, every LLM input (context) and output (decision)
+  // is saved to <jobStorageDir>/llm-data.jsonl for debugging.
+  const LOG_LLM_DATA = process.env.LOG_LLM_DATA === "true";
+  const jobStorageDir = path.resolve(__dirname, "..", "storage", jobData.jobId || eventId);
+  let llmDataStream = null;
+  if (LOG_LLM_DATA) {
+    try {
+      fs.mkdirSync(jobStorageDir, { recursive: true });
+      llmDataStream = fs.createWriteStream(path.join(jobStorageDir, "llm-data.jsonl"), { flags: "a" });
+    } catch (err) {
+      console.log(`   ⚠️  [RUNNER] Could not open llm-data.jsonl: ${err.message}`);
+    }
+  }
+  function logLlmData(type, data) {
+    if (!llmDataStream) return;
+    try {
+      llmDataStream.write(JSON.stringify({ timestamp: new Date().toISOString(), type, data }) + "\n");
+    } catch {
+      /* non-fatal */
+    }
+  }
+
   // ── Multi-step pipeline loop ──
   // Each iteration: LLM picks one tool → executes it → result appended to context
   // Loop ends when a terminal tool is called, LLM returns nothing, or max steps hit.
@@ -303,11 +326,22 @@ async function processEvent(event) {
   for (let step = 1; step <= MAX_PIPELINE_STEPS && !pipelineComplete; step++) {
     console.log(`   🤖 [RUNNER] Asking LLM (step ${step})...`);
     let decision;
+    logLlmData("step_input", {
+      step,
+      context: context.slice(0, 10000),
+      context_length: context.length,
+      available_tools: availableTools.map((t) => t.name),
+    });
     try {
       decision = await withRetry(() => callModel(context, availableTools, renderedPrompt), `LLM call (step ${step})`);
+      logLlmData("step_response", {
+        step,
+        decision: decision ? { name: decision.name, arguments: decision.arguments, usage: decision.usage } : null,
+      });
     } catch (err) {
       pipelineError = `LLM call failed after ${MAX_RETRIES} retries: ${err.message}`;
       console.log(`   ❌ [RUNNER] ${pipelineError}`);
+      logLlmData("step_error", { step, error: pipelineError });
       logAction({ eventId, eventType: event.type, action: "failed", detail: pipelineError });
       pipelineComplete = true;
       break;
@@ -369,6 +403,16 @@ async function processEvent(event) {
     }
 
     console.log(`   ✅ [RUNNER] ${decision.name} succeeded`);
+
+    // ── One-shot tool removal ──
+    // After a transcript has been read successfully, remove the read-transcript
+    // tool from the available set so the LLM cannot loop on it. The transcript
+    // content is already embedded in the context — re-reading it would only
+    // bloat the context window and waste tokens.
+    if (decision.name === "transcribe_get_transcript") {
+      availableTools = availableTools.filter((t) => t.name !== "transcribe_get_transcript");
+      console.log(`   🔒 [RUNNER] transcribe_get_transcript locked — transcript already in context`);
+    }
 
     // Check if this was a terminal delivery tool — pipeline ends
     if (TERMINAL_TOOLS.has(decision.name)) {
@@ -457,6 +501,16 @@ async function processEvent(event) {
     } catch (completeErr) {
       console.log(`   ⚠️  [RUNNER] Could not update job status to complete: ${completeErr.message}`);
     }
+  }
+
+  // ── Close LLM data stream ──
+  if (llmDataStream) {
+    try {
+      llmDataStream.end();
+    } catch {
+      /* non-fatal */
+    }
+    llmDataStream = null;
   }
 
   // ── Save token usage data to the job's storage directory ──

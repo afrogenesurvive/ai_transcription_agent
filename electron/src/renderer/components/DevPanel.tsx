@@ -43,13 +43,35 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/* ── LocalStorage keys for persisting log settings ── */
+
+const LS_KEY_SOURCE = "devpanel:sourceFilter";
+const LS_KEY_LEVEL = "devpanel:levelFilter";
+const LS_KEY_SCROLL = "devpanel:autoScroll";
+
+function loadPersisted(key: string, fallback: string): string {
+  try {
+    return localStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function savePersisted(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* localStorage unavailable */
+  }
+}
+
 /* ── Live Logs Tab ── */
 
 function LiveLogsTab() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
-  const [levelFilter, setLevelFilter] = useState<LevelFilter>("all");
-  const [autoScroll, setAutoScroll] = useState(true);
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>(loadPersisted(LS_KEY_SOURCE, "all") as SourceFilter);
+  const [levelFilter, setLevelFilter] = useState<LevelFilter>(loadPersisted(LS_KEY_LEVEL, "all") as LevelFilter);
+  const [autoScroll, setAutoScroll] = useState(loadPersisted(LS_KEY_SCROLL, "true") === "true");
   const listRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
 
@@ -58,7 +80,24 @@ function LiveLogsTab() {
   const handleAutoScrollChange = useCallback((checked: boolean) => {
     setAutoScroll(checked);
     autoScrollRef.current = checked;
+    savePersisted(LS_KEY_SCROLL, String(checked));
   }, []);
+
+  // Persist filter changes
+  const handleSourceFilterChange = useCallback((value: SourceFilter) => {
+    setSourceFilter(value);
+    savePersisted(LS_KEY_SOURCE, value);
+  }, []);
+
+  const handleLevelFilterChange = useCallback((value: LevelFilter) => {
+    setLevelFilter(value);
+    savePersisted(LS_KEY_LEVEL, value);
+  }, []);
+
+  // Sync autoScrollRef on mount and whenever autoScroll changes
+  useEffect(() => {
+    autoScrollRef.current = autoScroll;
+  }, [autoScroll]);
 
   // Scroll to bottom when new logs arrive, but only if auto-scroll is enabled
   const scrollToBottom = useCallback(() => {
@@ -103,7 +142,7 @@ function LiveLogsTab() {
         <span className="dev-panel-title">📋 Live Logs</span>
 
         <div className="dev-panel-filters">
-          <select className="dev-panel-select" value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value as SourceFilter)}>
+          <select className="dev-panel-select" value={sourceFilter} onChange={(e) => handleSourceFilterChange(e.target.value as SourceFilter)}>
             <option value="all">All sources</option>
             <option value="python">Python</option>
             <option value="bridge">Bridge</option>
@@ -111,7 +150,7 @@ function LiveLogsTab() {
             <option value="main">Main</option>
           </select>
 
-          <select className="dev-panel-select" value={levelFilter} onChange={(e) => setLevelFilter(e.target.value as LevelFilter)}>
+          <select className="dev-panel-select" value={levelFilter} onChange={(e) => handleLevelFilterChange(e.target.value as LevelFilter)}>
             <option value="all">All levels</option>
             <option value="info">Info</option>
             <option value="warn">Warnings</option>

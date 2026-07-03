@@ -43,6 +43,7 @@ interface ConfigValues {
   LOG_LEVEL: string;
   LOG_MAX_FILE_SIZE_MB: string;
   LOG_MAX_FILES: string;
+  LOG_LLM_DATA: string;
 }
 
 interface ConfigSourceInfo {
@@ -249,6 +250,7 @@ export default function ConfigPanel({ onClose }: Props) {
         LOG_LEVEL: cfg.LOG_LEVEL || "info",
         LOG_MAX_FILE_SIZE_MB: cfg.LOG_MAX_FILE_SIZE_MB || "50",
         LOG_MAX_FILES: cfg.LOG_MAX_FILES || "10",
+        LOG_LLM_DATA: cfg.LOG_LLM_DATA || "false",
       });
     });
     window.electronAPI
@@ -984,6 +986,29 @@ export default function ConfigPanel({ onClose }: Props) {
               })}
             </div>
 
+            {/* LLM Data Logging */}
+            <div className="config-section">
+              <h3 className="config-section-title">🧠 LLM Data Logging</h3>
+              <p className="config-field-hint">
+                When enabled, the full LLM input (context/prompt) and output (response) for each pipeline step are saved to the job&apos;s storage
+                directory as <code>llm-data.jsonl</code>. This can produce large files — use only for debugging.
+              </p>
+              <div className="config-field">
+                <label className="config-toggle">
+                  <input
+                    type="checkbox"
+                    checked={values.LOG_LLM_DATA === "true"}
+                    disabled={activeJobs.length > 0}
+                    onChange={() => handleChange("LOG_LLM_DATA", values.LOG_LLM_DATA === "true" ? "false" : "true")}
+                  />
+                  <span className="config-toggle-slider" />
+                  <span className="config-toggle-label">
+                    <strong>Log LLM input/output data</strong>
+                  </span>
+                </label>
+              </div>
+            </div>
+
             {/* Log Level */}
             <div className="config-section">
               <h3 className="config-section-title">🔉 Minimum Log Level</h3>
@@ -1053,6 +1078,12 @@ export default function ConfigPanel({ onClose }: Props) {
               <h3 className="config-section-title">🔉 Minimum Level</h3>
               <div className="config-view-field">
                 <div className="config-view-value">{sourceInfo.LOG_LEVEL?.value || "info"}</div>
+              </div>
+            </div>
+            <div className="config-section">
+              <h3 className="config-section-title">🧠 LLM Data Logging</h3>
+              <div className="config-view-field">
+                <div className="config-view-value">{sourceInfo.LOG_LLM_DATA?.value === "true" ? "Enabled" : "Disabled"}</div>
               </div>
             </div>
             <div className="config-section">
