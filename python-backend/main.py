@@ -13,6 +13,14 @@ import asyncio
 import warnings
 from datetime import datetime
 
+# ── MPS memory limit workaround (Apple Silicon) ──
+# PyTorch's MPS backend enforces a high-water mark (~90% of available VRAM).
+# When running large models (whisper-medium + pyannote diarization), the combined
+# allocation can exceed this limit and crash with "MPS backend out of memory".
+# Disabling the limit lets macOS gracefully handle memory pressure via
+# unified memory architecture (RAM swapping if needed).
+os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.0")
+
 # ── Apply third-party compatibility patches FIRST (before any pyannote imports) ──
 import patches  # noqa: F401  (monkey-patches speechbrain + torchaudio + pyannote)
 

@@ -321,7 +321,9 @@ async function processEvent(event) {
   // When LOG_LLM_DATA=true, every LLM input (context) and output (decision)
   // is saved to <jobStorageDir>/llm-data.jsonl for debugging.
   const LOG_LLM_DATA = process.env.LOG_LLM_DATA === "true";
-  const jobStorageDir = path.resolve(__dirname, "..", "storage", jobData.jobId || eventId);
+  // Use TRANSCRIPTION_STORAGE env var if set (matches Python backend), otherwise fall back to project-relative path.
+  const STORAGE_BASE = process.env.TRANSCRIPTION_STORAGE || path.resolve(__dirname, "..", "storage");
+  const jobStorageDir = path.join(STORAGE_BASE, jobData.jobId || eventId);
   let llmDataStream = null;
   if (LOG_LLM_DATA) {
     try {
@@ -340,15 +342,34 @@ async function processEvent(event) {
     }
   }
 
+  // ── Load existing token usage from previous retries ──
+  // When a pipeline fails and is retried, we accumulate across runs instead of
+  // overwriting, so the frontend shows the total tokens actually burned.
+  const jobId = jobData.jobId || eventId;
+  const storageDir = path.join(STORAGE_BASE, jobId);
+  const existingUsagePath = path.join(storageDir, "usage.json");
+  let existingSteps = [];
+  if (fs.existsSync(existingUsagePath)) {
+    try {
+      const existing = JSON.parse(fs.readFileSync(existingUsagePath, "utf8"));
+      if (existing.steps?.length) {
+        existingSteps = existing.steps;
+        console.log(`   💰 [RUNNER] Loaded ${existingSteps.length} existing token usage steps — accumulating across retries`);
+      }
+    } catch (err) {
+      console.log(`   ⚠️  [RUNNER] Could not read existing usage.json: ${err.message}`);
+    }
+  }
+
   // ── Multi-step pipeline loop ──
   // Each iteration: LLM picks one tool → executes it → result appended to context
   // Loop ends when a terminal tool is called, LLM returns nothing, or max steps hit.
   let pipelineComplete = false;
   let pipelineError = null;
-  const tokenUsage = []; // per-step token usage records
-  let totalPromptTokens = 0;
-  let totalCompletionTokens = 0;
-  let totalTokens = 0;
+  const tokenUsage = []; // per-step token usage records for THIS run
+  let totalPromptTokens = existingSteps.reduce((sum, s) => sum + (s.prompt_tokens || 0), 0);
+  let totalCompletionTokens = existingSteps.reduce((sum, s) => sum + (s.completion_tokens || 0), 0);
+  let totalTokens = existingSteps.reduce((sum, s) => sum + (s.total_tokens || 0), 0);
 
   for (let step = 1; step <= MAX_PIPELINE_STEPS && !pipelineComplete; step++) {
     console.log(`   🤖 [RUNNER] Asking LLM (step ${step})...`);
@@ -388,6 +409,11 @@ async function processEvent(event) {
       totalPromptTokens += stepUsage.prompt_tokens;
       totalCompletionTokens += stepUsage.completion_tokens;
       totalTokens += stepUsage.total_tokens;
+      console.log(
+        `   💰 [RUNNER] Tracked usage for step ${step} (${decision.name}): ${stepUsage.total_tokens} tokens (prompt: ${stepUsage.prompt_tokens}, completion: ${stepUsage.completion_tokens})`,
+      );
+    } else {
+      console.log(`   ⚠️  [RUNNER] No usage data from LLM at step ${step} — decision.usage is ${JSON.stringify(decision?.usage)}`);
     }
 
     if (!decision) {
@@ -530,16 +556,18 @@ async function processEvent(event) {
   // ── Save token usage data BEFORE marking job as complete/failed ──
   // This avoids a race condition where the frontend polls "complete" status
   // and tries to fetch token usage before the file is written to disk.
-  if (tokenUsage.length > 0) {
+  // Also accumulates with any existing steps from previous retries so the
+  // frontend shows total tokens actually burned, not just the last retry.
+  if (tokenUsage.length > 0 || existingSteps.length > 0) {
     try {
-      const jobId = jobData.jobId || eventId;
-      const storageDir = path.resolve(__dirname, "..", "storage", jobId);
+      // Combine existing steps (from previous retries) with new steps from this run
+      const allSteps = [...existingSteps, ...tokenUsage];
       const usageData = {
         job_id: jobId,
         title: safeTitle,
         provider: process.env.LLM_PROVIDER || "deepseek",
-        model: process.env.LLM_PROVIDER === "ollama" ? process.env.OLLAMA_MODEL || "llama3.1:8b" : "deepseek-v4-flash",
-        steps: tokenUsage,
+        model: process.env.LLM_PROVIDER === "ollama" ? process.env.OLLAMA_MODEL || "llama3.1:8b" : process.env.API_AGENT_MODEL || "deepseek-v4-flash",
+        steps: allSteps,
         totals: {
           prompt_tokens: totalPromptTokens,
           completion_tokens: totalCompletionTokens,
@@ -549,10 +577,16 @@ async function processEvent(event) {
       };
       fs.mkdirSync(storageDir, { recursive: true });
       fs.writeFileSync(path.join(storageDir, "usage.json"), JSON.stringify(usageData, null, 2), "utf8");
-      console.log(`   💰 [RUNNER] Token usage saved: ${totalTokens} total tokens across ${tokenUsage.length} steps`);
+      console.log(
+        `   💰 [RUNNER] Token usage saved: ${totalTokens.toLocaleString()} total tokens across ${allSteps.length} steps (${tokenUsage.length} new + ${existingSteps.length} existing)`,
+      );
     } catch (err) {
       console.log(`   ⚠️  [RUNNER] Failed to save token usage: ${err.message}`);
     }
+  } else {
+    console.log(
+      `   ⚠️  [RUNNER] No token usage to save — tokenUsage.length=${tokenUsage.length}, existingSteps.length=${existingSteps.length}. Check upstream logs for why usage was not captured.`,
+    );
   }
 
   if (pipelineError) {
@@ -687,7 +721,7 @@ async function mainLoop() {
 // ── Startup ──
 
 const provider = process.env.LLM_PROVIDER || "deepseek";
-const model = provider === "ollama" ? process.env.OLLAMA_MODEL || "llama3.1:8b" : "deepseek-v4-flash";
+const model = provider === "ollama" ? process.env.OLLAMA_MODEL || "llama3.1:8b" : process.env.API_AGENT_MODEL || "deepseek-v4-flash";
 console.log(`\n${"─".repeat(50)}`);
 console.log(`   🎙️  Transcription Agent Runner`);
 console.log(`   🤖 ${provider} (${model})`);

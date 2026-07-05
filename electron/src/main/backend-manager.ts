@@ -157,6 +157,7 @@ export async function startPythonBackend(port = 5001): Promise<void> {
       TRANSCRIPTION_STORAGE: path.join(app.getPath("userData"), "storage"),
       TRANSCRIPTION_QUEUE_DIR: path.join(app.getPath("userData"), "queue"),
       ELECTRON_LOGS_DIR: path.join(app.getPath("userData"), "logs"),
+      PYTORCH_MPS_HIGH_WATERMARK_RATIO: "0.0",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -818,6 +819,7 @@ export async function startAgentRunner(): Promise<void> {
     env: {
       ...getChildEnv(),
       BRIDGE_URL: "http://127.0.0.1:5010",
+      TRANSCRIPTION_STORAGE: path.join(app.getPath("userData"), "storage"),
       TRANSCRIPTION_QUEUE_DIR: path.join(app.getPath("userData"), "queue"),
       TRANSCRIPTION_LOGS_DIR: path.join(app.getPath("userData"), "logs"),
     },

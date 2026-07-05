@@ -182,8 +182,13 @@ export async function callModel(context, toolDefs, systemMessageOverride) {
     const choice = response.choices?.[0];
     const usage = response.usage || null;
 
+    console.log(`   📊 [MODEL] Raw API response — usage: ${JSON.stringify(usage)}`);
+
     const toolCall = choice?.message?.tool_calls?.[0];
-    if (!toolCall) return null;
+    if (!toolCall) {
+      console.log(`   ⚠️  [MODEL] No tool call in response — usage from this call will NOT be tracked`);
+      return null;
+    }
 
     let args;
     try {
