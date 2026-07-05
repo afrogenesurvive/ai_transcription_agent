@@ -30,18 +30,28 @@ export default function AppearancePanel({ onClose }: Props) {
   const [accentColor, setAccentColor] = useState("#58a6ff");
   const [fontPreset, setFontPreset] = useState<FontSizePreset>("medium");
   const [sidebarWidth, setSidebarWidth] = useState(48);
+  const [loaded, setLoaded] = useState(false);
 
-  // Load current config on mount
+  // Load current config on mount — only apply appearance AFTER config is loaded
+  // to avoid flashing default values over the user's saved theme
   useEffect(() => {
     window.electronAPI?.getConfig().then((cfg) => {
-      setTheme(cfg.APPEARANCE_THEME || "dark");
-      setAccentColor(cfg.APPEARANCE_ACCENT_COLOR || "#58a6ff");
-      setFontPreset(readFontPreset(cfg));
-      setSidebarWidth(Number(cfg.APPEARANCE_SIDEBAR_WIDTH) || 48);
+      const t = cfg.APPEARANCE_THEME || "dark";
+      const a = cfg.APPEARANCE_ACCENT_COLOR || "#58a6ff";
+      const f = readFontPreset(cfg);
+      const s = Number(cfg.APPEARANCE_SIDEBAR_WIDTH) || 48;
+      setTheme(t);
+      setAccentColor(a);
+      setFontPreset(f);
+      setSidebarWidth(s);
+      // Apply now that all values are set from config
+      const config: AppearanceConfig = { theme: t, accentColor: a, fontSize: f, sidebarWidth: s };
+      applyAppearance(config);
+      setLoaded(true);
     });
   }, []);
 
-  // Debounced save — persists to config whenever any value changes
+  // Debounced save — persists to config whenever any value changes (only after initial load)
   const persistRef = React.useRef<ReturnType<typeof setTimeout>>();
   const persistAppearance = useCallback((config: AppearanceConfig) => {
     if (persistRef.current) clearTimeout(persistRef.current);
@@ -50,12 +60,13 @@ export default function AppearancePanel({ onClose }: Props) {
     }, 200);
   }, []);
 
-  // Apply and persist on every state change
+  // Apply and persist on user-driven state changes (not on initial mount)
   useEffect(() => {
+    if (!loaded) return;
     const config: AppearanceConfig = { theme, accentColor, fontSize: fontPreset, sidebarWidth };
     applyAppearance(config);
     persistAppearance(config);
-  }, [theme, accentColor, fontPreset, sidebarWidth, persistAppearance]);
+  }, [theme, accentColor, fontPreset, sidebarWidth, loaded, persistAppearance]);
 
   // Cleanup timeout on unmount
   useEffect(() => {

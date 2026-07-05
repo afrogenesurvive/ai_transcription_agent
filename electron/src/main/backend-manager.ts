@@ -914,6 +914,46 @@ export async function stopAll(): Promise<void> {
   stopOllamaServer();
 }
 
+/**
+ * Synchronous version of stopAll — kills all child processes immediately
+ * using SIGKILL (Unix) or taskkill (Windows).
+ *
+ * Use this in the app quit flow (before-quit handler) where async operations
+ * cannot complete before app.exit(0) terminates the process.
+ */
+export function stopAllSync(): void {
+  const targets: Array<{ proc: ChildProcess | null; name: string }> = [
+    { proc: agentProcess, name: "agent-runner" },
+    { proc: bridgeProcess, name: "bridge-server" },
+    { proc: pythonProcess, name: "python-backend" },
+  ];
+
+  for (const { proc, name } of targets) {
+    if (!proc || !proc.pid) continue;
+    try {
+      if (IS_WIN) {
+        execSync(`taskkill /pid ${proc.pid} /T /F`, { stdio: "ignore" });
+      } else {
+        // Try SIGTERM first (synchronous), then SIGKILL immediately
+        proc.kill("SIGTERM");
+        process.kill(proc.pid, "SIGKILL");
+      }
+      console.log(`[backend] Force-killed ${name} (PID ${proc.pid})`);
+      addLog("main", "info", `Force-killed ${name} (PID ${proc.pid})`);
+    } catch {
+      // Process already gone — good
+    }
+  }
+
+  // Null out the references
+  agentProcess = null;
+  bridgeProcess = null;
+  pythonProcess = null;
+
+  // Also nuke any leftover processes on our ports
+  stopOllamaServer();
+}
+
 export async function restartAll(): Promise<void> {
   console.log(`[backend] Restarting all services...`);
   await stopAll();

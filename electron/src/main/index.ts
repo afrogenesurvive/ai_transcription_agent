@@ -18,6 +18,33 @@ import pidusage from "pidusage";
 // Set app name before anything else — macOS menu bar and Windows taskbar
 // use this instead of the default "Electron".
 app.name = "Transcription Agent";
+
+// ── Load .env into process.env ──
+// Required so that child processes (Python backend, bridge, agent runner)
+// inherit env vars like HUGGING_FACE_TOKEN that are set in the project .env file.
+// This runs before any backend services are spawned.
+(function loadDotEnv(): void {
+  try {
+    const rootDir = app.isPackaged ? path.join(process.resourcesPath, "..") : path.join(app.getAppPath(), "..");
+    const envPath = path.join(rootDir, ".env");
+    if (!fs.existsSync(envPath)) return;
+    const content = fs.readFileSync(envPath, "utf8");
+    for (const line of content.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const eqIdx = trimmed.indexOf("=");
+      if (eqIdx === -1) continue;
+      const key = trimmed.slice(0, eqIdx).trim();
+      const value = trimmed.slice(eqIdx + 1).trim();
+      // Only set if not already defined (process.env takes priority)
+      if (!process.env[key]) {
+        process.env[key] = value;
+      }
+    }
+  } catch {
+    // .env is optional — silently ignore if missing or unreadable
+  }
+})();
 import {
   startAll,
   startPythonBackend,
@@ -26,6 +53,7 @@ import {
   ensureOllamaRunning,
   ensureFfmpegAvailable,
   stopAll,
+  stopAllSync,
   restartAll,
   restartPythonBackend,
   restartBridgeServer,
@@ -1251,14 +1279,10 @@ app.on("before-quit", (event) => {
   unsubscribeLogs();
   stopHealthMonitoring();
   stopAutoUpdater();
-  // Stop Ollama first (synchronously) — it uses execSync, so it must run
-  // before the async stopAll() which gets suspended and may not complete
-  // before app.exit(0) terminates the process.
-  stopOllamaServer();
-  stopAll();
-  // Kill any leftover processes on our ports (safety net)
-  killProcessOnPort(5001);
-  killProcessOnPort(5010);
+  // Use synchronous kill — stopAll() is async and won't complete before
+  // app.exit(0) terminates the process. stopAllSync() sends SIGKILL
+  // immediately on Unix (taskkill /F on Windows) so children can't survive.
+  stopAllSync();
   // Use exit() to force termination — quit() re-fires before-quit and
   // on macOS window-all-closed won't terminate the app.
   app.exit(0);

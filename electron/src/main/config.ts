@@ -126,7 +126,7 @@ function parseUserConfig(): Partial<AppConfig> {
 /** Describes the source of a config value for the UI. */
 export interface ConfigValueSource {
   value: string;
-  source: "user_config" | "default";
+  source: "user_config" | "env_file" | "default";
 }
 
 /** Merge config from: user file > defaults. */
@@ -148,6 +148,9 @@ export function getConfigWithSources(): Record<keyof AppConfig, ConfigValueSourc
     if (userVals[key]) {
       value = userVals[key]!;
       source = "user_config";
+    } else if (process.env[key]) {
+      value = process.env[key]!;
+      source = "env_file";
     }
 
     result[key] = { value, source };
@@ -196,7 +199,9 @@ export function checkConfig(): { ok: boolean; missing: string[] } {
     // No required keys for Ollama — model check is handled elsewhere
   } else {
     for (const key of REQUIRED_CONFIG_KEYS) {
-      if (!config[key]) missing.push(key);
+      // Check config.json first, then process.env as fallback (for .env values)
+      const val = config[key] || process.env[key] || "";
+      if (!val) missing.push(key);
     }
   }
   return { ok: missing.length === 0, missing };

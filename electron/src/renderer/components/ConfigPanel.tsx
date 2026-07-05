@@ -83,6 +83,7 @@ const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secre
 
 const SOURCE_LABELS: Record<string, string> = {
   user_config: "User Config (config.json)",
+  env_file: "Environment (.env)",
   default: "Default value",
 };
 
