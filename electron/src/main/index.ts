@@ -459,6 +459,30 @@ ipcMain.handle("config:export", async () => {
 ipcMain.handle("config:import", async () => {
   addLog("main", "info", "Config import requested");
   try {
+    // Check for active jobs before allowing import
+    let hasActiveJobs = false;
+    try {
+      const activeRes = await fetch("http://127.0.0.1:5001/transcribe/active", {
+        signal: AbortSignal.timeout(3000),
+      });
+      if (activeRes.ok) {
+        const activeData = await activeRes.json();
+        const jobs = activeData.active_jobs || [];
+        hasActiveJobs = jobs.length > 0;
+        if (hasActiveJobs) {
+          addLog("main", "warn", `Config import blocked — ${jobs.length} active job(s) running`);
+          return {
+            success: false,
+            error: `Cannot import configuration while ${jobs.length} job(s) are running. Wait for jobs to complete or cancel them first.`,
+            blocked: true,
+          };
+        }
+      }
+    } catch {
+      // Backend not reachable — proceed (no active jobs to report)
+      addLog("main", "debug", "Active job check skipped — backend not reachable");
+    }
+
     // Show open dialog
     const result = await dialog.showOpenDialog(mainWindow!, {
       title: "Import Configuration",
@@ -502,12 +526,12 @@ ipcMain.handle("config:import", async () => {
       addLog("main", "warn", `Config incomplete — missing: ${cfgCheck.missing.join(", ")}`);
     }
 
-    // If using Ollama, ensure the server is running before restarting the agent
+    // If using Ollama, ensure the server is running before restarting services
     if (updatedConfig.LLM_PROVIDER === "ollama") {
       try {
         const started = await ensureOllamaRunning();
         if (!started) {
-          addLog("main", "warn", "[ollama] Server did not start — agent runner may fail to connect, check logs for details");
+          addLog("main", "warn", "[ollama] Server did not start — services may fail to connect, check logs for details");
         }
       } catch (err: any) {
         addLog("main", "error", `[ollama] Unexpected error starting Ollama: ${err.message}`);
@@ -517,17 +541,19 @@ ipcMain.handle("config:import", async () => {
       stopOllamaServer();
     }
 
-    // Restart agent runner so it picks up the new env vars
+    // Reset all services so they pick up the new config
     try {
-      if (isAgentRunning()) {
-        await restartAgentRunner();
-        addLog("main", "info", "Agent runner restarted after config import");
-      } else {
-        await startAgentRunner();
-        addLog("main", "info", "Agent runner started after config import");
-      }
+      await restartAll();
+      addLog("main", "info", "All services restarted after config import");
     } catch (err: any) {
-      addLog("main", "error", `Failed to restart agent runner: ${err.message}`);
+      addLog("main", "error", `Failed to restart all services: ${err.message}`);
+      // Fall back to starting services individually
+      try {
+        await startAll();
+        addLog("main", "info", "Services started after config import (fallback)");
+      } catch (err2: any) {
+        addLog("main", "error", `Failed to start services: ${err2.message}`);
+      }
     }
 
     // Import agent config if present (agent-specific instructions like prompts & pipeline hints)

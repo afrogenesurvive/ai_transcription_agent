@@ -93,6 +93,15 @@ export interface ElectronAPI {
   saveConfig: (values: Record<string, string>) => Promise<Record<string, string>>;
   checkConfig: () => Promise<{ ok: boolean; missing: string[] }>;
   getConfigWithSources: () => Promise<Record<string, ConfigValueSource>>;
+  exportConfig: () => Promise<{ success: boolean; filePath?: string; error?: string; cancelled?: boolean }>;
+  importConfig: () => Promise<{
+    success: boolean;
+    filePath?: string;
+    error?: string;
+    cancelled?: boolean;
+    blocked?: boolean;
+    agentConfigImported?: boolean;
+  }>;
   getAgentConfig: () => Promise<{ tools?: any; pipeline?: any; systemPrompt?: string; error?: string }>;
   saveAgentConfig: (config: { tools?: any; pipeline?: any; systemPrompt?: string }) => Promise<{ success?: boolean; error?: string }>;
   restartAgent: () => Promise<{ success?: boolean; error?: string }>;

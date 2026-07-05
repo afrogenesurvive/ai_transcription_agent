@@ -53,6 +53,14 @@ export interface AppConfig {
   LOG_MAX_FILES: string;
   /** Log LLM input/output data to job storage directory */
   LOG_LLM_DATA: string;
+  /** UI theme: "dark" or "light" */
+  APPEARANCE_THEME: string;
+  /** Accent color override (CSS color value, e.g. "#58a6ff") */
+  APPEARANCE_ACCENT_COLOR: string;
+  /** UI font size preset: "small", "medium", or "large" */
+  APPEARANCE_FONT_SIZE: string;
+  /** Sidebar width in px */
+  APPEARANCE_SIDEBAR_WIDTH: string;
 }
 
 const DEFAULTS: AppConfig = {
@@ -77,6 +85,10 @@ const DEFAULTS: AppConfig = {
   LOG_MAX_FILE_SIZE_MB: "50",
   LOG_MAX_FILES: "10",
   LOG_LLM_DATA: "false",
+  APPEARANCE_THEME: "dark",
+  APPEARANCE_ACCENT_COLOR: "#58a6ff",
+  APPEARANCE_FONT_SIZE: "medium",
+  APPEARANCE_SIDEBAR_WIDTH: "48",
 };
 
 /** Keys the UI considers "required" before the pipeline can run. */
@@ -243,6 +255,10 @@ export function getChildEnv(): NodeJS.ProcessEnv {
     LOG_MAX_FILE_SIZE_MB: config.LOG_MAX_FILE_SIZE_MB || process.env.LOG_MAX_FILE_SIZE_MB || "50",
     LOG_MAX_FILES: config.LOG_MAX_FILES || process.env.LOG_MAX_FILES || "10",
     LOG_LLM_DATA: config.LOG_LLM_DATA || process.env.LOG_LLM_DATA || "false",
+    APPEARANCE_THEME: config.APPEARANCE_THEME || process.env.APPEARANCE_THEME || "dark",
+    APPEARANCE_ACCENT_COLOR: config.APPEARANCE_ACCENT_COLOR || process.env.APPEARANCE_ACCENT_COLOR || "#58a6ff",
+    APPEARANCE_FONT_SIZE: config.APPEARANCE_FONT_SIZE || process.env.APPEARANCE_FONT_SIZE || "medium",
+    APPEARANCE_SIDEBAR_WIDTH: config.APPEARANCE_SIDEBAR_WIDTH || process.env.APPEARANCE_SIDEBAR_WIDTH || "48",
     // Storage paths — only override in packaged (prod) mode so DBs land in a
     // writable location. In dev the Python backend defaults to the project-
     // relative storage/ dir, which is already writable.

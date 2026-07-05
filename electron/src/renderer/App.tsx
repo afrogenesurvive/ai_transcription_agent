@@ -24,6 +24,7 @@ import ConfigPanel from "./components/ConfigPanel";
 import HistoryPanel from "./components/HistoryPanel";
 import StoragePanel from "./components/StoragePanel";
 import AboutPanel from "./components/AboutPanel";
+import AppearancePanel from "./components/AppearancePanel";
 import ServerStatusBanner from "./components/ServerStatusBanner";
 import { useApi } from "./hooks/useApi";
 import { useJobStatus } from "./hooks/useJobStatus";
@@ -33,7 +34,7 @@ import type { JobStatus } from "./types";
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
 type View = "upload" | "processing" | "results";
-type SidebarView = "current" | "dev" | "config" | "storage" | "about";
+type SidebarView = "current" | "dev" | "config" | "storage" | "about" | "appearance";
 
 /**
  * Map tool-level skip_steps from job metadata to pipeline stage keys.
@@ -89,6 +90,82 @@ export default function App() {
   useEffect(() => {
     setDiarizationAvailable(serverStatus.diarizationOk);
   }, [serverStatus.diarizationOk]);
+
+  // Apply saved appearance settings on mount (supports preset + legacy numeric)
+  useEffect(() => {
+    window.electronAPI?.getConfig().then((cfg) => {
+      const theme = cfg.APPEARANCE_THEME || "dark";
+      const accent = cfg.APPEARANCE_ACCENT_COLOR || "#58a6ff";
+      const sw = Number(cfg.APPEARANCE_SIDEBAR_WIDTH) || 48;
+      const root = document.documentElement;
+      const body = document.body;
+      if (theme === "light") {
+        root.style.setProperty("--bg", "#ffffff");
+        root.style.setProperty("--surface", "#f6f8fa");
+        root.style.setProperty("--surface-hover", "#eaeef2");
+        root.style.setProperty("--border", "#d0d7de");
+        root.style.setProperty("--text", "#1f2328");
+        root.style.setProperty("--text-muted", "#656d76");
+      }
+      root.style.setProperty("--accent", accent);
+      root.style.setProperty("--accent-hover", accent + "cc");
+      root.style.setProperty("--accent-border", accent + "44");
+      // Font size: handle both new preset names ("small"/"medium"/"large")
+      // and legacy numeric values (e.g. "14")
+      const rawFs = cfg.APPEARANCE_FONT_SIZE;
+      let scale = 1;
+      if (rawFs === "small") scale = 0.85;
+      else if (rawFs === "large") scale = 1.15;
+      else if (rawFs === "medium" || !rawFs) scale = 1;
+      else {
+        const num = Number(rawFs);
+        if (!isNaN(num)) scale = num <= 13 ? 0.85 : num >= 16 ? 1.15 : 1;
+      }
+      root.style.setProperty("--fs-scale", String(scale));
+      const basePx = 14 * scale;
+      body.style.setProperty("font-size", `${basePx}px`);
+      root.style.setProperty("--sidebar-width", `${sw}px`);
+    });
+  }, []);
+
+  // ── Sidebar drag-to-resize ──
+  const sidebarRef = useRef<HTMLElement>(null);
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeStartRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  const handleSidebarMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+    const sidebar = sidebarRef.current;
+    if (!sidebar) return;
+    resizeStartRef.current = {
+      startX: e.clientX,
+      startWidth: sidebar.offsetWidth,
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isResizing) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!resizeStartRef.current) return;
+      const { startX, startWidth } = resizeStartRef.current;
+      const newWidth = Math.max(68, Math.min(200, startWidth + (e.clientX - startX)));
+      document.documentElement.style.setProperty("--sidebar-width", `${newWidth}px`);
+    };
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      resizeStartRef.current = null;
+      document.body.classList.remove("sidebar-resizing");
+    };
+    document.body.classList.add("sidebar-resizing");
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.body.classList.remove("sidebar-resizing");
+    };
+  }, [isResizing]);
 
   // Check config on mount — detect whether Ollama is the provider
   useEffect(() => {
@@ -280,7 +357,8 @@ export default function App() {
       )}
 
       <div className="app-body">
-        <nav className="sidebar">
+        <nav className="sidebar" ref={sidebarRef}>
+          <div className="sidebar-resize-handle" onMouseDown={handleSidebarMouseDown} />
           <button
             className="sidebar-btn"
             disabled={view === "processing" || uploading}
@@ -352,6 +430,16 @@ export default function App() {
             <span className="sidebar-btn-icon">⚙️</span>
             <span className="sidebar-btn-label">Config</span>
             {!configOk && <span className="sidebar-badge" />}
+          </button>
+          <button
+            className={`sidebar-btn ${sidebarView === "appearance" ? "sidebar-btn--active" : ""}`}
+            onClick={() => {
+              setSidebarView("appearance");
+              setShowHistory(false);
+            }}
+            title="Appearance settings">
+            <span className="sidebar-btn-icon">🎨</span>
+            <span className="sidebar-btn-label">Appearance</span>
           </button>
           <button
             className={`sidebar-btn ${sidebarView === "about" ? "sidebar-btn--active" : ""}`}
@@ -524,6 +612,8 @@ export default function App() {
               )}
 
               {sidebarView === "about" && <AboutPanel onClose={() => setSidebarView("current")} />}
+
+              {sidebarView === "appearance" && <AppearancePanel onClose={() => setSidebarView("current")} />}
             </>
           )}
         </main>

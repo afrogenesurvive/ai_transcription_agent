@@ -527,6 +527,34 @@ async function processEvent(event) {
     }
   }
 
+  // ── Save token usage data BEFORE marking job as complete/failed ──
+  // This avoids a race condition where the frontend polls "complete" status
+  // and tries to fetch token usage before the file is written to disk.
+  if (tokenUsage.length > 0) {
+    try {
+      const jobId = jobData.jobId || eventId;
+      const storageDir = path.resolve(__dirname, "..", "storage", jobId);
+      const usageData = {
+        job_id: jobId,
+        title: safeTitle,
+        provider: process.env.LLM_PROVIDER || "deepseek",
+        model: process.env.LLM_PROVIDER === "ollama" ? process.env.OLLAMA_MODEL || "llama3.1:8b" : "deepseek-v4-flash",
+        steps: tokenUsage,
+        totals: {
+          prompt_tokens: totalPromptTokens,
+          completion_tokens: totalCompletionTokens,
+          total_tokens: totalTokens,
+        },
+        saved_at: new Date().toISOString(),
+      };
+      fs.mkdirSync(storageDir, { recursive: true });
+      fs.writeFileSync(path.join(storageDir, "usage.json"), JSON.stringify(usageData, null, 2), "utf8");
+      console.log(`   💰 [RUNNER] Token usage saved: ${totalTokens} total tokens across ${tokenUsage.length} steps`);
+    } catch (err) {
+      console.log(`   ⚠️  [RUNNER] Failed to save token usage: ${err.message}`);
+    }
+  }
+
   if (pipelineError) {
     console.log(`   ❌ [RUNNER] Pipeline failed for job ${tag}: ${pipelineError}`);
     logAction({ eventId, eventType: event.type, action: "failed", detail: pipelineError });
@@ -562,32 +590,6 @@ async function processEvent(event) {
       /* non-fatal */
     }
     llmDataStream = null;
-  }
-
-  // ── Save token usage data to the job's storage directory ──
-  if (tokenUsage.length > 0) {
-    try {
-      const jobId = jobData.jobId || eventId;
-      const storageDir = path.resolve(__dirname, "..", "storage", jobId);
-      const usageData = {
-        job_id: jobId,
-        title: safeTitle,
-        provider: process.env.LLM_PROVIDER || "deepseek",
-        model: process.env.LLM_PROVIDER === "ollama" ? process.env.OLLAMA_MODEL || "llama3.1:8b" : "deepseek-v4-flash",
-        steps: tokenUsage,
-        totals: {
-          prompt_tokens: totalPromptTokens,
-          completion_tokens: totalCompletionTokens,
-          total_tokens: totalTokens,
-        },
-        saved_at: new Date().toISOString(),
-      };
-      fs.mkdirSync(storageDir, { recursive: true });
-      fs.writeFileSync(path.join(storageDir, "usage.json"), JSON.stringify(usageData, null, 2), "utf8");
-      console.log(`   💰 [RUNNER] Token usage saved: ${totalTokens} total tokens across ${tokenUsage.length} steps`);
-    } catch (err) {
-      console.log(`   ⚠️  [RUNNER] Failed to save token usage: ${err.message}`);
-    }
   }
 
   markCleared(eventId);

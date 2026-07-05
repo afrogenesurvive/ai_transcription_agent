@@ -60,8 +60,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
   checkConfig: (): Promise<{ ok: boolean; missing: string[] }> => ipcRenderer.invoke("config:check"),
   getConfigWithSources: (): Promise<Record<string, { value: string; source: string }>> => ipcRenderer.invoke("config:getWithSources"),
   exportConfig: (): Promise<{ success: boolean; filePath?: string; error?: string; cancelled?: boolean }> => ipcRenderer.invoke("config:export"),
-  importConfig: (): Promise<{ success: boolean; filePath?: string; error?: string; cancelled?: boolean; agentConfigImported?: boolean }> =>
-    ipcRenderer.invoke("config:import"),
+  importConfig: (): Promise<{
+    success: boolean;
+    filePath?: string;
+    error?: string;
+    cancelled?: boolean;
+    blocked?: boolean;
+    agentConfigImported?: boolean;
+  }> => ipcRenderer.invoke("config:import"),
 
   // ── Agent Instructions Configuration ──
   getAgentConfig: (): Promise<{ tools?: any; pipeline?: any; systemPrompt?: string; error?: string }> => ipcRenderer.invoke("agent-config:get"),

@@ -303,8 +303,20 @@ export default function ConfigPanel({ onClose }: Props) {
           ?.getConfigWithSources()
           .then(setSourceInfo)
           .catch(() => {});
+        // Refresh active jobs list after import (services were restarted)
+        window.electronAPI
+          ?.getActiveJobs()
+          .then((jobs) => setActiveJobs(jobs || []))
+          .catch(() => {});
       } else if (result?.cancelled) {
         setImportResult(null);
+      } else if (result?.blocked) {
+        setImportResult(`⛔ ${result.error}`);
+        // Re-check active jobs to show up-to-date guard banner
+        window.electronAPI
+          ?.getActiveJobs()
+          .then((jobs) => setActiveJobs(jobs || []))
+          .catch(() => {});
       } else {
         setImportResult(`❌ Import failed: ${result?.error || "Unknown error"}`);
       }
