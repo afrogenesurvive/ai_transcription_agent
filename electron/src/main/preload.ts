@@ -89,6 +89,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
     children: Array<{ service: string; pid: number; cpu: number; memory: number; elapsed: number }>;
   }> => ipcRenderer.invoke("metrics:getAll"),
 
+  // ── Per-Job Performance Data ──
+  getPerJobPerformance: (
+    jobId: string,
+  ): Promise<Array<{ timestamp: number; cpu: number; memoryBytes: number; label: string; stage: string | null }>> =>
+    ipcRenderer.invoke("metrics:getPerJobPerformance", jobId),
+
+  // ── Aggregate Performance Across Jobs ──
+  getAggregatePerformance: (): Promise<
+    Array<{ jobId: string; samples: Array<{ timestamp: number; cpu: number; memoryBytes: number; label: string; stage: string | null }> }>
+  > => ipcRenderer.invoke("metrics:getAggregatePerformance"),
+
   // ── Auto-Update ──
   getUpdateStatus: (): Promise<{
     mode: string;
@@ -120,6 +131,29 @@ contextBridge.exposeInMainWorld("electronAPI", {
   checkOllamaHealth: (): Promise<{ healthy: boolean; error: string | null }> => ipcRenderer.invoke("ollama:checkHealth"),
   startOllamaServer: (): Promise<{ success: boolean; error: string | null }> => ipcRenderer.invoke("ollama:startServer"),
   stopOllamaServer: (): Promise<{ success: boolean }> => ipcRenderer.invoke("ollama:stopServer"),
+
+  // ── DeepSeek API Credit Balance ──
+  checkDeepSeekBalance: (): Promise<{
+    available: boolean;
+    balance: string | null;
+    error: string | null;
+  }> => ipcRenderer.invoke("api:checkDeepSeekBalance"),
+
+  // ── Aggregate Token Usage ──
+  getAggregateUsage: (): Promise<{
+    jobs: Array<{
+      job_id: string;
+      title: string;
+      provider: string;
+      model: string;
+      step_count: number;
+      totals: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+      saved_at: string;
+    }>;
+    totals: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+    job_count: number;
+    error?: string;
+  }> => ipcRenderer.invoke("api:getAggregateUsage"),
 
   // ── Platform ──
   platform: process.platform,

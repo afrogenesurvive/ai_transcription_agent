@@ -211,8 +211,22 @@ async function dispatch(tool, args) {
     case "transcribe_get_analysis":
       return await callPython("GET", `/transcribe/analysis/${args.jobId}`);
 
-    case "transcribe_get_token_usage":
-      return await callPython("GET", `/transcribe/usage/${args.jobId}`);
+    case "transcribe_get_token_usage": {
+      const usageResult = await callPython("GET", `/transcribe/usage/${args.jobId}`);
+      if (usageResult?.totals) {
+        console.log(`   💰 [USAGE] Token usage fetched for job ${args.jobId?.slice(0, 8) || "?"}: ${usageResult.totals.total_tokens} total tokens`);
+      }
+      return usageResult;
+    }
+    case "transcribe_get_aggregate_usage": {
+      const aggResult = await callPython("GET", "/transcribe/usage/aggregate");
+      if (aggResult?.totals) {
+        console.log(
+          `   💰 [USAGE] Aggregate token usage: ${aggResult.job_count} jobs, ${aggResult.totals.total_tokens} total tokens (${aggResult.totals.prompt_tokens} prompt + ${aggResult.totals.completion_tokens} completion)`,
+        );
+      }
+      return aggResult;
+    }
 
     case "transcribe_get_job_logs":
       return await callPython("GET", `/transcribe/job_logs/${args.jobId}?max_lines=${args.maxLines || 200}`);

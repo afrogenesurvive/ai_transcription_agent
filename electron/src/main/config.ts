@@ -1,13 +1,12 @@
 /**
  * Config Manager — reads/writes app configuration.
  *
- * Priority order:
- *   1. User config file (app.getPath("userData")/config.json) — UI-written values
- *   2. .env file (project root) — developer-set values
- *   3. Hardcoded defaults
+ * All configuration comes from a single file:
+ *   User config file (app.getPath("userData")/config.json) — UI-written values
+ *
+ * Hardcoded defaults are used as fallback when no value is set in config.json.
  *
  * The user config file is written by the ConfigPanel in the renderer.
- * .env is never written by the app — only read.
  */
 
 import fs from "fs";
@@ -39,6 +38,8 @@ export interface AppConfig {
   GITHUB_TOKEN: string;
   /** Performance metrics polling interval (ms) for DevPanel */
   PERF_METRICS_POLL_INTERVAL: string;
+  /** Credit balance polling interval (ms) for Usage tab */
+  CREDIT_POLL_INTERVAL: string;
   /** Whisper ASR model size: "medium" or "large" */
   WHISPER_MODEL_SIZE: string;
   /** Keep start/end timestamps in refined transcript */
@@ -78,6 +79,7 @@ const DEFAULTS: AppConfig = {
   HUGGING_FACE_TOKEN: "",
   GITHUB_TOKEN: "",
   PERF_METRICS_POLL_INTERVAL: "10000",
+  CREDIT_POLL_INTERVAL: "60000",
   WHISPER_MODEL_SIZE: "medium",
   KEEP_TRANSCRIPT_TIMESTAMPS: "false",
   LOG_ENABLED_SOURCES: "all",
@@ -103,30 +105,6 @@ function ensureUserDataDir(): void {
   userConfigPath = path.join(dir, "config.json");
 }
 
-/** Read the .env file from the project root (dev) or extraResources (prod). */
-function parseDotEnv(): Partial<AppConfig> {
-  const result: Partial<AppConfig> = {};
-
-  // In dev: project root is app.getAppPath()/..
-  // In prod: .env isn't bundled, so this will silently return empty
-  const rootDir = app.isPackaged ? path.join(process.resourcesPath, "..") : path.join(app.getAppPath(), "..");
-
-  const envPath = path.join(rootDir, ".env");
-  if (!fs.existsSync(envPath)) return result;
-
-  const content = fs.readFileSync(envPath, "utf8");
-  for (const line of content.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eqIdx = trimmed.indexOf("=");
-    if (eqIdx === -1) continue;
-    const key = trimmed.slice(0, eqIdx).trim() as keyof AppConfig;
-    const value = trimmed.slice(eqIdx + 1).trim();
-    if (key in DEFAULTS && value) result[key] = value;
-  }
-  return result;
-}
-
 /** Read the user config file from app.getPath("userData")/config.json. */
 function parseUserConfig(): Partial<AppConfig> {
   try {
@@ -148,19 +126,18 @@ function parseUserConfig(): Partial<AppConfig> {
 /** Describes the source of a config value for the UI. */
 export interface ConfigValueSource {
   value: string;
-  source: "user_config" | "env_file" | "default";
+  source: "user_config" | "default";
 }
 
-/** Merge config from: user file > .env > defaults. */
+/** Merge config from: user file > defaults. */
 export function getConfig(): AppConfig {
   if (cachedConfig) return cachedConfig;
-  cachedConfig = { ...DEFAULTS, ...parseDotEnv(), ...parseUserConfig() };
+  cachedConfig = { ...DEFAULTS, ...parseUserConfig() };
   return cachedConfig;
 }
 
 /** Get config with per-key source info (for showing in the UI). */
 export function getConfigWithSources(): Record<keyof AppConfig, ConfigValueSource> {
-  const envVals = parseDotEnv();
   const userVals = parseUserConfig();
   const result = {} as Record<keyof AppConfig, ConfigValueSource>;
 
@@ -171,9 +148,6 @@ export function getConfigWithSources(): Record<keyof AppConfig, ConfigValueSourc
     if (userVals[key]) {
       value = userVals[key]!;
       source = "user_config";
-    } else if (envVals[key]) {
-      value = envVals[key]!;
-      source = "env_file";
     }
 
     result[key] = { value, source };
@@ -202,7 +176,7 @@ export function saveConfig(values: Partial<AppConfig>): AppConfig {
   }
 
   const merged = { ...existing, ...values };
-  // Remove empty strings so they don't override .env values
+  // Remove empty strings so they don't override saved values
   for (const key of Object.keys(merged) as (keyof AppConfig)[]) {
     if (merged[key] === "") delete merged[key];
   }
@@ -248,6 +222,7 @@ export function getChildEnv(): NodeJS.ProcessEnv {
     HUGGING_FACE_TOKEN: config.HUGGING_FACE_TOKEN || process.env.HUGGING_FACE_TOKEN || "",
     GITHUB_TOKEN: config.GITHUB_TOKEN || process.env.GITHUB_TOKEN || "",
     GH_TOKEN: config.GITHUB_TOKEN || process.env.GH_TOKEN || "", // electron-updater uses GH_TOKEN
+    CREDIT_POLL_INTERVAL: config.CREDIT_POLL_INTERVAL || process.env.CREDIT_POLL_INTERVAL || "60000",
     WHISPER_MODEL_SIZE: config.WHISPER_MODEL_SIZE || process.env.WHISPER_MODEL_SIZE || "medium",
     KEEP_TRANSCRIPT_TIMESTAMPS: config.KEEP_TRANSCRIPT_TIMESTAMPS || process.env.KEEP_TRANSCRIPT_TIMESTAMPS || "false",
     LOG_ENABLED_SOURCES: config.LOG_ENABLED_SOURCES || process.env.LOG_ENABLED_SOURCES || "all",

@@ -39,6 +39,10 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
   const [busy, setBusy] = useState<BusyService>(null);
   const [feedback, setFeedback] = useState<FeedbackMsg>(null);
   const [ollamaStarting, setOllamaStarting] = useState(false);
+  const [creditBalance, setCreditBalance] = useState<{ balance: string | null; error: string | null } | null>(null);
+  const [creditPollInterval, setCreditPollInterval] = useState(60000);
+  const [showCreditPopover, setShowCreditPopover] = useState(false);
+  const creditBtnRef = useRef<HTMLButtonElement | null>(null);
   const feedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const checkTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -98,11 +102,26 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
     }
   }, []);
 
+  // Poll DeepSeek API credit balance
+  const pollDeepSeekBalance = useCallback(async () => {
+    try {
+      const result = await window.electronAPI?.checkDeepSeekBalance();
+      if (result) {
+        setCreditBalance({ balance: result.balance, error: result.error });
+      }
+    } catch {
+      // Silently ignore — the balance check is non-critical
+    }
+  }, []);
+
   // Check if LLM provider is Ollama
   const checkProvider = useCallback(async () => {
     try {
       const cfg = await window.electronAPI?.getConfig();
       setOllamaProvider(cfg?.LLM_PROVIDER === "ollama");
+      // Also load credit poll interval from config
+      const intervalVal = Number(cfg?.CREDIT_POLL_INTERVAL) || 60000;
+      setCreditPollInterval(intervalVal);
     } catch {
       setOllamaProvider(false);
     }
@@ -127,6 +146,12 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
   }, [pollOllama]);
 
   useEffect(() => {
+    pollDeepSeekBalance();
+    const interval = setInterval(pollDeepSeekBalance, creditPollInterval);
+    return () => clearInterval(interval);
+  }, [pollDeepSeekBalance, creditPollInterval]);
+
+  useEffect(() => {
     checkProvider();
     const interval = setInterval(checkProvider, 30000);
     return () => clearInterval(interval);
@@ -138,6 +163,18 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
       .then(setVersion)
       .catch(() => {});
   }, []);
+
+  // Close credit popover on outside click
+  useEffect(() => {
+    if (!showCreditPopover) return;
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (creditBtnRef.current && !creditBtnRef.current.contains(e.target as Node)) {
+        setShowCreditPopover(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [showCreditPopover]);
 
   useEffect(() => {
     return () => {
@@ -399,6 +436,35 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
           <button className="action-btn dev-btn" onClick={onOpenDev} title="Open developer tools">
             🛠️ Dev
           </button>
+          <div className="credit-btn-wrapper">
+            <button
+              ref={creditBtnRef}
+              className="action-btn credit-btn"
+              onClick={() => {
+                setShowCreditPopover((v) => !v);
+                pollDeepSeekBalance();
+              }}>
+              💰
+            </button>
+            {showCreditPopover && (
+              <div className="credit-popover">
+                <div className="credit-popover-arrow" />
+                {!creditBalance ? (
+                  <span>Checking DeepSeek API credit…</span>
+                ) : creditBalance.error ? (
+                  <>
+                    <span className="credit-popover-label">DeepSeek Credit</span>
+                    <span className="credit-popover-error">{creditBalance.error}</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="credit-popover-label">DeepSeek API Credit</span>
+                    <span className="credit-popover-balance">${creditBalance.balance}</span>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
       <span className="status-item version">v{version}</span>

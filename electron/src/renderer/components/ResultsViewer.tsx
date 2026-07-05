@@ -15,7 +15,7 @@ import type { TranscriptionSegment, AnalysisData } from "../types";
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
-type TabId = "pipeline" | "audio" | "transcript" | "summary" | "analysis" | "logs" | "tokens";
+type TabId = "pipeline" | "audio" | "transcript" | "summary" | "analysis" | "tokens" | "performance" | "logs";
 
 interface Tab {
   id: TabId;
@@ -30,6 +30,7 @@ const TABS: Tab[] = [
   { id: "summary", label: "Summary", icon: "📋" },
   { id: "analysis", label: "Analysis", icon: "📊" },
   { id: "tokens", label: "Tokens", icon: "💰" },
+  { id: "performance", label: "Performance", icon: "🚀" },
   { id: "logs", label: "Logs", icon: "🪵" },
 ];
 
@@ -785,6 +786,206 @@ function PipelineTab({ status, progress, error }: { status: string; progress: nu
   );
 }
 
+/* ── Performance Tab (per-job CPU & memory) ── */
+
+interface PerfSample {
+  timestamp: number;
+  cpu: number;
+  memoryBytes: number;
+  label: string;
+  stage: string | null;
+}
+
+/** Stage marker colors */
+const PERF_STAGE_COLORS: Record<string, string> = {
+  uploaded: "#8b949e",
+  initializing: "#58a6ff",
+  diarization: "#d29922",
+  voiceprints: "#bc8cff",
+  transcription: "#3fb950",
+  aligning: "#79c0ff",
+  agent: "#f0883e",
+  memory: "#f85149",
+  delivery: "#2ea043",
+};
+
+const PERF_STAGE_LABELS: Record<string, string> = {
+  uploaded: "Upload",
+  initializing: "Init",
+  diarization: "Speakers",
+  voiceprints: "Voices",
+  transcription: "Transcribe",
+  aligning: "Align",
+  agent: "AI",
+  memory: "Memory",
+  delivery: "Delivery",
+};
+
+function PerformanceTab({ jobId }: { jobId: string }) {
+  const [samples, setSamples] = useState<PerfSample[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchData = async () => {
+      try {
+        const data = await window.electronAPI?.getPerJobPerformance(jobId);
+        if (!cancelled && data) setSamples(data);
+      } catch (err: any) {
+        if (!cancelled) setError(err.message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    fetchData();
+    // Poll for live data every 5s
+    const interval = setInterval(fetchData, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [jobId]);
+
+  if (loading) {
+    return (
+      <div className="rv-tab-content">
+        <div className="rv-empty-state">
+          <p>Loading performance data…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || samples.length === 0) {
+    return (
+      <div className="rv-tab-content">
+        <div className="rv-empty-state">
+          <span className="rv-empty-icon">🚀</span>
+          <p>Performance data unavailable</p>
+          <p className="rv-muted">{error || "No performance data recorded for this job yet."}</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Sort by timestamp
+  const sorted = [...samples].sort((a, b) => a.timestamp - b.timestamp);
+  const startTime = sorted[0].timestamp;
+  const cpuVals = sorted.map((s) => s.cpu);
+  const memVals = sorted.map((s) => s.memoryBytes);
+  const maxCpu = Math.max(...cpuVals, 1);
+  const maxMem = Math.max(...memVals, 1);
+  const chartW = 600;
+  const chartH = 140;
+  const padX = 50;
+  const padY = 20;
+
+  const makePoints = (data: number[], maxVal: number, offset = 0) =>
+    data
+      .map((v, i) => {
+        const x = padX + (i / Math.max(1, data.length - 1)) * (chartW - padX * 2);
+        const y = padY + chartH - ((v + offset) / maxVal) * chartH;
+        return `${x},${y}`;
+      })
+      .join(" ");
+
+  // Build stage transition markers
+  const stageMarkers: { index: number; stage: string; label: string }[] = [];
+  let lastStage: string | null = null;
+  sorted.forEach((s, i) => {
+    if (s.stage && s.stage !== lastStage && lastStage !== null) {
+      stageMarkers.push({ index: i, stage: s.stage, label: PERF_STAGE_LABELS[s.stage] || s.stage });
+    }
+    if (s.stage) lastStage = s.stage;
+  });
+
+  return (
+    <div className="rv-tab-content" style={{ padding: "12px 16px", fontFamily: "var(--font)" }}>
+      <div className="usage-bar-chart" style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: "var(--fs-11)", fontWeight: 600, color: "var(--text-muted)", marginBottom: 8 }}>
+          🚀 CPU & Memory During Job
+          <span style={{ marginLeft: 12, fontWeight: 400, fontSize: 10, opacity: 0.7 }}>{sorted.length} samples</span>
+        </div>
+        <svg viewBox={`0 0 ${chartW} ${chartH + 40}`} width="100%" height={chartH + 40} style={{ display: "block" }}>
+          <rect x={0} y={0} width={chartW} height={chartH + 40} fill="var(--bg)" rx={4} />
+          {/* Grid */}
+          {[0, 0.25, 0.5, 0.75, 1].map((frac) => {
+            const y = padY + chartH - frac * chartH;
+            return (
+              <g key={frac}>
+                <line x1={padX} y1={y} x2={chartW - padX} y2={y} stroke="var(--border)" strokeWidth={0.5} opacity={0.4} />
+                <text x={padX - 6} y={y + 3} fill="var(--text-muted)" fontSize={9} textAnchor="end">
+                  {Math.round(maxCpu * frac)}%
+                </text>
+              </g>
+            );
+          })}
+          {/* CPU line */}
+          <polyline
+            points={makePoints(cpuVals, maxCpu)}
+            fill="none"
+            stroke="#58a6ff"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            opacity={0.85}
+          />
+          {/* Memory line (scaled to fit on secondary axis) */}
+          <polyline
+            points={makePoints(memVals, maxMem)}
+            fill="none"
+            stroke="#3fb950"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeDasharray="4,3"
+            opacity={0.7}
+          />
+          {/* Stage transition markers */}
+          {stageMarkers.map((m, i) => {
+            const x = padX + (m.index / Math.max(1, sorted.length - 1)) * (chartW - padX * 2);
+            const color = PERF_STAGE_COLORS[m.stage] || "#58a6ff";
+            return (
+              <g key={i}>
+                <line x1={x} y1={padY} x2={x} y2={padY + chartH} stroke={color} strokeWidth={1.5} strokeDasharray="3,2" opacity={0.8} />
+                <text x={x} y={padY + chartH + 14} fill={color} fontSize={8} textAnchor="middle" opacity={0.8}>
+                  {m.label}
+                </text>
+              </g>
+            );
+          })}
+          {/* Time labels */}
+          {sorted
+            .filter((_, i) => i % Math.max(1, Math.floor(sorted.length / 6)) === 0 || i === sorted.length - 1)
+            .map((s, i) => {
+              const idx = sorted.indexOf(s);
+              const x = padX + (idx / Math.max(1, sorted.length - 1)) * (chartW - padX * 2);
+              const elapsed = ((s.timestamp - startTime) / 1000).toFixed(0);
+              // Avoid overlapping with stage labels — skip if a stage marker is nearby
+              const hasMarkerNearby = stageMarkers.some((m) => Math.abs(m.index - idx) < Math.max(2, sorted.length * 0.05));
+              if (hasMarkerNearby && i > 0 && i < sorted.length - 1) return null;
+              return (
+                <text key={i} x={x} y={chartH + padY + 28} fill="var(--text-muted)" fontSize={8} textAnchor="middle" opacity={0.6}>
+                  {elapsed}s
+                </text>
+              );
+            })}
+        </svg>
+        <div style={{ display: "flex", gap: 16, marginTop: 4, fontSize: 10, color: "var(--text-muted)" }}>
+          <span>
+            <span style={{ color: "#58a6ff" }}>━</span> CPU %
+          </span>
+          <span>
+            <span style={{ color: "#3fb950" }}>┅</span> Memory
+          </span>
+          <span style={{ marginLeft: "auto" }}>{sorted.length} samples</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Main ResultsViewer ── */
 
 export default function ResultsViewer({ jobId, segments, summary, metadata, jobStatus, jobProgress, jobError }: Props) {
@@ -876,6 +1077,7 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
             <AnalysisTab analysis={analysis} />
           ))}
         {activeTab === "tokens" && <TokensTab jobId={jobId} />}
+        {activeTab === "performance" && <PerformanceTab jobId={jobId} />}
         {activeTab === "logs" && <LogsTab jobId={jobId} />}
       </div>
     </div>

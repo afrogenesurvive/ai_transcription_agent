@@ -17,7 +17,7 @@ interface Props {
   onClose: () => void;
 }
 
-type Tab = "live" | "files" | "database" | "performance" | "updates";
+type Tab = "live" | "files" | "database" | "performance" | "usage" | "updates";
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
@@ -694,22 +694,14 @@ function DatabaseTab() {
                               <td className="dev-panel-db-cell-expand">
                                 <span className="dev-panel-db-expand-icon">{isExpanded ? "▼" : "▶"}</span>
                               </td>
-                              {tableColumns.map((col) => renderTd(renderCell(row[col]), col))}
+                              {isExpanded
+                                ? tableColumns.map((col) => (
+                                    <td key={col} className="dev-panel-db-detail-cell">
+                                      {renderCellFull(row[col])}
+                                    </td>
+                                  ))
+                                : tableColumns.map((col) => renderTd(renderCell(row[col]), col))}
                             </tr>
-                            {isExpanded && (
-                              <tr className="dev-panel-db-detail-row">
-                                <td colSpan={tableColumns.length + 1}>
-                                  <div className="dev-panel-db-detail">
-                                    {tableColumns.map((col) => (
-                                      <div key={col} className="dev-panel-db-detail-field">
-                                        <span className="dev-panel-db-detail-label">{col}</span>
-                                        <pre className="dev-panel-db-detail-value">{renderCellFull(row[col])}</pre>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </td>
-                              </tr>
-                            )}
                           </React.Fragment>
                         );
                       })}
@@ -764,40 +756,24 @@ function DatabaseTab() {
                             <td className="dev-panel-db-cell-expand">
                               <span className="dev-panel-db-expand-icon">{isExpanded ? "▼" : "▶"}</span>
                             </td>
-                            {renderTd(m.title, "title")}
-                            {renderTd(<span className="dev-panel-db-cell-mono">{m.job_id?.slice(0, 12)}…</span>, "job_id")}
-                            {renderTd(m.type, "type")}
-                            {renderTd(m.attendees || "—", "attendees")}
-                            {renderTd(m.timestamp || "—", "timestamp")}
+                            {isExpanded ? (
+                              <>
+                                <td className="dev-panel-db-detail-cell">{m.title || "—"}</td>
+                                <td className="dev-panel-db-detail-cell">{m.job_id}</td>
+                                <td className="dev-panel-db-detail-cell">{m.type || "—"}</td>
+                                <td className="dev-panel-db-detail-cell">{m.attendees || "—"}</td>
+                                <td className="dev-panel-db-detail-cell">{m.timestamp || "—"}</td>
+                              </>
+                            ) : (
+                              <>
+                                {renderTd(m.title, "title")}
+                                {renderTd(<span className="dev-panel-db-cell-mono">{m.job_id?.slice(0, 12)}…</span>, "job_id")}
+                                {renderTd(m.type, "type")}
+                                {renderTd(m.attendees || "—", "attendees")}
+                                {renderTd(m.timestamp || "—", "timestamp")}
+                              </>
+                            )}
                           </tr>
-                          {isExpanded && (
-                            <tr className="dev-panel-db-detail-row">
-                              <td colSpan={6}>
-                                <div className="dev-panel-db-detail">
-                                  <div className="dev-panel-db-detail-field">
-                                    <span className="dev-panel-db-detail-label">Full Job ID</span>
-                                    <pre className="dev-panel-db-detail-value">{m.job_id}</pre>
-                                  </div>
-                                  <div className="dev-panel-db-detail-field">
-                                    <span className="dev-panel-db-detail-label">ChromaDB ID</span>
-                                    <pre className="dev-panel-db-detail-value">{m.id}</pre>
-                                  </div>
-                                  <div className="dev-panel-db-detail-field">
-                                    <span className="dev-panel-db-detail-label">Attendees (full)</span>
-                                    <pre className="dev-panel-db-detail-value">{m.attendees || "—"}</pre>
-                                  </div>
-                                  <div className="dev-panel-db-detail-field">
-                                    <span className="dev-panel-db-detail-label">Meeting Type</span>
-                                    <pre className="dev-panel-db-detail-value">{m.type}</pre>
-                                  </div>
-                                  <div className="dev-panel-db-detail-field">
-                                    <span className="dev-panel-db-detail-label">Timestamp</span>
-                                    <pre className="dev-panel-db-detail-value">{m.timestamp || "—"}</pre>
-                                  </div>
-                                </div>
-                              </td>
-                            </tr>
-                          )}
                         </React.Fragment>
                       );
                     })}
@@ -1006,6 +982,10 @@ interface MetricSnapshot {
   timestamp: number;
   /** Keyed by "${label}::${pid}" */
   byKey: Record<string, { cpu: number | null; memoryBytes: number | null }>;
+  /** Active job ID at time of snapshot (null if no job running) */
+  jobId: string | null;
+  /** Pipeline stage key at time of snapshot */
+  stage: string | null;
 }
 
 function formatMem(bytes: number | null): string {
@@ -1029,12 +1009,25 @@ function formatElapsed(sec: number | null): string {
   return `${s}s`;
 }
 
-/** Inline SVG sparkline — renders a tiny line chart */
+/** Inline SVG sparkline — renders a tiny line chart with optional vertical stage markers */
 const SPARK_W = 80;
 const SPARK_H = 24;
 const SPARK_PAD = 2;
 
-function Sparkline({ data, color }: { data: (number | null)[]; color: string }) {
+/** Stage marker colors for each pipeline stage */
+const STAGE_MARKER_COLORS: Record<string, string> = {
+  uploaded: "#8b949e",
+  initializing: "#58a6ff",
+  diarization: "#d29922",
+  voiceprints: "#bc8cff",
+  transcription: "#3fb950",
+  aligning: "#79c0ff",
+  agent: "#f0883e",
+  memory: "#f85149",
+  delivery: "#2ea043",
+};
+
+function Sparkline({ data, color, markers }: { data: (number | null)[]; color: string; markers?: { index: number; stage: string }[] }) {
   const valid = data.filter((v): v is number => v !== null && v !== undefined);
   if (valid.length < 2) return <span style={{ color: "var(--text-muted)", fontSize: 10, width: SPARK_W, display: "inline-block" }}>—</span>;
 
@@ -1054,6 +1047,18 @@ function Sparkline({ data, color }: { data: (number | null)[]; color: string }) 
 
   return (
     <svg width={SPARK_W} height={SPARK_H} style={{ verticalAlign: "middle" }}>
+      {/* Stage transition markers (vertical dashed lines) */}
+      {markers?.map((m, i) => {
+        // Map marker index to x position (only if within data length)
+        if (m.index <= 0 || m.index >= valid.length) return null;
+        const x = SPARK_PAD + (m.index / (valid.length - 1)) * w;
+        const markerColor = STAGE_MARKER_COLORS[m.stage] || "#58a6ff";
+        return (
+          <g key={i}>
+            <line x1={x} y1={SPARK_PAD} x2={x} y2={SPARK_PAD + h} stroke={markerColor} strokeWidth={1} strokeDasharray="2,2" opacity={0.6} />
+          </g>
+        );
+      })}
       <polyline points={points} fill="none" stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
@@ -1068,130 +1073,131 @@ const POLL_OPTIONS = [
 
 const MAX_HISTORY = 30;
 
+/** Pipeline stage key → friendly label */
+const STAGE_LABELS: Record<string, string> = {
+  uploaded: "Uploading",
+  initializing: "Getting Ready",
+  diarization: "Identifying Speakers",
+  voiceprints: "Matching Voices",
+  transcription: "Transcribing Speech",
+  aligning: "Building Transcript",
+  agent: "AI Processing",
+  memory: "Saving to Memory",
+  delivery: "Delivering Results",
+};
+
+/** Map backend status values to pipeline stage keys */
+const STATUS_TO_STAGE: Record<string, string> = {
+  uploaded: "uploaded",
+  initializing: "initializing",
+  processing_diarization: "diarization",
+  matching_voiceprints: "voiceprints",
+  processing_transcription: "transcription",
+  aligning: "aligning",
+  transcribed: "agent",
+  ready_for_agent: "agent",
+  labeling_needed: "agent",
+  refined: "agent",
+  summarized: "agent",
+  analyzed: "memory",
+  delivered: "delivery",
+  complete: "delivery",
+};
+
 /**
  * Module-level shared history buffer — persists across component remounts
  * so switching sidebar views and back preserves the trend data.
  */
 let sharedHistory: MetricSnapshot[] = [];
 let sharedLoading = true;
+/** Module-level pipeline stage markers — positions + stage key for each transition */
+let sharedStageMarkers: { index: number; stage: string; label: string }[] = [];
+let lastKnownStage: string | null = null;
 
 function PerformanceTab() {
-  const [rows, setRows] = useState<MetricRow[]>([]);
-  const [loading, setLoading] = useState(sharedLoading);
+  const [aggData, setAggData] = useState<
+    Array<{
+      jobId: string;
+      samples: Array<{ timestamp: number; cpu: number; memoryBytes: number; label: string; stage: string | null }>;
+    }>
+  >([]);
+  const [loading, setLoading] = useState(true);
   const [pollIntervalMs, setPollIntervalMs] = useState(10000);
-  // Restore history from module-level buffer so trend survives remount
-  const [history, setHistory] = useState<MetricSnapshot[]>(sharedHistory);
+  const [error, setError] = useState<string | null>(null);
 
-  // Core polling logic
-  useEffect(() => {
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const data = await window.electronAPI?.getPerformanceMetrics();
-        if (!data || cancelled) return;
-
-        const electron: MetricRow[] = (data.electron || []).map((m) => ({
-          label: m.type === "Browser" ? "Main / Renderer" : m.type,
-          pid: m.pid,
-          cpu: m.cpu,
-          memoryBytes: m.memory,
-          peakMemoryBytes: m.peakMemory,
-          elapsedSec: null,
-        }));
-        const children: MetricRow[] = (data.children || []).map((m) => ({
-          label: m.service.charAt(0).toUpperCase() + m.service.slice(1),
-          pid: m.pid,
-          cpu: m.cpu,
-          memoryBytes: m.memory,
-          peakMemoryBytes: null,
-          elapsedSec: m.elapsed,
-        }));
-
-        const merged = [...children, ...electron];
-
-        if (!cancelled) {
-          setRows(merged);
-          setLoading(false);
-          sharedLoading = false;
-
-          // Append to rolling history buffer (both state and module-level)
-          const snap: MetricSnapshot = {
-            timestamp: Date.now(),
-            byKey: {},
-          };
-          for (const r of merged) {
-            const key = `${r.label}::${r.pid}`;
-            snap.byKey[key] = { cpu: r.cpu, memoryBytes: r.memoryBytes };
-          }
-          setHistory((prev) => {
-            const next = [...prev, snap];
-            const trimmed = next.length > MAX_HISTORY ? next.slice(next.length - MAX_HISTORY) : next;
-            sharedHistory = trimmed; // sync module-level for remount survival
-            return trimmed;
-          });
-        }
-      } catch {
-        // backend not reachable
-      }
-    };
-
-    poll();
-    const interval = setInterval(poll, pollIntervalMs);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [pollIntervalMs]);
-
-  const handleRefresh = () => {
-    setLoading(true);
-    window.electronAPI?.getPerformanceMetrics().then((data) => {
-      if (!data) return;
-      const electron: MetricRow[] = (data.electron || []).map((m) => ({
-        label: m.type === "Browser" ? "Main / Renderer" : m.type,
-        pid: m.pid,
-        cpu: m.cpu,
-        memoryBytes: m.memory,
-        peakMemoryBytes: m.peakMemory,
-        elapsedSec: null,
-      }));
-      const children: MetricRow[] = (data.children || []).map((m) => ({
-        label: m.service.charAt(0).toUpperCase() + m.service.slice(1),
-        pid: m.pid,
-        cpu: m.cpu,
-        memoryBytes: m.memory,
-        peakMemoryBytes: null,
-        elapsedSec: m.elapsed,
-      }));
-      const merged = [...children, ...electron];
-      setRows(merged);
+  const fetchData = useCallback(async () => {
+    try {
+      const data = await window.electronAPI?.getAggregatePerformance();
+      if (data) setAggData(data);
       setLoading(false);
-      sharedLoading = false;
+      setError(null);
+    } catch (err: any) {
+      setError(err.message);
+      setLoading(false);
+    }
+  }, []);
 
-      // Also append manual refresh to history
-      const snap: MetricSnapshot = {
-        timestamp: Date.now(),
-        byKey: {},
-      };
-      for (const r of merged) {
-        const key = `${r.label}::${r.pid}`;
-        snap.byKey[key] = { cpu: r.cpu, memoryBytes: r.memoryBytes };
-      }
-      setHistory((prev) => {
-        const next = [...prev, snap];
-        const trimmed = next.length > MAX_HISTORY ? next.slice(next.length - MAX_HISTORY) : next;
-        sharedHistory = trimmed;
-        return trimmed;
-      });
-    });
-  };
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, pollIntervalMs);
+    return () => clearInterval(interval);
+  }, [fetchData, pollIntervalMs]);
+
+  // Flatten all samples across all jobs, sorted by timestamp, annotated with jobId
+  const allSamples = aggData.flatMap((job) => job.samples.map((s) => ({ ...s, jobId: job.jobId }))).sort((a, b) => a.timestamp - b.timestamp);
+
+  const cpuVals = allSamples.map((s) => s.cpu);
+  const memVals = allSamples.map((s) => s.memoryBytes);
+  const maxCpu = Math.max(...cpuVals, 1);
+  const maxMem = Math.max(...memVals, 1);
+  const startTime = allSamples.length > 0 ? allSamples[0].timestamp : Date.now();
+  const duration = allSamples.length > 0 ? allSamples[allSamples.length - 1].timestamp - startTime : 1;
+
+  // Build job transition boundaries
+  const jobSegments: { jobId: string; startIdx: number; endIdx: number; color: string; samples: typeof allSamples }[] = [];
+  const jobColors = ["#58a6ff", "#3fb950", "#d29922", "#f85149", "#bc8cff", "#f0883e", "#79c0ff", "#2ea043"];
+  const jobColorMap = new Map<string, string>();
+  let colorIdx = 0;
+  allSamples.forEach((s, i) => {
+    if (!jobColorMap.has(s.jobId)) jobColorMap.set(s.jobId, jobColors[colorIdx++ % jobColors.length]);
+    if (jobSegments.length === 0 || jobSegments[jobSegments.length - 1].jobId !== s.jobId) {
+      jobSegments.push({ jobId: s.jobId, startIdx: i, endIdx: i, color: jobColorMap.get(s.jobId)!, samples: [] });
+    }
+    jobSegments[jobSegments.length - 1].endIdx = i;
+    jobSegments[jobSegments.length - 1].samples.push(s);
+  });
+
+  // Build stage transition markers across all samples
+  const stageMarkers: { index: number; stage: string; label: string }[] = [];
+  let lastStage: string | null = null;
+  allSamples.forEach((s, i) => {
+    if (s.stage && s.stage !== lastStage && lastStage !== null) {
+      stageMarkers.push({ index: i, stage: s.stage, label: STAGE_LABELS[s.stage] || s.stage });
+    }
+    if (s.stage) lastStage = s.stage;
+  });
+
+  const chartW = 900;
+  const chartH = 280;
+  const padX = 60;
+  const padY = 48;
+  const labelAreaH = 60; // space at bottom for stage + job labels
+
+  const makePoints = (data: number[], maxVal: number, offset = 0) =>
+    data
+      .map((v, i) => {
+        const x = padX + (i / Math.max(1, data.length - 1)) * (chartW - padX * 2);
+        const y = padY + chartH - ((v + offset) / maxVal) * chartH;
+        return `${x},${y}`;
+      })
+      .join(" ");
 
   const intervalSec = (pollIntervalMs / 1000).toFixed(0);
 
   return (
     <>
       <div className="dev-panel-toolbar">
-        <span className="dev-panel-title">⚡ Live Monitoring</span>
+        <span className="dev-panel-title">⚡ Performance Across Jobs</span>
         <div className="dev-panel-filters">
           <select
             className="dev-panel-select"
@@ -1206,86 +1212,206 @@ function PerformanceTab() {
           </select>
         </div>
         <span style={{ color: "var(--text-muted)", fontSize: 11 }}>
-          {history.length}/{MAX_HISTORY} samples
+          {aggData.length} job(s) · {allSamples.length} samples
         </span>
         <div className="dev-panel-actions">
-          <button className="dev-panel-btn" onClick={handleRefresh} title="Refresh now">
+          <button className="dev-panel-btn" onClick={fetchData} title="Refresh now">
             ↻ Refresh
           </button>
         </div>
       </div>
 
-      <div className="dev-panel-list">
-        {loading && <div className="dev-panel-empty">Fetching metrics...</div>}
+      <div className="dev-panel-list" style={{ fontFamily: "var(--font)" }}>
+        {loading && <div className="dev-panel-empty">Loading performance data...</div>}
+        {error && (
+          <div className="dev-panel-empty" style={{ color: "var(--red)" }}>
+            ❌ {error}
+          </div>
+        )}
 
-        {!loading && rows.length === 0 && <div className="dev-panel-empty">No process metrics available. Make sure services are running.</div>}
+        {!loading && !error && allSamples.length === 0 && (
+          <div className="dev-panel-empty">No performance data available. Performance is recorded during active jobs.</div>
+        )}
 
-        {!loading && rows.length > 0 && (
-          <table className="dev-panel-metrics-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-            <thead>
-              <tr style={{ borderBottom: "1px solid var(--border)", color: "var(--text-muted)", fontSize: 10 }}>
-                <th style={{ padding: "4px 8px", textAlign: "left" }}>Process</th>
-                <th style={{ padding: "4px 8px", textAlign: "right" }}>PID</th>
-                <th style={{ padding: "4px 8px", textAlign: "right" }}>CPU</th>
-                <th style={{ padding: "4px 8px", textAlign: "left" }}>CPU Trend</th>
-                <th style={{ padding: "4px 8px", textAlign: "right" }}>Memory</th>
-                <th style={{ padding: "4px 8px", textAlign: "right" }}>Peak</th>
-                <th style={{ padding: "4px 8px", textAlign: "left" }}>Mem Trend</th>
-                <th style={{ padding: "4px 8px", textAlign: "right" }}>Runtime</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => {
-                const key = `${r.label}::${r.pid}`;
-                const cpuHistory = history.map((s) => s.byKey[key]?.cpu ?? null);
-                const memHistory = history.map((s) => s.byKey[key]?.memoryBytes ?? null);
-                const cpuColor = r.cpu !== null ? (r.cpu > 50 ? "#f85149" : r.cpu > 20 ? "#d29922" : "#3fb950") : "#8b949e";
-                return (
-                  <tr key={key} style={{ borderBottom: "1px solid var(--border)" }}>
-                    <td style={{ padding: "6px 8px" }}>
-                      <span
-                        style={{
-                          display: "inline-block",
-                          width: 7,
-                          height: 7,
-                          borderRadius: "50%",
-                          marginRight: 6,
-                          backgroundColor: cpuColor,
-                        }}
-                      />
-                      {r.label}
-                    </td>
-                    <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: "monospace", color: "var(--text-muted)" }}>{r.pid ?? "—"}</td>
-                    <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: "monospace", color: cpuColor }}>{formatCpu(r.cpu)}</td>
-                    <td style={{ padding: "2px 8px", textAlign: "left" }}>
-                      <Sparkline data={cpuHistory} color={cpuColor} />
-                    </td>
-                    <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: "monospace" }}>{formatMem(r.memoryBytes)}</td>
-                    <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: "monospace", color: "var(--text-muted)" }}>
-                      {r.peakMemoryBytes ? formatMem(r.peakMemoryBytes) : "—"}
-                    </td>
-                    <td style={{ padding: "2px 8px", textAlign: "left" }}>
-                      <Sparkline data={memHistory} color="#58a6ff" />
-                    </td>
-                    <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: "monospace", color: "var(--text-muted)" }}>
-                      {formatElapsed(r.elapsedSec)}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        {!loading && allSamples.length > 1 && (
+          <>
+            {/* Summary cards */}
+            <div className="dev-panel-db-stat-cards" style={{ padding: "8px 12px", margin: 0 }}>
+              <div className="dev-panel-db-stat-card" style={{ minWidth: 70 }}>
+                <span className="dev-panel-db-stat-value" style={{ color: "#58a6ff" }}>
+                  {maxCpu.toFixed(1)}%
+                </span>
+                <span className="dev-panel-db-stat-label">Peak CPU</span>
+              </div>
+              <div className="dev-panel-db-stat-card" style={{ minWidth: 70 }}>
+                <span className="dev-panel-db-stat-value" style={{ color: "#3fb950" }}>
+                  {formatMem(maxMem)}
+                </span>
+                <span className="dev-panel-db-stat-label">Peak Memory</span>
+              </div>
+            </div>
+
+            {/* Main chart — one big graph across all jobs */}
+            <div className="usage-bar-chart" style={{ margin: "8px 12px" }}>
+              <div style={{ fontSize: "var(--fs-11)", fontWeight: 600, color: "var(--text-muted)", marginBottom: 8 }}>
+                📈 CPU & Memory Across Jobs
+                <span style={{ marginLeft: 12, fontWeight: 400, fontSize: 10, opacity: 0.7 }}>
+                  {aggData.length} job(s) · {allSamples.length} samples
+                </span>
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                <svg
+                  viewBox={`0 0 ${chartW} ${chartH + labelAreaH + 10}`}
+                  width="100%"
+                  height={chartH + labelAreaH + 10}
+                  style={{ display: "block", minWidth: 500 }}>
+                  <rect x={0} y={0} width={chartW} height={chartH + labelAreaH + 10} fill="var(--surface)" rx={6} />
+
+                  {/* Grid lines */}
+                  {[0, 0.2, 0.4, 0.6, 0.8, 1].map((frac) => {
+                    const y = padY + chartH - frac * chartH;
+                    return (
+                      <g key={frac}>
+                        <line x1={padX} y1={y} x2={chartW - padX} y2={y} stroke="var(--border)" strokeWidth={0.5} opacity={0.3} />
+                        <text x={padX - 8} y={y + 3} fill="var(--text-muted)" fontSize={8} textAnchor="end">
+                          {formatCpu(maxCpu * frac)}
+                        </text>
+                      </g>
+                    );
+                  })}
+                  {/* Secondary Y-axis (memory) labels — right side */}
+                  {[0, 0.5, 1].map((frac) => {
+                    const y = padY + chartH - frac * chartH;
+                    return (
+                      <text key={`mem-${frac}`} x={chartW - padX + 8} y={y + 3} fill="#3fb950" fontSize={7} textAnchor="start" opacity={0.6}>
+                        {formatMem(maxMem * frac)}
+                      </text>
+                    );
+                  })}
+                  {/* Axis labels */}
+                  <text
+                    x={padX - 30}
+                    y={padY + chartH / 2}
+                    fill="var(--text-muted)"
+                    fontSize={8}
+                    textAnchor="middle"
+                    transform={`rotate(-90, ${padX - 30}, ${padY + chartH / 2})`}
+                    opacity={0.5}>
+                    CPU
+                  </text>
+                  <text
+                    x={chartW - padX + 20}
+                    y={padY + chartH / 2}
+                    fill="#3fb950"
+                    fontSize={8}
+                    textAnchor="middle"
+                    transform={`rotate(90, ${chartW - padX + 20}, ${padY + chartH / 2})`}
+                    opacity={0.5}>
+                    Memory
+                  </text>
+
+                  {/* Job segment background highlights */}
+                  {jobSegments.map((seg, i) => {
+                    const x1 = padX + (seg.startIdx / Math.max(1, allSamples.length - 1)) * (chartW - padX * 2);
+                    const x2 = padX + (seg.endIdx / Math.max(1, allSamples.length - 1)) * (chartW - padX * 2);
+                    return <rect key={i} x={x1} y={padY} width={Math.max(3, x2 - x1)} height={chartH} fill={seg.color} opacity={0.05} rx={2} />;
+                  })}
+
+                  {/* CPU line */}
+                  <polyline
+                    points={makePoints(cpuVals, maxCpu || 1)}
+                    fill="none"
+                    stroke="#58a6ff"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    opacity={0.85}
+                  />
+                  {/* Memory line */}
+                  <polyline
+                    points={makePoints(memVals, maxMem || 1)}
+                    fill="none"
+                    stroke="#3fb950"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeDasharray="4,3"
+                    opacity={0.7}
+                  />
+
+                  {/* ── Job boundary markers (solid lines, labeled at top) ── */}
+                  {jobSegments.slice(1).map((seg, i) => {
+                    const x = padX + (seg.startIdx / Math.max(1, allSamples.length - 1)) * (chartW - padX * 2);
+                    return (
+                      <g key={i}>
+                        <line x1={x} y1={padY} x2={x} y2={padY + chartH} stroke={seg.color} strokeWidth={2} opacity={0.5} />
+                      </g>
+                    );
+                  })}
+                  {/* Job ID labels at top of chart */}
+                  {jobSegments.map((seg, i) => {
+                    const midIdx = Math.floor((seg.startIdx + seg.endIdx) / 2);
+                    const x = padX + (midIdx / Math.max(1, allSamples.length - 1)) * (chartW - padX * 2);
+                    return (
+                      <g key={i}>
+                        <rect x={x - 28} y={padY - 18} width={56} height={14} rx={3} fill={seg.color} opacity={0.15} />
+                        <text x={x} y={padY - 7} fill={seg.color} fontSize={9} textAnchor="middle" fontWeight={600}>
+                          {seg.jobId.slice(0, 8)}
+                        </text>
+                      </g>
+                    );
+                  })}
+
+                  {/* ── Stage transition markers (dashed lines, labeled at bottom) ── */}
+                  {stageMarkers.map((m, i) => {
+                    const x = padX + (m.index / Math.max(1, allSamples.length - 1)) * (chartW - padX * 2);
+                    const color = STAGE_MARKER_COLORS[m.stage] || "#58a6ff";
+                    return (
+                      <g key={i}>
+                        <line x1={x} y1={padY} x2={x} y2={padY + chartH} stroke={color} strokeWidth={1} strokeDasharray="3,3" opacity={0.7} />
+                        <rect x={x - 16} y={padY + chartH + 2} width={32} height={14} rx={3} fill={color} opacity={0.12} />
+                        <text x={x} y={padY + chartH + 12} fill={color} fontSize={8} textAnchor="middle" fontWeight={500}>
+                          {m.label.slice(0, 8)}
+                        </text>
+                      </g>
+                    );
+                  })}
+                </svg>
+              </div>
+              {/* Legend */}
+              <div
+                style={{ display: "flex", gap: 16, marginTop: 6, fontSize: 10, color: "var(--text-muted)", flexWrap: "wrap", alignItems: "center" }}>
+                <span>
+                  <span style={{ color: "#58a6ff" }}>━</span> CPU
+                </span>
+                <span>
+                  <span style={{ color: "#3fb950" }}>┅</span> Memory
+                </span>
+                <span style={{ borderLeft: "1px solid var(--border)", paddingLeft: 12 }}>
+                  <span style={{ opacity: 0.6 }}>━</span> Job boundary
+                </span>
+                <span>
+                  <span style={{ opacity: 0.6 }}>╌</span> Stage marker
+                </span>
+                {jobSegments.slice(0, 3).map((seg) => (
+                  <span key={seg.jobId}>
+                    <span style={{ color: seg.color }}>▬</span> {seg.jobId.slice(0, 8)}
+                  </span>
+                ))}
+                {jobSegments.length > 3 && <span style={{ opacity: 0.5 }}>+{jobSegments.length - 3} more</span>}
+              </div>
+            </div>
+          </>
         )}
       </div>
 
       <div className="dev-panel-footer">
         <span>
-          {rows.length} process(es) · polled {history.length}x
+          {aggData.length} job(s) · polled every {intervalSec}s
+          {stageMarkers.length > 0 && <span style={{ marginLeft: 8, fontSize: 10, opacity: 0.7 }}>· {stageMarkers.length} stage markers</span>}
         </span>
-        <span>
-          <span style={{ color: "#3fb950" }}>●</span> &lt;20% &nbsp;
-          <span style={{ color: "#d29922" }}>●</span> 20–50% &nbsp;
-          <span style={{ color: "#f85149" }}>●</span> &gt;50% CPU
+        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ color: "#58a6ff" }}>●</span> CPU <span style={{ color: "#3fb950" }}>●</span> Memory
         </span>
       </div>
     </>
@@ -1466,6 +1592,474 @@ function UpdatesTab() {
   );
 }
 
+/* ── Usage Tab ── */
+
+function formatTokenCount(n: number): string {
+  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
+  return String(n);
+}
+
+function UsageTab() {
+  const [balance, setBalance] = useState<{ balance: string | null; available: boolean; error: string | null } | null>(null);
+  const [pollInterval, setPollInterval] = useState(60000);
+  const [configLoaded, setConfigLoaded] = useState(false);
+  const [aggregate, setAggregate] = useState<{
+    jobs: Array<{
+      job_id: string;
+      title: string;
+      provider: string;
+      model: string;
+      step_count: number;
+      totals: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+      saved_at: string;
+    }>;
+    totals: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+    job_count: number;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<"date" | "tokens">("date");
+
+  // Load config for credit poll interval
+  useEffect(() => {
+    window.electronAPI?.getConfig().then((cfg) => {
+      const val = Number(cfg.CREDIT_POLL_INTERVAL) || 60000;
+      setPollInterval(val);
+      setConfigLoaded(true);
+    });
+  }, []);
+
+  // Poll credit balance
+  useEffect(() => {
+    if (!configLoaded) return;
+    const poll = async () => {
+      const result = await window.electronAPI?.checkDeepSeekBalance();
+      if (result) setBalance(result);
+    };
+    poll();
+    const interval = setInterval(poll, pollInterval);
+    return () => clearInterval(interval);
+  }, [pollInterval, configLoaded]);
+
+  // Save updated poll interval
+  const handleIntervalChange = useCallback(async (ms: number) => {
+    setPollInterval(ms);
+    await window.electronAPI?.saveConfig({ CREDIT_POLL_INTERVAL: String(ms) });
+  }, []);
+
+  // Fetch aggregate token usage
+  const fetchAggregate = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await window.electronAPI?.getAggregateUsage();
+      if (result?.error) {
+        setError(result.error);
+      } else if (result) {
+        setAggregate(result);
+      } else {
+        setError("Bridge unreachable");
+      }
+    } catch (err: any) {
+      setError(err.message);
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    fetchAggregate();
+  }, [fetchAggregate]);
+
+  // Sort jobs
+  const sortedJobs = aggregate?.jobs
+    ? [...aggregate.jobs].sort((a, b) => {
+        if (sortBy === "tokens") return b.totals.total_tokens - a.totals.total_tokens;
+        return b.saved_at.localeCompare(a.saved_at);
+      })
+    : [];
+
+  // Bar chart config
+  const maxTokens = Math.max(...sortedJobs.map((j) => j.totals.total_tokens), 1);
+  const BAR_COLORS = ["#58a6ff", "#3fb950", "#d29922", "#f85149", "#8b949e", "#bc8cff", "#f0883e", "#79c0ff"];
+
+  return (
+    <>
+      {/* Toolbar */}
+      <div className="dev-panel-toolbar">
+        <span className="dev-panel-title">💰 Usage</span>
+        <div className="dev-panel-filters">
+          <select
+            className="dev-panel-select"
+            value={pollInterval}
+            onChange={(e) => handleIntervalChange(Number(e.target.value))}
+            title="Credit polling interval">
+            <option value={30000}>Every 30s</option>
+            <option value={60000}>Every 1 min</option>
+            <option value={300000}>Every 5 min</option>
+            <option value={600000}>Every 10 min</option>
+          </select>
+        </div>
+        <div className="dev-panel-actions">
+          <button className="dev-panel-btn" onClick={fetchAggregate} title="Refresh usage data">
+            ↻ Refresh
+          </button>
+        </div>
+      </div>
+
+      <div className="dev-panel-list" style={{ padding: "12px 16px", fontFamily: "var(--font)" }}>
+        {/* ── Credit Balance Card ── */}
+        <div style={{ marginBottom: 20 }}>
+          <h4
+            style={{
+              fontSize: "var(--fs-12)",
+              fontWeight: 600,
+              color: "var(--text-muted)",
+              textTransform: "uppercase",
+              letterSpacing: 0.4,
+              margin: "0 0 10px",
+            }}>
+            💳 DeepSeek API Credit Balance
+          </h4>
+          <div className="dev-panel-db-stat-cards" style={{ marginBottom: 0 }}>
+            <div className="dev-panel-db-stat-card" style={{ minWidth: 140 }}>
+              <span className="dev-panel-db-stat-value" style={{ fontSize: "var(--fs-24)" }}>
+                {balance === null ? (
+                  <span style={{ color: "var(--text-muted)", fontSize: "var(--fs-12)" }}>Checking...</span>
+                ) : balance.error ? (
+                  <span style={{ color: "var(--red)", fontSize: "var(--fs-12)" }}>Error</span>
+                ) : (
+                  <>${parseFloat(balance.balance || "0").toFixed(2)}</>
+                )}
+              </span>
+              <span className="dev-panel-db-stat-label">Balance</span>
+            </div>
+            <div className="dev-panel-db-stat-card" style={{ minWidth: 100 }}>
+              <span className="dev-panel-db-stat-value" style={{ fontSize: "var(--fs-16)" }}>
+                {balance === null ? (
+                  "—"
+                ) : balance.available ? (
+                  <span style={{ color: "var(--green)" }}>✅ Available</span>
+                ) : (
+                  <span style={{ color: "var(--red)" }}>❌ Unavailable</span>
+                )}
+              </span>
+              <span className="dev-panel-db-stat-label">Status</span>
+            </div>
+            {balance?.error && (
+              <div className="dev-panel-db-stat-card" style={{ minWidth: 200, flex: 2 }}>
+                <span className="dev-panel-db-stat-value" style={{ fontSize: "var(--fs-10)", color: "var(--red)", fontWeight: 400 }}>
+                  {balance.error}
+                </span>
+                <span className="dev-panel-db-stat-label">Error</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Token Usage ── */}
+        <div>
+          <h4
+            style={{
+              fontSize: "var(--fs-12)",
+              fontWeight: 600,
+              color: "var(--text-muted)",
+              textTransform: "uppercase",
+              letterSpacing: 0.4,
+              margin: "0 0 10px",
+            }}>
+            📊 Token Usage Across Jobs
+          </h4>
+
+          {loading && (
+            <div className="dev-panel-empty" style={{ padding: 12 }}>
+              Loading token usage data...
+            </div>
+          )}
+          {error && (
+            <div className="dev-panel-empty" style={{ padding: 12, color: "var(--red)" }}>
+              ❌ {error}
+            </div>
+          )}
+
+          {!loading && !error && aggregate && (
+            <>
+              {/* Summary cards */}
+              <div className="dev-panel-db-stat-cards" style={{ marginBottom: 14 }}>
+                <div className="dev-panel-db-stat-card" style={{ minWidth: 80 }}>
+                  <span className="dev-panel-db-stat-value">{aggregate.job_count}</span>
+                  <span className="dev-panel-db-stat-label">Jobs</span>
+                </div>
+                <div className="dev-panel-db-stat-card" style={{ minWidth: 80 }}>
+                  <span className="dev-panel-db-stat-value">{formatTokenCount(aggregate.totals.total_tokens)}</span>
+                  <span className="dev-panel-db-stat-label">Total Tokens</span>
+                </div>
+                <div className="dev-panel-db-stat-card" style={{ minWidth: 80 }}>
+                  <span className="dev-panel-db-stat-value">{formatTokenCount(aggregate.totals.prompt_tokens)}</span>
+                  <span className="dev-panel-db-stat-label">Prompt</span>
+                </div>
+                <div className="dev-panel-db-stat-card" style={{ minWidth: 80 }}>
+                  <span className="dev-panel-db-stat-value">{formatTokenCount(aggregate.totals.completion_tokens)}</span>
+                  <span className="dev-panel-db-stat-label">Completion</span>
+                </div>
+              </div>
+
+              {/* ── Token Usage Over Time Chart ── */}
+              {sortedJobs.length > 1 && (
+                <div className="usage-bar-chart" style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: "var(--fs-11)", color: "var(--text-muted)", marginBottom: 8, fontWeight: 600 }}>
+                    📈 Token Usage Over Time
+                  </div>
+                  <svg width="100%" height={140} viewBox={`0 0 ${Math.max(400, sortedJobs.length * 80)} 140`} style={{ display: "block" }}>
+                    {/* Background */}
+                    <rect x={0} y={0} width="100%" height={140} fill="var(--bg)" rx={4} />
+                    {(() => {
+                      const chartW = Math.max(400, sortedJobs.length * 80) - 40;
+                      const chartH = 100;
+                      const padX = 30;
+                      const padY = 20;
+                      const maxT = Math.max(...sortedJobs.map((j) => j.totals.total_tokens), 1);
+                      // Sort by date for timeline
+                      const byDate = [...sortedJobs].sort((a, b) => a.saved_at.localeCompare(b.saved_at));
+                      const totalHistory = byDate.map((j) => j.totals.total_tokens);
+                      const promptHistory = byDate.map((j) => j.totals.prompt_tokens);
+                      const completionHistory = byDate.map((j) => j.totals.completion_tokens);
+                      const makePoints = (data: number[]) =>
+                        data
+                          .map((v, i) => {
+                            const x = padX + (i / Math.max(1, data.length - 1)) * chartW;
+                            const y = padY + chartH - (v / maxT) * chartH;
+                            return `${x},${y}`;
+                          })
+                          .join(" ");
+                      return (
+                        <>
+                          {/* Grid lines */}
+                          {[0, 0.25, 0.5, 0.75, 1].map((frac) => {
+                            const y = padY + chartH - frac * chartH;
+                            return (
+                              <g key={frac}>
+                                <line x1={padX} y1={y} x2={padX + chartW} y2={y} stroke="var(--border)" strokeWidth={0.5} opacity={0.5} />
+                                <text x={padX - 4} y={y + 3} fill="var(--text-muted)" fontSize={8} textAnchor="end">
+                                  {formatTokenCount(maxT * frac)}
+                                </text>
+                              </g>
+                            );
+                          })}
+                          {/* Total tokens line */}
+                          <polyline
+                            points={makePoints(totalHistory)}
+                            fill="none"
+                            stroke="#58a6ff"
+                            strokeWidth={2}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            opacity={0.8}
+                          />
+                          {/* Prompt tokens line */}
+                          <polyline
+                            points={makePoints(promptHistory)}
+                            fill="none"
+                            stroke="#3fb950"
+                            strokeWidth={1.5}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeDasharray="4,3"
+                            opacity={0.6}
+                          />
+                          {/* Completion tokens line */}
+                          <polyline
+                            points={makePoints(completionHistory)}
+                            fill="none"
+                            stroke="#d29922"
+                            strokeWidth={1.5}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeDasharray="2,3"
+                            opacity={0.6}
+                          />
+                          {/* Date labels */}
+                          {byDate.map((j, i) => {
+                            const x = padX + (i / Math.max(1, byDate.length - 1)) * chartW;
+                            const date = j.saved_at ? new Date(j.saved_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+                            // Only show every few labels to avoid crowding
+                            if (byDate.length > 8 && i % Math.ceil(byDate.length / 6) !== 0 && i !== byDate.length - 1) return null;
+                            return (
+                              <text key={i} x={x} y={padY + chartH + 14} fill="var(--text-muted)" fontSize={8} textAnchor="middle" opacity={0.7}>
+                                {date}
+                              </text>
+                            );
+                          })}
+                          {/* Data dots on total line */}
+                          {totalHistory.map((v, i) => {
+                            const x = padX + (i / Math.max(1, totalHistory.length - 1)) * chartW;
+                            const y = padY + chartH - (v / maxT) * chartH;
+                            return (
+                              <circle key={i} cx={x} cy={y} r={3} fill="#58a6ff" opacity={0.7}>
+                                <title>{`${byDate[i]?.title || byDate[i]?.job_id}: ${v.toLocaleString()} tokens`}</title>
+                              </circle>
+                            );
+                          })}
+                        </>
+                      );
+                    })()}
+                  </svg>
+                  {/* Legend */}
+                  <div style={{ display: "flex", gap: 12, marginTop: 6, fontSize: 10, color: "var(--text-muted)" }}>
+                    <span>
+                      <span style={{ color: "#58a6ff" }}>━</span> Total
+                    </span>
+                    <span>
+                      <span style={{ color: "#3fb950" }}>┅</span> Prompt
+                    </span>
+                    <span>
+                      <span style={{ color: "#d29922" }}>╌</span> Completion
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Vertical bar chart — job names on X, token count on Y, sorted by time */}
+              {sortedJobs.length > 0 && (
+                <div className="usage-bar-chart" style={{ marginBottom: 14 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <span style={{ fontSize: "var(--fs-11)", color: "var(--text-muted)", fontWeight: 600 }}>📊 Token Usage Per Job</span>
+                    <select
+                      className="dev-panel-select"
+                      value={sortBy}
+                      onChange={(e) => setSortBy(e.target.value as "date" | "tokens")}
+                      style={{ fontSize: "var(--fs-10)" }}>
+                      <option value="date">Sort by time</option>
+                      <option value="tokens">Sort by tokens</option>
+                    </select>
+                  </div>
+                  <svg width="100%" height={Math.max(160, 50 + sortedJobs.length * 28)} style={{ display: "block", overflow: "visible" }}>
+                    {(() => {
+                      const jobs =
+                        sortBy === "tokens"
+                          ? [...sortedJobs].sort((a, b) => b.totals.total_tokens - a.totals.total_tokens)
+                          : [...sortedJobs].sort((a, b) => a.saved_at.localeCompare(b.saved_at));
+                      const count = jobs.length;
+                      const maxT = Math.max(...jobs.map((j) => j.totals.total_tokens), 1);
+                      const chartW = 340;
+                      const chartH = count * 24 + 10;
+                      const barH = 16;
+                      const gap = 8;
+                      const labelW = 140;
+                      const valW = 52;
+                      const trackW = chartW - labelW - valW - 16;
+                      return (
+                        <g>
+                          {/* Background */}
+                          <rect x={0} y={0} width={chartW} height={chartH} fill="var(--surface)" rx={6} />
+                          {/* Y-axis grid lines (horizontal) */}
+                          {[0, 0.25, 0.5, 0.75, 1].map((frac) => {
+                            const y = chartH - 6;
+                            return (
+                              <g key={frac}>
+                                <line
+                                  x1={labelW + 8}
+                                  y1={y - frac * (chartH - 14)}
+                                  x2={chartW - valW - 8}
+                                  y2={y - frac * (chartH - 14)}
+                                  stroke="var(--border)"
+                                  strokeWidth={0.5}
+                                  opacity={0.3}
+                                />
+                              </g>
+                            );
+                          })}
+                          {/* Bars */}
+                          {jobs.map((job, i) => {
+                            const y = 4 + i * (barH + gap);
+                            const pct = job.totals.total_tokens / maxT;
+                            const barW = Math.max(2, pct * trackW);
+                            const color = BAR_COLORS[i % BAR_COLORS.length];
+                            const label = job.title ? job.title : job.job_id.slice(0, 12);
+                            return (
+                              <g key={job.job_id}>
+                                {/* Job name label */}
+                                <text x={labelW - 6} y={y + barH - 3} fill="var(--text)" fontSize={10} textAnchor="end" fontFamily="var(--font)">
+                                  <title>{`${job.title || job.job_id}: ${job.totals.total_tokens.toLocaleString()} tokens`}</title>
+                                  {label.length > 17 ? label.slice(0, 16) + "…" : label}
+                                </text>
+                                {/* Bar */}
+                                <rect x={labelW + 8} y={y} width={barW} height={barH} fill={color} rx={3} opacity={0.85}>
+                                  <title>{`${job.title || job.job_id}: ${job.totals.total_tokens.toLocaleString()} tokens`}</title>
+                                </rect>
+                                {/* Token count value */}
+                                <text x={labelW + 12 + barW + 4} y={y + barH - 3} fill="var(--text-muted)" fontSize={9} fontFamily="monospace">
+                                  {formatTokenCount(job.totals.total_tokens)}
+                                </text>
+                              </g>
+                            );
+                          })}
+                        </g>
+                      );
+                    })()}
+                  </svg>
+                </div>
+              )}
+
+              {/* Per-job table */}
+              {sortedJobs.length > 0 && (
+                <table className="dev-panel-metrics-table" style={{ fontSize: 11 }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid var(--border)", color: "var(--text-muted)", fontSize: 10 }}>
+                      <th style={{ padding: "4px 8px", textAlign: "left" }}>Job</th>
+                      <th style={{ padding: "4px 8px", textAlign: "right" }}>Prompt</th>
+                      <th style={{ padding: "4px 8px", textAlign: "right" }}>Completion</th>
+                      <th style={{ padding: "4px 8px", textAlign: "right" }}>Total</th>
+                      <th style={{ padding: "4px 8px", textAlign: "right" }}>Steps</th>
+                      <th style={{ padding: "4px 8px", textAlign: "right" }}>Date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortedJobs.map((job) => (
+                      <tr key={job.job_id} style={{ borderBottom: "1px solid var(--border)" }}>
+                        <td style={{ padding: "4px 8px" }}>
+                          <span style={{ color: "var(--text-muted)", fontFamily: "monospace", fontSize: 10 }}>{job.job_id.slice(0, 8)}</span>
+                          {job.title && <span style={{ marginLeft: 6, color: "var(--text)" }}>{job.title.slice(0, 30)}</span>}
+                        </td>
+                        <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace" }}>
+                          {job.totals.prompt_tokens.toLocaleString()}
+                        </td>
+                        <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace" }}>
+                          {job.totals.completion_tokens.toLocaleString()}
+                        </td>
+                        <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace", fontWeight: 600 }}>
+                          {job.totals.total_tokens.toLocaleString()}
+                        </td>
+                        <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace", color: "var(--text-muted)" }}>
+                          {job.step_count}
+                        </td>
+                        <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace", color: "var(--text-muted)", fontSize: 10 }}>
+                          {job.saved_at ? new Date(job.saved_at).toLocaleDateString() : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </>
+          )}
+
+          {!loading && !error && !aggregate && (
+            <div className="dev-panel-empty" style={{ padding: 12 }}>
+              No token usage data available. Complete a job first.
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="dev-panel-footer">
+        <span>Polling every {(pollInterval / 1000).toFixed(0)}s</span>
+        <span>{aggregate?.job_count || 0} job(s) with token data</span>
+      </div>
+    </>
+  );
+}
+
 /* ── DevPanel ── */
 
 export default function DevPanel({ onClose }: Props) {
@@ -1487,6 +2081,9 @@ export default function DevPanel({ onClose }: Props) {
         <button className={`dev-panel-tab ${activeTab === "performance" ? "dev-panel-tab--active" : ""}`} onClick={() => setActiveTab("performance")}>
           ⚡ Performance
         </button>
+        <button className={`dev-panel-tab ${activeTab === "usage" ? "dev-panel-tab--active" : ""}`} onClick={() => setActiveTab("usage")}>
+          💰 Usage
+        </button>
         <button className={`dev-panel-tab ${activeTab === "updates" ? "dev-panel-tab--active" : ""}`} onClick={() => setActiveTab("updates")}>
           🔄 Updates
         </button>
@@ -1501,6 +2098,7 @@ export default function DevPanel({ onClose }: Props) {
       {activeTab === "files" && <LogFilesTab />}
       {activeTab === "database" && <DatabaseTab />}
       {activeTab === "performance" && <PerformanceTab />}
+      {activeTab === "usage" && <UsageTab />}
       {activeTab === "updates" && <UpdatesTab />}
     </div>
   );

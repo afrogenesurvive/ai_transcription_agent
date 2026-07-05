@@ -29,6 +29,7 @@ import ServerStatusBanner from "./components/ServerStatusBanner";
 import { useApi } from "./hooks/useApi";
 import { useJobStatus } from "./hooks/useJobStatus";
 import { useServerStatus } from "./hooks/useServerStatus";
+import { loadAndApplyAppearance } from "./appearance";
 import type { JobStatus } from "./types";
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
@@ -91,41 +92,9 @@ export default function App() {
     setDiarizationAvailable(serverStatus.diarizationOk);
   }, [serverStatus.diarizationOk]);
 
-  // Apply saved appearance settings on mount (supports preset + legacy numeric)
+  // Apply saved appearance settings on mount via shared utility
   useEffect(() => {
-    window.electronAPI?.getConfig().then((cfg) => {
-      const theme = cfg.APPEARANCE_THEME || "dark";
-      const accent = cfg.APPEARANCE_ACCENT_COLOR || "#58a6ff";
-      const sw = Number(cfg.APPEARANCE_SIDEBAR_WIDTH) || 48;
-      const root = document.documentElement;
-      const body = document.body;
-      if (theme === "light") {
-        root.style.setProperty("--bg", "#ffffff");
-        root.style.setProperty("--surface", "#f6f8fa");
-        root.style.setProperty("--surface-hover", "#eaeef2");
-        root.style.setProperty("--border", "#d0d7de");
-        root.style.setProperty("--text", "#1f2328");
-        root.style.setProperty("--text-muted", "#656d76");
-      }
-      root.style.setProperty("--accent", accent);
-      root.style.setProperty("--accent-hover", accent + "cc");
-      root.style.setProperty("--accent-border", accent + "44");
-      // Font size: handle both new preset names ("small"/"medium"/"large")
-      // and legacy numeric values (e.g. "14")
-      const rawFs = cfg.APPEARANCE_FONT_SIZE;
-      let scale = 1;
-      if (rawFs === "small") scale = 0.85;
-      else if (rawFs === "large") scale = 1.15;
-      else if (rawFs === "medium" || !rawFs) scale = 1;
-      else {
-        const num = Number(rawFs);
-        if (!isNaN(num)) scale = num <= 13 ? 0.85 : num >= 16 ? 1.15 : 1;
-      }
-      root.style.setProperty("--fs-scale", String(scale));
-      const basePx = 14 * scale;
-      body.style.setProperty("font-size", `${basePx}px`);
-      root.style.setProperty("--sidebar-width", `${sw}px`);
-    });
+    loadAndApplyAppearance();
   }, []);
 
   // ── Sidebar drag-to-resize ──
@@ -503,17 +472,6 @@ export default function App() {
                           />
                         )}
 
-                        {/* Clear button when job is done or failed — moves job to history */}
-                        {view === "results" &&
-                          statusData &&
-                          (statusData.status === "failed" || ["delivered", "refined", "summarized", "analyzed"].includes(statusData.status)) && (
-                            <div style={{ display: "flex", gap: 8 }}>
-                              <button className="btn-secondary" onClick={handleNew} style={{ flex: 1, marginTop: 0 }}>
-                                ✕ Clear &amp; Close
-                              </button>
-                            </div>
-                          )}
-
                         {view === "results" && statusHook.state === "error" && !statusData && (
                           <div className="panel actions-panel">
                             <h2>❌ Processing Failed</h2>
@@ -523,37 +481,37 @@ export default function App() {
                             <button className="btn-primary" onClick={handleNew}>
                               Try Again
                             </button>
-                            <button className="btn-secondary" onClick={handleNew} style={{ marginTop: 8 }}>
-                              Clear &amp; Close
-                            </button>
                           </div>
                         )}
 
-                        {view === "results" && statusHook.state !== "error" && statusData?.status !== "failed" && (
-                          <div className="panel actions-panel">
-                            <h2>What would you like to do next?</h2>
-                            <div className="rv-actions-grid">
-                              <button className="btn-primary" onClick={handleNew}>
-                                Upload Another Meeting
-                              </button>
-                              <button className="btn-secondary" onClick={handleNew}>
-                                Clear &amp; Close
-                              </button>
-                              {(!["complete", "delivered"].includes(statusData?.status) || statusHook.state === "polling") && (
-                                <button
-                                  className="btn-secondary"
-                                  onClick={handleCancel}
-                                  disabled={cancelling}
-                                  style={{ borderColor: "var(--red)", color: "var(--red)" }}>
-                                  {cancelling ? "⏳ Cancelling…" : "⏹ Cancel Job"}
+                        {view === "results" &&
+                          statusData &&
+                          (statusData.status === "failed" ||
+                            statusData.status === "cancelled" ||
+                            ["delivered", "refined", "summarized", "analyzed", "complete"].includes(statusData.status)) && (
+                            <div className="panel actions-panel">
+                              <h2>What would you like to do next?</h2>
+                              <div className="rv-actions-grid">
+                                <button className="btn-primary" onClick={handleNew}>
+                                  Upload Another Meeting
                                 </button>
-                              )}
+                                {statusData.status !== "cancelled" &&
+                                  statusData.status !== "failed" &&
+                                  !["delivered", "complete"].includes(statusData.status) && (
+                                    <button
+                                      className="btn-secondary"
+                                      onClick={handleCancel}
+                                      disabled={cancelling}
+                                      style={{ borderColor: "var(--red)", color: "var(--red)" }}>
+                                      {cancelling ? "⏳ Cancelling…" : "⏹ Cancel Job"}
+                                    </button>
+                                  )}
+                              </div>
+                              <p className="config-hint" style={{ marginTop: 10, marginBottom: 0 }}>
+                                The job is saved to history and can be reopened anytime from the <strong>📋 History</strong> panel.
+                              </p>
                             </div>
-                            <p className="config-hint" style={{ marginTop: 10, marginBottom: 0 }}>
-                              The job is saved to history and can be reopened anytime from the <strong>📋 History</strong> panel.
-                            </p>
-                          </div>
-                        )}
+                          )}
                       </>
                     )}
                   </div>

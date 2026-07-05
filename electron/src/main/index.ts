@@ -403,6 +403,65 @@ ipcMain.handle("config:getWithSources", () => {
   return getConfigWithSources();
 });
 
+// ── Aggregate Token Usage ──
+
+ipcMain.handle("api:getAggregateUsage", async () => {
+  try {
+    const res = await fetch("http://127.0.0.1:5010/tools/call", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tool: "transcribe_get_aggregate_usage", args: {} }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      addLog("main", "info", `💰 [USAGE] Aggregate token usage fetched: ${data.job_count} jobs, ${data.totals?.total_tokens || 0} total tokens`);
+      return data;
+    }
+    addLog("main", "warn", `💰 [USAGE] Aggregate token usage fetch failed: bridge returned ${res.status}`);
+    return { error: `Bridge returned ${res.status}` };
+  } catch (err: any) {
+    addLog("main", "warn", `💰 [USAGE] Aggregate token usage fetch failed: ${err.message}`);
+    return { error: `Bridge unreachable: ${err.message}` };
+  }
+});
+
+// ── DeepSeek API Credit / Balance ──
+
+ipcMain.handle("api:checkDeepSeekBalance", async () => {
+  const cfg = getConfig();
+  const apiKey = cfg.DEEPSEEK_API_KEY;
+  if (!apiKey) {
+    addLog("main", "warn", "💰 [USAGE] Credit balance check skipped — no API key configured");
+    return { available: false, balance: null, error: "No API key configured" };
+  }
+  try {
+    const res = await fetch("https://api.deepseek.com/user/balance", {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "Unknown");
+      addLog("main", "warn", `💰 [USAGE] Credit balance check failed: API Error ${res.status}`);
+      return { available: false, balance: null, error: `API Error ${res.status}: ${text}` };
+    }
+    const data = await res.json();
+    // DeepSeek returns:
+    //   { balance_infos: [{ total_balance: "12.34", topped_up_balance: "10.00", grant_balance: "2.34" }], is_available: true }
+    // Extract total_balance from the first balance_info entry (fall back to flat `balance` for older API versions).
+    const balance = data.balance_infos?.[0]?.total_balance ?? data.balance ?? null;
+    addLog("main", "info", `💰 [USAGE] Credit balance checked: $${balance || "0"} (available: ${data.is_available ?? true})`);
+    return {
+      available: data.is_available ?? true,
+      balance,
+      error: null,
+    };
+  } catch (err: any) {
+    addLog("main", "warn", `💰 [USAGE] Credit balance check failed: ${err.message}`);
+    return { available: false, balance: null, error: err.message };
+  }
+});
+
 // ── Config Export / Import IPC ──
 
 ipcMain.handle("config:export", async () => {
@@ -669,6 +728,155 @@ ipcMain.handle("storage:usage", async () => {
 registerAutoUpdateIpc();
 
 // ── Performance Metrics IPC ──
+
+/** In-memory buffer: jobId -> PerformanceSnapshot[] */
+interface PerfSample {
+  timestamp: number;
+  cpu: number;
+  memoryBytes: number;
+  label: string;
+  /** Pipeline stage key at time of sample (e.g. "transcription", "agent") */
+  stage: string | null;
+}
+
+/** Map backend status values to pipeline stage keys (mirrors DevPanel) */
+const STATUS_TO_STAGE: Record<string, string> = {
+  uploaded: "uploaded",
+  initializing: "initializing",
+  processing_diarization: "diarization",
+  matching_voiceprints: "voiceprints",
+  processing_transcription: "transcription",
+  aligning: "aligning",
+  transcribed: "agent",
+  ready_for_agent: "agent",
+  labeling_needed: "agent",
+  refined: "agent",
+  summarized: "agent",
+  analyzed: "memory",
+  delivered: "delivery",
+  complete: "delivery",
+};
+
+const jobPerfBuffers: Map<string, PerfSample[]> = new Map();
+let perfSamplerInterval: ReturnType<typeof setInterval> | null = null;
+
+/** Start/restart the periodic performance sampler that captures per-job data. */
+function ensurePerfSampler() {
+  if (perfSamplerInterval) return;
+  perfSamplerInterval = setInterval(async () => {
+    try {
+      // Check for active jobs
+      const res = await fetch("http://127.0.0.1:5001/transcribe/active", {
+        signal: AbortSignal.timeout(3000),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const jobs: Array<{ job_id: string; status: string; progress: number }> = data.active_jobs || [];
+      if (jobs.length === 0) return;
+
+      // Capture pidusage for all child processes
+      const childPids = getChildPids();
+      const pidMap: Record<number, string> = {};
+      const pids: number[] = [];
+      for (const [service, pid] of Object.entries(childPids)) {
+        if (pid) {
+          pidMap[pid] = service;
+          pids.push(pid);
+        }
+      }
+      let childStats: Record<string, { cpu: number; memory: number }> = {};
+      if (pids.length > 0) {
+        try {
+          const stats = await pidusage(pids);
+          for (const [pidStr, stat] of Object.entries(stats)) {
+            const service = pidMap[Number(pidStr)] || "unknown";
+            childStats[service] = { cpu: stat.cpu, memory: stat.memory };
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+
+      // Save snapshot for each active job
+      const now = Date.now();
+      for (const job of jobs) {
+        const jobId = job.job_id;
+        if (!jobId) continue;
+        const stageKey = STATUS_TO_STAGE[job.status] || null;
+        if (!jobPerfBuffers.has(jobId)) jobPerfBuffers.set(jobId, []);
+        const buf = jobPerfBuffers.get(jobId)!;
+        for (const [label, stats] of Object.entries(childStats)) {
+          buf.push({ timestamp: now, cpu: stats.cpu, memoryBytes: stats.memory, label, stage: stageKey });
+        }
+        // Trim to last 500 samples per job
+        if (buf.length > 500) jobPerfBuffers.set(jobId, buf.slice(-500));
+      }
+    } catch {
+      /* backend not reachable */
+    }
+  }, 5000);
+}
+
+function stopPerfSampler() {
+  if (perfSamplerInterval) {
+    clearInterval(perfSamplerInterval);
+    perfSamplerInterval = null;
+  }
+}
+
+// Call ensurePerfSampler on startup
+setTimeout(ensurePerfSampler, 10000);
+
+ipcMain.handle("metrics:getPerJobPerformance", async (_event, jobId: string) => {
+  // First try in-memory buffer
+  const buf = jobPerfBuffers.get(jobId);
+  if (buf && buf.length > 0) return buf;
+  // Try reading from disk
+  const storageDir = process.env.TRANSCRIPTION_STORAGE || path.join(app.getPath("userData"), "storage");
+  const perfPath = path.join(storageDir, jobId, "performance.jsonl");
+  try {
+    if (fs.existsSync(perfPath)) {
+      const lines = fs.readFileSync(perfPath, "utf8").split("\n").filter(Boolean);
+      return lines.map((l) => JSON.parse(l));
+    }
+  } catch {
+    /* ignore */
+  }
+  return [];
+});
+
+ipcMain.handle("metrics:getAggregatePerformance", async () => {
+  // Collect all in-memory buffers
+  const result: Array<{ jobId: string; samples: PerfSample[] }> = [];
+  for (const [jobId, samples] of jobPerfBuffers) {
+    if (samples.length > 0) result.push({ jobId, samples });
+  }
+  // Also scan storage dir for persisted performance data
+  const storageDir = process.env.TRANSCRIPTION_STORAGE || path.join(app.getPath("userData"), "storage");
+  try {
+    if (fs.existsSync(storageDir)) {
+      const dirs = fs.readdirSync(storageDir);
+      for (const entry of dirs) {
+        const perfPath = path.join(storageDir, entry, "performance.jsonl");
+        if (fs.existsSync(perfPath)) {
+          // If not already in-memory, read from disk
+          if (!jobPerfBuffers.has(entry)) {
+            try {
+              const lines = fs.readFileSync(perfPath, "utf8").split("\n").filter(Boolean);
+              const samples = lines.map((l) => JSON.parse(l));
+              if (samples.length > 0) result.push({ jobId: entry, samples });
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return result;
+});
 
 ipcMain.handle("metrics:getAll", async () => {
   // 1. Electron app metrics (main, renderer, GPU, utility processes)

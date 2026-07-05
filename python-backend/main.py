@@ -393,6 +393,50 @@ async def get_analysis(job_id: str):
     return data
 
 
+@app.get("/transcribe/usage/aggregate")
+async def get_aggregate_usage():
+    """Aggregate token usage across all jobs. Scans storage dir for usage.json files."""
+    results = []
+    totals = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    storage = config.STORAGE_PATH
+    if not os.path.isdir(storage):
+        print(f"[api] GET /transcribe/usage/aggregate → empty (no storage dir)")
+        return {"jobs": [], "totals": totals, "job_count": 0}
+
+    for entry in os.listdir(storage):
+        job_dir = os.path.join(storage, entry)
+        usage_path = os.path.join(job_dir, "usage.json")
+        if not os.path.isdir(job_dir) or not os.path.exists(usage_path):
+            continue
+        try:
+            with open(usage_path) as f:
+                data = json.load(f)
+            job_totals = data.get("totals", {})
+            results.append({
+                "job_id": entry,
+                "title": data.get("title", entry),
+                "provider": data.get("provider", "unknown"),
+                "model": data.get("model", "unknown"),
+                "step_count": len(data.get("steps", [])),
+                "totals": {
+                    "prompt_tokens": job_totals.get("prompt_tokens", 0),
+                    "completion_tokens": job_totals.get("completion_tokens", 0),
+                    "total_tokens": job_totals.get("total_tokens", 0),
+                },
+                "saved_at": data.get("saved_at", ""),
+            })
+            totals["prompt_tokens"] += job_totals.get("prompt_tokens", 0)
+            totals["completion_tokens"] += job_totals.get("completion_tokens", 0)
+            totals["total_tokens"] += job_totals.get("total_tokens", 0)
+        except (json.JSONDecodeError, IOError):
+            continue
+
+    # Sort by saved_at descending
+    results.sort(key=lambda r: r.get("saved_at", ""), reverse=True)
+    print(f"💰 [USAGE] Aggregate token usage: {len(results)} jobs, {totals['total_tokens']} total tokens ({totals['prompt_tokens']} prompt + {totals['completion_tokens']} completion)")
+    return {"jobs": results, "totals": totals, "job_count": len(results)}
+
+
 @app.get("/transcribe/usage/{job_id}")
 async def get_token_usage(job_id: str):
     """Return token usage data recorded by the agent runner during LLM processing."""

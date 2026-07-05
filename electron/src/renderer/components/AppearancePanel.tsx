@@ -1,12 +1,14 @@
 /**
  * AppearancePanel — theme, accent color, font size preset & sidebar width controls.
  *
- * Font size uses proportional presets (Small / Medium / Large) that scale all
- * text levels via the --fs-scale CSS custom property. The preset string is
- * persisted to the Electron config store (config.json).
+ * All values are read from and saved to the Electron config (config.json).
+ * Changes are applied and saved on every input — no separate save button needed.
+ * The shared appearance utility in ../appearance.ts handles all CSS variable application.
  */
 
 import React, { useState, useEffect, useCallback } from "react";
+import { applyAppearance, saveAndApplyAppearance, readFontPreset, FONT_SIZE_PRESETS } from "../appearance";
+import type { FontSizePreset, AppearanceConfig } from "../appearance";
 
 interface Props {
   onClose: () => void;
@@ -23,46 +25,13 @@ const ACCENT_PRESETS = [
   { label: "Yellow", value: "#e3b341" },
 ];
 
-type FontSizePreset = "small" | "medium" | "large";
-
-interface FontPresetOption {
-  label: string;
-  value: FontSizePreset;
-  scale: number;
-  description: string;
-}
-
-const FONT_SIZE_PRESETS: FontPresetOption[] = [
-  { label: "Small", value: "small", scale: 0.85, description: "Compact view" },
-  { label: "Medium", value: "medium", scale: 1.0, description: "Default size" },
-  { label: "Large", value: "large", scale: 1.15, description: "Easier reading" },
-];
-
-/** Map an old numeric font-size (px) to the nearest preset for backward compat. */
-function numericToPreset(px: number): FontSizePreset {
-  if (px <= 13) return "small";
-  if (px >= 16) return "large";
-  return "medium";
-}
-
-/** Read the preset string from config, handling old numeric values. */
-function readFontPreset(cfg: any): FontSizePreset {
-  const raw = cfg.APPEARANCE_FONT_SIZE;
-  if (raw === "small" || raw === "medium" || raw === "large") return raw;
-  const num = Number(raw);
-  if (!isNaN(num)) return numericToPreset(num);
-  return "medium";
-}
-
 export default function AppearancePanel({ onClose }: Props) {
   const [theme, setTheme] = useState("dark");
   const [accentColor, setAccentColor] = useState("#58a6ff");
   const [fontPreset, setFontPreset] = useState<FontSizePreset>("medium");
   const [sidebarWidth, setSidebarWidth] = useState(48);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
 
-  // Load current config
+  // Load current config on mount
   useEffect(() => {
     window.electronAPI?.getConfig().then((cfg) => {
       setTheme(cfg.APPEARANCE_THEME || "dark");
@@ -72,70 +41,28 @@ export default function AppearancePanel({ onClose }: Props) {
     });
   }, []);
 
-  // Apply theme + accent + font scale + sidebar width immediately via CSS custom properties
-  const applyAppearance = useCallback((t: string, accent: string, preset: FontSizePreset, sw: number) => {
-    const root = document.documentElement;
-    const body = document.body;
-
-    // Theme: swap between dark and light variable sets
-    if (t === "light") {
-      root.style.setProperty("--bg", "#ffffff");
-      root.style.setProperty("--surface", "#f6f8fa");
-      root.style.setProperty("--surface-hover", "#eaeef2");
-      root.style.setProperty("--border", "#d0d7de");
-      root.style.setProperty("--text", "#1f2328");
-      root.style.setProperty("--text-muted", "#656d76");
-    } else {
-      root.style.setProperty("--bg", "#0d1117");
-      root.style.setProperty("--surface", "#161b22");
-      root.style.setProperty("--surface-hover", "#1c2333");
-      root.style.setProperty("--border", "#30363d");
-      root.style.setProperty("--text", "#e6edf3");
-      root.style.setProperty("--text-muted", "#8b949e");
-    }
-
-    // Accent color — applies to buttons, highlights, and borders
-    root.style.setProperty("--accent", accent);
-    root.style.setProperty("--accent-hover", accent + "cc");
-    root.style.setProperty("--accent-border", accent + "44");
-
-    // Font size preset — set the scale factor; all --fs-* CSS variables cascade
-    const scale = FONT_SIZE_PRESETS.find((p) => p.value === preset)?.scale ?? 1;
-    root.style.setProperty("--fs-scale", String(scale));
-
-    // Also set body font-size so base text immediately reflects the scale
-    const basePx = 14 * scale;
-    body.style.setProperty("font-size", `${basePx}px`);
-
-    // Sidebar width
-    root.style.setProperty("--sidebar-width", `${sw}px`);
+  // Debounced save — persists to config whenever any value changes
+  const persistRef = React.useRef<ReturnType<typeof setTimeout>>();
+  const persistAppearance = useCallback((config: AppearanceConfig) => {
+    if (persistRef.current) clearTimeout(persistRef.current);
+    persistRef.current = setTimeout(() => {
+      saveAndApplyAppearance(config);
+    }, 200);
   }, []);
 
-  // Re-apply whenever local state changes (live preview)
+  // Apply and persist on every state change
   useEffect(() => {
-    applyAppearance(theme, accentColor, fontPreset, sidebarWidth);
-  }, [theme, accentColor, fontPreset, sidebarWidth, applyAppearance]);
+    const config: AppearanceConfig = { theme, accentColor, fontSize: fontPreset, sidebarWidth };
+    applyAppearance(config);
+    persistAppearance(config);
+  }, [theme, accentColor, fontPreset, sidebarWidth, persistAppearance]);
 
-  const handleSave = useCallback(async () => {
-    setSaving(true);
-    try {
-      await window.electronAPI?.saveConfig({
-        APPEARANCE_THEME: theme,
-        APPEARANCE_ACCENT_COLOR: accentColor,
-        APPEARANCE_FONT_SIZE: fontPreset,
-        APPEARANCE_SIDEBAR_WIDTH: String(sidebarWidth),
-      });
-      setSaved(true);
-      setTimeout(() => {
-        setSaved(false);
-        onClose();
-      }, 1200);
-    } catch {
-      // fall through
-    } finally {
-      setSaving(false);
-    }
-  }, [theme, accentColor, fontPreset, sidebarWidth, onClose]);
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (persistRef.current) clearTimeout(persistRef.current);
+    };
+  }, []);
 
   return (
     <div className="panel appearance-panel">
@@ -210,10 +137,7 @@ export default function AppearancePanel({ onClose }: Props) {
       </div>
 
       <div className="appearance-footer">
-        {saved && <span className="appearance-success">✅ Saved</span>}
-        <button className="appearance-save-btn" onClick={handleSave} disabled={saving}>
-          {saving ? "Saving…" : "Save & Close"}
-        </button>
+        <span className="appearance-hint">Changes are saved automatically</span>
       </div>
     </div>
   );

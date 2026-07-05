@@ -48,7 +48,7 @@ interface ConfigValues {
 
 interface ConfigSourceInfo {
   value: string;
-  source: "user_config" | "env_file" | "default";
+  source: "user_config" | "default";
 }
 
 interface AgentConfig {
@@ -83,14 +83,7 @@ const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secre
 
 const SOURCE_LABELS: Record<string, string> = {
   user_config: "User Config (config.json)",
-  env_file: ".env file",
   default: "Default value",
-};
-
-const SOURCE_COLORS: Record<string, string> = {
-  user_config: "var(--green)",
-  env_file: "var(--accent)",
-  default: "var(--text-muted)",
 };
 
 function formatOllamaSize(bytes: number): string {
@@ -894,7 +887,7 @@ export default function ConfigPanel({ onClose }: Props) {
         {activeTab === "config" && mode === "view" && (
           <>
             <p className="config-hint">
-              Current configuration values and their sources. Priority: <strong>User Config</strong> &gt; <strong>.env file</strong> &gt;{" "}
+              Current configuration values and their sources. All values are read from <strong>User Config</strong> with fallback to{" "}
               <strong>Defaults</strong>.
               <button className="config-refresh-btn" onClick={handleRefreshSources} title="Refresh config values">
                 ↻ Refresh
@@ -903,7 +896,7 @@ export default function ConfigPanel({ onClose }: Props) {
 
             <div className="config-source-legend">
               <span className="config-source-tag config-source-tag--user_config">User Config</span>
-              <span className="config-source-tag config-source-tag--env_file">.env File</span>
+
               <span className="config-source-tag config-source-tag--default">Default</span>
             </div>
 

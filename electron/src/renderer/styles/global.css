@@ -448,7 +448,10 @@ body {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
+  max-height: 100%;
 }
 
 .pp-container--error {
@@ -541,7 +544,8 @@ body {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  max-height: 420px;
+  flex: 1;
+  min-height: 0;
 }
 
 .pp-step {
@@ -1312,6 +1316,71 @@ body {
   color: #fff;
 }
 
+.credit-btn {
+  border-color: var(--border);
+  color: var(--text-muted);
+  font-size: var(--fs-13);
+  padding: 2px 8px;
+  cursor: default;
+}
+
+.credit-btn:hover {
+  background: var(--surface-hover);
+  border-color: var(--accent);
+}
+
+.credit-btn-wrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+.credit-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 1000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.credit-popover-arrow {
+  position: absolute;
+  bottom: -6px;
+  right: 14px;
+  width: 10px;
+  height: 10px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  transform: rotate(45deg);
+}
+
+.credit-popover-label {
+  font-size: var(--fs-11);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.credit-popover-balance {
+  font-size: var(--fs-20);
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.credit-popover-error {
+  font-size: var(--fs-12);
+  color: var(--red);
+  word-break: break-word;
+}
+
 /* ── Dev Panel ── */
 
 .dev-panel {
@@ -1912,12 +1981,6 @@ body {
   background: rgba(63, 185, 80, 0.15);
   color: var(--green);
   border: 1px solid rgba(63, 185, 80, 0.3);
-}
-
-.config-source-tag--env_file {
-  background: rgba(88, 166, 255, 0.15);
-  color: var(--accent);
-  border: 1px solid rgba(88, 166, 255, 0.3);
 }
 
 .config-source-tag--default {
@@ -2676,6 +2739,7 @@ body {
   border-collapse: collapse;
   font-size: var(--fs-11);
   font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  table-layout: fixed;
 }
 
 .dev-panel-db-table th {
@@ -2695,7 +2759,6 @@ body {
   padding: 4px 12px;
   border-bottom: 1px solid var(--border);
   color: var(--text);
-  max-width: 300px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2750,6 +2813,19 @@ body {
   background: var(--bg);
 }
 
+/* Table-based expanded detail — matches collapsed row styling, no boxes */
+.dev-panel-db-detail-cell {
+  padding: 4px 12px !important;
+  vertical-align: top;
+  max-width: none !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  white-space: normal !important;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+/* Legacy stacked detail — kept for backward compatibility */
 .dev-panel-db-detail {
   padding: 12px 16px 12px 44px;
   display: flex;
@@ -5679,4 +5755,81 @@ body {
 .appearance-save-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* ── Usage Tab — Bar Chart ── */
+
+.usage-bar-chart {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+
+.usage-bar-chart-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.usage-bar-chart-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  cursor: default;
+}
+
+.usage-bar-chart-row:hover {
+  background: rgba(88, 166, 255, 0.04);
+  border-radius: 4px;
+}
+
+.usage-bar-chart-label {
+  min-width: 140px;
+  max-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  line-height: 1.3;
+  overflow: hidden;
+}
+
+.usage-bar-chart-title {
+  font-size: var(--fs-11);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.usage-bar-chart-id {
+  font-size: var(--fs-9);
+  color: var(--text-muted);
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  opacity: 0.6;
+}
+
+.usage-bar-chart-track {
+  flex: 1;
+  height: 14px;
+  background: var(--bg);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.usage-bar-chart-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.4s ease;
+  min-width: 4px;
+}
+
+.usage-bar-chart-value {
+  font-size: var(--fs-10);
+  font-weight: 600;
+  color: var(--text-muted);
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  min-width: 45px;
+  text-align: right;
 }

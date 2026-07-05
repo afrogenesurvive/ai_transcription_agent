@@ -59,7 +59,7 @@ export interface LogFileInfo {
 
 export interface ConfigValueSource {
   value: string;
-  source: "user_config" | "env_file" | "default";
+  source: "user_config" | "default";
 }
 
 export interface StorageUsage {
@@ -113,6 +113,17 @@ export interface ElectronAPI {
     electron: Array<{ type: string; pid: number; cpu: number | null; memory: number | null; peakMemory: number | null }>;
     children: Array<{ service: string; pid: number; cpu: number; memory: number; elapsed: number }>;
   }>;
+
+  // ── Per-Job & Aggregate Performance ──
+  getPerJobPerformance: (
+    jobId: string,
+  ) => Promise<Array<{ timestamp: number; cpu: number; memoryBytes: number; label: string; stage: string | null }>>;
+  getAggregatePerformance: () => Promise<
+    Array<{
+      jobId: string;
+      samples: Array<{ timestamp: number; cpu: number; memoryBytes: number; label: string; stage: string | null }>;
+    }>
+  >;
   // ── Native Notifications ──
   showNotification: (title: string, body: string) => Promise<void>;
 
@@ -142,6 +153,30 @@ export interface ElectronAPI {
   setAutoUpdateEnabled: (enabled: boolean) => Promise<{ success: boolean }>;
   downloadUpdate: () => Promise<{ success: boolean; error: string | null }>;
   installUpdate: () => Promise<{ success: boolean }>;
+
+  // ── DeepSeek API Credit Balance ──
+  checkDeepSeekBalance: () => Promise<{
+    available: boolean;
+    balance: string | null;
+    error: string | null;
+  }>;
+
+  // ── Aggregate Token Usage ──
+  getAggregateUsage: () => Promise<{
+    jobs: Array<{
+      job_id: string;
+      title: string;
+      provider: string;
+      model: string;
+      step_count: number;
+      totals: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+      saved_at: string;
+    }>;
+    totals: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+    job_count: number;
+    error?: string;
+  }>;
+
   platform: string;
 }
 
