@@ -19,7 +19,6 @@ interface Props {
   onClose: () => void;
 }
 
-type ConfigMode = "edit" | "view";
 type ConfigTab = "config" | "agent" | "logging";
 
 interface ConfigValues {
@@ -97,20 +96,19 @@ function formatOllamaSize(bytes: number): string {
 
 export default function ConfigPanel({ onClose }: Props) {
   const [activeTab, setActiveTab] = useState<ConfigTab>("config");
-  const [mode, setMode] = useState<ConfigMode>("edit");
+  const [configSection, setConfigSection] = useState<string>("LLM Provider");
   const [values, setValues] = useState<ConfigValues>({} as ConfigValues);
   const [sourceInfo, setSourceInfo] = useState<Record<string, ConfigSourceInfo>>({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set());
+  const [visibleKeys, setVisibleKeys] = useState<Set<keyof ConfigValues>>(new Set());
 
   const toggleVisible = (key: keyof ConfigValues) => {
-    const k = key as string;
     setVisibleKeys((prev) => {
       const next = new Set(prev);
-      if (next.has(k)) next.delete(k);
-      else next.add(k);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };
@@ -338,7 +336,6 @@ export default function ConfigPanel({ onClose }: Props) {
 
   // ── Load config on open ──
   useEffect(() => {
-    setMode("edit");
     setSaved(false);
     setError(null);
     setRestartNeeded(false);
@@ -463,10 +460,9 @@ export default function ConfigPanel({ onClose }: Props) {
     onClose();
   }, [onClose]);
 
-  const handleRefreshSources = useCallback(async () => {
-    const info = (await window.electronAPI?.getConfigWithSources()) || {};
-    setSourceInfo(info);
-  }, []);
+  // ── Agent sub-tab state ──
+  type AgentSubTab = "system-prompt" | "pipeline-hints" | "pipeline-constants";
+  const [agentSubTab, setAgentSubTab] = useState<AgentSubTab>("system-prompt");
 
   // Group fields by section
   const sections = new Map<string, typeof FIELDS>();
@@ -474,12 +470,12 @@ export default function ConfigPanel({ onClose }: Props) {
     if (!sections.has(field.section)) sections.set(field.section, []);
     sections.get(field.section)!.push(field);
   }
+  const sectionNames = Array.from(sections.keys());
 
   return (
     <div className="config-panel config-panel--full">
       <div className="config-header">
-        <h2>⚙️ Configuration</h2>
-        <div className="config-header-actions">
+        <div className="config-header-left">
           {/* Tab bar */}
           <div className="config-tab-bar">
             <button className={`config-tab ${activeTab === "config" ? "config-tab--active" : ""}`} onClick={() => setActiveTab("config")}>
@@ -492,19 +488,9 @@ export default function ConfigPanel({ onClose }: Props) {
               📝 Logging
             </button>
           </div>
-          <div className="config-mode-toggle">
-            <button className={`config-mode-btn ${mode === "edit" ? "config-mode-btn--active" : ""}`} onClick={() => setMode("edit")}>
-              ✏️ Edit
-            </button>
-            <button
-              className={`config-mode-btn ${mode === "view" ? "config-mode-btn--active" : ""}`}
-              onClick={() => {
-                setMode("view");
-                handleRefreshSources();
-              }}>
-              👁️ View Current
-            </button>
-          </div>
+          <h2>⚙️ Configuration</h2>
+        </div>
+        <div className="config-header-right">
           {/* Export / Import buttons */}
           <div className="config-io-buttons">
             <button className="config-io-btn" onClick={handleExport} disabled={exporting} title="Export configuration to a file">
@@ -532,426 +518,394 @@ export default function ConfigPanel({ onClose }: Props) {
                 </li>
               ))}
             </ul>
-            <p>
-              Configuration cannot be modified while jobs are in progress. Switch to <strong>👁️ View Current</strong> mode to review, or wait for jobs
-              to complete.
-            </p>
+            <p>Configuration cannot be modified while jobs are in progress. Wait for jobs to complete.</p>
           </div>
         )}
 
         {/* ── TAB 1: LLM & Delivery Config ── */}
-        {activeTab === "config" && mode === "edit" && (
+        {activeTab === "config" && (
           <>
             <p className="config-hint">
               Enter your API keys and credentials. Required fields are marked with <span className="config-required">*</span>. Values are stored in
               your user data directory{activeJobs.length > 0 ? <strong>. Editing disabled while {activeJobs.length} job(s) running</strong> : ""}.
             </p>
 
-            {Array.from(sections.entries()).map(([sectionName, fields]) => (
-              <div key={sectionName} className="config-section">
-                <h3 className="config-section-title">{sectionName}</h3>
-
-                {sectionName === "LLM Provider" && (
-                  <>
-                    <div className="config-field">
-                      <label className="config-label">
-                        LLM Provider <span className="config-required">*</span>
-                      </label>
-                      <div className="config-radio-group">
-                        <label className={`config-radio ${values.LLM_PROVIDER === "deepseek" ? "config-radio--selected" : ""}`}>
-                          <input
-                            type="radio"
-                            name="llm-provider"
-                            value="deepseek"
-                            checked={values.LLM_PROVIDER === "deepseek"}
-                            onChange={() => handleChange("LLM_PROVIDER", "deepseek")}
-                            disabled={activeJobs.length > 0}
-                          />
-                          <span className="config-radio-label">DeepSeek (API)</span>
-                          <span className="config-radio-desc">Cloud API — requires API key</span>
-                        </label>
-                        <label className={`config-radio ${values.LLM_PROVIDER === "ollama" ? "config-radio--selected" : ""}`}>
-                          <input
-                            type="radio"
-                            name="llm-provider"
-                            value="ollama"
-                            checked={values.LLM_PROVIDER === "ollama"}
-                            onChange={() => handleChange("LLM_PROVIDER", "ollama")}
-                            disabled={activeJobs.length > 0}
-                          />
-                          <span className="config-radio-label">Ollama (Local)</span>
-                          <span className="config-radio-desc">Local LLM — no API key needed</span>
-                        </label>
-                      </div>
-                      {/* ── Ollama server status indicator ── */}
-                      {values.LLM_PROVIDER === "ollama" && (
-                        <div className="config-ollama-status">
-                          {ollamaHealthChecking && ollamaHealthy === null ? (
-                            <span className="config-ollama-status-indicator config-ollama-status--checking" title="Checking Ollama server…">
-                              ⟳ Checking…
-                            </span>
-                          ) : ollamaHealthy ? (
-                            <span className="config-ollama-status-indicator config-ollama-status--up" title="Ollama server is reachable">
-                              <span className="config-ollama-status-dot config-ollama-status-dot--up" />
-                              Server Online
-                            </span>
-                          ) : (
-                            <span className="config-ollama-status-indicator config-ollama-status--down" title="Ollama server is not reachable">
-                              <span className="config-ollama-status-dot config-ollama-status-dot--down" />
-                              Server Offline
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {values.LLM_PROVIDER === "deepseek" &&
-                      fields
-                        .filter((f) => f.key === "DEEPSEEK_API_KEY")
-                        .map((field) => (
-                          <div key={field.key} className="config-field">
-                            <label className="config-label">
-                              {field.label}
-                              {field.required && <span className="config-required"> *</span>}
-                            </label>
-                            <input
-                              className="config-input"
-                              type="password"
-                              value={values[field.key] || ""}
-                              onChange={(e) => handleChange(field.key, e.target.value)}
-                              placeholder="sk-..."
-                              disabled={activeJobs.length > 0}
-                            />
-                          </div>
-                        ))}
-
-                    {values.LLM_PROVIDER === "ollama" &&
-                      fields
-                        .filter(
-                          (f) =>
-                            f.key !== "DEEPSEEK_API_KEY" &&
-                            f.key !== "OLLAMA_MODEL" &&
-                            f.key !== "OLLAMA_NUM_CTX" &&
-                            f.key !== "WHISPER_MODEL_SIZE" &&
-                            f.key !== "KEEP_TRANSCRIPT_TIMESTAMPS",
-                        )
-                        .map((field) => (
-                          <div key={field.key} className="config-field">
-                            <label className="config-label">{field.label}</label>
-                            <input
-                              className="config-input"
-                              type="text"
-                              value={values[field.key] || ""}
-                              onChange={(e) => handleChange(field.key, e.target.value)}
-                              placeholder="Optional"
-                              disabled={activeJobs.length > 0}
-                            />
-                          </div>
-                        ))}
-
-                    {/* ── Ollama Model + Context Window (only when provider is ollama) ── */}
-                    {values.LLM_PROVIDER === "ollama" && (
-                      <div className="config-section">
-                        <h3 className="config-section-title">🧠 Model & Context Window</h3>
-
-                        {/* Model selector — fixed options: qwen3.6, deepseekv2 */}
-                        <div className="config-field-row">
-                          <div className="config-field config-field--compact">
-                            <label className="config-label">
-                              Model <span className="config-required">*</span>
-                            </label>
-                            <select
-                              className="config-select"
-                              value={values.OLLAMA_MODEL || "qwen3.6"}
-                              onChange={(e) => handleChange("OLLAMA_MODEL", e.target.value)}
-                              disabled={activeJobs.length > 0}>
-                              <option value="qwen3.6">qwen3.6</option>
-                              <option value="deepseekv2">deepseekv2</option>
-                            </select>
-                          </div>
-
-                          {/* Context window — fixed options: 32K, 64K, 128K */}
-                          <div className="config-field config-field--compact">
-                            <label className="config-label">
-                              Context Window <span className="config-required">*</span>
-                            </label>
-                            <select
-                              className="config-select"
-                              value={values.OLLAMA_NUM_CTX || "32768"}
-                              onChange={(e) => handleChange("OLLAMA_NUM_CTX", e.target.value)}
-                              disabled={activeJobs.length > 0}>
-                              <option value="32768">32K (32,768 tokens)</option>
-                              <option value="65536">64K (65,536 tokens)</option>
-                              <option value="131072">128K (131,072 tokens)</option>
-                            </select>
-                          </div>
-                        </div>
-                        <p className="config-field-hint" style={{ marginTop: 4 }}>
-                          Larger context windows let the LLM process longer transcripts but use more RAM/VRAM.
-                        </p>
-                      </div>
-                    )}
-
-                    {/* ── Ollama Model Status — only when provider is ollama ── */}
-                    {values.LLM_PROVIDER === "ollama" && (
-                      <div className="config-section">
-                        <h3 className="config-section-title">🤖 Ollama Models</h3>
-
-                        {/* Server status line */}
-                        <div className="config-ollama-status config-ollama-status--section">
-                          {ollamaHealthChecking && ollamaHealthy === null ? (
-                            <span className="config-ollama-status-indicator config-ollama-status--checking">⟳ Checking server…</span>
-                          ) : ollamaHealthy ? (
-                            <span className="config-ollama-status-indicator config-ollama-status--up">
-                              <span className="config-ollama-status-dot config-ollama-status-dot--up" />
-                              Server Online
-                            </span>
-                          ) : (
-                            <span className="config-ollama-status-indicator config-ollama-status--down">
-                              <span className="config-ollama-status-dot config-ollama-status-dot--down" />
-                              Server Offline
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Loading state */}
-                        {ollamaModelsLoading && <p className="config-field-hint">Checking available models…</p>}
-
-                        {/* Connection error */}
-                        {ollamaModelsError && (
-                          <div className="config-ollama-error">
-                            ⚠️ {ollamaModelsError}
-                            <button className="config-ollama-retry-btn" onClick={fetchOllamaModels} disabled={ollamaModelsLoading}>
-                              ⟳ Retry
-                            </button>
-                          </div>
-                        )}
-
-                        {/* No models — show pull options */}
-                        {!ollamaModelsLoading && !ollamaModelsError && ollamaModels.length === 0 && (
-                          <div className="config-ollama-warning">
-                            <strong>🚫 No models available</strong>
-                            <p>Ollama is running but no models are pulled yet. Pull a model below to get started, or add one via the Ollama CLI.</p>
-                          </div>
-                        )}
-
-                        {/* Available models list */}
-                        {ollamaModels.length > 0 && (
-                          <div className="config-ollama-model-list">
-                            <p className="config-field-hint">Available models on this system:</p>
-                            {ollamaModels.map((m) => (
-                              <div key={m.name} className="config-ollama-model-item">
-                                <span className="config-ollama-model-name">{m.name}</span>
-                                <span className="config-ollama-model-size">{formatOllamaSize(m.size)}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        {/* Pull success/error feedback */}
-                        {pullSuccess && <div className="config-ollama-success">{pullSuccess}</div>}
-                        {pullError && <div className="config-ollama-error">{pullError}</div>}
-
-                        {/* Pull model buttons */}
-                        <div className="config-ollama-pull-section">
-                          <p className="config-field-hint">Pull a model for transcription processing:</p>
-                          <div className="config-ollama-pull-buttons">
-                            <button
-                              className="config-ollama-pull-btn"
-                              onClick={() => handlePullModel("deepseek-v2")}
-                              disabled={
-                                pullingModel !== null ||
-                                activeJobs.length > 0 ||
-                                ollamaModelsLoading ||
-                                ollamaModelsError !== null ||
-                                ollamaModels.some((m) => m.name === "deepseek-v2" || m.name === "deepseek-v2:latest")
-                              }
-                              title={
-                                ollamaModelsLoading
-                                  ? "Checking Ollama connection…"
-                                  : ollamaModelsError
-                                    ? "Ollama server is not reachable"
-                                    : ollamaModels.some((m) => m.name === "deepseek-v2" || m.name === "deepseek-v2:latest")
-                                      ? "deepseek-v2 is already pulled"
-                                      : ""
-                              }>
-                              {pullingModel === "deepseek-v2"
-                                ? "⟳ Pulling…"
-                                : ollamaModels.some((m) => m.name === "deepseek-v2" || m.name === "deepseek-v2:latest")
-                                  ? "✅ deepseek-v2 pulled"
-                                  : "📥 Pull deepseek-v2"}
-                            </button>
-                            <button
-                              className="config-ollama-pull-btn"
-                              onClick={() => handlePullModel("qwen3.6:27b")}
-                              disabled={
-                                pullingModel !== null ||
-                                activeJobs.length > 0 ||
-                                ollamaModelsLoading ||
-                                ollamaModelsError !== null ||
-                                ollamaModels.some((m) => m.name === "qwen3.6:27b" || m.name === "qwen3.6:27b:latest")
-                              }
-                              title={
-                                ollamaModelsLoading
-                                  ? "Checking Ollama connection…"
-                                  : ollamaModelsError
-                                    ? "Ollama server is not reachable"
-                                    : ollamaModels.some((m) => m.name === "qwen3.6:27b" || m.name === "qwen3.6:27b:latest")
-                                      ? "qwen3.6:27b is already pulled"
-                                      : ""
-                              }>
-                              {pullingModel === "qwen3.6:27b"
-                                ? "⟳ Pulling…"
-                                : ollamaModels.some((m) => m.name === "qwen3.6:27b" || m.name === "qwen3.6:27b:latest")
-                                  ? "✅ qwen3.6:27b pulled"
-                                  : "📥 Pull qwen3.6:27b"}
-                            </button>
-                          </div>
-                          {pullingModel && (
-                            <p className="config-field-hint" style={{ marginTop: 6 }}>
-                              Pulling <strong>{pullingModel}</strong> — this may take a few minutes depending on your connection speed.
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Whisper Model Size — always shown */}
-                    <div className="config-field">
-                      <label className="config-label">Whisper Model Size</label>
-                      <select
-                        className="config-select"
-                        value={values.WHISPER_MODEL_SIZE || "medium"}
-                        onChange={(e) => handleChange("WHISPER_MODEL_SIZE", e.target.value)}
-                        disabled={activeJobs.length > 0}>
-                        <option value="medium">medium — balanced speed & accuracy</option>
-                        <option value="large">large — highest accuracy, slower</option>
-                      </select>
-                    </div>
-
-                    {/* Keep Transcript Timestamps — toggle */}
-                    <div className="config-field">
-                      <label className="config-label">Transcript Timestamps</label>
-                      <label className="config-toggle">
-                        <input
-                          type="checkbox"
-                          checked={values.KEEP_TRANSCRIPT_TIMESTAMPS === "true"}
-                          onChange={(e) => handleChange("KEEP_TRANSCRIPT_TIMESTAMPS", e.target.checked ? "true" : "false")}
-                          disabled={activeJobs.length > 0}
-                        />
-                        <span className="config-toggle-slider" />
-                        <span className="config-toggle-label">
-                          {values.KEEP_TRANSCRIPT_TIMESTAMPS === "true" ? "Keep timestamps in transcript" : "Strip timestamps from transcript"}
-                        </span>
-                      </label>
-                      <p className="config-field-hint" style={{ marginTop: 4 }}>
-                        When enabled, start/end times are preserved in the refined transcript. When disabled (default), timestamps are stripped during
-                        refinement.
-                      </p>
-                    </div>
-                  </>
-                )}
-
-                {sectionName !== "LLM Provider" &&
-                  fields.map((field) => (
-                    <div key={field.key} className="config-field">
-                      <label className="config-label">
-                        {field.label}
-                        {field.required && <span className="config-required"> *</span>}
-                      </label>
-                      {field.secret ? (
-                        <input
-                          className="config-input"
-                          type="password"
-                          value={values[field.key] || ""}
-                          onChange={(e) => handleChange(field.key, e.target.value)}
-                          placeholder={field.required ? "Enter your API key..." : "Optional"}
-                          disabled={activeJobs.length > 0}
-                        />
-                      ) : (
-                        <input
-                          className="config-input"
-                          type="text"
-                          value={values[field.key] || ""}
-                          onChange={(e) => handleChange(field.key, e.target.value)}
-                          placeholder={field.required ? "Required" : "Optional"}
-                          disabled={activeJobs.length > 0}
-                        />
-                      )}
-                    </div>
-                  ))}
-              </div>
-            ))}
-          </>
-        )}
-
-        {activeTab === "config" && mode === "view" && (
-          <>
-            <p className="config-hint">
-              Current configuration values and their sources. All values are read from <strong>User Config</strong> with fallback to{" "}
-              <strong>Defaults</strong>.
-              <button className="config-refresh-btn" onClick={handleRefreshSources} title="Refresh config values">
-                ↻ Refresh
-              </button>
-            </p>
-
-            <div className="config-source-legend">
-              <span className="config-source-tag config-source-tag--user_config">User Config</span>
-
-              <span className="config-source-tag config-source-tag--default">Default</span>
+            {/* Section sub-tabs */}
+            <div className="config-section-tabs">
+              {sectionNames.map((name) => (
+                <button
+                  key={name}
+                  className={`config-section-tab ${configSection === name ? "config-section-tab--active" : ""}`}
+                  onClick={() => setConfigSection(name)}>
+                  {name === "LLM Provider" && "🧠 "}
+                  {name === "Email Delivery" && "📧 "}
+                  {name === "Trello Delivery" && "📋 "}
+                  {name === "Auto-Update" && "🔄 "}
+                  {name}
+                </button>
+              ))}
             </div>
 
-            {/* ── LLM provider misconfiguration warning ── */}
-            {(() => {
-              const info = sourceInfo;
-              const provider = info.LLM_PROVIDER?.value || "deepseek";
-              const apiKey = info.DEEPSEEK_API_KEY?.value || "";
-              const ollamaModel = info.OLLAMA_MODEL?.value || "";
-              const providerMissing = (provider === "deepseek" && !apiKey) || (provider === "ollama" && !ollamaModel);
-              if (!providerMissing) return null;
-              const message =
-                provider === "deepseek"
-                  ? "DeepSeek API key is not set — the agent runner will fail to process jobs."
-                  : "No Ollama model is configured — the agent runner will fail to process jobs.";
-              return (
-                <div className="config-llm-warning">
-                  <strong>⚠️ LLM Provider Misconfigured</strong>
-                  <p>{message}</p>
-                </div>
-              );
-            })()}
+            {Array.from(sections.entries())
+              .filter(([name]) => name === configSection)
+              .map(([sectionName, fields]) => (
+                <div key={sectionName} className="config-section">
+                  <h3 className="config-section-title">{sectionName}</h3>
 
-            {Array.from(sections.entries()).map(([sectionName, fields]) => (
-              <div key={sectionName} className="config-section">
-                <h3 className="config-section-title">{sectionName}</h3>
-                {fields.map((field) => {
-                  const info = sourceInfo[field.key];
-                  const isSecret = field.secret && info?.value ? true : false;
-                  const fieldKey = field.key as string;
-                  const isVisible = visibleKeys.has(fieldKey);
-                  const displayValue = isSecret && !isVisible ? info.value.slice(0, 8) + "…" + info.value.slice(-4) : info.value || "(not set)";
-                  return (
-                    <div key={field.key} className="config-view-field">
-                      <div className="config-view-label">
-                        <span>{field.label}</span>
-                        {info && <span className={`config-source-tag config-source-tag--${info.source}`}>{SOURCE_LABELS[info.source]}</span>}
-                      </div>
-                      <div className="config-view-value-row">
-                        <span className="config-view-value">{displayValue}</span>
-                        {isSecret && (
-                          <button
-                            className="config-visibility-toggle"
-                            onClick={() => toggleVisible(fieldKey)}
-                            title={isVisible ? "Hide value" : "Show value"}>
-                            {isVisible ? "🙈" : "👁️"}
-                          </button>
+                  {sectionName === "LLM Provider" && (
+                    <>
+                      <div className="config-field">
+                        <label className="config-label">
+                          LLM Provider <span className="config-required">*</span>
+                        </label>
+                        <div className="config-radio-group">
+                          <label className={`config-radio ${values.LLM_PROVIDER === "deepseek" ? "config-radio--selected" : ""}`}>
+                            <input
+                              type="radio"
+                              name="llm-provider"
+                              value="deepseek"
+                              checked={values.LLM_PROVIDER === "deepseek"}
+                              onChange={() => handleChange("LLM_PROVIDER", "deepseek")}
+                              disabled={activeJobs.length > 0}
+                            />
+                            <span className="config-radio-label">DeepSeek (API)</span>
+                            <span className="config-radio-desc">Cloud API — requires API key</span>
+                          </label>
+                          <label className={`config-radio ${values.LLM_PROVIDER === "ollama" ? "config-radio--selected" : ""}`}>
+                            <input
+                              type="radio"
+                              name="llm-provider"
+                              value="ollama"
+                              checked={values.LLM_PROVIDER === "ollama"}
+                              onChange={() => handleChange("LLM_PROVIDER", "ollama")}
+                              disabled={activeJobs.length > 0}
+                            />
+                            <span className="config-radio-label">Ollama (Local)</span>
+                            <span className="config-radio-desc">Local LLM — no API key needed</span>
+                          </label>
+                        </div>
+                        {/* ── Ollama server status indicator ── */}
+                        {values.LLM_PROVIDER === "ollama" && (
+                          <div className="config-ollama-status">
+                            {ollamaHealthChecking && ollamaHealthy === null ? (
+                              <span className="config-ollama-status-indicator config-ollama-status--checking" title="Checking Ollama server…">
+                                ⟳ Checking…
+                              </span>
+                            ) : ollamaHealthy ? (
+                              <span className="config-ollama-status-indicator config-ollama-status--up" title="Ollama server is reachable">
+                                <span className="config-ollama-status-dot config-ollama-status-dot--up" />
+                                Server Online
+                              </span>
+                            ) : (
+                              <span className="config-ollama-status-indicator config-ollama-status--down" title="Ollama server is not reachable">
+                                <span className="config-ollama-status-dot config-ollama-status-dot--down" />
+                                Server Offline
+                              </span>
+                            )}
+                          </div>
                         )}
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
+
+                      {values.LLM_PROVIDER === "deepseek" &&
+                        fields
+                          .filter((f) => f.key === "DEEPSEEK_API_KEY")
+                          .map((field) => (
+                            <div key={field.key} className="config-field">
+                              <label className="config-label">
+                                {field.label}
+                                {field.required && <span className="config-required"> *</span>}
+                              </label>
+                              <div className="config-input-row">
+                                <input
+                                  className="config-input"
+                                  type={visibleKeys.has(field.key) ? "text" : "password"}
+                                  value={values[field.key] || ""}
+                                  onChange={(e) => handleChange(field.key, e.target.value)}
+                                  placeholder="sk-..."
+                                  disabled={activeJobs.length > 0}
+                                />
+                                <button
+                                  className="config-visibility-toggle"
+                                  onClick={() => toggleVisible(field.key)}
+                                  title={visibleKeys.has(field.key) ? "Hide value" : "Show value"}
+                                  type="button"
+                                  tabIndex={-1}>
+                                  {visibleKeys.has(field.key) ? "🙈" : "👁️"}
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+
+                      {values.LLM_PROVIDER === "ollama" &&
+                        fields
+                          .filter(
+                            (f) =>
+                              f.key !== "DEEPSEEK_API_KEY" &&
+                              f.key !== "OLLAMA_MODEL" &&
+                              f.key !== "OLLAMA_NUM_CTX" &&
+                              f.key !== "WHISPER_MODEL_SIZE" &&
+                              f.key !== "KEEP_TRANSCRIPT_TIMESTAMPS",
+                          )
+                          .map((field) => (
+                            <div key={field.key} className="config-field">
+                              <label className="config-label">{field.label}</label>
+                              <div className="config-input-row">
+                                <input
+                                  className="config-input"
+                                  type={field.secret && !visibleKeys.has(field.key) ? "password" : "text"}
+                                  value={values[field.key] || ""}
+                                  onChange={(e) => handleChange(field.key, e.target.value)}
+                                  placeholder="Optional"
+                                  disabled={activeJobs.length > 0}
+                                />
+                                {field.secret && (
+                                  <button
+                                    className="config-visibility-toggle"
+                                    onClick={() => toggleVisible(field.key)}
+                                    title={visibleKeys.has(field.key) ? "Hide value" : "Show value"}
+                                    type="button"
+                                    tabIndex={-1}>
+                                    {visibleKeys.has(field.key) ? "🙈" : "👁️"}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+
+                      {/* ── Ollama Model + Context Window (only when provider is ollama) ── */}
+                      {values.LLM_PROVIDER === "ollama" && (
+                        <div className="config-section">
+                          <h3 className="config-section-title">🧠 Model & Context Window</h3>
+
+                          {/* Model selector — fixed options: qwen3.6, deepseekv2 */}
+                          <div className="config-field-row">
+                            <div className="config-field config-field--compact">
+                              <label className="config-label">
+                                Model <span className="config-required">*</span>
+                              </label>
+                              <select
+                                className="config-select"
+                                value={values.OLLAMA_MODEL || "qwen3.6"}
+                                onChange={(e) => handleChange("OLLAMA_MODEL", e.target.value)}
+                                disabled={activeJobs.length > 0}>
+                                <option value="qwen3.6">qwen3.6</option>
+                                <option value="deepseekv2">deepseekv2</option>
+                              </select>
+                            </div>
+
+                            {/* Context window — fixed options: 32K, 64K, 128K */}
+                            <div className="config-field config-field--compact">
+                              <label className="config-label">
+                                Context Window <span className="config-required">*</span>
+                              </label>
+                              <select
+                                className="config-select"
+                                value={values.OLLAMA_NUM_CTX || "32768"}
+                                onChange={(e) => handleChange("OLLAMA_NUM_CTX", e.target.value)}
+                                disabled={activeJobs.length > 0}>
+                                <option value="32768">32K (32,768 tokens)</option>
+                                <option value="65536">64K (65,536 tokens)</option>
+                                <option value="131072">128K (131,072 tokens)</option>
+                              </select>
+                            </div>
+                          </div>
+                          <p className="config-field-hint" style={{ marginTop: 4 }}>
+                            Larger context windows let the LLM process longer transcripts but use more RAM/VRAM.
+                          </p>
+                        </div>
+                      )}
+
+                      {/* ── Ollama Model Status — only when provider is ollama ── */}
+                      {values.LLM_PROVIDER === "ollama" && (
+                        <div className="config-section">
+                          <h3 className="config-section-title">🤖 Ollama Models</h3>
+
+                          {/* Server status line */}
+                          <div className="config-ollama-status config-ollama-status--section">
+                            {ollamaHealthChecking && ollamaHealthy === null ? (
+                              <span className="config-ollama-status-indicator config-ollama-status--checking">⟳ Checking server…</span>
+                            ) : ollamaHealthy ? (
+                              <span className="config-ollama-status-indicator config-ollama-status--up">
+                                <span className="config-ollama-status-dot config-ollama-status-dot--up" />
+                                Server Online
+                              </span>
+                            ) : (
+                              <span className="config-ollama-status-indicator config-ollama-status--down">
+                                <span className="config-ollama-status-dot config-ollama-status-dot--down" />
+                                Server Offline
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Loading state */}
+                          {ollamaModelsLoading && <p className="config-field-hint">Checking available models…</p>}
+
+                          {/* Connection error */}
+                          {ollamaModelsError && (
+                            <div className="config-ollama-error">
+                              ⚠️ {ollamaModelsError}
+                              <button className="config-ollama-retry-btn" onClick={fetchOllamaModels} disabled={ollamaModelsLoading}>
+                                ⟳ Retry
+                              </button>
+                            </div>
+                          )}
+
+                          {/* No models — show pull options */}
+                          {!ollamaModelsLoading && !ollamaModelsError && ollamaModels.length === 0 && (
+                            <div className="config-ollama-warning">
+                              <strong>🚫 No models available</strong>
+                              <p>Ollama is running but no models are pulled yet. Pull a model below to get started, or add one via the Ollama CLI.</p>
+                            </div>
+                          )}
+
+                          {/* Available models list */}
+                          {ollamaModels.length > 0 && (
+                            <div className="config-ollama-model-list">
+                              <p className="config-field-hint">Available models on this system:</p>
+                              {ollamaModels.map((m) => (
+                                <div key={m.name} className="config-ollama-model-item">
+                                  <span className="config-ollama-model-name">{m.name}</span>
+                                  <span className="config-ollama-model-size">{formatOllamaSize(m.size)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Pull success/error feedback */}
+                          {pullSuccess && <div className="config-ollama-success">{pullSuccess}</div>}
+                          {pullError && <div className="config-ollama-error">{pullError}</div>}
+
+                          {/* Pull model buttons */}
+                          <div className="config-ollama-pull-section">
+                            <p className="config-field-hint">Pull a model for transcription processing:</p>
+                            <div className="config-ollama-pull-buttons">
+                              <button
+                                className="config-ollama-pull-btn"
+                                onClick={() => handlePullModel("deepseek-v2")}
+                                disabled={
+                                  pullingModel !== null ||
+                                  activeJobs.length > 0 ||
+                                  ollamaModelsLoading ||
+                                  ollamaModelsError !== null ||
+                                  ollamaModels.some((m) => m.name === "deepseek-v2" || m.name === "deepseek-v2:latest")
+                                }
+                                title={
+                                  ollamaModelsLoading
+                                    ? "Checking Ollama connection…"
+                                    : ollamaModelsError
+                                      ? "Ollama server is not reachable"
+                                      : ollamaModels.some((m) => m.name === "deepseek-v2" || m.name === "deepseek-v2:latest")
+                                        ? "deepseek-v2 is already pulled"
+                                        : ""
+                                }>
+                                {pullingModel === "deepseek-v2"
+                                  ? "⟳ Pulling…"
+                                  : ollamaModels.some((m) => m.name === "deepseek-v2" || m.name === "deepseek-v2:latest")
+                                    ? "✅ deepseek-v2 pulled"
+                                    : "📥 Pull deepseek-v2"}
+                              </button>
+                              <button
+                                className="config-ollama-pull-btn"
+                                onClick={() => handlePullModel("qwen3.6:27b")}
+                                disabled={
+                                  pullingModel !== null ||
+                                  activeJobs.length > 0 ||
+                                  ollamaModelsLoading ||
+                                  ollamaModelsError !== null ||
+                                  ollamaModels.some((m) => m.name === "qwen3.6:27b" || m.name === "qwen3.6:27b:latest")
+                                }
+                                title={
+                                  ollamaModelsLoading
+                                    ? "Checking Ollama connection…"
+                                    : ollamaModelsError
+                                      ? "Ollama server is not reachable"
+                                      : ollamaModels.some((m) => m.name === "qwen3.6:27b" || m.name === "qwen3.6:27b:latest")
+                                        ? "qwen3.6:27b is already pulled"
+                                        : ""
+                                }>
+                                {pullingModel === "qwen3.6:27b"
+                                  ? "⟳ Pulling…"
+                                  : ollamaModels.some((m) => m.name === "qwen3.6:27b" || m.name === "qwen3.6:27b:latest")
+                                    ? "✅ qwen3.6:27b pulled"
+                                    : "📥 Pull qwen3.6:27b"}
+                              </button>
+                            </div>
+                            {pullingModel && (
+                              <p className="config-field-hint" style={{ marginTop: 6 }}>
+                                Pulling <strong>{pullingModel}</strong> — this may take a few minutes depending on your connection speed.
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Whisper Model Size — always shown */}
+                      <div className="config-field">
+                        <label className="config-label">Whisper Model Size</label>
+                        <select
+                          className="config-select"
+                          value={values.WHISPER_MODEL_SIZE || "medium"}
+                          onChange={(e) => handleChange("WHISPER_MODEL_SIZE", e.target.value)}
+                          disabled={activeJobs.length > 0}>
+                          <option value="medium">medium — balanced speed & accuracy</option>
+                          <option value="large">large — highest accuracy, slower</option>
+                        </select>
+                      </div>
+
+                      {/* Keep Transcript Timestamps — toggle */}
+                      <div className="config-field">
+                        <label className="config-label">Transcript Timestamps</label>
+                        <label className="config-toggle">
+                          <input
+                            type="checkbox"
+                            checked={values.KEEP_TRANSCRIPT_TIMESTAMPS === "true"}
+                            onChange={(e) => handleChange("KEEP_TRANSCRIPT_TIMESTAMPS", e.target.checked ? "true" : "false")}
+                            disabled={activeJobs.length > 0}
+                          />
+                          <span className="config-toggle-slider" />
+                          <span className="config-toggle-label">
+                            {values.KEEP_TRANSCRIPT_TIMESTAMPS === "true" ? "Keep timestamps in transcript" : "Strip timestamps from transcript"}
+                          </span>
+                        </label>
+                        <p className="config-field-hint" style={{ marginTop: 4 }}>
+                          When enabled, start/end times are preserved in the refined transcript. When disabled (default), timestamps are stripped
+                          during refinement.
+                        </p>
+                      </div>
+                    </>
+                  )}
+
+                  {sectionName !== "LLM Provider" &&
+                    fields.map((field) => (
+                      <div key={field.key} className="config-field">
+                        <label className="config-label">
+                          {field.label}
+                          {field.required && <span className="config-required"> *</span>}
+                        </label>
+                        <div className="config-input-row">
+                          <input
+                            className="config-input"
+                            type={field.secret && !visibleKeys.has(field.key) ? "password" : "text"}
+                            value={values[field.key] || ""}
+                            onChange={(e) => handleChange(field.key, e.target.value)}
+                            placeholder={field.required ? "Enter your API key..." : "Optional"}
+                            disabled={activeJobs.length > 0}
+                          />
+                          {field.secret && (
+                            <button
+                              className="config-visibility-toggle"
+                              onClick={() => toggleVisible(field.key)}
+                              title={visibleKeys.has(field.key) ? "Hide value" : "Show value"}
+                              type="button"
+                              tabIndex={-1}>
+                              {visibleKeys.has(field.key) ? "🙈" : "👁️"}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              ))}
           </>
         )}
 
@@ -965,7 +919,7 @@ export default function ConfigPanel({ onClose }: Props) {
           </div>
         )}
 
-        {activeTab === "agent" && !agentConfigLoading && !agentConfigError && agentConfig && mode === "edit" && (
+        {activeTab === "agent" && !agentConfigLoading && !agentConfigError && agentConfig && (
           <>
             {activeJobsLoading && <p className="config-hint">Checking for active jobs…</p>}
 
@@ -973,123 +927,148 @@ export default function ConfigPanel({ onClose }: Props) {
               Edit the instructions that control the transcription agent's behavior. Changes take effect after restarting the agent runner.
             </p>
 
+            {/* Agent sub-tab bar */}
+            <div className="config-section-tabs config-section-tabs--agent">
+              <button
+                className={`config-section-tab ${agentSubTab === "system-prompt" ? "config-section-tab--active" : ""}`}
+                onClick={() => setAgentSubTab("system-prompt")}>
+                📝 System Prompt
+              </button>
+              <button
+                className={`config-section-tab ${agentSubTab === "pipeline-hints" ? "config-section-tab--active" : ""}`}
+                onClick={() => setAgentSubTab("pipeline-hints")}>
+                🧭 Pipeline Hints
+              </button>
+              <button
+                className={`config-section-tab ${agentSubTab === "pipeline-constants" ? "config-section-tab--active" : ""}`}
+                onClick={() => setAgentSubTab("pipeline-constants")}>
+                ⚙️ Pipeline Constants
+              </button>
+            </div>
+
             {/* System Prompt */}
-            <div className="config-section">
-              <h3 className="config-section-title">📝 System Prompt</h3>
-              <p className="config-field-hint">
-                The main instruction template sent to the LLM. Use <code>{`{{TOOL_LIST}}`}</code> as a placeholder where tool descriptions are
-                injected.
-              </p>
-              <textarea
-                className="config-textarea config-textarea--large"
-                value={editSystemPrompt}
-                onChange={(e) => {
-                  setEditSystemPrompt(e.target.value);
-                  setSaved(false);
-                  setRestartNeeded(false);
-                }}
-                rows={14}
-                placeholder="You are an AI meeting transcription assistant..."
-                disabled={activeJobs.length > 0}
-              />
-            </div>
-
-            {/* Pipeline Hints */}
-            <div className="config-section">
-              <h3 className="config-section-title">🧭 Pipeline Hints</h3>
-              <p className="config-field-hint">Hint text appended to the LLM context after each tool step. Key = tool name, value = hint text.</p>
-              {Object.keys(editPipelineHints).length === 0 && <p className="config-empty">No pipeline hints loaded.</p>}
-              {Object.entries(editPipelineHints).map(([key, val]) => (
-                <div key={key} className="config-field">
-                  <label className="config-label config-label--mono">{key}</label>
-                  <input
-                    className="config-input"
-                    type="text"
-                    value={val}
-                    onChange={(e) => {
-                      setEditPipelineHints((prev) => ({ ...prev, [key]: e.target.value }));
-                      setSaved(false);
-                      setRestartNeeded(false);
-                    }}
-                    disabled={activeJobs.length > 0}
-                  />
-                </div>
-              ))}
-            </div>
-
-            {/* Pipeline Constants */}
-            <div className="config-section">
-              <h3 className="config-section-title">⚙️ Pipeline Constants</h3>
-              <div className="config-field-row">
-                <div className="config-field config-field--compact">
-                  <label className="config-label">Max Steps</label>
-                  <input
-                    className="config-input config-input--number"
-                    type="number"
-                    min={1}
-                    max={100}
-                    value={editMaxSteps}
-                    onChange={(e) => {
-                      setEditMaxSteps(parseInt(e.target.value) || 15);
-                      setSaved(false);
-                    }}
-                    disabled={activeJobs.length > 0}
-                  />
-                </div>
-                <div className="config-field config-field--compact">
-                  <label className="config-label">Max Retries</label>
-                  <input
-                    className="config-input config-input--number"
-                    type="number"
-                    min={0}
-                    max={20}
-                    value={editMaxRetries}
-                    onChange={(e) => {
-                      setEditMaxRetries(parseInt(e.target.value) || 3);
-                      setSaved(false);
-                    }}
-                    disabled={activeJobs.length > 0}
-                  />
-                </div>
-                <div className="config-field config-field--compact">
-                  <label className="config-label">Retry Delay (ms)</label>
-                  <input
-                    className="config-input config-input--number"
-                    type="number"
-                    min={100}
-                    max={30000}
-                    step={100}
-                    value={editRetryDelay}
-                    onChange={(e) => {
-                      setEditRetryDelay(parseInt(e.target.value) || 2000);
-                      setSaved(false);
-                    }}
-                    disabled={activeJobs.length > 0}
-                  />
-                </div>
-              </div>
-              <div className="config-field">
-                <label className="config-label">Terminal Tools</label>
-                <p className="config-field-hint">Comma-separated list of tool names that end the pipeline when called.</p>
-                <input
-                  className="config-input"
-                  type="text"
-                  value={editTerminalTools}
+            {agentSubTab === "system-prompt" && (
+              <div className="config-section">
+                <h3 className="config-section-title">📝 System Prompt</h3>
+                <p className="config-field-hint">
+                  The main instruction template sent to the LLM. Use <code>{`{{TOOL_LIST}}`}</code> as a placeholder where tool descriptions are
+                  injected.
+                </p>
+                <textarea
+                  className="config-textarea config-textarea--large"
+                  value={editSystemPrompt}
                   onChange={(e) => {
-                    setEditTerminalTools(e.target.value);
+                    setEditSystemPrompt(e.target.value);
                     setSaved(false);
                     setRestartNeeded(false);
                   }}
-                  placeholder="send_delivery_email, save_to_drive, create_trello_action_items"
+                  rows={14}
+                  placeholder="You are an AI meeting transcription assistant..."
                   disabled={activeJobs.length > 0}
                 />
               </div>
-            </div>
+            )}
+
+            {/* Pipeline Hints */}
+            {agentSubTab === "pipeline-hints" && (
+              <div className="config-section">
+                <h3 className="config-section-title">🧭 Pipeline Hints</h3>
+                <p className="config-field-hint">Hint text appended to the LLM context after each tool step. Key = tool name, value = hint text.</p>
+                {Object.keys(editPipelineHints).length === 0 && <p className="config-empty">No pipeline hints loaded.</p>}
+                {Object.entries(editPipelineHints).map(([key, val]) => (
+                  <div key={key} className="config-field">
+                    <label className="config-label config-label--mono">{key}</label>
+                    <input
+                      className="config-input"
+                      type="text"
+                      value={val}
+                      onChange={(e) => {
+                        setEditPipelineHints((prev) => ({ ...prev, [key]: e.target.value }));
+                        setSaved(false);
+                        setRestartNeeded(false);
+                      }}
+                      disabled={activeJobs.length > 0}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Pipeline Constants */}
+            {agentSubTab === "pipeline-constants" && (
+              <div className="config-section">
+                <h3 className="config-section-title">⚙️ Pipeline Constants</h3>
+                <div className="config-field-row">
+                  <div className="config-field config-field--compact">
+                    <label className="config-label">Max Steps</label>
+                    <input
+                      className="config-input config-input--number"
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={editMaxSteps}
+                      onChange={(e) => {
+                        setEditMaxSteps(parseInt(e.target.value) || 15);
+                        setSaved(false);
+                      }}
+                      disabled={activeJobs.length > 0}
+                    />
+                  </div>
+                  <div className="config-field config-field--compact">
+                    <label className="config-label">Max Retries</label>
+                    <input
+                      className="config-input config-input--number"
+                      type="number"
+                      min={0}
+                      max={20}
+                      value={editMaxRetries}
+                      onChange={(e) => {
+                        setEditMaxRetries(parseInt(e.target.value) || 3);
+                        setSaved(false);
+                      }}
+                      disabled={activeJobs.length > 0}
+                    />
+                  </div>
+                  <div className="config-field config-field--compact">
+                    <label className="config-label">Retry Delay (ms)</label>
+                    <input
+                      className="config-input config-input--number"
+                      type="number"
+                      min={100}
+                      max={30000}
+                      step={100}
+                      value={editRetryDelay}
+                      onChange={(e) => {
+                        setEditRetryDelay(parseInt(e.target.value) || 2000);
+                        setSaved(false);
+                      }}
+                      disabled={activeJobs.length > 0}
+                    />
+                  </div>
+                </div>
+                <div className="config-field">
+                  <label className="config-label">Terminal Tools</label>
+                  <p className="config-field-hint">Comma-separated list of tool names that end the pipeline when called.</p>
+                  <input
+                    className="config-input"
+                    type="text"
+                    value={editTerminalTools}
+                    onChange={(e) => {
+                      setEditTerminalTools(e.target.value);
+                      setSaved(false);
+                      setRestartNeeded(false);
+                    }}
+                    placeholder="send_delivery_email, save_to_drive, create_trello_action_items"
+                    disabled={activeJobs.length > 0}
+                  />
+                </div>
+              </div>
+            )}
           </>
         )}
 
         {/* ── TAB 3: Logging Config ── */}
-        {activeTab === "logging" && mode === "edit" && (
+        {activeTab === "logging" && (
           <>
             <p className="config-hint">
               Control which log sources and severity levels are written to disk log files. The in-memory log buffer (visible in the DevPanel) is never
@@ -1221,110 +1200,6 @@ export default function ConfigPanel({ onClose }: Props) {
             </div>
           </>
         )}
-
-        {activeTab === "logging" && mode === "view" && (
-          <>
-            <p className="config-hint">
-              Current logging configuration. The in-memory log buffer (DevPanel) is never affected — only disk writes are controlled here.
-            </p>
-            <div className="config-section">
-              <h3 className="config-section-title">📡 Enabled Sources</h3>
-              <div className="config-view-field">
-                <div className="config-view-value">{sourceInfo.LOG_ENABLED_SOURCES?.value || "all"}</div>
-              </div>
-            </div>
-            <div className="config-section">
-              <h3 className="config-section-title">🔉 Minimum Level</h3>
-              <div className="config-view-field">
-                <div className="config-view-value">{sourceInfo.LOG_LEVEL?.value || "info"}</div>
-              </div>
-            </div>
-            <div className="config-section">
-              <h3 className="config-section-title">🧠 LLM Data Logging</h3>
-              <div className="config-view-field">
-                <div className="config-view-value">{sourceInfo.LOG_LLM_DATA?.value === "true" ? "Enabled" : "Disabled"}</div>
-              </div>
-            </div>
-            <div className="config-section">
-              <h3 className="config-section-title">📦 Rotation</h3>
-              <div className="config-view-field">
-                <div className="config-view-label">Max File Size</div>
-                <div className="config-view-value">{sourceInfo.LOG_MAX_FILE_SIZE_MB?.value || "50"} MB</div>
-              </div>
-              <div className="config-view-field">
-                <div className="config-view-label">Max Rotated Files</div>
-                <div className="config-view-value">{sourceInfo.LOG_MAX_FILES?.value || "10"}</div>
-              </div>
-            </div>
-          </>
-        )}
-
-        {activeTab === "agent" && !agentConfigLoading && !agentConfigError && agentConfig && mode === "view" && (
-          <>
-            <p className="config-hint">Current agent instructions — read-only. Switch to ✏️ Edit mode to make changes.</p>
-
-            <div className="config-section">
-              <h3 className="config-section-title">📝 System Prompt</h3>
-              <pre className="config-pre">
-                {(agentConfig.systemPrompt || "(not set)").slice(0, 2000)}
-                {(agentConfig.systemPrompt || "").length > 2000 ? "…" : ""}
-              </pre>
-            </div>
-
-            <div className="config-section">
-              <h3 className="config-section-title">🧭 Pipeline Hints ({Object.keys(agentConfig.pipeline?.pipeline_hints || {}).length})</h3>
-              {Object.entries(agentConfig.pipeline?.pipeline_hints || {}).map(([key, val]) => (
-                <div key={key} className="config-view-field">
-                  <div className="config-view-label">
-                    <span className="config-label--mono">{key}</span>
-                  </div>
-                  <div className="config-view-value">{val as string}</div>
-                </div>
-              ))}
-            </div>
-
-            <div className="config-section">
-              <h3 className="config-section-title">⚙️ Constants</h3>
-              <div className="config-view-field">
-                <div className="config-view-label">Max Steps</div>
-                <div className="config-view-value">{agentConfig.pipeline?.max_pipeline_steps ?? 25}</div>
-              </div>
-              <div className="config-view-field">
-                <div className="config-view-label">Max Retries</div>
-                <div className="config-view-value">{agentConfig.pipeline?.max_retries ?? 3}</div>
-              </div>
-              <div className="config-view-field">
-                <div className="config-view-label">Retry Delay</div>
-                <div className="config-view-value">{agentConfig.pipeline?.retry_base_delay_ms ?? 2000} ms</div>
-              </div>
-              <div className="config-view-field">
-                <div className="config-view-label">Terminal Tools</div>
-                <div className="config-view-value">{(agentConfig.pipeline?.terminal_tools || []).join(", ") || "(none)"}</div>
-              </div>
-            </div>
-
-            <div className="config-section">
-              <h3 className="config-section-title">🔧 Tool Definitions ({agentConfig.tools?.length || 0})</h3>
-              {agentConfig.tools?.map((tool) => (
-                <details key={tool.name} className="config-details">
-                  <summary className="config-details-summary">
-                    <code>{tool.name}</code>
-                    {tool.terminal ? <span className="config-badge config-badge--terminal">terminal</span> : null}
-                    <span className={`config-badge config-badge--${tool.handler || "bridge"}`}>{tool.handler || "bridge"}</span>
-                  </summary>
-                  <div className="config-details-body">
-                    <p>
-                      <strong>Description:</strong> {tool.description}
-                    </p>
-                    <p>
-                      <strong>Schema:</strong> <pre className="config-pre config-pre--inline">{JSON.stringify(tool.inputSchema, null, 2)}</pre>
-                    </p>
-                  </div>
-                </details>
-              ))}
-            </div>
-          </>
-        )}
       </div>
 
       <div className="config-footer">
@@ -1334,7 +1209,7 @@ export default function ConfigPanel({ onClose }: Props) {
         {saved && !restartNeeded && <span className="config-success">✓ Configuration saved</span>}
         {saved && restartNeeded && <span className="config-warning">✓ Saved — ⚠️ Restart agent runner to apply changes</span>}
 
-        {mode === "edit" && activeTab === "config" && (
+        {activeTab === "config" && (
           <>
             {activeJobs.length > 0 ? (
               <span className="config-footer-hint">
@@ -1348,7 +1223,7 @@ export default function ConfigPanel({ onClose }: Props) {
           </>
         )}
 
-        {mode === "edit" && activeTab === "logging" && (
+        {activeTab === "logging" && (
           <>
             {activeJobs.length > 0 ? (
               <span className="config-footer-hint">
@@ -1362,7 +1237,7 @@ export default function ConfigPanel({ onClose }: Props) {
           </>
         )}
 
-        {mode === "edit" && activeTab === "agent" && (
+        {activeTab === "agent" && (
           <div className="config-footer-actions">
             {activeJobs.length > 0 ? (
               <span className="config-footer-hint">
@@ -1382,8 +1257,6 @@ export default function ConfigPanel({ onClose }: Props) {
             )}
           </div>
         )}
-
-        {mode === "view" && <span className="config-footer-hint">Switch to ✏️ Edit mode to change values.</span>}
       </div>
     </div>
   );

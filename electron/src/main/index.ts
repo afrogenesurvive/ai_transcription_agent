@@ -140,6 +140,12 @@ function createWindow() {
     if (!isQuitting) {
       event.preventDefault();
       mainWindow?.hide();
+      // Let the user know the app is still running in the background
+      // (the Python backend and other services continue to use memory)
+      new Notification({
+        title: "Transcription Agent",
+        body: "Still running in the menu bar — quit from the tray menu to stop background services.",
+      }).show();
     }
   });
 }
@@ -458,7 +464,7 @@ ipcMain.handle("api:getAggregateUsage", async () => {
 
 ipcMain.handle("api:checkDeepSeekBalance", async () => {
   const cfg = getConfig();
-  const apiKey = cfg.DEEPSEEK_API_KEY;
+  const apiKey = cfg.DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY || "";
   if (!apiKey) {
     addLog("main", "warn", "💰 [USAGE] Credit balance check skipped — no API key configured");
     return { available: false, balance: null, error: "No API key configured" };

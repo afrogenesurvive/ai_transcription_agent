@@ -918,30 +918,47 @@ export async function stopAll(): Promise<void> {
  * Synchronous version of stopAll — kills all child processes immediately
  * using SIGKILL (Unix) or taskkill (Windows).
  *
+ * SIGKILL alone only kills the target process, not its children. To ensure
+ * the entire process tree is torn down we:
+ *   1. Use ChildProcess.kill(signal) which sends to the process group
+ *   2. Fall back to a port-based sweep (lsof) to catch any orphans
+ *      that may have taken over the backend ports
+ *
  * Use this in the app quit flow (before-quit handler) where async operations
  * cannot complete before app.exit(0) terminates the process.
  */
 export function stopAllSync(): void {
-  const targets: Array<{ proc: ChildProcess | null; name: string }> = [
+  const targets: Array<{ proc: ChildProcess | null; name: string; port?: number }> = [
     { proc: agentProcess, name: "agent-runner" },
-    { proc: bridgeProcess, name: "bridge-server" },
-    { proc: pythonProcess, name: "python-backend" },
+    { proc: bridgeProcess, name: "bridge-server", port: 5010 },
+    { proc: pythonProcess, name: "python-backend", port: 5001 },
   ];
 
-  for (const { proc, name } of targets) {
+  for (const { proc, name, port } of targets) {
     if (!proc || !proc.pid) continue;
     try {
       if (IS_WIN) {
+        // taskkill /T kills the entire process tree on Windows
         execSync(`taskkill /pid ${proc.pid} /T /F`, { stdio: "ignore" });
       } else {
-        // Try SIGTERM first (synchronous), then SIGKILL immediately
+        // ChildProcess.kill(signal) sends to the process group (negative PID)
+        // which kills the process AND any children it spawned.
         proc.kill("SIGTERM");
-        process.kill(proc.pid, "SIGKILL");
+        // Immediately follow up with SIGKILL to the process group so that
+        // any process that ignores SIGTERM is still terminated.
+        proc.kill("SIGKILL");
       }
       console.log(`[backend] Force-killed ${name} (PID ${proc.pid})`);
       addLog("main", "info", `Force-killed ${name} (PID ${proc.pid})`);
     } catch {
       // Process already gone — good
+    }
+
+    // Safety net: kill any leftover process on the service's port.
+    // This catches orphaned children that may have been re-parented or
+    // processes that took over the port after the tracked PID died.
+    if (!IS_WIN && port) {
+      killProcessOnPortSync(port);
     }
   }
 
@@ -952,6 +969,28 @@ export function stopAllSync(): void {
 
   // Also nuke any leftover processes on our ports
   stopOllamaServer();
+}
+
+/**
+ * Synchronous version of killProcessOnPort — kills any process listening on
+ * the given TCP port immediately (Unix only).
+ */
+function killProcessOnPortSync(port: number): void {
+  try {
+    const result = execSync(`lsof -ti:${port} -sTCP:LISTEN 2>/dev/null`, { encoding: "utf8", timeout: 3000 });
+    const pids = result.trim().split("\n").filter(Boolean).map(Number);
+    for (const pid of pids) {
+      try {
+        process.kill(pid, "SIGKILL");
+        console.log(`[backend] Port sweep: killed stale PID ${pid} on port ${port}`);
+        addLog("main", "info", `Port sweep: killed stale PID ${pid} on port ${port}`);
+      } catch {
+        // already gone
+      }
+    }
+  } catch {
+    // No process found on that port — great
+  }
 }
 
 export async function restartAll(): Promise<void> {
