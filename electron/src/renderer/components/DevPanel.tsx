@@ -220,6 +220,30 @@ function LogFilesTab() {
   const [logSourceFilter, setLogSourceFilter] = useState<string>("all");
   const [logLevelFilter, setLogLevelFilter] = useState<string>("all");
   const contentRef = useRef<HTMLDivElement>(null);
+  const fileListRef = useRef<HTMLDivElement>(null);
+  const [fileListWidth, setFileListWidth] = useState(240);
+  const fileListResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  const handleFileListResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const list = fileListRef.current;
+    if (!list) return;
+    fileListResizeRef.current = { startX: e.clientX, startWidth: list.offsetWidth };
+    const handleMouseMove = (me: MouseEvent) => {
+      if (!fileListResizeRef.current) return;
+      const diff = me.clientX - fileListResizeRef.current.startX;
+      setFileListWidth(Math.max(140, Math.min(500, fileListResizeRef.current.startWidth + diff)));
+    };
+    const handleMouseUp = () => {
+      fileListResizeRef.current = null;
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.body.classList.remove("dev-panel-sidebar-resizing");
+    };
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    document.body.classList.add("dev-panel-sidebar-resizing");
+  }, []);
 
   useEffect(() => {
     window.electronAPI
@@ -286,7 +310,7 @@ function LogFilesTab() {
 
       <div className="dev-panel-file-browser">
         {/* File list sidebar */}
-        <div className="dev-panel-file-list">
+        <div className="dev-panel-file-list" ref={fileListRef} style={{ width: fileListWidth }}>
           {files.length === 0 && (
             <div className="dev-panel-empty" style={{ padding: "12px" }}>
               No log files found.
@@ -305,6 +329,9 @@ function LogFilesTab() {
             </div>
           ))}
         </div>
+
+        {/* Sidebar resize handle */}
+        <div className="dev-panel-sidebar-resize-handle" onMouseDown={handleFileListResizeStart} />
 
         {/* File content */}
         <div className="dev-panel-file-content" ref={contentRef}>
@@ -426,6 +453,30 @@ function DatabaseTab() {
   const [activeView, setActiveView] = useState<"ephemeral" | "semantic">("ephemeral");
   const [loading, setLoading] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+  const [dbSidebarWidth, setDbSidebarWidth] = useState(200);
+  const dbResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  const handleDbSidebarResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const sidebar = sidebarRef.current;
+    if (!sidebar) return;
+    dbResizeRef.current = { startX: e.clientX, startWidth: sidebar.offsetWidth };
+    const handleMouseMove = (me: MouseEvent) => {
+      if (!dbResizeRef.current) return;
+      const diff = me.clientX - dbResizeRef.current.startX;
+      setDbSidebarWidth(Math.max(120, Math.min(400, dbResizeRef.current.startWidth + diff)));
+    };
+    const handleMouseUp = () => {
+      dbResizeRef.current = null;
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.body.classList.remove("dev-panel-sidebar-resizing");
+    };
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    document.body.classList.add("dev-panel-sidebar-resizing");
+  }, []);
 
   // ── Search relevance state ──
   const [searchQuery, setSearchQuery] = useState("");
@@ -543,23 +594,30 @@ function DatabaseTab() {
     });
   };
 
-  // ── Column resizing ──
+  // ── Column resizing (drag the right edge of any header cell) ──
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const [textWrapEnabled, setTextWrapEnabled] = useState(false);
   const resizingRef = useRef<{ columnKey: string; startX: number; startWidth: number } | null>(null);
 
-  const handleResizeStart = useCallback((columnKey: string, e: React.MouseEvent) => {
+  const handleThMouseDown = useCallback((columnKey: string, e: React.MouseEvent) => {
+    // Only activate resize when the mousedown is near the right edge of the header
+    const th = (e.target as HTMLElement).closest("th");
+    if (!th) return;
+    const rect = th.getBoundingClientRect();
+    const xInCell = e.clientX - rect.left;
+    // Wider activation zone (16px) for easier targeting
+    if (xInCell < rect.width - 16) return;
+
     e.preventDefault();
     e.stopPropagation();
-    const th = (e.target as HTMLElement).closest("th");
-    const currentWidth = th?.offsetWidth || 100;
+    const currentWidth = th.offsetWidth;
     resizingRef.current = { columnKey, startX: e.clientX, startWidth: currentWidth };
 
     const handleMouseMove = (me: MouseEvent) => {
       if (!resizingRef.current) return;
       const { columnKey, startX, startWidth } = resizingRef.current;
       const diff = me.clientX - startX;
-      const newWidth = Math.max(40, startWidth + diff);
+      const newWidth = Math.max(60, startWidth + diff);
       setColumnWidths((prev) => ({ ...prev, [columnKey]: newWidth }));
     };
 
@@ -580,21 +638,17 @@ function DatabaseTab() {
     setColumnWidths({});
   }, [selectedTable, activeView]);
 
-  // Render a resize handle for a column header
-  const renderResizeHandle = (columnKey: string) => (
-    <div className="dev-panel-db-resize-handle" onMouseDown={(e) => handleResizeStart(columnKey, e)} />
-  );
-
-  // Render a column header with resize handle
+  // Render a column header — drag the right border to resize
   const renderTh = (label: string, columnKey?: string) => {
     const key = columnKey || label;
     const width = columnWidths[key];
     return (
-      <th key={key} style={width ? { width, minWidth: 40, maxWidth: 800 } : {}}>
-        <div className="dev-panel-db-th-wrap">
-          <span>{label}</span>
-          {renderResizeHandle(key)}
-        </div>
+      <th
+        key={key}
+        className="dev-panel-db-th"
+        style={width ? { width, minWidth: 60, maxWidth: 1200 } : {}}
+        onMouseDown={(e) => handleThMouseDown(key, e)}>
+        <span>{label}</span>
       </th>
     );
   };
@@ -642,7 +696,7 @@ function DatabaseTab() {
         {activeView === "ephemeral" && (
           <>
             {/* Table list sidebar */}
-            <div className="dev-panel-db-sidebar">
+            <div className="dev-panel-db-sidebar" ref={sidebarRef} style={{ width: dbSidebarWidth }}>
               {loading && tables.length === 0 && (
                 <div className="dev-panel-empty" style={{ padding: "12px" }}>
                   Loading...
@@ -663,6 +717,9 @@ function DatabaseTab() {
                 </div>
               ))}
             </div>
+
+            {/* Sidebar resize handle */}
+            <div className="dev-panel-sidebar-resize-handle" onMouseDown={handleDbSidebarResizeStart} />
 
             {/* Table content */}
             <div className="dev-panel-db-content" ref={contentRef}>

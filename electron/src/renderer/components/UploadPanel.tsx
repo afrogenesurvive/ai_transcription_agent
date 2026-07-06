@@ -7,9 +7,10 @@ import React, { useState, useRef, useCallback } from "react";
 interface Props {
   onUpload: (file: File, title: string, attendees: string[], skipSteps: string[]) => void;
   uploading: boolean;
+  disabled?: boolean;
 }
 
-export default function UploadPanel({ onUpload, uploading }: Props) {
+export default function UploadPanel({ onUpload, uploading, disabled }: Props) {
   const [dragOver, setDragOver] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState("");
@@ -63,8 +64,9 @@ export default function UploadPanel({ onUpload, uploading }: Props) {
   };
 
   return (
-    <div className="panel upload-panel">
+    <div className={`panel upload-panel ${disabled ? "upload-panel--disabled" : ""}`}>
       <h2>Upload Meeting Audio</h2>
+      {disabled && <p className="upload-disabled-notice">⏳ A job is currently running. Start a new transcription after it finishes.</p>}
 
       <div
         className={`drop-zone ${dragOver ? "drag-over" : ""} ${file ? "has-file" : ""}`}
@@ -73,8 +75,9 @@ export default function UploadPanel({ onUpload, uploading }: Props) {
           setDragOver(true);
         }}
         onDragLeave={() => setDragOver(false)}
-        onDrop={handleDrop}
-        onClick={() => fileInputRef.current?.click()}>
+        onDrop={disabled ? undefined : handleDrop}
+        onClick={disabled ? undefined : () => fileInputRef.current?.click()}
+        style={disabled ? { pointerEvents: "none", opacity: 0.5 } : undefined}>
         {file ? (
           <div className="file-info">
             <span className="file-icon">🎵</span>
@@ -101,6 +104,7 @@ export default function UploadPanel({ onUpload, uploading }: Props) {
           type="file"
           accept=".wav,.mp3,.m4a,.flac,.ogg,.webm"
           hidden
+          disabled={disabled}
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) handleFile(f);
@@ -108,32 +112,32 @@ export default function UploadPanel({ onUpload, uploading }: Props) {
         />
       </div>
 
-      <div className="form-fields">
+      <div className="form-fields" style={disabled ? { opacity: 0.5, pointerEvents: "none" } : undefined}>
         <label>
           Meeting Title
-          <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Q4 Budget Review" />
+          <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Q4 Budget Review" disabled={disabled} />
         </label>
         <label>
           Attendees (comma-separated emails)
-          <input type="text" value={attendees} onChange={(e) => setAttendees(e.target.value)} placeholder="john@co.com, mary@co.com" />
+          <input type="text" value={attendees} onChange={(e) => setAttendees(e.target.value)} placeholder="john@co.com, mary@co.com" disabled={disabled} />
         </label>
       </div>
 
-      <div className="skip-options">
+      <div className="skip-options" style={disabled ? { opacity: 0.5, pointerEvents: "none" } : undefined}>
         <label className="skip-checkbox">
-          <input type="checkbox" checked={skipAnalysis} onChange={(e) => setSkipAnalysis(e.target.checked)} />
+          <input type="checkbox" checked={skipAnalysis} onChange={(e) => setSkipAnalysis(e.target.checked)} disabled={disabled} />
           <span>Skip analysis</span>
           <span className="skip-hint">(topics, sentiment, entity extraction)</span>
         </label>
         <label className="skip-checkbox">
-          <input type="checkbox" checked={skipDelivery} onChange={(e) => setSkipDelivery(e.target.checked)} />
+          <input type="checkbox" checked={skipDelivery} onChange={(e) => setSkipDelivery(e.target.checked)} disabled={disabled} />
           <span>Skip delivery</span>
           <span className="skip-hint">(no email, Trello, or Drive — saves LLM tokens)</span>
         </label>
       </div>
 
-      <button className="btn-primary" disabled={!file || uploading} onClick={handleSubmit}>
-        {uploading ? "Uploading..." : "Start Transcription"}
+      <button className="btn-primary" disabled={!file || uploading || disabled} onClick={handleSubmit}>
+        {uploading ? "Uploading..." : disabled ? "Job Running — Form Disabled" : "Start Transcription"}
       </button>
     </div>
   );

@@ -474,36 +474,32 @@ export default function ConfigPanel({ onClose }: Props) {
 
   return (
     <div className="config-panel config-panel--full">
+      {/* Header: action buttons only */}
       <div className="config-header">
-        <div className="config-header-left">
-          {/* Tab bar */}
-          <div className="config-tab-bar">
-            <button className={`config-tab ${activeTab === "config" ? "config-tab--active" : ""}`} onClick={() => setActiveTab("config")}>
-              🔑 LLM & Delivery
-            </button>
-            <button className={`config-tab ${activeTab === "agent" ? "config-tab--active" : ""}`} onClick={() => setActiveTab("agent")}>
-              🤖 Agent Instructions
-            </button>
-            <button className={`config-tab ${activeTab === "logging" ? "config-tab--active" : ""}`} onClick={() => setActiveTab("logging")}>
-              📝 Logging
-            </button>
-          </div>
-          <h2>⚙️ Configuration</h2>
-        </div>
-        <div className="config-header-right">
-          {/* Export / Import buttons */}
-          <div className="config-io-buttons">
-            <button className="config-io-btn" onClick={handleExport} disabled={exporting} title="Export configuration to a file">
-              {exporting ? "⟳" : "📤"} Export
-            </button>
-            <button className="config-io-btn" onClick={handleImport} disabled={importing} title="Import configuration from a file">
-              {importing ? "⟳" : "📥"} Import
-            </button>
-          </div>
-          <button className="config-close-btn" onClick={onClose}>
-            ✕
+        <div className="config-io-buttons">
+          <button className="config-io-btn" onClick={handleExport} disabled={exporting} title="Export configuration to a file">
+            {exporting ? "⟳" : "📤"} Export
+          </button>
+          <button className="config-io-btn" onClick={handleImport} disabled={importing} title="Import configuration from a file">
+            {importing ? "⟳" : "📥"} Import
           </button>
         </div>
+        <button className="config-close-btn" onClick={onClose}>
+          ✕
+        </button>
+      </div>
+
+      {/* Tab bar (full width, styled like dev-panel-tabs) */}
+      <div className="config-tab-bar">
+        <button className={`config-tab ${activeTab === "config" ? "config-tab--active" : ""}`} onClick={() => setActiveTab("config")}>
+          🔑 LLM & Delivery
+        </button>
+        <button className={`config-tab ${activeTab === "agent" ? "config-tab--active" : ""}`} onClick={() => setActiveTab("agent")}>
+          🤖 Agent Instructions
+        </button>
+        <button className={`config-tab ${activeTab === "logging" ? "config-tab--active" : ""}`} onClick={() => setActiveTab("logging")}>
+          📝 Logging
+        </button>
       </div>
 
       <div className="config-body">
@@ -525,12 +521,7 @@ export default function ConfigPanel({ onClose }: Props) {
         {/* ── TAB 1: LLM & Delivery Config ── */}
         {activeTab === "config" && (
           <>
-            <p className="config-hint">
-              Enter your API keys and credentials. Required fields are marked with <span className="config-required">*</span>. Values are stored in
-              your user data directory{activeJobs.length > 0 ? <strong>. Editing disabled while {activeJobs.length} job(s) running</strong> : ""}.
-            </p>
-
-            {/* Section sub-tabs */}
+            {/* Section sub-tabs — above the hint, full width */}
             <div className="config-section-tabs">
               {sectionNames.map((name) => (
                 <button
@@ -545,6 +536,11 @@ export default function ConfigPanel({ onClose }: Props) {
                 </button>
               ))}
             </div>
+
+            <p className="config-hint">
+              Enter your API keys and credentials. Required fields are marked with <span className="config-required">*</span>. Values are stored in
+              your user data directory{activeJobs.length > 0 ? <strong>. Editing disabled while {activeJobs.length} job(s) running</strong> : ""}.
+            </p>
 
             {Array.from(sections.entries())
               .filter(([name]) => name === configSection)

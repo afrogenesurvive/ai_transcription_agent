@@ -72,6 +72,10 @@ export default function App() {
   const [historyJobStatus, setHistoryJobStatus] = useState<{ status: string; progress: number; error?: string | null } | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [storageRefreshTrigger, setStorageRefreshTrigger] = useState(0);
+  const [showNewForm, setShowNewForm] = useState(false);
+
+  // Whether a job is currently running (processing)
+  const isJobRunning = view === "processing";
 
   // Notification helper — shows a toast at the top-right, auto-dismissed after 4s
   const notify = useCallback((message: string) => {
@@ -238,6 +242,7 @@ export default function App() {
       setJobId(result.job_id);
       setJobMetadata({ title, attendees });
       setView("processing");
+      setShowNewForm(false);
       // Polling starts automatically via useJobStatus when jobId changes
     } catch (err: any) {
       setNotification(`Upload failed: ${err.message}`);
@@ -329,24 +334,23 @@ export default function App() {
         <nav className="sidebar" ref={sidebarRef}>
           <div className="sidebar-resize-handle" onMouseDown={handleSidebarMouseDown} />
           <button
-            className="sidebar-btn"
-            disabled={view === "processing" || uploading}
+            className={`sidebar-btn ${showNewForm ? "sidebar-btn--active" : ""}`}
             onClick={() => {
-              handleNew();
+              setShowNewForm(true);
               setSidebarView("current");
+              setShowHistory(false);
             }}
-            title={view === "processing" || uploading ? "Finish current run first" : "Start a new transcription"}>
+            title="Start a new transcription">
             <span className="sidebar-btn-icon">➕</span>
             <span className="sidebar-btn-label">New</span>
           </button>
           <button
-            className={`sidebar-btn ${sidebarView === "current" && !showHistory ? "sidebar-btn--active" : ""}`}
+            className={`sidebar-btn ${sidebarView === "current" && !showHistory && !showNewForm ? "sidebar-btn--active" : ""}`}
             onClick={() => {
               setSidebarView("current");
+              setShowNewForm(false);
               setShowHistory(false);
               setHistoryJobId(null);
-              // If there's no active job, go back to the upload form
-              if (!jobId) setView("upload");
             }}
             title="Current job">
             <span className="sidebar-btn-icon">🏠</span>
@@ -355,13 +359,11 @@ export default function App() {
           <button
             className={`sidebar-btn ${showHistory && sidebarView === "current" ? "sidebar-btn--active" : ""}`}
             onClick={() => {
-              // When toggling history off, clear the history job and
-              // return to upload if there's no active job
               if (showHistory) {
                 setHistoryJobId(null);
-                if (!jobId) setView("upload");
               }
               setSidebarView("current");
+              setShowNewForm(false);
               setShowHistory((v) => !v);
             }}
             title="Job history">
@@ -372,6 +374,7 @@ export default function App() {
             className={`sidebar-btn ${sidebarView === "storage" ? "sidebar-btn--active" : ""}`}
             onClick={() => {
               setSidebarView("storage");
+              setShowNewForm(false);
               setShowHistory(false);
             }}
             title="Storage usage">
@@ -382,6 +385,7 @@ export default function App() {
             className={`sidebar-btn ${sidebarView === "dev" ? "sidebar-btn--active" : ""}`}
             onClick={() => {
               setSidebarView("dev");
+              setShowNewForm(false);
               setShowHistory(false);
             }}
             title="Developer tools — always available">
@@ -392,6 +396,7 @@ export default function App() {
             className={`sidebar-btn ${sidebarView === "config" ? "sidebar-btn--active" : ""}`}
             onClick={() => {
               setSidebarView("config");
+              setShowNewForm(false);
               setShowHistory(false);
               window.electronAPI?.getConfigWithSources();
             }}
@@ -404,6 +409,7 @@ export default function App() {
             className={`sidebar-btn ${sidebarView === "appearance" ? "sidebar-btn--active" : ""}`}
             onClick={() => {
               setSidebarView("appearance");
+              setShowNewForm(false);
               setShowHistory(false);
             }}
             title="Appearance settings">
@@ -414,6 +420,7 @@ export default function App() {
             className={`sidebar-btn ${sidebarView === "about" ? "sidebar-btn--active" : ""}`}
             onClick={() => {
               setSidebarView("about");
+              setShowNewForm(false);
               setShowHistory(false);
             }}
             title="About Transcription Agent">
@@ -448,8 +455,10 @@ export default function App() {
             <>
               {sidebarView === "current" && (
                 <>
-                  <div className="left-col" id="left-col">
-                    {showHistory ? (
+                  <div className={`left-col ${showNewForm ? "left-col--new" : ""}`} id="left-col">
+                    {showNewForm ? (
+                      <UploadPanel onUpload={handleUpload} uploading={uploading} disabled={isJobRunning} />
+                    ) : showHistory ? (
                       <HistoryPanel
                         onSelectJob={loadHistoryJob}
                         currentJobId={historyJobId || jobId}
@@ -458,8 +467,6 @@ export default function App() {
                       />
                     ) : (
                       <>
-                        {view === "upload" && <UploadPanel onUpload={handleUpload} uploading={uploading} />}
-
                         {(view === "processing" || view === "results") && statusData && (
                           <PipelineProgress
                             status={statusData.status}
@@ -473,45 +480,22 @@ export default function App() {
                         )}
 
                         {view === "results" && statusHook.state === "error" && !statusData && (
-                          <div className="panel actions-panel">
+                          <div className="panel">
                             <h2>❌ Processing Failed</h2>
                             <p className="error-box" style={{ marginBottom: 12 }}>
                               {statusHook.error || "Unknown error"}
                             </p>
-                            <button className="btn-primary" onClick={handleNew}>
-                              Try Again
-                            </button>
                           </div>
                         )}
 
-                        {view === "results" &&
-                          statusData &&
-                          (statusData.status === "failed" ||
-                            statusData.status === "cancelled" ||
-                            ["delivered", "refined", "summarized", "analyzed", "complete"].includes(statusData.status)) && (
-                            <div className="panel actions-panel">
-                              <h2>What would you like to do next?</h2>
-                              <div className="rv-actions-grid">
-                                <button className="btn-primary" onClick={handleNew}>
-                                  Upload Another Meeting
-                                </button>
-                                {statusData.status !== "cancelled" &&
-                                  statusData.status !== "failed" &&
-                                  !["delivered", "complete"].includes(statusData.status) && (
-                                    <button
-                                      className="btn-secondary"
-                                      onClick={handleCancel}
-                                      disabled={cancelling}
-                                      style={{ borderColor: "var(--red)", color: "var(--red)" }}>
-                                      {cancelling ? "⏳ Cancelling…" : "⏹ Cancel Job"}
-                                    </button>
-                                  )}
-                              </div>
-                              <p className="config-hint" style={{ marginTop: 10, marginBottom: 0 }}>
-                                The job is saved to history and can be reopened anytime from the <strong>📋 History</strong> panel.
-                              </p>
-                            </div>
-                          )}
+                        {!jobId && (
+                          <div className="panel">
+                            <h2>No Active Job</h2>
+                            <p className="placeholder" style={{ color: "var(--text-muted)" }}>
+                              Click <strong>➕ New</strong> to start a new transcription.
+                            </p>
+                          </div>
+                        )}
                       </>
                     )}
                   </div>

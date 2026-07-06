@@ -258,6 +258,12 @@ body {
   resize: horizontal;
 }
 
+.left-col--new {
+  width: 75%;
+  min-width: 400px;
+  max-width: none;
+}
+
 .left-col-resize-handle {
   width: 4px;
   cursor: col-resize;
@@ -362,6 +368,23 @@ body {
   cursor: pointer;
   font-size: var(--fs-12);
   text-decoration: underline;
+}
+
+/* ── Upload Panel Disabled State ── */
+
+.upload-panel--disabled {
+  opacity: 0.85;
+}
+
+.upload-disabled-notice {
+  background: rgba(210, 153, 34, 0.1);
+  border: 1px solid var(--orange);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  color: var(--orange);
+  font-size: var(--fs-12);
+  margin-bottom: 12px;
+  line-height: 1.4;
 }
 
 /* ── Skip Options ── */
@@ -1468,7 +1491,7 @@ body {
 
 .dev-panel-list {
   flex: 1;
-  overflow-y: auto;
+  overflow: auto;
   padding: 4px 0;
 }
 
@@ -1494,19 +1517,23 @@ body {
 .dev-panel-time {
   color: var(--text-muted);
   flex-shrink: 0;
-  width: 72px;
+  min-width: 82px;
+  width: auto;
   opacity: 0.6;
+  padding-right: 4px;
 }
 
 .dev-panel-source {
   flex-shrink: 0;
   font-weight: 600;
-  width: 60px;
+  min-width: 68px;
+  width: auto;
+  padding-right: 4px;
 }
 
 .dev-panel-level {
   flex-shrink: 0;
-  width: 16px;
+  min-width: 20px;
 }
 
 .dev-panel-level--error {
@@ -1601,30 +1628,12 @@ body {
 .config-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border);
-}
-
-.config-header h2 {
-  margin: 0;
-  font-size: var(--fs-16);
+  justify-content: flex-end;
+  padding: 8px 16px;
+  background: var(--surface);
+  gap: 8px;
   flex-shrink: 0;
-}
-
-.config-header-left {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex: 1;
-  min-width: 0;
-}
-
-.config-header-right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-shrink: 0;
+  min-height: 40px;
 }
 
 .config-close-btn {
@@ -1889,11 +1898,6 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
-.config-panel--full .config-header-left {
-  flex: 1;
-  min-width: 0;
-}
-
 /* ── Config Panel — export / import buttons ── */
 
 .config-io-buttons {
@@ -1930,15 +1934,15 @@ body {
 .config-section-tabs {
   display: flex;
   gap: 0;
-  margin-bottom: 16px;
   flex-wrap: wrap;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  overflow: hidden;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
   position: sticky;
   top: 0;
   z-index: 1;
-  background: var(--bg);
+  width: calc(100% + 40px);
+  margin: 0 -20px 12px;
+  padding: 0 20px;
 }
 
 .config-section-tabs--agent {
@@ -1948,29 +1952,32 @@ body {
 .config-section-tab {
   background: none;
   border: none;
+  border-bottom: 2px solid transparent;
   color: var(--text-muted);
-  padding: 4px 12px;
+  padding: 6px 14px;
   font-size: var(--fs-12);
-  font-weight: 500;
+  font-family: var(--font);
   cursor: pointer;
-  font-family: inherit;
   transition: all 0.15s;
   white-space: nowrap;
+  margin-bottom: -1px;
 }
 
 .config-section-tab:hover {
-  background: var(--surface-hover);
   color: var(--text);
+  background: var(--surface-hover);
 }
 
 .config-section-tab--active {
-  background: var(--accent);
-  color: #fff;
+  color: var(--text);
+  border-bottom-color: var(--accent);
+  background: none;
 }
 
 .config-section-tab--active:hover {
-  background: var(--accent-hover);
-  color: #fff;
+  color: var(--text);
+  border-bottom-color: var(--accent);
+  background: var(--surface-hover);
 }
 
 /* ── Config Panel — input row with visibility toggle ── */
@@ -2015,8 +2022,10 @@ body {
   display: flex;
   align-items: center;
   gap: 0;
-  background: transparent;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  padding: 0 12px;
 }
 
 .config-tab {
@@ -2024,13 +2033,13 @@ body {
   border: none;
   border-bottom: 2px solid transparent;
   color: var(--text-muted);
-  padding: 8px 16px;
+  padding: 10px 16px;
   font-size: var(--fs-12);
-  font-weight: 500;
   font-family: var(--font);
   cursor: pointer;
   transition: all 0.15s;
   white-space: nowrap;
+  margin-bottom: -1px;
 }
 
 .config-tab:hover {
@@ -2543,7 +2552,7 @@ body {
 
 .dev-panel-file-list {
   width: 240px;
-  min-width: 180px;
+  min-width: 140px;
   overflow-y: auto;
   border-right: 1px solid var(--border);
   flex-shrink: 0;
@@ -2630,7 +2639,7 @@ body {
 
 .dev-panel-file-content {
   flex: 1;
-  overflow-y: auto;
+  overflow: auto;
   padding: 4px 0;
   font-size: var(--fs-11);
 }
@@ -2657,7 +2666,7 @@ body {
 
 .dev-panel-db-sidebar {
   width: 200px;
-  min-width: 160px;
+  min-width: 120px;
   overflow-y: auto;
   border-right: 1px solid var(--border);
   flex-shrink: 0;
@@ -2706,7 +2715,7 @@ body {
   border-collapse: collapse;
   font-size: var(--fs-11);
   font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
-  table-layout: fixed;
+  min-width: max-content;
 }
 
 .dev-panel-db-table th {
@@ -2714,21 +2723,49 @@ body {
   padding: 6px 12px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
   color: var(--text-muted);
   font-weight: 600;
   position: sticky;
   top: 0;
   z-index: 1;
   white-space: nowrap;
+  user-select: none;
+}
+
+/* Right-edge resize zone overlay — visible on hover */
+.dev-panel-db-table th::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 12px;
+  cursor: col-resize;
+  z-index: 3;
+}
+
+.dev-panel-db-table th:last-child::after {
+  display: none;
+}
+
+.dev-panel-db-table th:last-child {
+  border-right: none;
+  cursor: default;
 }
 
 .dev-panel-db-table td {
   padding: 4px 12px;
   border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.dev-panel-db-table td:last-child {
+  border-right: none;
 }
 
 .dev-panel-db-table tbody tr:hover {
@@ -2832,30 +2869,35 @@ body {
 
 /* ── DevPanel — resizable table columns & text wrap ── */
 
-.dev-panel-db-th-wrap {
-  display: flex;
-  align-items: center;
+.dev-panel-db-th {
   position: relative;
   user-select: none;
 }
 
-.dev-panel-db-resize-handle {
-  position: absolute;
-  right: -4px;
-  top: 0;
-  bottom: 0;
+.dev-panel-db-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/* ── DevPanel — sidebar resize handle (between sidebar list and content) ── */
+
+.dev-panel-sidebar-resize-handle {
   width: 8px;
   cursor: col-resize;
-  z-index: 2;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
+  background: transparent;
+  position: relative;
+  z-index: 2;
+  margin: 0 -4px;
 }
 
-.dev-panel-db-resize-handle::after {
+.dev-panel-sidebar-resize-handle::after {
   content: "";
   width: 2px;
-  height: 60%;
+  height: 40%;
   background: var(--border);
   border-radius: 1px;
   transition:
@@ -2863,15 +2905,19 @@ body {
     height 0.15s;
 }
 
-.dev-panel-db-resize-handle:hover::after,
-.dev-panel-db-resize-handle--active::after {
+.dev-panel-sidebar-resize-handle:hover::after {
   background: var(--accent);
-  height: 85%;
+  height: 70%;
 }
 
-.dev-panel-db-resizing {
+.dev-panel-sidebar-resizing {
   cursor: col-resize;
   user-select: none;
+}
+
+.dev-panel-sidebar-resizing .dev-panel-sidebar-resize-handle::after {
+  height: 70%;
+  background: var(--accent);
 }
 
 .dev-panel-db-table td.dev-panel-db-cell-wrap {
@@ -5257,7 +5303,8 @@ body {
   display: flex;
   flex-direction: column;
   flex: 1;
-  overflow-y: auto;
+  min-height: 0;
+  overflow: hidden;
   padding: 32px;
 }
 
@@ -5327,7 +5374,8 @@ body {
   white-space: pre-wrap;
   word-break: break-word;
   overflow-y: auto;
-  max-height: 50vh;
+  flex: 1;
+  min-height: 0;
 }
 
 .about-readme h1,

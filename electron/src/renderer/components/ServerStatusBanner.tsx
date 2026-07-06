@@ -142,7 +142,7 @@ export default function ServerStatusBanner({
         <div className="ssb-header">
           <span className="ssb-icon">⚠️</span>
           <div>
-            <h2 className="ssb-title">Services Not Ready</h2>
+            <h2 className="ssb-title">Starting Backend Services</h2>
             <p className="ssb-subtitle">
               Some backend services are offline. Auto-checking server status in <strong>{countdown}s</strong>
               {!countdownActive && checking && " — checking now…"}
