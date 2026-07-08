@@ -69,5 +69,11 @@ class Config:
     # Maximum concurrent ML pipeline jobs
     MAX_CONCURRENT_PIPELINES = int(os.getenv("MAX_CONCURRENT_PIPELINES", "2"))
 
+    # Delivery configuration (set via ConfigPanel → config.json → env vars)
+    DELIVERY_RECIPIENT_EMAILS = os.getenv("DELIVERY_RECIPIENT_EMAILS", "")
+    DELIVERY_EMAIL_SUBJECT = os.getenv("DELIVERY_EMAIL_SUBJECT", "Meeting Summary: {title}")
+    DELIVERY_EMAIL_ADDITIONAL_CONTENT = os.getenv("DELIVERY_EMAIL_ADDITIONAL_CONTENT", "")
+    DELIVERY_DRIVE_FOLDER = os.getenv("DELIVERY_DRIVE_FOLDER", "Meeting Transcripts")
+
 
 config = Config()

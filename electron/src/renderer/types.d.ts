@@ -1,5 +1,17 @@
 /** Types shared between components */
 
+/** A single step in the pipeline checklist — orderable, togglable, editable */
+export interface PipelineStep {
+  id: string;
+  toolName: string;
+  label: string;
+  description: string;
+  systemPromptTemplate: string;
+  hintTemplate: string;
+  enabled: boolean;
+  isTerminal: boolean;
+}
+
 export interface TranscriptionSegment {
   speaker: string;
   text: string;
@@ -105,6 +117,8 @@ export interface ElectronAPI {
   getAgentConfig: () => Promise<{ tools?: any; pipeline?: any; systemPrompt?: string; error?: string }>;
   saveAgentConfig: (config: { tools?: any; pipeline?: any; systemPrompt?: string }) => Promise<{ success?: boolean; error?: string }>;
   restartAgent: () => Promise<{ success?: boolean; error?: string }>;
+  getDefaultAgentConfig: () => Promise<{ tools?: any; pipeline?: any; systemPrompt?: string; error?: string }>;
+  restoreDefaultAgentConfig: () => Promise<{ success?: boolean; restored?: string[]; error?: string }>;
   listLogFiles: () => Promise<LogFileInfo[]>;
   readLogFile: (filePath: string, maxLines?: number) => Promise<string[]>;
   getLogPaths: () => Promise<{ primary: string | null; mirror: string | null }>;

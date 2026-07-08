@@ -62,6 +62,7 @@ class AgentBridge:
             "jobId": job_id,
             "title": metadata.get("title", "Untitled Meeting"),
             "attendees": metadata.get("attendees", []),
+            "emailRecipients": metadata.get("email_recipients", []),
             "eventType": metadata.get("event_type", "internal"),
             "transcript": transcript,
             "unknownSpeakers": unknown_speakers or [],

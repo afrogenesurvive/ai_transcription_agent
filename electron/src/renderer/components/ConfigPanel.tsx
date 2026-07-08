@@ -13,7 +13,8 @@
  * and flags the agent runner for restart via the restart-flag mechanism.
  */
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
+import type { PipelineStep } from "../types";
 
 interface Props {
   onClose: () => void;
@@ -43,6 +44,10 @@ interface ConfigValues {
   LOG_MAX_FILE_SIZE_MB: string;
   LOG_MAX_FILES: string;
   LOG_LLM_DATA: string;
+  DELIVERY_RECIPIENT_EMAILS: string;
+  DELIVERY_EMAIL_SUBJECT: string;
+  DELIVERY_EMAIL_ADDITIONAL_CONTENT: string;
+  DELIVERY_DRIVE_FOLDER: string;
 }
 
 interface ConfigSourceInfo {
@@ -59,6 +64,8 @@ interface AgentConfig {
     terminal_tools?: string[];
     pipeline_hints?: Record<string, string>;
     event_templates?: Record<string, string>;
+    /** Ordered pipeline steps for the draggable checklist UI */
+    pipeline_steps?: PipelineStep[];
   };
   systemPrompt?: string;
 }
@@ -78,6 +85,10 @@ const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secre
   { key: "GMAIL_USER", label: "Gmail User Email", required: false, secret: false, section: "Email Delivery" },
   { key: "TRELLO_KEY", label: "Trello API Key", required: false, secret: true, section: "Trello Delivery" },
   { key: "TRELLO_TOKEN", label: "Trello Token", required: false, secret: true, section: "Trello Delivery" },
+  { key: "DELIVERY_RECIPIENT_EMAILS", label: "Default Recipient Emails", required: false, secret: false, section: "Delivery Config" },
+  { key: "DELIVERY_EMAIL_SUBJECT", label: "Email Subject Template", required: false, secret: false, section: "Delivery Config" },
+  { key: "DELIVERY_EMAIL_ADDITIONAL_CONTENT", label: "Additional Email Content", required: false, secret: false, section: "Delivery Config" },
+  { key: "DELIVERY_DRIVE_FOLDER", label: "Drive Destination Folder", required: false, secret: false, section: "Delivery Config" },
 ];
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -85,6 +96,80 @@ const SOURCE_LABELS: Record<string, string> = {
   env_file: "Environment (.env)",
   default: "Default value",
 };
+
+/**
+ * Generate default pipeline steps from tools.json and pipeline hints.
+ * Used when pipeline.json has no `pipeline_steps` array yet (migration).
+ */
+
+// ── Security helpers for agent instruction generation ──
+
+/** Max lengths enforced at generation time (matches schema.json) */
+const MAX_TEMPLATE_LENGTH = 500;
+const MAX_LABEL_LENGTH = 100;
+const MAX_DESC_LENGTH = 200;
+
+/**
+ * Sanitize a string for safe injection into the system prompt.
+ * - Truncates to maxLen
+ * - Strips backticks (prevents code-block injection)
+ * - Strips markdown control characters that could break prompt structure
+ */
+function sanitizePromptText(input: string, maxLen: number = 500): string {
+  return input
+    .slice(0, maxLen)
+    .replace(/`/g, "'") // backticks → single quotes (prevents code-block breakout)
+    .replace(/\\(?!['"\n])/g, "") // stray backslashes (prevents escape-sequence injection)
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, ""); // strip control chars except tab/newline
+}
+
+function getDefaultPipelineSteps(cfg: AgentConfig): PipelineStep[] {
+  const hints = cfg.pipeline?.pipeline_hints || {};
+  const tools = cfg.tools || [];
+
+  // Canonical step order based on the system prompt numbering
+  const defaultStepOrder = [
+    { toolName: "transcribe_refine", label: "Refine Transcript", description: "Clean filler words and redact PII", isTerminal: false },
+    {
+      toolName: "transcribe_get_transcript",
+      label: "Read Transcript",
+      description: "Retrieve the refined speaker-labeled transcript",
+      isTerminal: false,
+    },
+    { toolName: "transcribe_summarize", label: "Summarize", description: "Generate and store a structured meeting summary", isTerminal: false },
+    { toolName: "transcribe_analyze", label: "Analyze", description: "Analyze topics, sentiment, entities, and follow-ups", isTerminal: false },
+    {
+      toolName: "transcribe_save_context",
+      label: "Save to Memory",
+      description: "Persist meeting to semantic and ephemeral memory",
+      isTerminal: false,
+    },
+    {
+      toolName: "transcribe_prepare_delivery",
+      label: "Prepare Delivery",
+      description: "Package results for delivery destinations",
+      isTerminal: false,
+    },
+    { toolName: "send_delivery_email", label: "Deliver via Email", description: "Send results via email", isTerminal: true },
+    { toolName: "save_to_drive", label: "Save to Drive", description: "Save results to Google Drive", isTerminal: true },
+    { toolName: "create_trello_action_items", label: "Create Trello Cards", description: "Create action items as Trello cards", isTerminal: true },
+  ];
+
+  const terminalToolsSet = new Set(cfg.pipeline?.terminal_tools || []);
+
+  return defaultStepOrder
+    .filter((def) => tools.some((t: any) => t.name === def.toolName))
+    .map((def, i) => ({
+      id: `step-${i + 1}`,
+      toolName: def.toolName,
+      label: def.label,
+      description: def.description,
+      systemPromptTemplate: "",
+      hintTemplate: hints[def.toolName] || "",
+      enabled: true,
+      isTerminal: def.isTerminal || terminalToolsSet.has(def.toolName),
+    }));
+}
 
 function formatOllamaSize(bytes: number): string {
   if (!bytes || bytes === 0) return "";
@@ -126,6 +211,7 @@ export default function ConfigPanel({ onClose }: Props) {
   const [pullError, setPullError] = useState<string | null>(null);
   // Tracks whether the Ollama server was started by us (so we can stop it)
   const [ollamaWasStartedByUs, setOllamaWasStartedByUs] = useState(false);
+  const [restoringDefaults, setRestoringDefaults] = useState(false);
 
   // Fetch Ollama models when provider is "ollama"
   const fetchOllamaModels = useCallback(async () => {
@@ -233,6 +319,12 @@ export default function ConfigPanel({ onClose }: Props) {
   const [editTerminalTools, setEditTerminalTools] = useState("");
   const [restartNeeded, setRestartNeeded] = useState(false);
 
+  // ── Pipeline steps (draggable checklist) state ──
+  const [editPipelineSteps, setEditPipelineSteps] = useState<PipelineStep[]>([]);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
+
   // ── Export / Import state ──
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -289,6 +381,10 @@ export default function ConfigPanel({ onClose }: Props) {
             LOG_MAX_FILE_SIZE_MB: cfg.LOG_MAX_FILE_SIZE_MB?.value || "50",
             LOG_MAX_FILES: cfg.LOG_MAX_FILES?.value || "10",
             LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
+            DELIVERY_RECIPIENT_EMAILS: cfg.DELIVERY_RECIPIENT_EMAILS?.value || "",
+            DELIVERY_EMAIL_SUBJECT: cfg.DELIVERY_EMAIL_SUBJECT?.value || "Meeting Summary: {title}",
+            DELIVERY_EMAIL_ADDITIONAL_CONTENT: cfg.DELIVERY_EMAIL_ADDITIONAL_CONTENT?.value || "",
+            DELIVERY_DRIVE_FOLDER: cfg.DELIVERY_DRIVE_FOLDER?.value || "Meeting Transcripts",
           });
           setSourceInfo(cfg);
         });
@@ -359,6 +455,10 @@ export default function ConfigPanel({ onClose }: Props) {
         LOG_MAX_FILE_SIZE_MB: cfg.LOG_MAX_FILE_SIZE_MB?.value || "50",
         LOG_MAX_FILES: cfg.LOG_MAX_FILES?.value || "10",
         LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
+        DELIVERY_RECIPIENT_EMAILS: cfg.DELIVERY_RECIPIENT_EMAILS?.value || "",
+        DELIVERY_EMAIL_SUBJECT: cfg.DELIVERY_EMAIL_SUBJECT?.value || "Meeting Summary: {title}",
+        DELIVERY_EMAIL_ADDITIONAL_CONTENT: cfg.DELIVERY_EMAIL_ADDITIONAL_CONTENT?.value || "",
+        DELIVERY_DRIVE_FOLDER: cfg.DELIVERY_DRIVE_FOLDER?.value || "Meeting Transcripts",
       });
       setSourceInfo(cfg);
     });
@@ -385,6 +485,7 @@ export default function ConfigPanel({ onClose }: Props) {
         setAgentConfig(cfg as AgentConfig);
         setEditSystemPrompt(cfg.systemPrompt || "");
         setEditPipelineHints(cfg.pipeline?.pipeline_hints || {});
+        setEditPipelineSteps(cfg.pipeline?.pipeline_steps || getDefaultPipelineSteps(cfg));
         setEditMaxSteps(cfg.pipeline?.max_pipeline_steps ?? 25);
         setEditMaxRetries(cfg.pipeline?.max_retries ?? 3);
         setEditRetryDelay(cfg.pipeline?.retry_base_delay_ms ?? 2000);
@@ -416,30 +517,193 @@ export default function ConfigPanel({ onClose }: Props) {
     }
   }, [values, onClose]);
 
+  /**
+   * Generate the system prompt from the ordered pipeline steps.
+   * Creates numbered sections for each enabled step, injecting tool names.
+   */
+  const generateSystemPromptFromSteps = useCallback(
+    (steps: PipelineStep[]): string => {
+      const enabledSteps = steps.filter((s) => s.enabled);
+      if (enabledSteps.length === 0) return editSystemPrompt;
+
+      const header = `You are an AI meeting transcription assistant. Process completed transcription jobs through a multi-step pipeline: refine the transcript, extract action items, generate summaries, persist to memory, and deliver results.
+
+## Available Tools
+
+{{TOOL_LIST}}
+
+## Pipeline Rules (execute in this exact order)
+
+`;
+      const stepTexts = enabledSteps
+        .map((step, i) => {
+          // #2: Enforce max template length at generation
+          let template = (step.systemPromptTemplate || "").slice(0, MAX_TEMPLATE_LENGTH);
+          if (template) {
+            // #1: Sanitize template before injection
+            template = sanitizePromptText(template, MAX_TEMPLATE_LENGTH);
+            const filled = template.replace(/\{tool\}/g, step.toolName);
+            return `${i + 1}. ${filled}`;
+          }
+          // #1: Sanitize label and description before auto-generation
+          const safeLabel = sanitizePromptText(step.label, MAX_LABEL_LENGTH);
+          const safeDesc = sanitizePromptText(step.description, MAX_DESC_LENGTH);
+          return `${i + 1}. **${safeLabel}** — Call \`${step.toolName}\` to ${safeDesc.toLowerCase()}.`;
+        })
+        .join("\n\n");
+
+      const footer = `
+
+## General Rules
+
+- Call **one tool per response** — the runner will loop back to let you call the next one
+- Never make up job IDs or speaker names — use the Job ID provided in the context
+- Use \`transcribe_search_memory\` to find past meetings by topic (e.g. "budget discussions")
+- Use \`transcribe_query_ephemeral\` to retrieve stored action items, contacts, budgets, or decisions
+- Use \`transcribe_save_ephemeral\` to store cross-meeting context like contact details or budget figures
+
+## Memory Context & Continuity
+
+The system provides existing memory context at the start of each pipeline run. Use it to:
+
+1. **Show continuity** — reference past decisions, recurring action items, and budget discussions in your summary. Repetition is valuable signal (e.g., "Alice to finish report" appearing 3 weeks in a row suggests a blocker).
+2. **Track resolution** — if an action item from a previous meeting is explicitly resolved in this transcript, generate a new action item noting "Completed: ..." with the resolved date.
+3. **Preserve history** — never skip or suppress entries. Every row in ephemeral memory has a \`created_at\` timestamp. The save functions preserve everything for audit.
+4. **Use past context for better summaries** — reference how topics evolved across meetings.
+
+- Respond only with a tool call
+- Respond only with a tool call`;
+
+      const result = header + stepTexts + footer;
+
+      // #4: Log the generation for audit trail
+      console.log(`[generateSystemPrompt] Generated from ${enabledSteps.length} enabled steps (${result.length} chars)`);
+
+      return result;
+    },
+    [editSystemPrompt],
+  );
+
+  /**
+   * Generate pipeline hints from the ordered pipeline steps.
+   * Each hint tells the LLM what to do next based on the step order.
+   * Includes security hardening: input sanitization, chain validation, length enforcement.
+   */
+  const generateHintsFromSteps = useCallback((steps: PipelineStep[]): Record<string, string> => {
+    const enabledSteps = steps.filter((s) => s.enabled);
+    const enabledToolNames = new Set(enabledSteps.map((s) => s.toolName));
+    const hints: Record<string, string> = {};
+
+    for (let i = 0; i < enabledSteps.length; i++) {
+      const step = enabledSteps[i];
+      const nextStep = enabledSteps[i + 1];
+
+      if (step.hintTemplate) {
+        // #2: Enforce max template length
+        let hint = step.hintTemplate.slice(0, MAX_TEMPLATE_LENGTH);
+        // #1: Sanitize hint text
+        hint = sanitizePromptText(hint, MAX_TEMPLATE_LENGTH);
+
+        // #3: Validate hint chain — extract referenced tool name and check it exists
+        const refMatch = hint.match(/\b(transcribe_\w+|send_delivery_email|save_to_drive|create_trello_action_items)\b/);
+        if (refMatch && !enabledToolNames.has(refMatch[0]) && refMatch[0] !== step.toolName) {
+          // Referenced tool is not in the enabled steps — fall back to auto-generated hint
+          console.warn(
+            `[generateHints] Hint for "${step.toolName}" references "${refMatch[0]}" which is not in enabled steps — using auto-generated fallback`,
+          );
+          hints[step.toolName] = buildAutoHint(step, nextStep);
+        } else {
+          hints[step.toolName] = hint;
+        }
+      } else {
+        // Auto-generate hint pointing to the next enabled step
+        hints[step.toolName] = buildAutoHint(step, nextStep);
+      }
+    }
+
+    // #4: Log the generation for audit trail
+    console.log(`[generateHints] Generated ${Object.keys(hints).length} hints from ${enabledSteps.length} enabled steps`);
+
+    return hints;
+  }, []);
+
+  /** Build an auto-generated hint for a step, pointing to the next step or terminal. */
+  function buildAutoHint(step: PipelineStep, nextStep: PipelineStep | undefined): string {
+    if (nextStep) {
+      const safeDesc = sanitizePromptText(nextStep.description, MAX_DESC_LENGTH);
+      return `Next: Call \`${nextStep.toolName}\` to ${safeDesc.toLowerCase()}.`;
+    }
+    return `Pipeline complete. Call a delivery tool (send_delivery_email, save_to_drive, create_trello_action_items) or finish.`;
+  }
+
+  /**
+   * Determine terminal tools from the pipeline steps (last enabled step that isTerminal + any explicitly listed)
+   */
+  const getTerminalToolsFromSteps = useCallback((steps: PipelineStep[]): string[] => {
+    const terminalSteps = steps.filter((s) => s.enabled && s.isTerminal);
+    return terminalSteps.map((s) => s.toolName);
+  }, []);
+
+  // ── Agent sub-tab state (must be declared before handleSaveAgentConfig which uses it) ──
+  type AgentSubTab = "pipeline-steps" | "system-prompt" | "pipeline-hints" | "pipeline-constants";
+  const [agentSubTab, setAgentSubTab] = useState<AgentSubTab>("pipeline-steps");
+
   const handleSaveAgentConfig = useCallback(async () => {
     if (!agentConfig) return;
     setSaving(true);
     setError(null);
     try {
+      // Context-aware save: use the edit buffer from whichever sub-tab is active
+      // so manual edits in system-prompt or pipeline-hints tabs are not overwritten.
+      const isSavingFromStepsTab = agentSubTab === "pipeline-steps";
+      const isSavingFromPromptTab = agentSubTab === "system-prompt";
+      const isSavingFromHintsTab = agentSubTab === "pipeline-hints";
+
+      // Determine what to use for system prompt
+      // - From steps tab: regenerate from the ordered checklist
+      // - From prompt/hints/constants tab: use the textarea content as-is
+      const finalSystemPrompt = isSavingFromStepsTab ? generateSystemPromptFromSteps(editPipelineSteps) : editSystemPrompt;
+
+      // Determine what to use for pipeline hints
+      // - From steps tab: regenerate from the ordered checklist
+      // - From hints tab: use the inline-edited hints as-is
+      // - From prompt/constants tab: keep current editPipelineHints (already synced)
+      const finalHints = isSavingFromStepsTab
+        ? generateHintsFromSteps(editPipelineSteps)
+        : isSavingFromHintsTab
+          ? editPipelineHints
+          : editPipelineHints;
+
+      // Terminal tools always come from pipeline steps (the source of truth for isTerminal flag)
+      const terminalTools = getTerminalToolsFromSteps(editPipelineSteps);
+
       const pipeline = {
         ...agentConfig.pipeline,
         max_pipeline_steps: editMaxSteps,
         max_retries: editMaxRetries,
         retry_base_delay_ms: editRetryDelay,
-        terminal_tools: editTerminalTools
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean),
-        pipeline_hints: editPipelineHints,
+        terminal_tools:
+          terminalTools.length > 0
+            ? terminalTools
+            : editTerminalTools
+                .split(",")
+                .map((s) => s.trim())
+                .filter(Boolean),
+        pipeline_hints: finalHints,
+        // Always save the ordered step definitions so the UI can restore them
+        pipeline_steps: editPipelineSteps,
       };
       const payload = {
-        systemPrompt: editSystemPrompt,
+        systemPrompt: finalSystemPrompt,
         pipeline,
       };
       const result = await window.electronAPI?.saveAgentConfig(payload);
       if (result?.error) {
         setError(result.error);
       } else {
+        // Sync both edit buffers so switching tabs doesn't lose state
+        setEditSystemPrompt(finalSystemPrompt);
+        setEditPipelineHints(finalHints);
         setSaved(true);
         setRestartNeeded(true);
       }
@@ -448,16 +712,67 @@ export default function ConfigPanel({ onClose }: Props) {
     } finally {
       setSaving(false);
     }
-  }, [agentConfig, editSystemPrompt, editPipelineHints, editMaxSteps, editMaxRetries, editRetryDelay, editTerminalTools]);
+  }, [
+    agentConfig,
+    agentSubTab,
+    editSystemPrompt,
+    editPipelineSteps,
+    editPipelineHints,
+    editMaxSteps,
+    editMaxRetries,
+    editRetryDelay,
+    editTerminalTools,
+    generateSystemPromptFromSteps,
+    generateHintsFromSteps,
+    getTerminalToolsFromSteps,
+  ]);
+
+  /** Preview: system prompt generated from current pipeline steps (read-only) */
+  const generatedPromptPreview = useMemo(() => generateSystemPromptFromSteps(editPipelineSteps), [editPipelineSteps, generateSystemPromptFromSteps]);
+
+  /** Preview: hints generated from current pipeline steps (read-only) */
+  const generatedHintsPreview = useMemo(() => generateHintsFromSteps(editPipelineSteps), [editPipelineSteps, generateHintsFromSteps]);
+
+  const handleRegenerateFromSteps = useCallback(() => {
+    // Reset the edit buffers to the auto-generated versions from the checklist
+    setEditSystemPrompt(generatedPromptPreview);
+    setEditPipelineHints(generatedHintsPreview);
+    setSaved(false);
+    setRestartNeeded(false);
+  }, [generatedPromptPreview, generatedHintsPreview]);
 
   const handleRestartAgent = useCallback(async () => {
     await window.electronAPI?.restartAgent();
     onClose();
   }, [onClose]);
 
-  // ── Agent sub-tab state ──
-  type AgentSubTab = "system-prompt" | "pipeline-hints" | "pipeline-constants";
-  const [agentSubTab, setAgentSubTab] = useState<AgentSubTab>("system-prompt");
+  const handleRestoreDefaults = useCallback(async () => {
+    if (
+      !window.confirm(
+        "⚠️ Restore default agent configs?\n\nThis will overwrite your current system prompt, pipeline steps, and tool definitions with the original shipped defaults. The agent runner will need a restart.\n\nThis cannot be undone.",
+      )
+    ) {
+      return;
+    }
+    setRestoringDefaults(true);
+    setError(null);
+    try {
+      const result = await window.electronAPI?.restoreDefaultAgentConfig();
+      if (result?.error) {
+        setError(result.error);
+      } else if (result?.success) {
+        // Clear the agent config cache so it reloads fresh
+        setAgentConfig(null);
+        setRestartNeeded(true);
+        setSaved(true);
+        setError(null); // clear any previous error
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to restore defaults");
+    } finally {
+      setRestoringDefaults(false);
+    }
+  }, []);
 
   // Group fields by section
   const sections = new Map<string, typeof FIELDS>();
@@ -526,6 +841,7 @@ export default function ConfigPanel({ onClose }: Props) {
                   {name === "LLM Provider" && "🧠 "}
                   {name === "Email Delivery" && "📧 "}
                   {name === "Trello Delivery" && "📋 "}
+                  {name === "Delivery Config" && "📬 "}
                   {name === "Auto-Update" && "🔄 "}
                   {name}
                 </button>
@@ -866,7 +1182,80 @@ export default function ConfigPanel({ onClose }: Props) {
                     </>
                   )}
 
-                  {sectionName !== "LLM Provider" &&
+                  {sectionName === "Delivery Config" ? (
+                    <div className="delivery-config-accordion">
+                      {/* ── Gmail accordion section ── */}
+                      <details className="delivery-config-details" open>
+                        <summary className="delivery-config-summary">📧 Gmail Delivery Config</summary>
+                        <div className="delivery-config-body">
+                          <p className="config-field-hint">
+                            Default recipients receive emails in addition to per-job attendee emails. Subject and additional content are appended to
+                            the delivery email.
+                          </p>
+                          {fields
+                            .filter((f) =>
+                              ["DELIVERY_RECIPIENT_EMAILS", "DELIVERY_EMAIL_SUBJECT", "DELIVERY_EMAIL_ADDITIONAL_CONTENT"].includes(f.key as string),
+                            )
+                            .map((field) => (
+                              <div key={field.key} className="config-field">
+                                <label className="config-label">{field.label}</label>
+                                <div className="config-input-row">
+                                  {field.key === "DELIVERY_EMAIL_ADDITIONAL_CONTENT" ? (
+                                    <textarea
+                                      className="config-textarea"
+                                      value={values[field.key] || ""}
+                                      onChange={(e) => handleChange(field.key, e.target.value)}
+                                      placeholder="Any extra text to append to delivery emails..."
+                                      rows={3}
+                                      disabled={activeJobs.length > 0}
+                                    />
+                                  ) : (
+                                    <input
+                                      className="config-input"
+                                      type="text"
+                                      value={values[field.key] || ""}
+                                      onChange={(e) => handleChange(field.key, e.target.value)}
+                                      placeholder={
+                                        field.key === "DELIVERY_RECIPIENT_EMAILS"
+                                          ? "alice@example.com, bob@example.com"
+                                          : field.key === "DELIVERY_EMAIL_SUBJECT"
+                                            ? "Meeting Summary: {title}"
+                                            : ""
+                                      }
+                                      disabled={activeJobs.length > 0}
+                                    />
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                        </div>
+                      </details>
+
+                      {/* ── Drive accordion section ── */}
+                      <details className="delivery-config-details">
+                        <summary className="delivery-config-summary">☁️ Google Drive Delivery Config</summary>
+                        <div className="delivery-config-body">
+                          {fields
+                            .filter((f) => (f.key as string) === "DELIVERY_DRIVE_FOLDER")
+                            .map((field) => (
+                              <div key={field.key} className="config-field">
+                                <label className="config-label">{field.label}</label>
+                                <div className="config-input-row">
+                                  <input
+                                    className="config-input"
+                                    type="text"
+                                    value={values[field.key] || ""}
+                                    onChange={(e) => handleChange(field.key, e.target.value)}
+                                    placeholder="Meeting Transcripts"
+                                    disabled={activeJobs.length > 0}
+                                  />
+                                </div>
+                              </div>
+                            ))}
+                        </div>
+                      </details>
+                    </div>
+                  ) : sectionName !== "LLM Provider" ? (
                     fields.map((field) => (
                       <div key={field.key} className="config-field">
                         <label className="config-label">
@@ -894,7 +1283,8 @@ export default function ConfigPanel({ onClose }: Props) {
                           )}
                         </div>
                       </div>
-                    ))}
+                    ))
+                  ) : null}
                 </div>
               ))}
           </>
@@ -921,6 +1311,11 @@ export default function ConfigPanel({ onClose }: Props) {
             {/* Agent sub-tab bar */}
             <div className="config-section-tabs config-section-tabs--agent">
               <button
+                className={`config-section-tab ${agentSubTab === "pipeline-steps" ? "config-section-tab--active" : ""}`}
+                onClick={() => setAgentSubTab("pipeline-steps")}>
+                ✅ Pipeline Steps
+              </button>
+              <button
                 className={`config-section-tab ${agentSubTab === "system-prompt" ? "config-section-tab--active" : ""}`}
                 onClick={() => setAgentSubTab("system-prompt")}>
                 📝 System Prompt
@@ -937,14 +1332,201 @@ export default function ConfigPanel({ onClose }: Props) {
               </button>
             </div>
 
+            {/* Pipeline Steps (draggable checklist) */}
+            {agentSubTab === "pipeline-steps" && (
+              <div className="config-section">
+                <div className="pipeline-steps-header">
+                  <h3 className="config-section-title">✅ Pipeline Steps</h3>
+                  <span className="pipeline-steps-count">
+                    {editPipelineSteps.length} step{editPipelineSteps.length !== 1 ? "s" : ""}
+                  </span>
+                </div>
+                <p className="config-field-hint">
+                  Drag to reorder pipeline steps. Toggle the checkbox to enable/disable a step. Disabled steps are excluded from the system prompt and
+                  pipeline hints. Click a step to expand and edit its label, description, and hint text.
+                </p>
+
+                {editPipelineSteps.length === 0 && (
+                  <div className="config-empty">No pipeline steps defined. Save agent config to generate default steps.</div>
+                )}
+
+                <div className="pipeline-steps-list">
+                  {editPipelineSteps.map((step, index) => (
+                    <div
+                      key={step.id}
+                      className={`pipeline-step ${!step.enabled ? "pipeline-step--disabled" : ""} ${dragIndex === index ? "pipeline-step--dragging" : ""} ${dropIndex === index ? "pipeline-step--drop-target" : ""} ${expandedStepId === step.id ? "pipeline-step--expanded" : ""}`}
+                      draggable={activeJobs.length === 0}
+                      onDragStart={(e) => {
+                        setDragIndex(index);
+                        e.dataTransfer.effectAllowed = "move";
+                        e.dataTransfer.setData("text/plain", String(index));
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "move";
+                        setDropIndex(index);
+                      }}
+                      onDragLeave={() => {
+                        setDropIndex((prev) => (prev === index ? null : prev));
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const fromIdx = parseInt(e.dataTransfer.getData("text/plain"), 10);
+                        if (!isNaN(fromIdx) && fromIdx !== index) {
+                          const updated = [...editPipelineSteps];
+                          const [moved] = updated.splice(fromIdx, 1);
+                          updated.splice(index, 0, moved);
+                          // Re-assign IDs to match new order
+                          const reordered = updated.map((s, i) => ({ ...s, id: `step-${i + 1}` }));
+                          setEditPipelineSteps(reordered);
+                          setSaved(false);
+                          setRestartNeeded(false);
+                        }
+                        setDragIndex(null);
+                        setDropIndex(null);
+                      }}
+                      onDragEnd={() => {
+                        setDragIndex(null);
+                        setDropIndex(null);
+                      }}>
+                      {/* Step header — always visible */}
+                      <div className="pipeline-step-header" onClick={() => setExpandedStepId(expandedStepId === step.id ? null : step.id)}>
+                        {/* Drag handle */}
+                        <span className={`pipeline-step-drag ${activeJobs.length > 0 ? "pipeline-step-drag--disabled" : ""}`} title="Drag to reorder">
+                          ⠿
+                        </span>
+
+                        {/* Enable/disable toggle */}
+                        <label className="pipeline-step-checkbox" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={step.enabled}
+                            disabled={activeJobs.length > 0}
+                            onChange={() => {
+                              const updated = editPipelineSteps.map((s) => (s.id === step.id ? { ...s, enabled: !s.enabled } : s));
+                              setEditPipelineSteps(updated);
+                              setSaved(false);
+                              setRestartNeeded(false);
+                            }}
+                          />
+                          <span className="pipeline-step-checkmark" />
+                        </label>
+
+                        {/* Step label and description */}
+                        <div className="pipeline-step-info">
+                          <span className="pipeline-step-number">#{index + 1}</span>
+                          <span className="pipeline-step-label">{step.label}</span>
+                          <span className="pipeline-step-toolname">{step.toolName}</span>
+                          {step.isTerminal && <span className="pipeline-step-badge pipeline-step-badge--terminal">⏹ Terminal</span>}
+                        </div>
+
+                        {/* Expand/collapse arrow */}
+                        <span className={`pipeline-step-arrow ${expandedStepId === step.id ? "pipeline-step-arrow--open" : ""}`}>▾</span>
+                      </div>
+
+                      {/* Expanded editor — label, description, hint */}
+                      {expandedStepId === step.id && (
+                        <div className="pipeline-step-editor">
+                          <div className="pipeline-step-editor-field">
+                            <label className="config-label">Label</label>
+                            <input
+                              className="config-input"
+                              type="text"
+                              value={step.label}
+                              disabled={activeJobs.length > 0}
+                              onChange={(e) => {
+                                const updated = editPipelineSteps.map((s) => (s.id === step.id ? { ...s, label: e.target.value } : s));
+                                setEditPipelineSteps(updated);
+                                setSaved(false);
+                                setRestartNeeded(false);
+                              }}
+                            />
+                          </div>
+                          <div className="pipeline-step-editor-field">
+                            <label className="config-label">Description</label>
+                            <input
+                              className="config-input"
+                              type="text"
+                              value={step.description}
+                              disabled={activeJobs.length > 0}
+                              onChange={(e) => {
+                                const updated = editPipelineSteps.map((s) => (s.id === step.id ? { ...s, description: e.target.value } : s));
+                                setEditPipelineSteps(updated);
+                                setSaved(false);
+                                setRestartNeeded(false);
+                              }}
+                            />
+                          </div>
+                          <div className="pipeline-step-editor-field">
+                            <label className="config-label">System Prompt Template</label>
+                            <p className="config-field-hint">
+                              Use <code>{`{tool}`}</code> as placeholder for the tool name. Leave empty for default.
+                            </p>
+                            <textarea
+                              className="config-textarea"
+                              rows={2}
+                              value={step.systemPromptTemplate}
+                              disabled={activeJobs.length > 0}
+                              placeholder={`Auto-generated from label and tool name`}
+                              onChange={(e) => {
+                                const updated = editPipelineSteps.map((s) => (s.id === step.id ? { ...s, systemPromptTemplate: e.target.value } : s));
+                                setEditPipelineSteps(updated);
+                                setSaved(false);
+                                setRestartNeeded(false);
+                              }}
+                            />
+                          </div>
+                          <div className="pipeline-step-editor-field">
+                            <label className="config-label">Pipeline Hint</label>
+                            <p className="config-field-hint">Text shown to the LLM after this step executes, telling it what to do next.</p>
+                            <textarea
+                              className="config-textarea"
+                              rows={2}
+                              value={step.hintTemplate}
+                              disabled={activeJobs.length > 0}
+                              placeholder="Next: Call transcribe_..."
+                              onChange={(e) => {
+                                const updated = editPipelineSteps.map((s) => (s.id === step.id ? { ...s, hintTemplate: e.target.value } : s));
+                                setEditPipelineSteps(updated);
+                                setSaved(false);
+                                setRestartNeeded(false);
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* System Prompt */}
             {agentSubTab === "system-prompt" && (
               <div className="config-section">
-                <h3 className="config-section-title">📝 System Prompt</h3>
+                <div className="config-section-header-row">
+                  <h3 className="config-section-title">📝 System Prompt</h3>
+                  <button
+                    className="config-regenerate-btn"
+                    onClick={handleRegenerateFromSteps}
+                    disabled={activeJobs.length > 0}
+                    title="Reset to auto-generated version from the Pipeline Steps checklist">
+                    ⟳ Regenerate from Steps
+                  </button>
+                </div>
                 <p className="config-field-hint">
-                  The main instruction template sent to the LLM. Use <code>{`{{TOOL_LIST}}`}</code> as a placeholder where tool descriptions are
-                  injected.
+                  The main instruction template sent to the LLM. <strong>Edits are preserved when saving from this tab.</strong> Use{" "}
+                  <code>{`{{TOOL_LIST}}`}</code> as a placeholder where tool descriptions are injected.
                 </p>
+
+                {/* Diff-style: show what the auto-generated version would look like */}
+                <details className="config-preview-details">
+                  <summary className="config-preview-summary">
+                    🔍 Preview: auto-generated from Pipeline Steps ({editPipelineSteps.filter((s) => s.enabled).length} enabled steps)
+                  </summary>
+                  <pre className="config-preview-block">{generatedPromptPreview}</pre>
+                </details>
+
                 <textarea
                   className="config-textarea config-textarea--large"
                   value={editSystemPrompt}
@@ -963,25 +1545,59 @@ export default function ConfigPanel({ onClose }: Props) {
             {/* Pipeline Hints */}
             {agentSubTab === "pipeline-hints" && (
               <div className="config-section">
-                <h3 className="config-section-title">🧭 Pipeline Hints</h3>
-                <p className="config-field-hint">Hint text appended to the LLM context after each tool step. Key = tool name, value = hint text.</p>
+                <div className="config-section-header-row">
+                  <h3 className="config-section-title">🧭 Pipeline Hints</h3>
+                  <button
+                    className="config-regenerate-btn"
+                    onClick={handleRegenerateFromSteps}
+                    disabled={activeJobs.length > 0}
+                    title="Reset to auto-generated hints from the Pipeline Steps checklist">
+                    ⟳ Regenerate from Steps
+                  </button>
+                </div>
+                <p className="config-field-hint">
+                  Hint text appended to the LLM context after each tool step. Key = tool name, value = hint text.{" "}
+                  <strong>Edits are preserved when saving from this tab.</strong>
+                </p>
+
+                {/* Preview of auto-generated hints */}
+                <details className="config-preview-details">
+                  <summary className="config-preview-summary">
+                    🔍 Preview: auto-generated from Pipeline Steps ({Object.keys(generatedHintsPreview).length} hints)
+                  </summary>
+                  <pre className="config-preview-block">
+                    {Object.entries(generatedHintsPreview)
+                      .map(([k, v]) => `${k}: ${v}`)
+                      .join("\n")}
+                  </pre>
+                </details>
+
                 {Object.keys(editPipelineHints).length === 0 && <p className="config-empty">No pipeline hints loaded.</p>}
-                {Object.entries(editPipelineHints).map(([key, val]) => (
-                  <div key={key} className="config-field">
-                    <label className="config-label config-label--mono">{key}</label>
-                    <input
-                      className="config-input"
-                      type="text"
-                      value={val}
-                      onChange={(e) => {
-                        setEditPipelineHints((prev) => ({ ...prev, [key]: e.target.value }));
-                        setSaved(false);
-                        setRestartNeeded(false);
-                      }}
-                      disabled={activeJobs.length > 0}
-                    />
-                  </div>
-                ))}
+                {Object.entries(editPipelineHints)
+                  .sort(([a], [b]) => {
+                    // Sort by step order in the checklist
+                    const order = editPipelineSteps.findIndex((s) => s.toolName === a) - editPipelineSteps.findIndex((s) => s.toolName === b);
+                    return order;
+                  })
+                  .map(([key, val]) => (
+                    <div key={key} className="config-field">
+                      <div className="config-label-row">
+                        <label className="config-label config-label--mono">{key}</label>
+                        <span className="config-hint-badge">step #{editPipelineSteps.findIndex((s) => s.toolName === key) + 1 || "—"}</span>
+                      </div>
+                      <textarea
+                        className="config-textarea config-textarea--hint"
+                        rows={2}
+                        value={val}
+                        onChange={(e) => {
+                          setEditPipelineHints((prev) => ({ ...prev, [key]: e.target.value }));
+                          setSaved(false);
+                          setRestartNeeded(false);
+                        }}
+                        disabled={activeJobs.length > 0}
+                      />
+                    </div>
+                  ))}
               </div>
             )}
 
@@ -1236,8 +1852,43 @@ export default function ConfigPanel({ onClose }: Props) {
               </span>
             ) : (
               <>
-                <button className="config-save-btn" onClick={handleSaveAgentConfig} disabled={saving || saved}>
-                  {saving ? "Saving…" : saved && !restartNeeded ? "Saved ✓" : "Save Agent Instructions"}
+                <span className="config-footer-note">
+                  {agentSubTab === "pipeline-steps" && "💡 Saves: regenerated system prompt + hints from step order"}
+                  {agentSubTab === "system-prompt" && "💡 Saves: your edited system prompt (hints regenerated from steps)"}
+                  {agentSubTab === "pipeline-hints" && "💡 Saves: your edited hints (system prompt regenerated from steps)"}
+                  {agentSubTab === "pipeline-constants" && "💡 Saves: constants only (prompt + hints unchanged)"}
+                </span>
+                <button
+                  className="config-save-btn"
+                  onClick={handleSaveAgentConfig}
+                  disabled={saving || saved}
+                  title={
+                    agentSubTab === "pipeline-steps"
+                      ? "Regenerate system prompt and hints from step order"
+                      : agentSubTab === "system-prompt"
+                        ? "Save system prompt (preserves your edits)"
+                        : agentSubTab === "pipeline-hints"
+                          ? "Save pipeline hints (preserves your edits)"
+                          : "Save pipeline constants"
+                  }>
+                  {saving
+                    ? "Saving…"
+                    : saved && !restartNeeded
+                      ? "Saved ✓"
+                      : agentSubTab === "pipeline-steps"
+                        ? "💾 Save & Generate from Steps"
+                        : agentSubTab === "system-prompt"
+                          ? "💾 Save System Prompt"
+                          : agentSubTab === "pipeline-hints"
+                            ? "💾 Save Pipeline Hints"
+                            : "💾 Save Constants"}
+                </button>
+                <button
+                  className="config-restore-btn"
+                  onClick={handleRestoreDefaults}
+                  disabled={saving || restoringDefaults || activeJobs.length > 0}
+                  title="Restore the original shipped agent configs (tools, pipeline, system prompt)">
+                  {restoringDefaults ? "⟳ Restoring..." : "↩ Restore Defaults"}
                 </button>
                 {restartNeeded && (
                   <button className="config-restart-btn" onClick={handleRestartAgent}>

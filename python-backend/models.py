@@ -16,6 +16,7 @@ class UploadByPathRequest(BaseModel):
     file_path: str = Field(..., description="Absolute or relative path to an audio file")
     title: str = "Untitled Meeting"
     attendees: List[str] = Field(default_factory=list)
+    email_recipients: List[str] = Field(default_factory=list, description="Per-job email recipients for delivery")
     event_type: str = "internal"
     skip_steps: Optional[List[str]] = Field(default=None, description="Tool names to skip in the agent pipeline. Defaults to skipping analysis and delivery.")
 

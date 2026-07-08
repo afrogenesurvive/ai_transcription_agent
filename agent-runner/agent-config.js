@@ -88,6 +88,98 @@ const FALLBACK_PIPELINE = {
   ollama_max_retries: 5,
   ollama_retry_base_delay_ms: 5000,
   terminal_tools: ["send_delivery_email", "save_to_drive", "create_trello_action_items"],
+  pipeline_steps: [
+    {
+      id: "step-1",
+      toolName: "transcribe_refine",
+      label: "Refine Transcript",
+      description: "Clean filler words and redact PII",
+      systemPromptTemplate: "",
+      hintTemplate: "",
+      enabled: true,
+      isTerminal: false,
+    },
+    {
+      id: "step-2",
+      toolName: "transcribe_get_transcript",
+      label: "Read Transcript",
+      description: "Retrieve the refined speaker-labeled transcript",
+      systemPromptTemplate: "",
+      hintTemplate: "",
+      enabled: true,
+      isTerminal: false,
+    },
+    {
+      id: "step-3",
+      toolName: "transcribe_summarize",
+      label: "Summarize",
+      description: "Generate and store a structured meeting summary",
+      systemPromptTemplate: "",
+      hintTemplate: "",
+      enabled: true,
+      isTerminal: false,
+    },
+    {
+      id: "step-4",
+      toolName: "transcribe_analyze",
+      label: "Analyze",
+      description: "Analyze topics, sentiment, entities, and follow-ups",
+      systemPromptTemplate: "",
+      hintTemplate: "",
+      enabled: true,
+      isTerminal: false,
+    },
+    {
+      id: "step-5",
+      toolName: "transcribe_save_context",
+      label: "Save to Memory",
+      description: "Persist meeting to semantic and ephemeral memory",
+      systemPromptTemplate: "",
+      hintTemplate: "",
+      enabled: true,
+      isTerminal: false,
+    },
+    {
+      id: "step-6",
+      toolName: "transcribe_prepare_delivery",
+      label: "Prepare Delivery",
+      description: "Package results for delivery destinations",
+      systemPromptTemplate: "",
+      hintTemplate: "",
+      enabled: true,
+      isTerminal: false,
+    },
+    {
+      id: "step-7",
+      toolName: "send_delivery_email",
+      label: "Deliver via Email",
+      description: "Send results via email",
+      systemPromptTemplate: "",
+      hintTemplate: "",
+      enabled: true,
+      isTerminal: true,
+    },
+    {
+      id: "step-8",
+      toolName: "save_to_drive",
+      label: "Save to Drive",
+      description: "Save results to Google Drive",
+      systemPromptTemplate: "",
+      hintTemplate: "",
+      enabled: true,
+      isTerminal: true,
+    },
+    {
+      id: "step-9",
+      toolName: "create_trello_action_items",
+      label: "Create Trello Cards",
+      description: "Create action items as Trello cards",
+      systemPromptTemplate: "",
+      hintTemplate: "",
+      enabled: true,
+      isTerminal: true,
+    },
+  ],
   pipeline_hints: {
     transcribe_refine:
       "Refinement cleaned filler words and PII (timestamps preserved). Next: Call transcribe_get_transcript to read the cleaned transcript, then call transcribe_summarize to generate a structured summary, then call transcribe_analyze to analyze topics/sentiment/entities...",
@@ -120,6 +212,7 @@ export const PIPELINE_CONFIG = readJson("pipeline.json") || FALLBACK_PIPELINE;
 
 /** Convenience aliases */
 export const PIPELINE_HINTS = PIPELINE_CONFIG.pipeline_hints;
+export const PIPELINE_STEPS = PIPELINE_CONFIG.pipeline_steps || [];
 export const TERMINAL_TOOLS = new Set(PIPELINE_CONFIG.terminal_tools || []);
 export const MAX_PIPELINE_STEPS = PIPELINE_CONFIG.max_pipeline_steps ?? 25;
 export const MAX_RETRIES = PIPELINE_CONFIG.max_retries ?? 3;
@@ -138,4 +231,6 @@ export const CONFIG_DIR_PATH = CONFIG_DIR;
 
 console.log(`   📋 [agent-config] Loaded from ${CONFIG_DIR}`);
 console.log(`   📋 [agent-config]   ${TOOLS.length} tools, ${Object.keys(PIPELINE_HINTS).length} pipeline hints`);
-console.log(`   📋 [agent-config]   ${TERMINAL_TOOLS.size} terminal tools, ${Object.keys(EVENT_TEMPLATES).length} event templates`);
+console.log(
+  `   📋 [agent-config]   ${TERMINAL_TOOLS.size} terminal tools, ${PIPELINE_STEPS.length} pipeline steps, ${Object.keys(EVENT_TEMPLATES).length} event templates`,
+);

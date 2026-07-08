@@ -138,6 +138,7 @@ async def upload_audio(
     file: UploadFile = File(...),
     title: str = Form("Untitled Meeting"),
     attendees: str = Form("[]"),
+    email_recipients: str = Form("[]"),
     event_type: str = Form("internal"),
     skip_steps: str = Form(""),
 ):
@@ -151,9 +152,11 @@ async def upload_audio(
         f.write(content)
 
     parsed_skip = json.loads(skip_steps) if skip_steps else config.DEFAULT_SKIP_STEPS
+    parsed_emails = json.loads(email_recipients) if email_recipients else []
     metadata = {
         "title": title,
         "attendees": json.loads(attendees),
+        "email_recipients": parsed_emails,
         "event_type": event_type,
         "skip_steps": parsed_skip,
     }
@@ -193,6 +196,7 @@ async def upload_audio_by_path(req: UploadByPathRequest):
     metadata = {
         "title": req.title,
         "attendees": req.attendees,
+        "email_recipients": req.email_recipients,
         "event_type": req.event_type,
         "skip_steps": skip_steps,
     }
@@ -424,6 +428,7 @@ async def get_aggregate_usage():
                     "completion_tokens": job_totals.get("completion_tokens", 0),
                     "total_tokens": job_totals.get("total_tokens", 0),
                 },
+                "costs": data.get("costs", {}),
                 "saved_at": data.get("saved_at", ""),
             })
             totals["prompt_tokens"] += job_totals.get("prompt_tokens", 0)
@@ -432,10 +437,19 @@ async def get_aggregate_usage():
         except (json.JSONDecodeError, IOError):
             continue
 
+    # Compute aggregate costs from per-job cost fields
+    total_costs = {"input_cost": 0.0, "output_cost": 0.0, "total_cost": 0.0}
+    for r in results:
+        jc = r.get("costs", {})
+        total_costs["input_cost"] += jc.get("input_cost", 0)
+        total_costs["output_cost"] += jc.get("output_cost", 0)
+        total_costs["total_cost"] += jc.get("total_cost", 0)
+    total_costs = {k: round(v, 6) for k, v in total_costs.items()}
+
     # Sort by saved_at descending
     results.sort(key=lambda r: r.get("saved_at", ""), reverse=True)
-    print(f"💰 [USAGE] Aggregate token usage: {len(results)} jobs, {totals['total_tokens']} total tokens ({totals['prompt_tokens']} prompt + {totals['completion_tokens']} completion)")
-    return {"jobs": results, "totals": totals, "job_count": len(results)}
+    print(f"💰 [USAGE] Aggregate token usage: {len(results)} jobs, {totals['total_tokens']} total tokens (${total_costs['total_cost']:.4f})")
+    return {"jobs": results, "totals": totals, "costs": total_costs, "job_count": len(results)}
 
 
 @app.get("/transcribe/usage/{job_id}")
@@ -484,14 +498,45 @@ async def agent_list_voiceprints():
 @app.post("/agent/deliver")
 async def agent_deliver(req: Deliverable):
     print(f"[api] POST /agent/deliver job_id={req.job_id} destinations={req.destinations} emails={req.email_recipients}")
+
+    # Merge job-specific email recipients with config-level default recipients.
+    # Config recipients come from DELIVERY_RECIPIENT_EMAILS env var (set via ConfigPanel).
+    config_recipients = os.environ.get("DELIVERY_RECIPIENT_EMAILS", "")
+    config_emails = [e.strip() for e in config_recipients.split(",") if e.strip()] if config_recipients else []
+
+    # Also try to read job-level email_recipients from stored metadata
+    job_emails = req.email_recipients or []
+    try:
+        meta_path = os.path.join(config.STORAGE_PATH, req.job_id, "metadata.json")
+        if os.path.exists(meta_path):
+            with open(meta_path) as f:
+                meta = json.load(f)
+            stored_emails = meta.get("email_recipients", [])
+            if stored_emails:
+                job_emails = list(set(list(job_emails) + stored_emails))
+    except Exception:
+        pass
+
+    # Deduplicate while preserving order
+    seen = set()
+    all_recipients = []
+    for email in config_emails + job_emails:
+        if email.lower() not in seen:
+            seen.add(email.lower())
+            all_recipients.append(email)
+
     package = {
         "job_id": req.job_id, "title": req.title,
         "attendees": req.attendees, "destinations": req.destinations,
-        "email_recipients": req.email_recipients, "status": "ready_for_delivery",
+        "email_recipients": all_recipients,
+        "email_subject": os.environ.get("DELIVERY_EMAIL_SUBJECT", "Meeting Summary: {title}"),
+        "email_additional_content": os.environ.get("DELIVERY_EMAIL_ADDITIONAL_CONTENT", ""),
+        "drive_folder": os.environ.get("DELIVERY_DRIVE_FOLDER", "Meeting Transcripts"),
+        "status": "ready_for_delivery",
     }
     with open(os.path.join(config.STORAGE_PATH, req.job_id, "delivery.json"), "w") as f:
         json.dump(package, f, indent=2)
-    print(f"[api] POST /agent/deliver → delivery.json written")
+    print(f"[api] POST /agent/deliver → delivery.json written (merged {len(all_recipients)} recipients: {config_emails} config + {job_emails} job)")
     return package
 
 

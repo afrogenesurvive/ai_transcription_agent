@@ -62,6 +62,14 @@ export interface AppConfig {
   APPEARANCE_FONT_SIZE: string;
   /** Sidebar width in px */
   APPEARANCE_SIDEBAR_WIDTH: string;
+  /** Delivery config — default recipient emails (comma-separated) */
+  DELIVERY_RECIPIENT_EMAILS: string;
+  /** Delivery config — email subject template */
+  DELIVERY_EMAIL_SUBJECT: string;
+  /** Delivery config — additional content appended to delivery emails */
+  DELIVERY_EMAIL_ADDITIONAL_CONTENT: string;
+  /** Delivery config — Google Drive destination folder name */
+  DELIVERY_DRIVE_FOLDER: string;
 }
 
 const DEFAULTS: AppConfig = {
@@ -91,6 +99,10 @@ const DEFAULTS: AppConfig = {
   APPEARANCE_ACCENT_COLOR: "#58a6ff",
   APPEARANCE_FONT_SIZE: "medium",
   APPEARANCE_SIDEBAR_WIDTH: "48",
+  DELIVERY_RECIPIENT_EMAILS: "",
+  DELIVERY_EMAIL_SUBJECT: "Meeting Summary: {title}",
+  DELIVERY_EMAIL_ADDITIONAL_CONTENT: "",
+  DELIVERY_DRIVE_FOLDER: "Meeting Transcripts",
 };
 
 /** Keys the UI considers "required" before the pipeline can run. */

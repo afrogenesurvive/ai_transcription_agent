@@ -719,6 +719,41 @@ ipcMain.handle("agent-config:save", async (_event, config: { tools?: any; pipeli
   }
 });
 
+ipcMain.handle("agent-config:defaults", async () => {
+  try {
+    const res = await fetch("http://127.0.0.1:5010/agent/config/defaults", {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (res.ok) return await res.json();
+    return { error: `Bridge returned ${res.status}` };
+  } catch (err: any) {
+    return { error: `Bridge unreachable: ${err.message}` };
+  }
+});
+
+ipcMain.handle("agent-config:restore-defaults", async () => {
+  addLog("main", "info", "Restoring default agent configs...");
+  try {
+    const res = await fetch("http://127.0.0.1:5010/agent/config/restore-defaults", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) {
+      const result = await res.json();
+      addLog("main", "info", `Default agent configs restored: ${result.restored?.join(", ")}`);
+      return result;
+    }
+    const errText = await res.text();
+    addLog("main", "error", `Restore defaults failed: ${errText}`);
+    return { error: `Bridge returned ${res.status}: ${errText}` };
+  } catch (err: any) {
+    addLog("main", "error", `Restore defaults failed: ${err.message}`);
+    return { error: `Bridge unreachable: ${err.message}` };
+  }
+});
+
 ipcMain.handle("agent-config:restart", async () => {
   addLog("main", "info", "Flagging agent runner restart...");
   try {

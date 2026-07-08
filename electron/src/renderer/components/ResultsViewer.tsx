@@ -560,6 +560,11 @@ interface TokenUsageData {
     completion_tokens: number;
     total_tokens: number;
   };
+  costs?: {
+    input_cost: number;
+    output_cost: number;
+    total_cost: number;
+  };
   saved_at: string;
 }
 
@@ -636,20 +641,44 @@ function TokensTab({ jobId }: { jobId: string }) {
         </div>
         <div className="rv-tokens-card">
           <span className="rv-tokens-card-value">{usage.totals.prompt_tokens.toLocaleString()}</span>
-          <span className="rv-tokens-card-label">Prompt Tokens</span>
+          <span className="rv-tokens-card-label">Prompt (Input)</span>
         </div>
         <div className="rv-tokens-card">
           <span className="rv-tokens-card-value">{usage.totals.completion_tokens.toLocaleString()}</span>
-          <span className="rv-tokens-card-label">Completion Tokens</span>
+          <span className="rv-tokens-card-label">Completion (Output)</span>
         </div>
         <div className="rv-tokens-card">
           <span className="rv-tokens-card-value">{usage.steps.length}</span>
           <span className="rv-tokens-card-label">LLM Calls</span>
         </div>
+        {/* Cost cards — only if costs data is available */}
+        {usage.costs && (
+          <>
+            <div className="rv-tokens-card rv-tokens-card--cost">
+              <span className="rv-tokens-card-value">${usage.costs.input_cost.toFixed(4)}</span>
+              <span className="rv-tokens-card-label">Input Cost @ $0.25/M</span>
+            </div>
+            <div className="rv-tokens-card rv-tokens-card--cost">
+              <span className="rv-tokens-card-value">${usage.costs.output_cost.toFixed(4)}</span>
+              <span className="rv-tokens-card-label">Output Cost @ $1.00/M</span>
+            </div>
+            <div className="rv-tokens-card rv-tokens-card--cost">
+              <span className="rv-tokens-card-value" style={{ fontWeight: 700 }}>
+                ${usage.costs.total_cost.toFixed(4)}
+              </span>
+              <span className="rv-tokens-card-label">Total Cost</span>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Model info */}
       <div className="rv-tokens-model-info">
+        {usage.provider === "ollama" && (
+          <span className="rv-tokens-model-badge rv-tokens-model-badge--local" style={{ background: "rgba(210,153,34,0.15)", color: "#d29922" }}>
+            🖥️ Local (no cost)
+          </span>
+        )}
         <span className="rv-tokens-model-badge">{usage.provider}</span>
         <code className="rv-code">{usage.model}</code>
         <span className="rv-muted" style={{ marginLeft: "auto" }}>

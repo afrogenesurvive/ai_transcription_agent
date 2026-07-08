@@ -296,11 +296,11 @@ export default function App() {
   }, [jobId, api, statusHook]);
 
   // Handle upload submit
-  const handleUpload = async (file: File, title: string, attendees: string[], skipSteps: string[]) => {
-    console.log("handleUpload", { skipSteps });
+  const handleUpload = async (file: File, title: string, attendees: string[], emailRecipients: string[], skipSteps: string[]) => {
+    console.log("handleUpload", { skipSteps, emailRecipients });
     setUploading(true);
     try {
-      const result: any = await api.uploadAudio(file, title, attendees, skipSteps);
+      const result: any = await api.uploadAudio(file, title, attendees, emailRecipients, skipSteps);
       console.log("Upload result", result);
       setJobId(result.job_id);
       setJobMetadata({ title, attendees });

@@ -74,6 +74,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   saveAgentConfig: (config: { tools?: any; pipeline?: any; systemPrompt?: string }): Promise<{ success?: boolean; error?: string }> =>
     ipcRenderer.invoke("agent-config:save", config),
   restartAgent: (): Promise<{ success?: boolean; error?: string }> => ipcRenderer.invoke("agent-config:restart"),
+  getDefaultAgentConfig: (): Promise<{ tools?: any; pipeline?: any; systemPrompt?: string; error?: string }> =>
+    ipcRenderer.invoke("agent-config:defaults"),
+  restoreDefaultAgentConfig: (): Promise<{ success?: boolean; restored?: string[]; error?: string }> =>
+    ipcRenderer.invoke("agent-config:restore-defaults"),
 
   // ── Log file browsing ──
   listLogFiles: (): Promise<LogFileInfo[]> => ipcRenderer.invoke("logs:listFiles"),

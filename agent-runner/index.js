@@ -26,6 +26,7 @@ import { executeToolCall } from "./tool-executor.js";
 import { logAction } from "./logger.js";
 import { readPending, markCleared, acquireLock, releaseLock } from "./poller.js";
 import { sanitizeTranscriptSegments, sanitizeContextString } from "./sanitize.js";
+import { AgentTracer } from "./agent-trace.js";
 import {
   TOOLS,
   PIPELINE_HINTS,
@@ -212,8 +213,9 @@ async function processEvent(event) {
       .filter((w) => w.length > 3)
       .slice(0, 4)
       .join(" ");
+    let semanticResult = null;
     if (titleWords) {
-      const semanticResult = await executeToolCall("transcribe_search_memory", {
+      semanticResult = await executeToolCall("transcribe_search_memory", {
         query: titleWords,
         nResults: 3,
       });
@@ -229,6 +231,15 @@ async function processEvent(event) {
     memoryLines.push("── End Memory Context ──\n");
     context += "\n" + memoryLines.join("\n");
     console.log(`   ✅ [RUNNER] Memory context injected (${memoryLines.length - 3} items)`);
+    agentTrace.recordMemoryContext({
+      memorySources: {
+        action_items: queryActions.status === "fulfilled" ? queryActions.value?.results?.length || 0 : "failed",
+        decisions: queryDecisions.status === "fulfilled" ? queryDecisions.value?.results?.length || 0 : "failed",
+        budgets: queryBudgets.status === "fulfilled" ? queryBudgets.value?.results?.length || 0 : "failed",
+      },
+      totalItems: memoryLines.length - 4,
+      semanticResults: semanticResult?.results?.length || 0,
+    });
   } catch (err) {
     console.log(`   ⚠️  [RUNNER] Memory fetch failed (non-fatal): ${err.message}`);
   }
@@ -242,6 +253,10 @@ async function processEvent(event) {
   if (skippedTools.size > 0) {
     console.log(`   ⏭️  [RUNNER] Skipped tools: ${[...skippedTools].join(", ")}`);
   }
+  agentTrace.recordSkipConfig({
+    skippedTools,
+    skipSource: skippedTools.size > 0 ? "jobData.skip_steps" : "none",
+  });
 
   // Filter the available tools: remove any that are in the skip list
   let availableTools = TOOLS.filter((t) => !skippedTools.has(t.name));
@@ -273,6 +288,12 @@ async function processEvent(event) {
       }
     }
     renderedPrompt = rendered;
+
+    agentTrace.recordSystemPrompt({
+      renderedPrompt,
+      strippedSections: [...skippedTools],
+      availableTools,
+    });
   }
 
   // Dynamically resolve the next non-skipped pipeline hint.
@@ -282,6 +303,13 @@ async function processEvent(event) {
     const hint = hints[currentTool];
     if (!hint) {
       console.log(`   🔍 [RUNNER] resolveNextHint("${currentTool}"): no hint defined — LLM will decide autonomously`);
+      agentTrace.recordHintResolution({
+        fromTool: currentTool,
+        hintText: null,
+        resolvedTo: null,
+        wasSkipped: false,
+        skipChain: [],
+      });
       return null;
     }
     console.log(`   🔍 [RUNNER] resolveNextHint("${currentTool}"): hint found — "${hint.slice(0, 100)}..."`);
@@ -289,6 +317,13 @@ async function processEvent(event) {
     const match = hint.match(/\b(transcribe_\w+)\b/);
     if (!match) {
       console.log(`   🔍 [RUNNER] resolveNextHint: no next tool reference in hint, returning as-is`);
+      agentTrace.recordHintResolution({
+        fromTool: currentTool,
+        hintText: hint,
+        resolvedTo: null,
+        wasSkipped: false,
+        skipChain: [],
+      });
       return hint;
     }
     const nextTool = match[0];
@@ -298,31 +333,75 @@ async function processEvent(event) {
       const nextHint = hints[nextTool];
       if (!nextHint) {
         console.log(`   ⏭️  [RUNNER] resolveNextHint: no hint for skipped "${nextTool}", returning original hint (fallback)`);
+        agentTrace.recordHintResolution({
+          fromTool: currentTool,
+          hintText: hint,
+          resolvedTo: nextTool,
+          wasSkipped: true,
+          skipChain: [nextTool],
+        });
         return hint;
       }
       const nextMatch = nextHint.match(/\b(transcribe_\w+)\b/);
       if (nextMatch && skippedTools.has(nextMatch[0])) {
         // Multiple consecutive skips — recurse deeper
         console.log(`   🔄 [RUNNER] resolveNextHint: "${nextMatch[0]}" is also skipped, recursing deeper`);
-        return resolveNextHint(nextTool, hints);
+        const result = resolveNextHint(nextTool, hints);
+        agentTrace.recordHintResolution({
+          fromTool: currentTool,
+          hintText: hint,
+          resolvedTo: nextMatch[0],
+          wasSkipped: true,
+          skipChain: [nextTool, nextMatch[0]],
+        });
+        return result;
       }
       // Return the hint that points past the skipped tool
       const overridden = nextHint
         .replace(new RegExp(`\\b${nextMatch ? nextMatch[0].replace(/\./g, "\\.") : ""}\\b`), `(skipped ${nextTool}) ${nextMatch ? nextMatch[0] : ""}`)
         .trim();
       console.log(`   ⏭️  [RUNNER] resolveNextHint: overridden hint — "${overridden.slice(0, 120)}..."`);
+      agentTrace.recordHintResolution({
+        fromTool: currentTool,
+        hintText: hint,
+        resolvedTo: nextMatch ? nextMatch[0] : null,
+        wasSkipped: true,
+        skipChain: [nextTool],
+      });
       return overridden;
     }
     console.log(`   🔍 [RUNNER] resolveNextHint: next tool "${nextTool}" is available, returning original hint`);
+    agentTrace.recordHintResolution({
+      fromTool: currentTool,
+      hintText: hint,
+      resolvedTo: nextTool,
+      wasSkipped: false,
+      skipChain: [],
+    });
     return hint;
   }
+
+  // ── Agent Trace Logger (per-job) ──
+  // Always-on: records every decision point, hint resolution, system prompt
+  // section, memory injection, tool selection, and pipeline control decision
+  // to <jobStorageDir>/agent-trace.jsonl.
+  // Use TRANSCRIPTION_STORAGE env var if set (matches Python backend), otherwise fall back to project-relative path.
+  const STORAGE_BASE = process.env.TRANSCRIPTION_STORAGE || path.resolve(__dirname, "..", "storage");
+  const agentTrace = new AgentTracer(path.join(STORAGE_BASE, jobData.jobId || eventId), {
+    event_id: eventId,
+    job_id: jobData.jobId || eventId,
+    title: safeTitle,
+    event_type: event.type,
+    event_source: event.source,
+    llm_provider: LLM_PROVIDER,
+    model: process.env.API_AGENT_MODEL || "deepseek-v4-flash",
+    skip_steps: jobData.skip_steps || [],
+  });
 
   // ── LLM data logging ──
   // When LOG_LLM_DATA=true, every LLM input (context) and output (decision)
   // is saved to <jobStorageDir>/llm-data.jsonl for debugging.
   const LOG_LLM_DATA = process.env.LOG_LLM_DATA === "true";
-  // Use TRANSCRIPTION_STORAGE env var if set (matches Python backend), otherwise fall back to project-relative path.
-  const STORAGE_BASE = process.env.TRANSCRIPTION_STORAGE || path.resolve(__dirname, "..", "storage");
   const jobStorageDir = path.join(STORAGE_BASE, jobData.jobId || eventId);
   let llmDataStream = null;
   if (LOG_LLM_DATA) {
@@ -381,6 +460,7 @@ async function processEvent(event) {
       context_length: context.length,
       available_tools: availableTools.map((t) => t.name),
     });
+    agentTrace.recordAvailableTools({ step, tools: availableTools });
     try {
       decision = await withRetry(() => callModel(context, availableTools, renderedPrompt), `LLM call (step ${step})`);
       logLlmData("step_response", {
@@ -393,6 +473,7 @@ async function processEvent(event) {
       console.log(`   ❌ [RUNNER] ${pipelineError}`);
       logLlmData("step_error", { step, error: pipelineError });
       logAction({ eventId, eventType: event.type, action: "failed", detail: pipelineError });
+      agentTrace.recordLlmDecision({ step, decision: null, error: pipelineError });
       pipelineComplete = true;
       break;
     }
@@ -418,9 +499,16 @@ async function processEvent(event) {
       console.log(`   ⚠️  [RUNNER] No usage data from LLM at step ${step} — decision.usage is ${JSON.stringify(decision?.usage)}`);
     }
 
+    agentTrace.recordLlmDecision({
+      step,
+      decision,
+      error: null,
+    });
+
     if (!decision) {
       console.log(`   ⏭️  [RUNNER] No decision — pipeline complete`);
       logAction({ eventId, eventType: event.type, action: "complete", detail: `ended at step ${step}, no LLM decision` });
+      agentTrace.recordControlDecision({ step, type: "no_decision", detail: "LLM returned no decision — pipeline complete" });
       pipelineComplete = true;
       break;
     }
@@ -438,6 +526,11 @@ async function processEvent(event) {
         action: "skipped",
         detail: `LLM returned locked tool "${decision.name}" at step ${step}`,
       });
+      agentTrace.recordControlDecision({
+        step,
+        type: "locked_tool_rejected",
+        detail: `LLM returned locked/removed tool "${decision.name}" — skipping`,
+      });
       // Append a note to context so the LLM doesn't retry the same tool
       context += `\n\n[Step ${step}] Tool "${decision.name}" is no longer available. Choose a different tool.`;
       continue;
@@ -452,6 +545,7 @@ async function processEvent(event) {
       pipelineError = `${decision.name} failed after ${toolRetries} retries: ${err.message}`;
       console.log(`   ❌ [RUNNER] ${pipelineError}`);
       logAction({ eventId, eventType: event.type, action: "failed", detail: pipelineError });
+      agentTrace.recordToolResult({ step, toolName: decision.name, success: false, resultPreview: null, error: pipelineError });
       pipelineComplete = true;
       break;
     }
@@ -466,6 +560,14 @@ async function processEvent(event) {
       toolName: decision.name,
       step,
       toolResult: ok ? "success" : "failed",
+      error: errorMsg,
+    });
+
+    agentTrace.recordToolResult({
+      step,
+      toolName: decision.name,
+      success: ok,
+      resultPreview: ok ? result : null,
       error: errorMsg,
     });
 
@@ -491,12 +593,22 @@ async function processEvent(event) {
         (t) => t.name !== "transcribe_get_transcript" && t.name !== "transcribe_label_speaker" && t.name !== "transcribe_list_voiceprints",
       );
       console.log(`   🔒 [RUNNER] transcribe_get_transcript + labeling tools locked — must summarize first`);
+      agentTrace.recordControlDecision({
+        step,
+        type: "tools_locked",
+        detail: "transcribe_get_transcript, transcribe_label_speaker, transcribe_list_voiceprints locked after read",
+      });
     }
 
     // Check if this was a terminal delivery tool — pipeline ends
     if (TERMINAL_TOOLS.has(decision.name)) {
       console.log(`   📬 [RUNNER] Delivery complete — pipeline finished`);
       logAction({ eventId, eventType: event.type, action: "complete", detail: `delivered via ${decision.name}` });
+      agentTrace.recordControlDecision({
+        step,
+        type: "terminal_tool",
+        detail: `Terminal delivery tool "${decision.name}" called — pipeline finished`,
+      });
       pipelineComplete = true;
       break;
     }
@@ -507,6 +619,11 @@ async function processEvent(event) {
       if (!hasRemainingDelivery) {
         console.log(`   ⏭️  [RUNNER] Delivery skipped — pipeline finished after save_context`);
         logAction({ eventId, eventType: event.type, action: "complete", detail: "delivery skipped, ended after save_context" });
+        agentTrace.recordControlDecision({
+          step,
+          type: "delivery_skipped",
+          detail: "All delivery tools in skip list — pipeline finished after save_context",
+        });
         pipelineComplete = true;
         break;
       }
@@ -564,6 +681,14 @@ async function processEvent(event) {
     try {
       // Combine existing steps (from previous retries) with new steps from this run
       const allSteps = [...existingSteps, ...tokenUsage];
+      // DeepSeek V4 Flash pricing (per 1M tokens): input=$0.25, output=$1.00
+      // Ollama is local — no cost but we still track tokens for reference
+      const isOllama = (process.env.LLM_PROVIDER || "deepseek") === "ollama";
+      const INPUT_RATE_PER_1M = isOllama ? 0 : 0.25;
+      const OUTPUT_RATE_PER_1M = isOllama ? 0 : 1.0;
+      const inputCost = (totalPromptTokens / 1_000_000) * INPUT_RATE_PER_1M;
+      const outputCost = (totalCompletionTokens / 1_000_000) * OUTPUT_RATE_PER_1M;
+
       const usageData = {
         job_id: jobId,
         title: safeTitle,
@@ -574,6 +699,11 @@ async function processEvent(event) {
           prompt_tokens: totalPromptTokens,
           completion_tokens: totalCompletionTokens,
           total_tokens: totalTokens,
+        },
+        costs: {
+          input_cost: parseFloat(inputCost.toFixed(6)),
+          output_cost: parseFloat(outputCost.toFixed(6)),
+          total_cost: parseFloat((inputCost + outputCost).toFixed(6)),
         },
         saved_at: new Date().toISOString(),
       };
@@ -598,6 +728,13 @@ async function processEvent(event) {
       `   ⚠️  [USAGE] No token usage to save for job ${traceTag} (tokenUsage: ${tokenUsage.length}, existingSteps: ${existingSteps.length})`,
     );
   }
+
+  agentTrace.recordPipelineEnd({
+    status: pipelineError ? "failed" : "complete",
+    error: pipelineError,
+    totalSteps: tokenUsage.length,
+    tokensUsed: totalTokens,
+  });
 
   if (pipelineError) {
     console.log(`   ❌ [RUNNER] Pipeline failed for job ${tag}: ${pipelineError}`);
@@ -626,6 +763,9 @@ async function processEvent(event) {
     }
   }
 
+  // ── Close agent trace ──
+  agentTrace.close();
+
   // ── Close LLM data stream ──
   if (llmDataStream) {
     try {
@@ -645,13 +785,22 @@ async function processEvent(event) {
  */
 function buildInitialContext(event, transcript, safeTitle, safeAttendees, eventId) {
   const jobData = event.data || {};
+  const emailRecipients = jobData.emailRecipients || [];
+  // Read delivery config from env vars (set via ConfigPanel → config.json)
+  const deliverySubject = process.env.DELIVERY_EMAIL_SUBJECT || "Meeting Summary: {title}";
+  const deliveryExtraContent = process.env.DELIVERY_EMAIL_ADDITIONAL_CONTENT || "";
+  const deliveryDriveFolder = process.env.DELIVERY_DRIVE_FOLDER || "Meeting Transcripts";
   const lines = [
     `Transcription job: "${safeTitle}"`,
     `Attendees: ${safeAttendees.join(", ") || "none"}`,
+    `Email recipients for delivery: ${emailRecipients.join(", ") || "none set (will use config defaults)"}`,
+    `Delivery email subject template: "${deliverySubject}"`,
+    deliveryExtraContent ? `Delivery email additional content: "${deliveryExtraContent}"` : null,
+    `Delivery drive folder: "${deliveryDriveFolder}"`,
     `Type: ${jobData.eventType || "unknown"}`,
     `Job ID: ${jobData.jobId || eventId}`,
     ``,
-  ];
+  ].filter(Boolean);
 
   // Use event templates from agent-config/pipeline.json, with variable substitution
   const template = EVENT_TEMPLATES[event.type] || "";

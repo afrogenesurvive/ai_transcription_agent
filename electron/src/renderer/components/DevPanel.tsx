@@ -1654,9 +1654,11 @@ function UsageTab() {
       model: string;
       step_count: number;
       totals: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+      costs?: { input_cost: number; output_cost: number; total_cost: number };
       saved_at: string;
     }>;
     totals: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+    costs?: { input_cost: number; output_cost: number; total_cost: number };
     job_count: number;
   } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1838,12 +1840,35 @@ function UsageTab() {
                 </div>
                 <div className="dev-panel-db-stat-card" style={{ minWidth: 80 }}>
                   <span className="dev-panel-db-stat-value">{formatTokenCount(aggregate.totals.prompt_tokens)}</span>
-                  <span className="dev-panel-db-stat-label">Prompt</span>
+                  <span className="dev-panel-db-stat-label">Input Tokens</span>
                 </div>
                 <div className="dev-panel-db-stat-card" style={{ minWidth: 80 }}>
                   <span className="dev-panel-db-stat-value">{formatTokenCount(aggregate.totals.completion_tokens)}</span>
-                  <span className="dev-panel-db-stat-label">Completion</span>
+                  <span className="dev-panel-db-stat-label">Output Tokens</span>
                 </div>
+                {/* Cost cards */}
+                {aggregate.costs && (
+                  <>
+                    <div className="dev-panel-db-stat-card" style={{ minWidth: 90, borderLeft: "2px solid #58a6ff" }}>
+                      <span className="dev-panel-db-stat-value" style={{ fontSize: "var(--fs-14)" }}>
+                        ${aggregate.costs.input_cost.toFixed(4)}
+                      </span>
+                      <span className="dev-panel-db-stat-label">Input Cost</span>
+                    </div>
+                    <div className="dev-panel-db-stat-card" style={{ minWidth: 90, borderLeft: "2px solid #d29922" }}>
+                      <span className="dev-panel-db-stat-value" style={{ fontSize: "var(--fs-14)" }}>
+                        ${aggregate.costs.output_cost.toFixed(4)}
+                      </span>
+                      <span className="dev-panel-db-stat-label">Output Cost</span>
+                    </div>
+                    <div className="dev-panel-db-stat-card" style={{ minWidth: 90, borderLeft: "2px solid #3fb950" }}>
+                      <span className="dev-panel-db-stat-value" style={{ fontSize: "var(--fs-16)", fontWeight: 700 }}>
+                        ${aggregate.costs.total_cost.toFixed(4)}
+                      </span>
+                      <span className="dev-panel-db-stat-label">Total Cost</span>
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* ── Token Usage Over Time Chart ── */}
@@ -2049,37 +2074,50 @@ function UsageTab() {
                   <thead>
                     <tr style={{ borderBottom: "1px solid var(--border)", color: "var(--text-muted)", fontSize: 10 }}>
                       <th style={{ padding: "4px 8px", textAlign: "left" }}>Job</th>
-                      <th style={{ padding: "4px 8px", textAlign: "right" }}>Prompt</th>
-                      <th style={{ padding: "4px 8px", textAlign: "right" }}>Completion</th>
+                      <th style={{ padding: "4px 8px", textAlign: "right" }}>Input</th>
+                      <th style={{ padding: "4px 8px", textAlign: "right" }}>Output</th>
                       <th style={{ padding: "4px 8px", textAlign: "right" }}>Total</th>
+                      <th style={{ padding: "4px 8px", textAlign: "right" }}>Cost</th>
                       <th style={{ padding: "4px 8px", textAlign: "right" }}>Steps</th>
                       <th style={{ padding: "4px 8px", textAlign: "right" }}>Date</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedJobs.map((job) => (
-                      <tr key={job.job_id} style={{ borderBottom: "1px solid var(--border)" }}>
-                        <td style={{ padding: "4px 8px" }}>
-                          <span style={{ color: "var(--text-muted)", fontFamily: "monospace", fontSize: 10 }}>{job.job_id.slice(0, 8)}</span>
-                          {job.title && <span style={{ marginLeft: 6, color: "var(--text)" }}>{job.title.slice(0, 30)}</span>}
-                        </td>
-                        <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace" }}>
-                          {job.totals.prompt_tokens.toLocaleString()}
-                        </td>
-                        <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace" }}>
-                          {job.totals.completion_tokens.toLocaleString()}
-                        </td>
-                        <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace", fontWeight: 600 }}>
-                          {job.totals.total_tokens.toLocaleString()}
-                        </td>
-                        <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace", color: "var(--text-muted)" }}>
-                          {job.step_count}
-                        </td>
-                        <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace", color: "var(--text-muted)", fontSize: 10 }}>
-                          {job.saved_at ? new Date(job.saved_at).toLocaleDateString() : "—"}
-                        </td>
-                      </tr>
-                    ))}
+                    {sortedJobs.map((job) => {
+                      const costs: { input_cost?: number; output_cost?: number; total_cost?: number } = job.costs || {};
+                      return (
+                        <tr key={job.job_id} style={{ borderBottom: "1px solid var(--border)" }}>
+                          <td style={{ padding: "4px 8px" }}>
+                            <span style={{ color: "var(--text-muted)", fontFamily: "monospace", fontSize: 10 }}>{job.job_id.slice(0, 8)}</span>
+                            {job.title && <span style={{ marginLeft: 6, color: "var(--text)" }}>{job.title.slice(0, 30)}</span>}
+                          </td>
+                          <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace" }}>
+                            {job.totals.prompt_tokens.toLocaleString()}
+                          </td>
+                          <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace" }}>
+                            {job.totals.completion_tokens.toLocaleString()}
+                          </td>
+                          <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace", fontWeight: 600 }}>
+                            {job.totals.total_tokens.toLocaleString()}
+                          </td>
+                          <td
+                            style={{
+                              padding: "4px 8px",
+                              textAlign: "right",
+                              fontFamily: "monospace",
+                              color: costs.total_cost ? "var(--text)" : "var(--text-muted)",
+                            }}>
+                            {costs.total_cost ? `$${costs.total_cost.toFixed(4)}` : "—"}
+                          </td>
+                          <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace", color: "var(--text-muted)" }}>
+                            {job.step_count}
+                          </td>
+                          <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace", color: "var(--text-muted)", fontSize: 10 }}>
+                            {job.saved_at ? new Date(job.saved_at).toLocaleDateString() : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
@@ -2097,6 +2135,7 @@ function UsageTab() {
       <div className="dev-panel-footer">
         <span>Polling every {(pollInterval / 1000).toFixed(0)}s</span>
         <span>{aggregate?.job_count || 0} job(s) with token data</span>
+        {aggregate?.costs?.total_cost ? <span>💰 ${aggregate.costs.total_cost.toFixed(4)} total cost</span> : null}
       </div>
     </>
   );

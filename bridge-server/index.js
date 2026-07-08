@@ -28,6 +28,44 @@ const CONFIG_DIR_CANDIDATES = [
 ];
 const AGENT_CONFIG_DIR = CONFIG_DIR_CANDIDATES.find((d) => fs.existsSync(d)) || path.resolve(__dirname, "..", "agent-config");
 
+// ── Defaults backup directory ──
+// On first startup, snapshot the shipped agent-config files so the user can
+// restore original defaults if they've made edits that break the pipeline.
+const DEFAULTS_DIR = path.join(AGENT_CONFIG_DIR, ".defaults");
+
+function snapshotDefaults() {
+  try {
+    if (!fs.existsSync(AGENT_CONFIG_DIR)) return;
+    fs.mkdirSync(DEFAULTS_DIR, { recursive: true });
+    const files = ["tools.json", "pipeline.json", "system-prompt.md"];
+    let snapshotNeeded = false;
+    for (const f of files) {
+      const src = path.join(AGENT_CONFIG_DIR, f);
+      const dst = path.join(DEFAULTS_DIR, f);
+      if (fs.existsSync(src) && !fs.existsSync(dst)) {
+        snapshotNeeded = true;
+        break;
+      }
+    }
+    if (!snapshotNeeded) {
+      console.log(`[bridge] Defaults already snapshotted at ${DEFAULTS_DIR}`);
+      return;
+    }
+    for (const f of files) {
+      const src = path.join(AGENT_CONFIG_DIR, f);
+      const dst = path.join(DEFAULTS_DIR, f);
+      if (fs.existsSync(src)) {
+        fs.copyFileSync(src, dst);
+        console.log(`[bridge]   Snapshot: ${f}`);
+      }
+    }
+    console.log(`[bridge] ✅ Default agent configs snapshotted to ${DEFAULTS_DIR}`);
+  } catch (err) {
+    console.error(`[bridge] ⚠️  Could not snapshot defaults: ${err.message}`);
+  }
+}
+snapshotDefaults();
+
 // ── Sanitize (Tier 1 — mandatory for all proxied responses) ──
 
 const MAX_STRING_LENGTH = 2000;
@@ -500,6 +538,62 @@ const server = http.createServer(async (req, res) => {
         console.error(`[bridge] POST /agent/config/restart error: ${err.message}`);
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: `Failed to flag restart: ${err.message}` }));
+      }
+
+      // ── Defaults: return the shipped defaults ──
+    } else if (req.method === "GET" && url.pathname === "/agent/config/defaults") {
+      console.log(`[bridge] GET /agent/config/defaults`);
+      try {
+        if (!fs.existsSync(DEFAULTS_DIR)) {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "No defaults snapshot found — run a job first to generate defaults." }));
+          return;
+        }
+        const toolsPath = path.join(DEFAULTS_DIR, "tools.json");
+        const pipelinePath = path.join(DEFAULTS_DIR, "pipeline.json");
+        const promptPath = path.join(DEFAULTS_DIR, "system-prompt.md");
+        const tools = fs.existsSync(toolsPath) ? JSON.parse(fs.readFileSync(toolsPath, "utf8")) : null;
+        const pipeline = fs.existsSync(pipelinePath) ? JSON.parse(fs.readFileSync(pipelinePath, "utf8")) : null;
+        const systemPrompt = fs.existsSync(promptPath) ? fs.readFileSync(promptPath, "utf8") : null;
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ tools, pipeline, systemPrompt }));
+      } catch (err) {
+        console.error(`[bridge] GET /agent/config/defaults error: ${err.message}`);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: `Failed to read defaults: ${err.message}` }));
+      }
+
+      // ── Restore defaults: overwrite current configs with shipped defaults ──
+    } else if (req.method === "POST" && url.pathname === "/agent/config/restore-defaults") {
+      console.log(`[bridge] POST /agent/config/restore-defaults`);
+      try {
+        if (!fs.existsSync(DEFAULTS_DIR)) {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "No defaults snapshot found." }));
+          return;
+        }
+        const files = ["tools.json", "pipeline.json", "system-prompt.md"];
+        const written = [];
+        for (const f of files) {
+          const src = path.join(DEFAULTS_DIR, f);
+          const dst = path.join(AGENT_CONFIG_DIR, f);
+          if (fs.existsSync(src)) {
+            fs.copyFileSync(src, dst);
+            written.push(f);
+            console.log(`[bridge]   Restored: ${f}`);
+          }
+        }
+        // Touch restart flag so the runner picks up the restored configs
+        const flagPath = path.join(AGENT_CONFIG_DIR, ".restart-flag");
+        fs.writeFileSync(flagPath, JSON.stringify({ timestamp: new Date().toISOString(), source: "restore-defaults" }), "utf8");
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({ success: true, restored: written, message: "Default agent configs restored. Restart the agent runner to apply changes." }),
+        );
+      } catch (err) {
+        console.error(`[bridge] POST /agent/config/restore-defaults error: ${err.message}`);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: `Failed to restore defaults: ${err.message}` }));
       }
     } else {
       console.log(`[bridge] 404 ${req.method} ${url.pathname}`);
