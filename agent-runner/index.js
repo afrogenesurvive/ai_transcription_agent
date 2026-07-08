@@ -163,6 +163,23 @@ async function processEvent(event) {
   // Build initial context with job info + transcript preview
   let context = buildInitialContext(event, transcript, safeTitle, safeAttendees, eventId);
 
+  // ── Agent Trace Logger (per-job) ──
+  // Always-on: records every decision point, hint resolution, system prompt
+  // section, memory injection, tool selection, and pipeline control decision
+  // to <jobStorageDir>/agent-trace.jsonl.
+  // Use TRANSCRIPTION_STORAGE env var if set (matches Python backend), otherwise fall back to project-relative path.
+  const STORAGE_BASE = process.env.TRANSCRIPTION_STORAGE || path.resolve(__dirname, "..", "storage");
+  const agentTrace = new AgentTracer(path.join(STORAGE_BASE, jobData.jobId || eventId), {
+    event_id: eventId,
+    job_id: jobData.jobId || eventId,
+    title: safeTitle,
+    event_type: event.type,
+    event_source: event.source,
+    llm_provider: LLM_PROVIDER,
+    model: process.env.API_AGENT_MODEL || "deepseek-v4-flash",
+    skip_steps: jobData.skip_steps || [],
+  });
+
   // ── Hard-wired: Fetch existing memory context before the pipeline starts ──
   // This gives the LLM awareness of past action items, decisions, budgets,
   // and semantically similar meetings — so it can reference continuity and
@@ -380,23 +397,6 @@ async function processEvent(event) {
     });
     return hint;
   }
-
-  // ── Agent Trace Logger (per-job) ──
-  // Always-on: records every decision point, hint resolution, system prompt
-  // section, memory injection, tool selection, and pipeline control decision
-  // to <jobStorageDir>/agent-trace.jsonl.
-  // Use TRANSCRIPTION_STORAGE env var if set (matches Python backend), otherwise fall back to project-relative path.
-  const STORAGE_BASE = process.env.TRANSCRIPTION_STORAGE || path.resolve(__dirname, "..", "storage");
-  const agentTrace = new AgentTracer(path.join(STORAGE_BASE, jobData.jobId || eventId), {
-    event_id: eventId,
-    job_id: jobData.jobId || eventId,
-    title: safeTitle,
-    event_type: event.type,
-    event_source: event.source,
-    llm_provider: LLM_PROVIDER,
-    model: process.env.API_AGENT_MODEL || "deepseek-v4-flash",
-    skip_steps: jobData.skip_steps || [],
-  });
 
   // ── LLM data logging ──
   // When LOG_LLM_DATA=true, every LLM input (context) and output (decision)

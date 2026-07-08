@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import Icon from "./Icon";
 
 type ServiceStatus = boolean | null; // null = unknown/checking
 type FeedbackMsg = { text: string; type: "checking" | "success" | "error" } | null;
@@ -203,7 +204,7 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
 
         const parts: string[] = [];
         for (const svc of SERVICES) {
-          parts.push(`${SERVICE_LABELS[svc]}: ${s[svc] ? "✓" : "✗"}`);
+          parts.push(`${SERVICE_LABELS[svc]}: ${s[svc] ? "ok" : "err"}`);
         }
         const ok = s.python && s.bridge && s.agent;
         showFeedback({ text: parts.join("  ·  "), type: ok ? "success" : "error" }, 5000);
@@ -211,10 +212,10 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
         try {
           const res = await fetch("http://127.0.0.1:5010/health");
           setStatus((prev) => ({ ...prev, bridge: res.ok }));
-          showFeedback({ text: res.ok ? "Bridge: ✓" : "Bridge: ✗", type: res.ok ? "success" : "error" });
+          showFeedback({ text: res.ok ? "Bridge: ok" : "Bridge: err", type: res.ok ? "success" : "error" });
         } catch {
           setStatus((prev) => ({ ...prev, bridge: false }));
-          showFeedback({ text: "Bridge: ✗ — unreachable", type: "error" });
+          showFeedback({ text: "Bridge: err — unreachable", type: "error" });
         }
       }
     } catch {
@@ -345,13 +346,13 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
                   disabled={anyBusy}
                   title="Open config to set up API key"
                   data-tooltip="Open configuration panel — API key required for LLM access">
-                  ⚙
+                  <Icon name="settings" size="12" />
                 </button>
                 <span
                   className="config-warn-badge"
                   title="LLM provider not configured — jobs will fail"
                   data-tooltip="LLM provider not configured — jobs will fail until you add your API key">
-                  ⚠️
+                  <Icon name="warning" size="12" color="orange" />
                 </span>
               </>
             ) : (
@@ -361,7 +362,7 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
                 disabled={anyBusy}
                 title="Open configuration settings"
                 data-tooltip="Open configuration panel to edit API keys, provider, and services">
-                ⚙
+                <Icon name="settings" size="12" />
               </button>
             )}
           </span>
@@ -379,7 +380,7 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
                 disabled={anyBusy}
                 title="Configure Hugging Face token for diarization"
                 data-tooltip="Configure Hugging Face token — required for speaker diarization">
-                ⚙
+                <Icon name="settings" size="12" />
               </button>
             )}
           </span>
@@ -405,7 +406,7 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
                     disabled={anyBusy}
                     title={`Start ${SERVICE_LABELS[svc]} backend service`}
                     data-tooltip={`Start the ${SERVICE_LABELS[svc]} backend service`}>
-                    ▶
+                    <Icon name="play_arrow" size="12" />
                   </button>
                 )}
                 {status[svc] === true && (
@@ -415,7 +416,7 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
                     disabled={anyBusy}
                     title={`Restart ${SERVICE_LABELS[svc]} backend service`}
                     data-tooltip={`Restart the ${SERVICE_LABELS[svc]} backend service`}>
-                    ↻
+                    <Icon name="refresh" size="12" />
                   </button>
                 )}
               </span>
@@ -443,7 +444,7 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
                   disabled={anyBusy}
                   title="Force-stop Ollama server"
                   data-tooltip="Force-stop the Ollama local LLM server">
-                  ■
+                  <Icon name="stop" size="12" />
                 </button>
               )}
               {ollamaProvider && ollamaOk === false && (
@@ -453,7 +454,7 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
                   disabled={anyBusy || ollamaStarting}
                   title="Start Ollama server"
                   data-tooltip="Start the Ollama local LLM server">
-                  {ollamaStarting ? "⟳" : "▶"}
+                  {ollamaStarting ? <Icon name="sync" size="12" /> : <Icon name="play_arrow" size="12" />}
                 </button>
               )}
               {ollamaProvider && ollamaOk === true && (
@@ -463,7 +464,7 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
                   disabled={anyBusy}
                   title="Restart Ollama server"
                   data-tooltip="Restart the Ollama local LLM server">
-                  ↻
+                  <Icon name="refresh" size="12" />
                 </button>
               )}
             </span>
@@ -479,7 +480,15 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
             disabled={checking || anyBusy}
             title="Check all backend services"
             data-tooltip="Probe all backend services (Python, Bridge, Agent) to verify they are running">
-            {checking ? "⟳ Checking…" : "↻ Check All"}
+            {checking ? (
+              <>
+                <Icon name="sync" size="12" /> Checking…
+              </>
+            ) : (
+              <>
+                <Icon name="refresh" size="12" /> Check All
+              </>
+            )}
           </button>
           {!configOk && (
             <button
@@ -487,7 +496,7 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
               onClick={onOpenConfig}
               title="API key required — open config"
               data-tooltip="Configuration is incomplete — click to open settings and add your API key">
-              ⚙️ Config
+              <Icon name="settings" size="12" /> Config
             </button>
           )}
           <button
@@ -495,7 +504,7 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
             onClick={onOpenDev}
             title="Open developer tools panel"
             data-tooltip="Open developer tools — logs, database browser, performance metrics">
-            🛠️ Dev
+            <Icon name="build" size="12" /> Dev
           </button>
           <div className="credit-btn-wrapper">
             <button
@@ -507,7 +516,7 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
               }}
               title="Check DeepSeek API credit balance"
               data-tooltip="Check your DeepSeek API credit balance — click to refresh">
-              💰
+              <Icon name="account_balance_wallet" size="14" color="accent" />
             </button>
             {showCreditPopover && (
               <div className="credit-popover">

@@ -7,6 +7,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from "react";
+import Icon from "./Icon";
 import { applyAppearance, saveAndApplyAppearance, readFontPreset, FONT_SIZE_PRESETS } from "../appearance";
 import type { FontSizePreset, AppearanceConfig } from "../appearance";
 
@@ -78,13 +79,15 @@ export default function AppearancePanel({ onClose }: Props) {
   return (
     <div className="panel appearance-panel">
       <div className="appearance-header">
-        <h2>🎨 Appearance</h2>
+        <h2>
+          <Icon name="palette" size="18" color="accent" /> Appearance
+        </h2>
         <button
           className="appearance-close-btn"
           onClick={onClose}
           title="Close the Appearance panel"
           data-tooltip="Close the Appearance settings panel">
-          ✕
+          <Icon name="close" size="16" />
         </button>
       </div>
 

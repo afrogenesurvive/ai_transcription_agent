@@ -11,6 +11,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import Icon from "./Icon";
 import type { LogEntry, LogFileInfo } from "../types";
 
 interface Props {
@@ -33,8 +34,8 @@ const SOURCE_COLORS: Record<string, string> = {
 
 const LEVEL_PREFIX: Record<string, string> = {
   info: "",
-  warn: "⚠️ ",
-  error: "❌ ",
+  warn: "",
+  error: "",
 };
 
 function formatSize(bytes: number): string {
@@ -139,7 +140,9 @@ function LiveLogsTab() {
     <>
       {/* Toolbar */}
       <div className="dev-panel-toolbar">
-        <span className="dev-panel-title">📋 Live Logs</span>
+        <span className="dev-panel-title">
+          <Icon name="terminal" size="14" color="accent" /> Live Logs
+        </span>
 
         <div className="dev-panel-filters">
           <select
@@ -219,10 +222,10 @@ function detectLogSource(line: string): string | null {
 /** Try to detect a log level like error, warn, info, debug in a log line. */
 function detectLogLevel(line: string): string | null {
   const lower = line.toLowerCase();
-  if (/\berror\b/.test(lower) || /\b❌\b/.test(line)) return "error";
-  if (/\bwarn(ing)?\b/.test(lower) || /\b⚠️\b/.test(line)) return "warn";
+  if (/\berror\b/.test(lower)) return "error";
+  if (/\bwarn(ing)?\b/.test(lower)) return "warn";
   if (/\bdebug\b/.test(lower)) return "debug";
-  if (/\binfo\b/.test(lower) || /\b✅\b/.test(line) || /\b📝\b/.test(line)) return "info";
+  if (/\binfo\b/.test(lower)) return "info";
   return null;
 }
 
@@ -310,14 +313,16 @@ function LogFilesTab() {
     <>
       {/* Toolbar */}
       <div className="dev-panel-toolbar">
-        <span className="dev-panel-title">📁 Log Files</span>
+        <span className="dev-panel-title">
+          <Icon name="folder" size="14" color="accent" /> Log Files
+        </span>
         <span className="dev-panel-file-path-hint">
           {logPaths.primary && <span title={logPaths.primary}>Primary: {logPaths.primary.split("/").pop()}/…</span>}
           {logPaths.mirror && <span title={logPaths.mirror}>Mirror: {logPaths.mirror.split("/").pop()}/…</span>}
         </span>
         <div className="dev-panel-actions">
           <button className="dev-panel-btn" onClick={handleRefresh} title="Refresh file list">
-            ↻ Refresh
+            <Icon name="refresh" size="14" /> Refresh
           </button>
         </div>
       </div>
@@ -337,7 +342,7 @@ function LogFilesTab() {
               onClick={() => handleSelectFile(f.path)}>
               <span className="dev-panel-file-name">{f.name}</span>
               <span className="dev-panel-file-meta">
-                {formatSize(f.size)} · {f.source === "primary" ? "📁" : "📂"} {f.source}
+                {formatSize(f.size)} · <Icon name={f.source === "primary" ? "folder" : "folder_open"} size="12" color="muted" /> {f.source}
               </span>
               <span className="dev-panel-file-date">{new Date(f.mtime).toLocaleDateString()}</span>
             </div>
@@ -678,18 +683,20 @@ function DatabaseTab() {
     <>
       {/* Toolbar */}
       <div className="dev-panel-toolbar">
-        <span className="dev-panel-title">🗄️ Database</span>
+        <span className="dev-panel-title">
+          <Icon name="database" size="14" color="accent" /> Database
+        </span>
         <div className="dev-panel-filters">
           <div className="dev-panel-view-toggle">
             <button
               className={`dev-panel-view-btn ${activeView === "ephemeral" ? "dev-panel-view-btn--active" : ""}`}
               onClick={() => setActiveView("ephemeral")}>
-              💾 Ephemeral
+              <Icon name="save" size="14" /> Ephemeral
             </button>
             <button
               className={`dev-panel-view-btn ${activeView === "semantic" ? "dev-panel-view-btn--active" : ""}`}
               onClick={() => setActiveView("semantic")}>
-              🧠 Semantic
+              <Icon name="memory" size="14" /> Semantic
             </button>
           </div>
         </div>
@@ -700,7 +707,7 @@ function DatabaseTab() {
             </button>
           )}
           <button className="dev-panel-btn" onClick={handleRefresh} title="Refresh database">
-            ↻ Refresh
+            <Icon name="refresh" size="14" /> Refresh
           </button>
         </div>
       </div>
@@ -841,7 +848,9 @@ function DatabaseTab() {
             {/* ── Embedding Stats ── */}
             {semanticStats && (
               <div className="dev-panel-db-section">
-                <h4 className="dev-panel-db-section-title">📊 Embedding Stats</h4>
+                <h4 className="dev-panel-db-section-title">
+                  <Icon name="analytics" size="14" color="accent" /> Embedding Stats
+                </h4>
                 <div className="dev-panel-db-stat-cards">
                   <div className="dev-panel-db-stat-card">
                     <span className="dev-panel-db-stat-value">{semanticStats.unique_meetings}</span>
@@ -888,12 +897,16 @@ function DatabaseTab() {
             {/* ── Cross-Meeting Overlap ── */}
             {semanticOverlap && (
               <div className="dev-panel-db-section">
-                <h4 className="dev-panel-db-section-title">🔄 Cross-Meeting Overlap</h4>
+                <h4 className="dev-panel-db-section-title">
+                  <Icon name="sync_alt" size="14" /> Cross-Meeting Overlap
+                </h4>
 
                 {/* Common attendees */}
                 {semanticOverlap.common_attendees.length > 0 && (
                   <div className="dev-panel-db-overlap-group">
-                    <h5 className="dev-panel-db-overlap-title">👥 Common Attendees</h5>
+                    <h5 className="dev-panel-db-overlap-title">
+                      <Icon name="group" size="14" color="accent" /> Common Attendees
+                    </h5>
                     {semanticOverlap.common_attendees.map((att) => (
                       <div key={att.name} className="dev-panel-db-overlap-item">
                         <div className="dev-panel-db-overlap-item-header">
@@ -918,7 +931,9 @@ function DatabaseTab() {
                 {/* Keyword overlap */}
                 {semanticOverlap.keyword_overlap.length > 0 && (
                   <div className="dev-panel-db-overlap-group">
-                    <h5 className="dev-panel-db-overlap-title">🏷️ Shared Keywords</h5>
+                    <h5 className="dev-panel-db-overlap-title">
+                      <Icon name="label" size="14" color="accent" /> Shared Keywords
+                    </h5>
                     <div className="dev-panel-db-tag-cloud">
                       {semanticOverlap.keyword_overlap.map((kw) => (
                         <span
@@ -943,7 +958,9 @@ function DatabaseTab() {
             {/* ── Search Relevance ── */}
             {meetings.length > 0 && (
               <div className="dev-panel-db-section">
-                <h4 className="dev-panel-db-section-title">🔍 Search Relevance</h4>
+                <h4 className="dev-panel-db-section-title">
+                  <Icon name="search" size="14" color="accent" /> Search Relevance
+                </h4>
 
                 {/* Search input */}
                 <div className="dev-panel-db-search-bar">
@@ -964,7 +981,11 @@ function DatabaseTab() {
                 </div>
 
                 {/* Error state */}
-                {searchError && <div className="dev-panel-db-search-error">❌ {searchError}</div>}
+                {searchError && (
+                  <div className="dev-panel-db-search-error">
+                    <Icon name="error" color="red" size="14" /> {searchError}
+                  </div>
+                )}
 
                 {/* Results */}
                 {searchResults !== null && !searchLoading && (
@@ -1253,7 +1274,9 @@ function PerformanceTab() {
   return (
     <>
       <div className="dev-panel-toolbar">
-        <span className="dev-panel-title">⚡ Performance Across Jobs</span>
+        <span className="dev-panel-title">
+          <Icon name="bolt" size="14" color="accent" /> Performance Across Jobs
+        </span>
         <div className="dev-panel-filters">
           <select
             className="dev-panel-select"
@@ -1273,7 +1296,7 @@ function PerformanceTab() {
         </span>
         <div className="dev-panel-actions">
           <button className="dev-panel-btn" onClick={fetchData} title="Refresh performance data" data-tooltip="Fetch the latest performance data now">
-            ↻ Refresh
+            <Icon name="refresh" size="14" /> Refresh
           </button>
         </div>
       </div>
@@ -1282,7 +1305,7 @@ function PerformanceTab() {
         {loading && <div className="dev-panel-empty">Loading performance data...</div>}
         {error && (
           <div className="dev-panel-empty" style={{ color: "var(--red)" }}>
-            ❌ {error}
+            <Icon name="error" color="red" size="16" /> {error}
           </div>
         )}
 
@@ -1311,7 +1334,7 @@ function PerformanceTab() {
             {/* Main chart — one big graph across all jobs */}
             <div className="usage-bar-chart" style={{ margin: "8px 12px" }}>
               <div style={{ fontSize: "var(--fs-11)", fontWeight: 600, color: "var(--text-muted)", marginBottom: 8 }}>
-                📈 CPU & Memory Across Jobs
+                <Icon name="trending_up" size="14" color="accent" /> CPU & Memory Across Jobs
                 <span style={{ marginLeft: 12, fontWeight: 400, fontSize: 10, opacity: 0.7 }}>
                   {aggData.length} job(s) · {allSamples.length} samples
                 </span>
@@ -1529,8 +1552,25 @@ function UpdatesTab() {
     );
   }
 
-  const modeLabel = status.mode === "packaged" ? "📦 Packaged App" : "🛠️ Development (git)";
-  const statusIcon = status.checking ? "🔄" : status.updateDownloaded ? "✅" : status.updateAvailable ? "⬇️" : "✓";
+  const modeLabel =
+    status.mode === "packaged" ? (
+      <>
+        <Icon name="inventory" size="14" color="accent" /> Packaged App
+      </>
+    ) : (
+      <>
+        <Icon name="code" size="14" color="accent" /> Development (git)
+      </>
+    );
+  const statusIcon = status.checking ? (
+    <Icon name="sync" size="14" />
+  ) : status.updateDownloaded ? (
+    <Icon name="check_circle" size="14" color="green" />
+  ) : status.updateAvailable ? (
+    <Icon name="download" size="14" color="accent" />
+  ) : (
+    <Icon name="check" size="14" color="green" />
+  );
   const versionLabel = status.mode === "packaged" ? `v${status.currentVersion}` : `branch: ${status.currentVersion}`;
 
   return (
@@ -1538,7 +1578,9 @@ function UpdatesTab() {
       {/* Header card */}
       <div className="config-section">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <h3 style={{ margin: 0 }}>🔄 Auto-Update</h3>
+          <h3 style={{ margin: 0 }}>
+            <Icon name="system_update" size="16" color="accent" /> Auto-Update
+          </h3>
           <span style={{ fontSize: 12, opacity: 0.7 }}>{modeLabel}</span>
         </div>
 
@@ -1585,18 +1627,30 @@ function UpdatesTab() {
         {/* Actions */}
         <div style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
           <button className="btn-primary" onClick={handleCheck} disabled={working || status.checking}>
-            {working && status.checking ? "Checking..." : "🔍 Check for Updates"}
+            {working && status.checking ? (
+              "Checking..."
+            ) : (
+              <>
+                <Icon name="search" size="14" color="accent" /> Check for Updates
+              </>
+            )}
           </button>
 
           {status.mode === "packaged" && status.updateAvailable && !status.updateDownloaded && (
             <button className="btn-primary" onClick={handleDownload} disabled={working}>
-              {working ? "Downloading..." : "⬇️ Download Update"}
+              {working ? (
+                "Downloading..."
+              ) : (
+                <>
+                  <Icon name="download" size="14" /> Download Update
+                </>
+              )}
             </button>
           )}
 
           {status.updateDownloaded && (
             <button className="btn-primary" onClick={handleInstall} style={{ background: "#2ea043" }}>
-              🔄 Restart &amp; Install
+              <Icon name="restart_alt" size="14" /> Restart &amp; Install
             </button>
           )}
 
@@ -1746,7 +1800,9 @@ function UsageTab() {
     <>
       {/* Toolbar */}
       <div className="dev-panel-toolbar">
-        <span className="dev-panel-title">💰 Usage</span>
+        <span className="dev-panel-title">
+          <Icon name="account_balance_wallet" size="14" color="accent" /> Usage
+        </span>
         <div className="dev-panel-filters">
           <select
             className="dev-panel-select"
@@ -1766,7 +1822,7 @@ function UsageTab() {
             onClick={fetchAggregate}
             title="Refresh token usage data"
             data-tooltip="Fetch the latest token usage and credit balance data">
-            ↻ Refresh
+            <Icon name="refresh" size="14" /> Refresh
           </button>
         </div>
       </div>
@@ -1783,7 +1839,7 @@ function UsageTab() {
               letterSpacing: 0.4,
               margin: "0 0 10px",
             }}>
-            💳 DeepSeek API Credit Balance
+            <Icon name="credit_card" size="14" color="accent" /> DeepSeek API Credit Balance
           </h4>
           <div className="dev-panel-db-stat-cards" style={{ marginBottom: 0 }}>
             <div className="dev-panel-db-stat-card" style={{ minWidth: 140 }}>
@@ -1803,9 +1859,13 @@ function UsageTab() {
                 {balance === null ? (
                   "—"
                 ) : balance.available ? (
-                  <span style={{ color: "var(--green)" }}>✅ Available</span>
+                  <span style={{ color: "var(--green)" }}>
+                    <Icon name="check_circle" size="12" color="green" /> Available
+                  </span>
                 ) : (
-                  <span style={{ color: "var(--red)" }}>❌ Unavailable</span>
+                  <span style={{ color: "var(--red)" }}>
+                    <Icon name="cancel" size="12" color="red" /> Unavailable
+                  </span>
                 )}
               </span>
               <span className="dev-panel-db-stat-label">Status</span>
@@ -1832,7 +1892,7 @@ function UsageTab() {
               letterSpacing: 0.4,
               margin: "0 0 10px",
             }}>
-            📊 Token Usage Across Jobs
+            <Icon name="analytics" size="14" color="accent" /> Token Usage Across Jobs
           </h4>
 
           {loading && (
@@ -1842,7 +1902,7 @@ function UsageTab() {
           )}
           {error && (
             <div className="dev-panel-empty" style={{ padding: 12, color: "var(--red)" }}>
-              ❌ {error}
+              <Icon name="error" color="red" size="14" /> {error}
             </div>
           )}
 
@@ -1895,7 +1955,7 @@ function UsageTab() {
               {sortedJobs.length > 1 && (
                 <div className="usage-bar-chart" style={{ marginBottom: 14 }}>
                   <div style={{ fontSize: "var(--fs-11)", color: "var(--text-muted)", marginBottom: 8, fontWeight: 600 }}>
-                    📈 Token Usage Over Time
+                    <Icon name="trending_up" size="14" color="accent" /> Token Usage Over Time
                   </div>
                   <svg width="100%" height={140} viewBox={`0 0 ${Math.max(400, sortedJobs.length * 80)} 140`} style={{ display: "block" }}>
                     {/* Background */}
@@ -2010,7 +2070,9 @@ function UsageTab() {
               {sortedJobs.length > 0 && (
                 <div className="usage-bar-chart" style={{ marginBottom: 14 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                    <span style={{ fontSize: "var(--fs-11)", color: "var(--text-muted)", fontWeight: 600 }}>📊 Token Usage Per Job</span>
+                    <span style={{ fontSize: "var(--fs-11)", color: "var(--text-muted)", fontWeight: 600 }}>
+                      <Icon name="analytics" size="14" color="accent" /> Token Usage Per Job
+                    </span>
                     <select
                       className="dev-panel-select"
                       value={sortBy}
@@ -2155,7 +2217,11 @@ function UsageTab() {
       <div className="dev-panel-footer">
         <span>Polling every {(pollInterval / 1000).toFixed(0)}s</span>
         <span>{aggregate?.job_count || 0} job(s) with token data</span>
-        {aggregate?.costs?.total_cost ? <span>💰 ${aggregate.costs.total_cost.toFixed(4)} total cost</span> : null}
+        {aggregate?.costs?.total_cost ? (
+          <span>
+            <Icon name="account_balance_wallet" size="14" color="accent" /> ${aggregate.costs.total_cost.toFixed(4)} total cost
+          </span>
+        ) : null}
       </div>
     </>
   );
@@ -2175,42 +2241,42 @@ export default function DevPanel({ onClose }: Props) {
           onClick={() => setActiveTab("live")}
           title="Live real-time logs from all services"
           data-tooltip="View real-time log stream from Python, Bridge, Agent, and Main processes">
-          📋 Live Logs
+          <Icon name="terminal" size="14" color="accent" /> Live Logs
         </button>
         <button
           className={`dev-panel-tab ${activeTab === "files" ? "dev-panel-tab--active" : ""}`}
           onClick={() => setActiveTab("files")}
           title="Browse on-disk log files"
           data-tooltip="Browse and view saved log files from disk">
-          📁 Log Files
+          <Icon name="folder" size="14" /> Log Files
         </button>
         <button
           className={`dev-panel-tab ${activeTab === "database" ? "dev-panel-tab--active" : ""}`}
           onClick={() => setActiveTab("database")}
           title="Browse internal databases"
           data-tooltip="Explore ChromaDB, ephemeral memory, and voiceprint databases">
-          🗄️ Database
+          <Icon name="database" size="14" color="accent" /> Database
         </button>
         <button
           className={`dev-panel-tab ${activeTab === "performance" ? "dev-panel-tab--active" : ""}`}
           onClick={() => setActiveTab("performance")}
           title="Performance metrics across jobs"
           data-tooltip="View CPU, memory, and pipeline performance metrics across jobs">
-          ⚡ Performance
+          <Icon name="bolt" size="14" color="accent" /> Performance
         </button>
         <button
           className={`dev-panel-tab ${activeTab === "usage" ? "dev-panel-tab--active" : ""}`}
           onClick={() => setActiveTab("usage")}
           title="LLM token usage and costs"
           data-tooltip="View DeepSeek API credit balance and LLM token usage across jobs">
-          💰 Usage
+          <Icon name="account_balance_wallet" size="14" color="accent" /> Usage
         </button>
         <button
           className={`dev-panel-tab ${activeTab === "updates" ? "dev-panel-tab--active" : ""}`}
           onClick={() => setActiveTab("updates")}
           title="Check for app updates"
           data-tooltip="Check for and install application updates">
-          🔄 Updates
+          <Icon name="system_update" size="14" color="accent" /> Updates
         </button>
         <div className="dev-panel-tabs-spacer" />
         <button

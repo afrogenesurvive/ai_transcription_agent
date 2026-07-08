@@ -14,6 +14,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
+import Icon from "./Icon";
 import type { PipelineStep } from "../types";
 
 interface Props {
@@ -316,7 +317,7 @@ export default function ConfigPanel({ onClose }: Props) {
       try {
         const result = await window.electronAPI?.pullOllamaModel(modelName);
         if (result?.success) {
-          setPullSuccess(`✅ Model "${modelName}" pulled successfully`);
+          setPullSuccess(`Model "${modelName}" pulled successfully`);
           // Refresh the model list
           await fetchOllamaModels();
         } else {
@@ -361,14 +362,14 @@ export default function ConfigPanel({ onClose }: Props) {
     try {
       const result = await window.electronAPI?.exportConfig();
       if (result?.success) {
-        setExportResult(`✅ Exported to ${result.filePath}`);
+        setExportResult(`Exported to ${result.filePath}`);
       } else if (result?.cancelled) {
         setExportResult(null);
       } else {
-        setExportResult(`❌ Export failed: ${result?.error || "Unknown error"}`);
+        setExportResult(`Export failed: ${result?.error || "Unknown error"}`);
       }
     } catch (err: any) {
-      setExportResult(`❌ Export failed: ${err.message}`);
+      setExportResult(`Export failed: ${err.message}`);
     } finally {
       setExporting(false);
     }
@@ -381,7 +382,7 @@ export default function ConfigPanel({ onClose }: Props) {
       const result = await window.electronAPI?.importConfig();
       if (result?.success) {
         const agentMsg = result.agentConfigImported ? " (agent instructions included)" : "";
-        setImportResult(`✅ Configuration imported successfully${agentMsg}`);
+        setImportResult(`Configuration imported successfully${agentMsg}`);
         // Reload config values after import
         window.electronAPI?.getConfigWithSources().then((cfg) => {
           setValues({
@@ -420,17 +421,17 @@ export default function ConfigPanel({ onClose }: Props) {
       } else if (result?.cancelled) {
         setImportResult(null);
       } else if (result?.blocked) {
-        setImportResult(`⛔ ${result.error}`);
+        setImportResult(`${result.error}`);
         // Re-check active jobs to show up-to-date guard banner
         window.electronAPI
           ?.getActiveJobs()
           .then((jobs) => setActiveJobs(jobs || []))
           .catch(() => {});
       } else {
-        setImportResult(`❌ Import failed: ${result?.error || "Unknown error"}`);
+        setImportResult(`Import failed: ${result?.error || "Unknown error"}`);
       }
     } catch (err: any) {
-      setImportResult(`❌ Import failed: ${err.message}`);
+      setImportResult(`Import failed: ${err.message}`);
     } finally {
       setImporting(false);
     }
@@ -786,7 +787,7 @@ The system provides existing memory context at the start of each pipeline run. U
   const handleRestoreDefaults = useCallback(async () => {
     if (
       !window.confirm(
-        "⚠️ Restore default agent configs?\n\nThis will overwrite your current system prompt, pipeline steps, and tool definitions with the original shipped defaults. The agent runner will need a restart.\n\nThis cannot be undone.",
+        "Restore default agent configs?\n\nThis will overwrite your current system prompt, pipeline steps, and tool definitions with the original shipped defaults. The agent runner will need a restart.\n\nThis cannot be undone.",
       )
     ) {
       return;
@@ -842,7 +843,7 @@ The system provides existing memory context at the start of each pipeline run. U
             disabled={exporting}
             title="Export configuration to a JSON file"
             data-tooltip="Save current configuration to a JSON file for backup or transfer">
-            {exporting ? "⟳" : "📤"} Export
+            {exporting ? <Icon name="sync" size="14" /> : <Icon name="upload" size="14" />} Export
           </button>
           <button
             className="config-io-btn"
@@ -850,11 +851,11 @@ The system provides existing memory context at the start of each pipeline run. U
             disabled={importing}
             title="Import configuration from a JSON file"
             data-tooltip="Load configuration from a previously exported JSON file">
-            {importing ? "⟳" : "📥"} Import
+            {importing ? <Icon name="sync" size="14" /> : <Icon name="download" size="14" />} Import
           </button>
         </div>
         <button className="config-close-btn" onClick={onClose} title="Close configuration panel" data-tooltip="Close the configuration panel">
-          ✕
+          <Icon name="close" size="16" />
         </button>
       </div>
 
@@ -865,21 +866,21 @@ The system provides existing memory context at the start of each pipeline run. U
           onClick={() => setActiveTab("config")}
           title="Configure LLM provider, API keys, and delivery services"
           data-tooltip="Configure LLM provider, API keys, and delivery services">
-          🔑 LLM & Delivery
+          <Icon name="vpn_key" size="14" /> LLM &amp; Delivery
         </button>
         <button
           className={`config-tab ${activeTab === "agent" ? "config-tab--active" : ""}`}
           onClick={() => setActiveTab("agent")}
           title="Edit agent system prompt, tool definitions, and pipeline hints"
           data-tooltip="Edit agent system prompt, tool definitions, and pipeline hints">
-          🤖 Agent Instructions
+          <Icon name="smart_toy" size="14" /> Agent Instructions
         </button>
         <button
           className={`config-tab ${activeTab === "logging" ? "config-tab--active" : ""}`}
           onClick={() => setActiveTab("logging")}
           title="Configure log sources, levels, file size, and rotation"
           data-tooltip="Configure log sources, levels, file size, and rotation">
-          📝 Logging
+          <Icon name="edit_note" size="14" /> Logging
         </button>
       </div>
 
@@ -887,7 +888,10 @@ The system provides existing memory context at the start of each pipeline run. U
         {/* ── Active jobs guard (all tabs) ── */}
         {activeJobs.length > 0 && (
           <div className="config-blocked-banner" style={{ marginBottom: 12 }}>
-            <strong>⛔ Editing blocked</strong> — {activeJobs.length} pipeline job{activeJobs.length > 1 ? "s" : ""} currently running:
+            <strong>
+              <Icon name="block" color="red" size="14" /> Editing blocked
+            </strong>{" "}
+            — {activeJobs.length} pipeline job{activeJobs.length > 1 ? "s" : ""} currently running:
             <ul className="config-blocked-list">
               {activeJobs.map((j: any) => (
                 <li key={j.job_id}>
@@ -911,10 +915,26 @@ The system provides existing memory context at the start of each pipeline run. U
                   onClick={() => setConfigSection(name)}
                   title={`Switch to ${name} settings`}
                   data-tooltip={`Switch to ${name} settings section`}>
-                  {name === "LLM Provider" && "🧠 "}
-                  {name === "Services" && "🔗 "}
-                  {name === "Delivery Config" && "📬 "}
-                  {name === "Auto-Update" && "🔄 "}
+                  {name === "LLM Provider" && (
+                    <>
+                      <Icon name="psychology" size="14" />{" "}
+                    </>
+                  )}
+                  {name === "Services" && (
+                    <>
+                      <Icon name="link" size="14" />{" "}
+                    </>
+                  )}
+                  {name === "Delivery Config" && (
+                    <>
+                      <Icon name="mail" size="14" />{" "}
+                    </>
+                  )}
+                  {name === "Auto-Update" && (
+                    <>
+                      <Icon name="sync" size="14" />{" "}
+                    </>
+                  )}
                   {name}
                 </button>
               ))}
@@ -968,7 +988,7 @@ The system provides existing memory context at the start of each pipeline run. U
                           <div className="config-ollama-status">
                             {ollamaHealthChecking && ollamaHealthy === null ? (
                               <span className="config-ollama-status-indicator config-ollama-status--checking" title="Checking Ollama server…">
-                                ⟳ Checking…
+                                <Icon name="sync" size="14" /> Checking…
                               </span>
                             ) : ollamaHealthy ? (
                               <span className="config-ollama-status-indicator config-ollama-status--up" title="Ollama server is reachable">
@@ -1012,7 +1032,7 @@ The system provides existing memory context at the start of each pipeline run. U
                                   data-tooltip={
                                     visibleKeys.has(field.key) ? "Click to mask the secret value" : "Click to temporarily reveal the secret value"
                                   }>
-                                  {visibleKeys.has(field.key) ? "👁️" : "🙈"}
+                                  {visibleKeys.has(field.key) ? <Icon name="visibility" size="14" /> : <Icon name="visibility_off" size="14" />}
                                 </button>
                               </div>
                             </div>
@@ -1047,7 +1067,7 @@ The system provides existing memory context at the start of each pipeline run. U
                                     title={visibleKeys.has(field.key) ? "Hide value" : "Show value"}
                                     type="button"
                                     tabIndex={-1}>
-                                    {visibleKeys.has(field.key) ? "👁️" : "🙈"}
+                                    {visibleKeys.has(field.key) ? <Icon name="visibility" size="14" /> : <Icon name="visibility_off" size="14" />}
                                   </button>
                                 )}
                               </div>
@@ -1057,7 +1077,9 @@ The system provides existing memory context at the start of each pipeline run. U
                       {/* ── Ollama Model + Context Window (only when provider is ollama) ── */}
                       {values.LLM_PROVIDER === "ollama" && (
                         <div className="config-section">
-                          <h3 className="config-section-title">🧠 Model & Context Window</h3>
+                          <h3 className="config-section-title">
+                            <Icon name="psychology" size="16" color="accent" /> Model &amp; Context Window
+                          </h3>
 
                           {/* Model selector — fixed options: qwen3.6, deepseekv2 */}
                           <div className="config-field-row">
@@ -1100,12 +1122,16 @@ The system provides existing memory context at the start of each pipeline run. U
                       {/* ── Ollama Model Status — only when provider is ollama ── */}
                       {values.LLM_PROVIDER === "ollama" && (
                         <div className="config-section">
-                          <h3 className="config-section-title">🤖 Ollama Models</h3>
+                          <h3 className="config-section-title">
+                            <Icon name="smart_toy" size="16" color="accent" /> Ollama Models
+                          </h3>
 
                           {/* Server status line */}
                           <div className="config-ollama-status config-ollama-status--section">
                             {ollamaHealthChecking && ollamaHealthy === null ? (
-                              <span className="config-ollama-status-indicator config-ollama-status--checking">⟳ Checking server…</span>
+                              <span className="config-ollama-status-indicator config-ollama-status--checking">
+                                <Icon name="sync" size="14" /> Checking server…
+                              </span>
                             ) : ollamaHealthy ? (
                               <span className="config-ollama-status-indicator config-ollama-status--up">
                                 <span className="config-ollama-status-dot config-ollama-status-dot--up" />
@@ -1125,9 +1151,9 @@ The system provides existing memory context at the start of each pipeline run. U
                           {/* Connection error */}
                           {ollamaModelsError && (
                             <div className="config-ollama-error">
-                              ⚠️ {ollamaModelsError}
+                              <Icon name="warning" color="orange" size="14" /> {ollamaModelsError}
                               <button className="config-ollama-retry-btn" onClick={fetchOllamaModels} disabled={ollamaModelsLoading}>
-                                ⟳ Retry
+                                <Icon name="refresh" size="14" /> Retry
                               </button>
                             </div>
                           )}
@@ -1135,7 +1161,9 @@ The system provides existing memory context at the start of each pipeline run. U
                           {/* No models — show pull options */}
                           {!ollamaModelsLoading && !ollamaModelsError && ollamaModels.length === 0 && (
                             <div className="config-ollama-warning">
-                              <strong>🚫 No models available</strong>
+                              <strong>
+                                <Icon name="block" size="14" color="red" /> No models available
+                              </strong>
                               <p>Ollama is running but no models are pulled yet. Pull a model below to get started, or add one via the Ollama CLI.</p>
                             </div>
                           )}
@@ -1180,11 +1208,19 @@ The system provides existing memory context at the start of each pipeline run. U
                                         ? "deepseek-v2 is already pulled"
                                         : ""
                                 }>
-                                {pullingModel === "deepseek-v2"
-                                  ? "⟳ Pulling…"
-                                  : ollamaModels.some((m) => m.name === "deepseek-v2" || m.name === "deepseek-v2:latest")
-                                    ? "✅ deepseek-v2 pulled"
-                                    : "📥 Pull deepseek-v2"}
+                                {pullingModel === "deepseek-v2" ? (
+                                  <>
+                                    <Icon name="sync" size="14" /> Pulling…
+                                  </>
+                                ) : ollamaModels.some((m) => m.name === "deepseek-v2" || m.name === "deepseek-v2:latest") ? (
+                                  <>
+                                    <Icon name="check_circle" size="14" color="green" /> deepseek-v2 pulled
+                                  </>
+                                ) : (
+                                  <>
+                                    <Icon name="download" size="14" /> Pull deepseek-v2
+                                  </>
+                                )}
                               </button>
                               <button
                                 className="config-ollama-pull-btn"
@@ -1205,11 +1241,19 @@ The system provides existing memory context at the start of each pipeline run. U
                                         ? "qwen3.6:27b is already pulled"
                                         : ""
                                 }>
-                                {pullingModel === "qwen3.6:27b"
-                                  ? "⟳ Pulling…"
-                                  : ollamaModels.some((m) => m.name === "qwen3.6:27b" || m.name === "qwen3.6:27b:latest")
-                                    ? "✅ qwen3.6:27b pulled"
-                                    : "📥 Pull qwen3.6:27b"}
+                                {pullingModel === "qwen3.6:27b" ? (
+                                  <>
+                                    <Icon name="sync" size="14" /> Pulling…
+                                  </>
+                                ) : ollamaModels.some((m) => m.name === "qwen3.6:27b" || m.name === "qwen3.6:27b:latest") ? (
+                                  <>
+                                    <Icon name="check_circle" size="14" color="green" /> qwen3.6:27b pulled
+                                  </>
+                                ) : (
+                                  <>
+                                    <Icon name="download" size="14" /> Pull qwen3.6:27b
+                                  </>
+                                )}
                               </button>
                             </div>
                             {pullingModel && (
@@ -1261,7 +1305,9 @@ The system provides existing memory context at the start of each pipeline run. U
                     <div className="delivery-config-accordion">
                       {/* ── Gmail accordion section ── */}
                       <details className="delivery-config-details" open>
-                        <summary className="delivery-config-summary">📧 Gmail / Google Services</summary>
+                        <summary className="delivery-config-summary">
+                          <Icon name="email" size="14" color="accent" /> Gmail / Google Services
+                        </summary>
                         <div className="delivery-config-body">
                           <p className="config-field-hint">
                             Google OAuth credentials for Gmail and Drive. Uses the same Google Cloud project for both services.
@@ -1287,7 +1333,7 @@ The system provides existing memory context at the start of each pipeline run. U
                                       title={visibleKeys.has(field.key) ? "Hide value" : "Show value"}
                                       type="button"
                                       tabIndex={-1}>
-                                      {visibleKeys.has(field.key) ? "👁️" : "🙈"}
+                                      {visibleKeys.has(field.key) ? <Icon name="visibility" size="14" /> : <Icon name="visibility_off" size="14" />}
                                     </button>
                                   )}
                                 </div>
@@ -1298,7 +1344,9 @@ The system provides existing memory context at the start of each pipeline run. U
 
                       {/* ── Trello accordion section ── */}
                       <details className="delivery-config-details">
-                        <summary className="delivery-config-summary">📋 Trello</summary>
+                        <summary className="delivery-config-summary">
+                          <Icon name="dashboard" size="14" color="accent" /> Trello
+                        </summary>
                         <div className="delivery-config-body">
                           <p className="config-field-hint">Trello API credentials for creating action item cards from meeting decisions.</p>
                           {fields
@@ -1322,7 +1370,7 @@ The system provides existing memory context at the start of each pipeline run. U
                                       title={visibleKeys.has(field.key) ? "Hide value" : "Show value"}
                                       type="button"
                                       tabIndex={-1}>
-                                      {visibleKeys.has(field.key) ? "👁️" : "🙈"}
+                                      {visibleKeys.has(field.key) ? <Icon name="visibility" size="14" /> : <Icon name="visibility_off" size="14" />}
                                     </button>
                                   )}
                                 </div>
@@ -1335,7 +1383,9 @@ The system provides existing memory context at the start of each pipeline run. U
                     <div className="delivery-config-accordion">
                       {/* ── Gmail accordion section ── */}
                       <details className="delivery-config-details" open>
-                        <summary className="delivery-config-summary">📧 Email Delivery Config</summary>
+                        <summary className="delivery-config-summary">
+                          <Icon name="email" size="14" color="accent" /> Email Delivery Config
+                        </summary>
                         <div className="delivery-config-body">
                           <p className="config-field-hint">
                             Default recipients receive emails in addition to per-job attendee emails. Subject and additional content are appended to
@@ -1387,7 +1437,9 @@ The system provides existing memory context at the start of each pipeline run. U
 
                       {/* ── Drive accordion section ── */}
                       <details className="delivery-config-details">
-                        <summary className="delivery-config-summary">☁️ Google Drive Delivery Config</summary>
+                        <summary className="delivery-config-summary">
+                          <Icon name="cloud" size="14" color="accent" /> Google Drive Delivery Config
+                        </summary>
                         <div className="delivery-config-body">
                           {fields
                             .filter((f) => (f.key as string) === "DELIVERY_DRIVE_FOLDER")
@@ -1432,7 +1484,7 @@ The system provides existing memory context at the start of each pipeline run. U
                               title={visibleKeys.has(field.key) ? "Hide value" : "Show value"}
                               type="button"
                               tabIndex={-1}>
-                              {visibleKeys.has(field.key) ? "👁️" : "🙈"}
+                              {visibleKeys.has(field.key) ? <Icon name="visibility" size="14" /> : <Icon name="visibility_off" size="14" />}
                             </button>
                           )}
                         </div>
@@ -1449,7 +1501,7 @@ The system provides existing memory context at the start of each pipeline run. U
 
         {activeTab === "agent" && agentConfigError && (
           <div className="config-error-banner">
-            ⚠️ Could not load agent config from bridge server: {agentConfigError}
+            <Icon name="warning" color="orange" size="14" /> Could not load agent config from bridge server: {agentConfigError}
             <p className="config-hint">Make sure the bridge server (:5010) is running.</p>
           </div>
         )}
@@ -1467,22 +1519,22 @@ The system provides existing memory context at the start of each pipeline run. U
               <button
                 className={`config-section-tab ${agentSubTab === "pipeline-steps" ? "config-section-tab--active" : ""}`}
                 onClick={() => setAgentSubTab("pipeline-steps")}>
-                ✅ Pipeline Steps
+                <Icon name="checklist" size="14" color="accent" /> Pipeline Steps
               </button>
               <button
                 className={`config-section-tab ${agentSubTab === "pipeline-hints" ? "config-section-tab--active" : ""}`}
                 onClick={() => setAgentSubTab("pipeline-hints")}>
-                🧭 Pipeline Hints
+                <Icon name="explore" size="14" color="accent" /> Pipeline Hints
               </button>
               <button
                 className={`config-section-tab ${agentSubTab === "pipeline-constants" ? "config-section-tab--active" : ""}`}
                 onClick={() => setAgentSubTab("pipeline-constants")}>
-                ⚙️ Pipeline Constants
+                <Icon name="tune" size="14" color="accent" /> Pipeline Constants
               </button>
               <button
                 className={`config-section-tab config-section-tab--readonly ${agentSubTab === "system-prompt" ? "config-section-tab--active" : ""}`}
                 onClick={() => setAgentSubTab("system-prompt")}>
-                📝 System Prompt
+                <Icon name="edit_note" size="14" /> System Prompt
               </button>
             </div>
 
@@ -1490,7 +1542,9 @@ The system provides existing memory context at the start of each pipeline run. U
             {agentSubTab === "pipeline-steps" && (
               <div className="config-section">
                 <div className="pipeline-steps-header">
-                  <h3 className="config-section-title">✅ Pipeline Steps</h3>
+                  <h3 className="config-section-title">
+                    <Icon name="checklist" size="16" color="accent" /> Pipeline Steps
+                  </h3>
                   <span className="pipeline-steps-count">
                     {editPipelineSteps.length} step{editPipelineSteps.length !== 1 ? "s" : ""}
                   </span>
@@ -1659,8 +1713,12 @@ The system provides existing memory context at the start of each pipeline run. U
             {agentSubTab === "system-prompt" && (
               <div className="config-section">
                 <div className="config-section-header-row">
-                  <h3 className="config-section-title">📝 System Prompt</h3>
-                  <span className="config-section-badge config-section-badge--readonly">🔒 Read-only</span>
+                  <h3 className="config-section-title">
+                    <Icon name="edit_note" size="16" color="accent" /> System Prompt
+                  </h3>
+                  <span className="config-section-badge config-section-badge--readonly">
+                    <Icon name="lock" size="12" /> Read-only
+                  </span>
                 </div>
                 <p className="config-field-hint">
                   The system prompt is auto-generated from the <strong>Pipeline Steps</strong> checklist. Edit step labels, descriptions, and
@@ -1670,7 +1728,8 @@ The system provides existing memory context at the start of each pipeline run. U
                 {/* Read-only preview of the auto-generated prompt */}
                 <details className="config-preview-details" open>
                   <summary className="config-preview-summary">
-                    🔍 Auto-generated from Pipeline Steps ({editPipelineSteps.filter((s) => s.enabled).length} enabled steps)
+                    <Icon name="search" size="14" color="muted" /> Auto-generated from Pipeline Steps (
+                    {editPipelineSteps.filter((s) => s.enabled).length} enabled steps)
                   </summary>
                   <pre className="config-preview-block">{generatedPromptPreview}</pre>
                 </details>
@@ -1683,13 +1742,15 @@ The system provides existing memory context at the start of each pipeline run. U
             {agentSubTab === "pipeline-hints" && (
               <div className="config-section">
                 <div className="config-section-header-row">
-                  <h3 className="config-section-title">🧭 Pipeline Hints</h3>
+                  <h3 className="config-section-title">
+                    <Icon name="explore" size="16" color="accent" /> Pipeline Hints
+                  </h3>
                   <button
                     className="config-regenerate-btn"
                     onClick={handleRegenerateFromSteps}
                     disabled={activeJobs.length > 0}
                     title="Reset to auto-generated hints from the Pipeline Steps checklist">
-                    ⟳ Regenerate from Steps
+                    <Icon name="sync" size="14" /> Regenerate from Steps
                   </button>
                 </div>
                 <p className="config-field-hint">
@@ -1700,7 +1761,8 @@ The system provides existing memory context at the start of each pipeline run. U
                 {/* Preview of auto-generated hints */}
                 <details className="config-preview-details">
                   <summary className="config-preview-summary">
-                    🔍 Preview: auto-generated from Pipeline Steps ({Object.keys(generatedHintsPreview).length} hints)
+                    <Icon name="search" size="14" color="muted" /> Preview: auto-generated from Pipeline Steps (
+                    {Object.keys(generatedHintsPreview).length} hints)
                   </summary>
                   <pre className="config-preview-block">
                     {Object.entries(generatedHintsPreview)
@@ -1741,7 +1803,9 @@ The system provides existing memory context at the start of each pipeline run. U
             {/* Pipeline Constants */}
             {agentSubTab === "pipeline-constants" && (
               <div className="config-section">
-                <h3 className="config-section-title">⚙️ Pipeline Constants</h3>
+                <h3 className="config-section-title">
+                  <Icon name="tune" size="16" color="accent" /> Pipeline Constants
+                </h3>
                 <div className="config-field-row">
                   <div className="config-field config-field--compact">
                     <label className="config-label">Max Steps</label>
@@ -1821,7 +1885,9 @@ The system provides existing memory context at the start of each pipeline run. U
 
             {/* Log Sources */}
             <div className="config-section">
-              <h3 className="config-section-title">📡 Log Sources (disk writes)</h3>
+              <h3 className="config-section-title">
+                <Icon name="rss_feed" size="16" color="accent" /> Log Sources (disk writes)
+              </h3>
               <p className="config-field-hint">
                 Uncheck sources you don&apos;t want to write to log files. Reducing high-volume sources like python or bridge saves the most disk
                 space.
@@ -1870,7 +1936,9 @@ The system provides existing memory context at the start of each pipeline run. U
 
             {/* LLM Data Logging */}
             <div className="config-section">
-              <h3 className="config-section-title">🧠 LLM Data Logging</h3>
+              <h3 className="config-section-title">
+                <Icon name="psychology" size="16" color="accent" /> LLM Data Logging
+              </h3>
               <p className="config-field-hint">
                 When enabled, the full LLM input (context/prompt) and output (response) for each pipeline step are saved to the job&apos;s storage
                 directory as <code>llm-data.jsonl</code>. This can produce large files — use only for debugging.
@@ -1893,7 +1961,9 @@ The system provides existing memory context at the start of each pipeline run. U
 
             {/* Log Level */}
             <div className="config-section">
-              <h3 className="config-section-title">🔉 Minimum Log Level</h3>
+              <h3 className="config-section-title">
+                <Icon name="volume_up" size="16" color="accent" /> Minimum Log Level
+              </h3>
               <p className="config-field-hint">
                 Only log entries at or above this severity will be written to disk. &quot;off&quot; disables all disk logging.
               </p>
@@ -1912,7 +1982,9 @@ The system provides existing memory context at the start of each pipeline run. U
 
             {/* File Rotation */}
             <div className="config-section">
-              <h3 className="config-section-title">📦 File Rotation</h3>
+              <h3 className="config-section-title">
+                <Icon name="inventory" size="16" color="accent" /> File Rotation
+              </h3>
               <div className="config-field-row">
                 <div className="config-field config-field--compact">
                   <label className="config-label">Max File Size (MB)</label>
@@ -1951,13 +2023,19 @@ The system provides existing memory context at the start of each pipeline run. U
         {importResult && <span className="config-success">{importResult}</span>}
         {error && <span className="config-error">{error}</span>}
         {saved && !restartNeeded && <span className="config-success">✓ Configuration saved</span>}
-        {saved && restartNeeded && <span className="config-warning">✓ Saved — ⚠️ Restart agent runner to apply changes</span>}
+        {saved && restartNeeded && (
+          <span className="config-warning">
+            <Icon name="check" size="12" color="green" /> Saved — <Icon name="warning" size="12" color="orange" /> Restart agent runner to apply
+            changes
+          </span>
+        )}
 
         {activeTab === "config" && (
           <>
             {activeJobs.length > 0 ? (
               <span className="config-footer-hint">
-                ⛔ Cannot save — {activeJobs.length} job{activeJobs.length > 1 ? "s" : ""} running. Wait for completion.
+                <Icon name="block" color="red" size="14" /> Cannot save — {activeJobs.length} job{activeJobs.length > 1 ? "s" : ""} running. Wait for
+                completion.
               </span>
             ) : (
               <button
@@ -1976,7 +2054,8 @@ The system provides existing memory context at the start of each pipeline run. U
           <>
             {activeJobs.length > 0 ? (
               <span className="config-footer-hint">
-                ⛔ Cannot save — {activeJobs.length} job{activeJobs.length > 1 ? "s" : ""} running. Wait for completion.
+                <Icon name="block" color="red" size="14" /> Cannot save — {activeJobs.length} job{activeJobs.length > 1 ? "s" : ""} running. Wait for
+                completion.
               </span>
             ) : (
               <button
@@ -1995,15 +2074,32 @@ The system provides existing memory context at the start of each pipeline run. U
           <div className="config-footer-actions">
             {activeJobs.length > 0 ? (
               <span className="config-footer-hint">
-                ⛔ Cannot save — {activeJobs.length} job{activeJobs.length > 1 ? "s" : ""} running. Wait for completion.
+                <Icon name="block" color="red" size="14" /> Cannot save — {activeJobs.length} job{activeJobs.length > 1 ? "s" : ""} running. Wait for
+                completion.
               </span>
             ) : (
               <>
                 <span className="config-footer-note">
-                  {agentSubTab === "pipeline-steps" && "💡 Saves: regenerated system prompt + hints from step order"}
-                  {agentSubTab === "system-prompt" && "💡 Saves: your edited system prompt (hints regenerated from steps)"}
-                  {agentSubTab === "pipeline-hints" && "💡 Saves: your edited hints (system prompt regenerated from steps)"}
-                  {agentSubTab === "pipeline-constants" && "💡 Saves: constants only (prompt + hints unchanged)"}
+                  {agentSubTab === "pipeline-steps" && (
+                    <>
+                      <Icon name="lightbulb" size="12" color="orange" /> Saves: regenerated system prompt + hints from step order
+                    </>
+                  )}
+                  {agentSubTab === "system-prompt" && (
+                    <>
+                      <Icon name="lightbulb" size="12" color="orange" /> Saves: your edited system prompt (hints regenerated from steps)
+                    </>
+                  )}
+                  {agentSubTab === "pipeline-hints" && (
+                    <>
+                      <Icon name="lightbulb" size="12" color="orange" /> Saves: your edited hints (system prompt regenerated from steps)
+                    </>
+                  )}
+                  {agentSubTab === "pipeline-constants" && (
+                    <>
+                      <Icon name="lightbulb" size="12" color="orange" /> Saves: constants only (prompt + hints unchanged)
+                    </>
+                  )}
                 </span>
                 <button
                   className="config-save-btn"
@@ -2018,17 +2114,7 @@ The system provides existing memory context at the start of each pipeline run. U
                           ? "Save pipeline hints (preserves your edits)"
                           : "Save pipeline constants"
                   }>
-                  {saving
-                    ? "Saving…"
-                    : saved && !restartNeeded
-                      ? "Saved ✓"
-                      : agentSubTab === "pipeline-steps"
-                        ? "💾 Save & Generate from Steps"
-                        : agentSubTab === "system-prompt"
-                          ? "💾 Save System Prompt"
-                          : agentSubTab === "pipeline-hints"
-                            ? "💾 Save Pipeline Hints"
-                            : "💾 Save Constants"}
+                  {saving ? "Saving..." : saved && !restartNeeded ? "Saved" : "Save"}
                 </button>
                 <button
                   className="config-restore-btn"
@@ -2036,7 +2122,15 @@ The system provides existing memory context at the start of each pipeline run. U
                   disabled={saving || restoringDefaults || activeJobs.length > 0}
                   title="Restore the original shipped agent configs (tools, pipeline, system prompt)"
                   data-tooltip="Reset agent configuration to factory defaults — tools, pipeline steps, and system prompt">
-                  {restoringDefaults ? "⟳ Restoring..." : "↩ Restore Defaults"}
+                  {restoringDefaults ? (
+                    <span>
+                      <Icon name="sync" size="14" /> Restoring...
+                    </span>
+                  ) : (
+                    <span>
+                      <Icon name="restore" size="14" /> Restore Defaults
+                    </span>
+                  )}
                 </button>
                 {restartNeeded && (
                   <button
@@ -2044,7 +2138,7 @@ The system provides existing memory context at the start of each pipeline run. U
                     onClick={handleRestartAgent}
                     title="Restart the agent runner to apply new configuration"
                     data-tooltip="Restart the agent runner service to apply the updated configuration">
-                    🔄 Restart Agent Runner Now
+                    <Icon name="restart_alt" size="14" /> Restart Agent Runner Now
                   </button>
                 )}
               </>

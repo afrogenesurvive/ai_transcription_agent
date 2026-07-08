@@ -2,15 +2,16 @@
  * ResultsViewer — tabbed process viewer for completed transcription jobs.
  *
  * Tabs:
- *   🔊 Audio     — Audio player for the original meeting recording
- *   📝 Transcript — Speaker-labeled raw transcript with timestamps
- *   📋 Summary    — Executive summary, key decisions, action items
- *   📊 Analysis   — Topics, sentiment, entities, effectiveness
- *   🪵 Logs       — Job-specific developer log files
- *   💰 Tokens    — LLM token usage breakdown per pipeline step
+ *   [Audio]     — Audio player for the original meeting recording
+ *   [Transcript] — Speaker-labeled raw transcript with timestamps
+ *   [Summary]    — Executive summary, key decisions, action items
+ *   [Analysis]   — Topics, sentiment, entities, effectiveness
+ *   [Logs]       — Job-specific developer log files
+ *   [Tokens]    — LLM token usage breakdown per pipeline step
  */
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import Icon from "./Icon";
 import type { TranscriptionSegment, AnalysisData } from "../types";
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
@@ -24,15 +25,15 @@ interface Tab {
 }
 
 const TABS: Tab[] = [
-  { id: "pipeline", label: "Pipeline", icon: "🔬" },
-  { id: "audio", label: "Audio", icon: "🔊" },
-  { id: "transcript", label: "Transcript", icon: "📝" },
-  { id: "summary", label: "Summary", icon: "📋" },
-  { id: "analysis", label: "Analysis", icon: "📊" },
-  { id: "tokens", label: "Tokens", icon: "💰" },
-  { id: "performance", label: "Performance", icon: "🚀" },
-  { id: "delivery", label: "Delivery", icon: "📬" },
-  { id: "logs", label: "Logs", icon: "🪵" },
+  { id: "pipeline", label: "Pipeline", icon: "timeline" },
+  { id: "audio", label: "Audio", icon: "headphones" },
+  { id: "transcript", label: "Transcript", icon: "description" },
+  { id: "summary", label: "Summary", icon: "summarize" },
+  { id: "analysis", label: "Analysis", icon: "analytics" },
+  { id: "tokens", label: "Tokens", icon: "token" },
+  { id: "performance", label: "Performance", icon: "speed" },
+  { id: "delivery", label: "Delivery", icon: "mail" },
+  { id: "logs", label: "Logs", icon: "terminal" },
 ];
 
 interface Props {
@@ -107,7 +108,9 @@ function AudioTab({ jobId, metadata }: { jobId: string; metadata?: Props["metada
   return (
     <div className="rv-tab-content rv-tab-content--audio">
       <div className="rv-audio-header">
-        <h3>🎵 Meeting Recording</h3>
+        <h3>
+          <Icon name="music_note" size="18" color="accent" /> Meeting Recording
+        </h3>
         {metadata?.title && <span className="rv-audio-title">{metadata.title}</span>}
       </div>
 
@@ -119,14 +122,16 @@ function AudioTab({ jobId, metadata }: { jobId: string; metadata?: Props["metada
           </audio>
         ) : (
           <div className="rv-audio-error">
-            <span className="rv-audio-error-icon">⚠️</span>
+            <span className="rv-audio-error-icon">
+              <Icon name="warning" color="orange" size="20" />
+            </span>
             <div>
               <p>
                 <strong>Audio file unavailable</strong>
               </p>
               <p className="rv-muted">The audio could not be loaded. The file may be missing or the backend may not be running.</p>
               <button className="rv-audio-retry-btn" onClick={handleRetry}>
-                🔄 Retry
+                <Icon name="refresh" size="14" /> Retry
               </button>
             </div>
           </div>
@@ -165,7 +170,9 @@ function TranscriptTab({ segments }: { segments?: TranscriptionSegment[] }) {
     return (
       <div className="rv-tab-content">
         <div className="rv-empty-state">
-          <span className="rv-empty-icon">📝</span>
+          <span className="rv-empty-icon">
+            <Icon name="description" size="32" color="muted" />
+          </span>
           <p>No transcript data available.</p>
           <p className="rv-muted">The transcript will appear here once processing completes.</p>
         </div>
@@ -180,7 +187,9 @@ function TranscriptTab({ segments }: { segments?: TranscriptionSegment[] }) {
           {filtered.length} segment{filtered.length !== 1 ? "s" : ""}
         </span>
         <div className="rv-search-box">
-          <span className="rv-search-icon">🔍</span>
+          <span className="rv-search-icon">
+            <Icon name="search" size="14" color="muted" />
+          </span>
           <input
             type="text"
             placeholder="Search transcript…"
@@ -196,7 +205,7 @@ function TranscriptTab({ segments }: { segments?: TranscriptionSegment[] }) {
               onClick={() => setSearchTerm("")}
               title="Clear search"
               data-tooltip="Clear the transcript search term">
-              ✕
+              <Icon name="close" size="12" />
             </button>
           )}
         </div>
@@ -224,7 +233,9 @@ function SummaryTab({ summary }: { summary?: Props["summary"] }) {
     return (
       <div className="rv-tab-content">
         <div className="rv-empty-state">
-          <span className="rv-empty-icon">📋</span>
+          <span className="rv-empty-icon">
+            <Icon name="summarize" size="32" color="muted" />
+          </span>
           <p>No summary available yet.</p>
           <p className="rv-muted">The agent will generate a summary after transcription completes.</p>
         </div>
@@ -237,7 +248,9 @@ function SummaryTab({ summary }: { summary?: Props["summary"] }) {
       {summary.executive_summary && (
         <div className="rv-summary-card">
           <div className="rv-summary-card-header">
-            <span className="rv-summary-card-icon">📄</span>
+            <span className="rv-summary-card-icon">
+              <Icon name="article" size="16" color="accent" />
+            </span>
             <h3>Executive Summary</h3>
           </div>
           <p className="rv-summary-text">{summary.executive_summary}</p>
@@ -247,7 +260,9 @@ function SummaryTab({ summary }: { summary?: Props["summary"] }) {
       {summary.discussion_points && summary.discussion_points.length > 0 && (
         <div className="rv-summary-card">
           <div className="rv-summary-card-header">
-            <span className="rv-summary-card-icon">💬</span>
+            <span className="rv-summary-card-icon">
+              <Icon name="chat" size="16" color="accent" />
+            </span>
             <h3>Discussion Points</h3>
           </div>
           <ul className="rv-summary-list">
@@ -261,7 +276,9 @@ function SummaryTab({ summary }: { summary?: Props["summary"] }) {
       {summary.key_decisions && summary.key_decisions.length > 0 && (
         <div className="rv-summary-card">
           <div className="rv-summary-card-header">
-            <span className="rv-summary-card-icon">✅</span>
+            <span className="rv-summary-card-icon">
+              <Icon name="check_circle" size="16" color="green" />
+            </span>
             <h3>Key Decisions</h3>
           </div>
           <ul className="rv-summary-list rv-list--decisions">
@@ -275,7 +292,9 @@ function SummaryTab({ summary }: { summary?: Props["summary"] }) {
       {summary.action_items && summary.action_items.length > 0 && (
         <div className="rv-summary-card">
           <div className="rv-summary-card-header">
-            <span className="rv-summary-card-icon">📌</span>
+            <span className="rv-summary-card-icon">
+              <Icon name="push_pin" size="16" color="accent" />
+            </span>
             <h3>Action Items</h3>
           </div>
           <ul className="rv-action-items">
@@ -305,7 +324,9 @@ function AnalysisTab({ analysis }: { analysis: AnalysisData | null }) {
     return (
       <div className="rv-tab-content">
         <div className="rv-empty-state">
-          <span className="rv-empty-icon">📊</span>
+          <span className="rv-empty-icon">
+            <Icon name="analytics" size="32" color="muted" />
+          </span>
           <p>No analysis data available.</p>
           <p className="rv-muted">Analysis includes topics, sentiment, and key entities from the meeting.</p>
         </div>
@@ -319,7 +340,9 @@ function AnalysisTab({ analysis }: { analysis: AnalysisData | null }) {
         {analysis.topics && analysis.topics.length > 0 && (
           <div className="rv-analysis-card">
             <div className="rv-analysis-card-header">
-              <span className="rv-analysis-icon">🏷️</span>
+              <span className="rv-analysis-icon">
+                <Icon name="label" size="16" color="accent" />
+              </span>
               <h3>Topics Discussed</h3>
             </div>
             <div className="rv-tag-list">
@@ -335,7 +358,9 @@ function AnalysisTab({ analysis }: { analysis: AnalysisData | null }) {
         {analysis.sentiment && (
           <div className="rv-analysis-card">
             <div className="rv-analysis-card-header">
-              <span className="rv-analysis-icon">💭</span>
+              <span className="rv-analysis-icon">
+                <Icon name="sentiment_satisfied" size="16" color="accent" />
+              </span>
               <h3>Meeting Sentiment</h3>
             </div>
             <p className="rv-analysis-text">{analysis.sentiment}</p>
@@ -345,7 +370,9 @@ function AnalysisTab({ analysis }: { analysis: AnalysisData | null }) {
         {analysis.key_entities && analysis.key_entities.length > 0 && (
           <div className="rv-analysis-card">
             <div className="rv-analysis-card-header">
-              <span className="rv-analysis-icon">🔑</span>
+              <span className="rv-analysis-icon">
+                <Icon name="key" size="16" color="accent" />
+              </span>
               <h3>Key Entities</h3>
             </div>
             <ul className="rv-entity-list">
@@ -359,7 +386,9 @@ function AnalysisTab({ analysis }: { analysis: AnalysisData | null }) {
         {analysis.effectiveness && (
           <div className="rv-analysis-card">
             <div className="rv-analysis-card-header">
-              <span className="rv-analysis-icon">📈</span>
+              <span className="rv-analysis-icon">
+                <Icon name="trending_up" size="16" color="accent" />
+              </span>
               <h3>Meeting Effectiveness</h3>
             </div>
             <p className="rv-analysis-text">{analysis.effectiveness}</p>
@@ -369,7 +398,9 @@ function AnalysisTab({ analysis }: { analysis: AnalysisData | null }) {
         {analysis.follow_ups && analysis.follow_ups.length > 0 && (
           <div className="rv-analysis-card">
             <div className="rv-analysis-card-header">
-              <span className="rv-analysis-icon">🔜</span>
+              <span className="rv-analysis-icon">
+                <Icon name="outgoing_mail" size="16" color="accent" />
+              </span>
               <h3>Follow-Ups</h3>
             </div>
             <ul className="rv-entity-list">
@@ -395,10 +426,10 @@ function detectSource(line: string): string | null {
 /** Try to detect a log level like error, warn, info, debug in a log line. */
 function detectLevel(line: string): string | null {
   const lower = line.toLowerCase();
-  if (/\berror\b/.test(lower) || /\b❌\b/.test(line)) return "error";
-  if (/\bwarn(ing)?\b/.test(lower) || /\b⚠️\b/.test(line)) return "warn";
+  if (/\berror\b/.test(lower)) return "error";
+  if (/\bwarn(ing)?\b/.test(lower)) return "warn";
   if (/\bdebug\b/.test(lower)) return "debug";
-  if (/\binfo\b/.test(lower) || /\b✅\b/.test(line) || /\b📝\b/.test(line)) return "info";
+  if (/\binfo\b/.test(lower)) return "info";
   return null;
 }
 
@@ -466,7 +497,9 @@ function LogsTab({ jobId }: { jobId: string }) {
     return (
       <div className="rv-tab-content">
         <div className="rv-empty-state">
-          <span className="rv-empty-icon">❌</span>
+          <span className="rv-empty-icon">
+            <Icon name="error" color="red" size="32" />
+          </span>
           <p>Failed to load logs: {error}</p>
         </div>
       </div>
@@ -478,7 +511,9 @@ function LogsTab({ jobId }: { jobId: string }) {
       {/* Job-specific log files */}
       {jobLogFiles.length > 0 && (
         <div className="rv-logs-section">
-          <h4 className="rv-logs-section-title">📁 Job-Specific Files</h4>
+          <h4 className="rv-logs-section-title">
+            <Icon name="folder" size="14" /> Job-Specific Files
+          </h4>
           <div className="rv-logs-file-list">
             {jobLogFiles.map((jf, i) => (
               <div key={i} className="rv-logs-file-item">
@@ -493,7 +528,9 @@ function LogsTab({ jobId }: { jobId: string }) {
       {/* Filter toolbar */}
       {logs.length > 0 && (
         <div className="rv-logs-toolbar">
-          <span className="rv-logs-toolbar-title">🪵 Job Log Files</span>
+          <span className="rv-logs-toolbar-title">
+            <Icon name="terminal" size="14" color="accent" /> Job Log Files
+          </span>
           <div className="rv-logs-toolbar-filters">
             <select className="rv-logs-filter-select" value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
               <option value="all">All sources</option>
@@ -530,7 +567,9 @@ function LogsTab({ jobId }: { jobId: string }) {
             </div>
           ) : (
             <div className="rv-logs-empty-filter">
-              <span className="rv-logs-empty-filter-icon">🔍</span>
+              <span className="rv-logs-empty-filter-icon">
+                <Icon name="search_off" size="14" color="muted" />
+              </span>
               <span>No logs match the current filters.</span>
             </div>
           )}
@@ -539,7 +578,9 @@ function LogsTab({ jobId }: { jobId: string }) {
 
       {logs.length === 0 && jobLogFiles.length === 0 && (
         <div className="rv-empty-state">
-          <span className="rv-empty-icon">🪵</span>
+          <span className="rv-empty-icon">
+            <Icon name="terminal" size="32" color="muted" />
+          </span>
           <p>No log entries found for this job.</p>
           <p className="rv-muted">Logs will appear here as the pipeline runs.</p>
         </div>
@@ -629,7 +670,9 @@ function TokensTab({ jobId }: { jobId: string }) {
     return (
       <div className="rv-tab-content">
         <div className="rv-empty-state">
-          <span className="rv-empty-icon">💰</span>
+          <span className="rv-empty-icon">
+            <Icon name="token" size="32" color="muted" />
+          </span>
           <p>Token usage data unavailable</p>
           <p className="rv-muted">{error || "No usage data recorded for this job."}</p>
           <p className="rv-muted">Token tracking was added after this job was processed. Future jobs will include this data.</p>
@@ -683,7 +726,7 @@ function TokensTab({ jobId }: { jobId: string }) {
       <div className="rv-tokens-model-info">
         {usage.provider === "ollama" && (
           <span className="rv-tokens-model-badge rv-tokens-model-badge--local" style={{ background: "rgba(210,153,34,0.15)", color: "#d29922" }}>
-            🖥️ Local (no cost)
+            <Icon name="computer" size="14" color="orange" /> Local (no cost)
           </span>
         )}
         <span className="rv-tokens-model-badge">{usage.provider}</span>
@@ -736,33 +779,45 @@ interface StageDef {
 }
 
 const PIPELINE: StageDef[] = [
-  { key: "uploaded", icon: "📤", label: "Uploading", description: "Receiving your audio file", matches: ["uploaded"] },
-  { key: "initializing", icon: "🔧", label: "Getting Ready", description: "Preparing the transcription system", matches: ["initializing"] },
+  { key: "uploaded", icon: "upload_file", label: "Uploading", description: "Receiving your audio file", matches: ["uploaded"] },
+  { key: "initializing", icon: "build", label: "Getting Ready", description: "Preparing the transcription system", matches: ["initializing"] },
   {
     key: "diarization",
-    icon: "🔬",
+    icon: "group",
     label: "Identifying Speakers",
     description: "Detecting who speaks and when",
     matches: ["processing_diarization"],
   },
-  { key: "voiceprints", icon: "🧬", label: "Matching Voices", description: "Matching voices to known attendees", matches: ["matching_voiceprints"] },
-  { key: "transcription", icon: "🎤", label: "Transcribing Speech", description: "Converting speech to text", matches: ["processing_transcription"] },
-  { key: "aligning", icon: "🔗", label: "Building Transcript", description: "Matching words to each speaker", matches: ["aligning"] },
+  {
+    key: "voiceprints",
+    icon: "badge",
+    label: "Matching Voices",
+    description: "Matching voices to known attendees",
+    matches: ["matching_voiceprints"],
+  },
+  {
+    key: "transcription",
+    icon: "mic",
+    label: "Transcribing Speech",
+    description: "Converting speech to text",
+    matches: ["processing_transcription"],
+  },
+  { key: "aligning", icon: "link", label: "Building Transcript", description: "Matching words to each speaker", matches: ["aligning"] },
   {
     key: "agent",
-    icon: "🤖",
+    icon: "smart_toy",
     label: "AI Processing",
     description: "Refining, summarizing & analyzing",
     matches: ["transcribed", "ready_for_agent", "labeling_needed", "refined", "summarized"],
   },
   {
     key: "memory",
-    icon: "🧠",
+    icon: "memory",
     label: "Saving to Memory",
     description: "Storing meeting context for future reference",
     matches: ["analyzed"],
   },
-  { key: "delivery", icon: "📬", label: "Delivering Results", description: "Sending via email, Trello & Drive", matches: ["delivered"] },
+  { key: "delivery", icon: "mail", label: "Delivering Results", description: "Sending via email, Trello & Drive", matches: ["delivered"] },
 ];
 
 const COMPLETE_STATUSES = new Set(["delivered", "complete"]);
@@ -793,7 +848,19 @@ function PipelineTab({ status, progress, error }: { status: string; progress: nu
       <div className="pp-bar-track">
         <div className={`pp-bar-fill ${isFailed ? "pp-bar-fill--error" : isComplete ? "pp-bar-fill--done" : ""}`} style={{ width: barWidth }} />
       </div>
-      <div className="pp-bar-label">{isFailed ? "❌ Failed" : isComplete ? "✅ Complete" : `${Math.round(progress * 100)}%`}</div>
+      <div className="pp-bar-label">
+        {isFailed ? (
+          <>
+            <Icon name="error" color="red" size="14" /> Failed
+          </>
+        ) : isComplete ? (
+          <>
+            <Icon name="check_circle" color="green" size="14" /> Complete
+          </>
+        ) : (
+          `${Math.round(progress * 100)}%`
+        )}
+      </div>
 
       {/* Pipeline stepper */}
       <div className="pp-stepper">
@@ -803,17 +870,23 @@ function PipelineTab({ status, progress, error }: { status: string; progress: nu
             <div key={stage.key} className={`pp-step pp-step--${state}`}>
               <div className="pp-step-line" />
               <div className="pp-step-dot">
-                {state === "done" && <span className="pp-step-check">✓</span>}
+                {state === "done" && (
+                  <span className="pp-step-check">
+                    <Icon name="check" size="12" />
+                  </span>
+                )}
                 {state === "active" && <span className="pp-step-spinner" />}
                 {state === "error" && (
                   <span className="pp-step-check" style={{ color: "#fff" }}>
-                    ✕
+                    <Icon name="close" size="12" />
                   </span>
                 )}
                 {state === "pending" && <span className="pp-step-pending-dot" />}
               </div>
               <div className="pp-step-content">
-                <span className="pp-step-icon">{stage.icon}</span>
+                <span className="pp-step-icon">
+                  <Icon name={stage.icon} size="14" />
+                </span>
                 <div className="pp-step-text">
                   <span className="pp-step-label">{stage.label}</span>
                   {(state === "done" || state === "active" || state === "error") && <span className="pp-step-desc">{stage.description}</span>}
@@ -833,7 +906,9 @@ function PipelineTab({ status, progress, error }: { status: string; progress: nu
 
       {isFailed && error && (
         <div className="pp-error-box">
-          <span className="pp-error-header">❌ Error</span>
+          <span className="pp-error-header">
+            <Icon name="error" color="red" size="14" /> Error
+          </span>
           <p style={{ margin: "6px 0 0", fontSize: 12, lineHeight: 1.5 }}>{error}</p>
         </div>
       )}
@@ -916,7 +991,9 @@ function PerformanceTab({ jobId }: { jobId: string }) {
     return (
       <div className="rv-tab-content">
         <div className="rv-empty-state">
-          <span className="rv-empty-icon">🚀</span>
+          <span className="rv-empty-icon">
+            <Icon name="speed" size="32" color="muted" />
+          </span>
           <p>Performance data unavailable</p>
           <p className="rv-muted">{error || "No performance data recorded for this job yet."}</p>
         </div>
@@ -959,7 +1036,7 @@ function PerformanceTab({ jobId }: { jobId: string }) {
     <div className="rv-tab-content" style={{ padding: "12px 16px", fontFamily: "var(--font)" }}>
       <div className="usage-bar-chart" style={{ marginBottom: 16 }}>
         <div style={{ fontSize: "var(--fs-11)", fontWeight: 600, color: "var(--text-muted)", marginBottom: 8 }}>
-          🚀 CPU & Memory During Job
+          <Icon name="speed" size="12" color="accent" /> CPU &amp; Memory During Job
           <span style={{ marginLeft: 12, fontWeight: 400, fontSize: 10, opacity: 0.7 }}>{sorted.length} samples</span>
         </div>
         <svg viewBox={`0 0 ${chartW} ${chartH + 40}`} width="100%" height={chartH + 40} style={{ display: "block" }}>
@@ -1064,9 +1141,9 @@ interface DeliveryResultsData {
 }
 
 const DELIVERY_TOOL_LABELS: Record<string, { icon: string; label: string }> = {
-  send_delivery_email: { icon: "📧", label: "Email" },
-  save_to_drive: { icon: "☁️", label: "Google Drive" },
-  create_trello_action_items: { icon: "📋", label: "Trello Cards" },
+  send_delivery_email: { icon: "email", label: "Email" },
+  save_to_drive: { icon: "cloud", label: "Google Drive" },
+  create_trello_action_items: { icon: "dashboard", label: "Trello Cards" },
 };
 
 function DeliveryTab({ jobId }: { jobId: string }) {
@@ -1122,7 +1199,9 @@ function DeliveryTab({ jobId }: { jobId: string }) {
     return (
       <div className="rv-tab-content">
         <div className="rv-empty-state">
-          <span className="rv-empty-icon">📬</span>
+          <span className="rv-empty-icon">
+            <Icon name="mail" size="32" color="muted" />
+          </span>
           <p>Delivery data unavailable</p>
           <p className="rv-muted">{error || "No delivery results recorded for this job."}</p>
           <p className="rv-muted">Delivery results appear here after the agent pipeline runs delivery steps.</p>
@@ -1157,14 +1236,24 @@ function DeliveryTab({ jobId }: { jobId: string }) {
       <h4 className="rv-tokens-steps-title">Per-Delivery Results</h4>
       <div className="rv-delivery-list">
         {data.results.map((r, i) => {
-          const meta = DELIVERY_TOOL_LABELS[r.tool] || { icon: "🔧", label: r.tool };
+          const meta = DELIVERY_TOOL_LABELS[r.tool] || { icon: "build", label: r.tool };
           return (
             <div key={i} className={`rv-delivery-card ${r.success ? "rv-delivery-card--success" : "rv-delivery-card--failed"}`}>
               <div className="rv-delivery-card-header">
-                <span className="rv-delivery-card-icon">{meta.icon}</span>
+                <span className="rv-delivery-card-icon">
+                  <Icon name={meta.icon} size="18" />
+                </span>
                 <span className="rv-delivery-card-name">{meta.label}</span>
                 <span className={`rv-delivery-card-badge ${r.success ? "rv-delivery-badge--ok" : "rv-delivery-badge--fail"}`}>
-                  {r.success ? "✅ Success" : "❌ Failed"}
+                  {r.success ? (
+                    <>
+                      <Icon name="check_circle" color="green" size="14" /> Success
+                    </>
+                  ) : (
+                    <>
+                      <Icon name="cancel" color="red" size="14" /> Failed
+                    </>
+                  )}
                 </span>
               </div>
               <div className="rv-delivery-card-body">
@@ -1256,7 +1345,9 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
               onClick={() => setActiveTab(tab.id)}
               title={tabDescriptions[tab.id] || tab.label}
               data-tooltip={tabDescriptions[tab.id] || tab.label}>
-              <span className="rv-tab-icon">{tab.icon}</span>
+              <span className="rv-tab-icon">
+                <Icon name={tab.icon} size="14" />
+              </span>
               <span className="rv-tab-label">{tab.label}</span>
               {tab.id === "analysis" && analysisLoading && <span className="rv-tab-spinner" />}
             </button>
@@ -1280,7 +1371,7 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
             onClick={() => {
               navigator.clipboard.writeText(jobId);
             }}>
-            🆔 {jobId.slice(0, 12)}…
+            <Icon name="badge" size="12" color="muted" /> {jobId.slice(0, 12)}…
           </span>
         </div>
       </div>

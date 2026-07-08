@@ -25,7 +25,7 @@ os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.0")
 # ── Apply third-party compatibility patches FIRST (before any pyannote imports) ──
 import patches  # noqa: F401  (monkey-patches speechbrain + torchaudio + pyannote)
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
@@ -142,6 +142,15 @@ async def upload_audio(
     event_type: str = Form("internal"),
     skip_steps: str = Form(""),
 ):
+    # Reject new uploads while ML pipeline jobs are actively running
+    ml_pipeline_statuses = {
+        "uploaded", "initializing", "processing_diarization",
+        "matching_voiceprints", "processing_transcription", "aligning",
+    }
+    for info in _active_jobs.values():
+        if info.get("status") in ml_pipeline_statuses:
+            raise HTTPException(409, "A transcription job is already running — wait for it to finish before starting a new one")
+
     ext = os.path.splitext(file.filename or "audio.wav")[1] or ".wav"
     temp_dir = os.path.join(config.STORAGE_PATH, "uploads")
     os.makedirs(temp_dir, exist_ok=True)
@@ -181,6 +190,15 @@ async def upload_audio_by_path(req: UploadByPathRequest):
     Accepts a file path instead of multipart upload. Handles both
     POSIX (macOS/Linux) and Windows paths via os.path.
     """
+    # Reject new uploads while ML pipeline jobs are actively running
+    ml_pipeline_statuses = {
+        "uploaded", "initializing", "processing_diarization",
+        "matching_voiceprints", "processing_transcription", "aligning",
+    }
+    for info in _active_jobs.values():
+        if info.get("status") in ml_pipeline_statuses:
+            raise HTTPException(409, "A transcription job is already running — wait for it to finish before starting a new one")
+
     file_path = os.path.abspath(os.path.expanduser(req.file_path))
 
     if not os.path.exists(file_path):
@@ -860,7 +878,7 @@ async def serve_speaker_clip(job_id: str, speaker_id: str, clip_index: int):
 
 
 @app.post("/transcribe/label_and_resume/{job_id}")
-async def label_and_resume(job_id: str, labels: list):
+async def label_and_resume(job_id: str, labels: list = Body(...)):
     """Accept speaker labels from the user and resume the pipeline.
 
     Body: JSON array of {speaker_id, name, email?}

@@ -2,13 +2,14 @@
  * PipelineProgress — visual pipeline progress tracker for non-technical users.
  *
  * Shows all stages of the transcription pipeline in a clear vertical stepper:
- *   ✅ Completed stages (green checkmark)
- *   🔄 Current active stage (spinning animation)
+ *   check Completed stages (green checkmark)
+ *   sync Current active stage (spinning animation)
  *   ○ Upcoming stages (dimmed)
- *   ❌ Failed stage (red with error message)
+ *   close Failed stage (red with error message)
  */
 
 import React, { useState } from "react";
+import Icon from "./Icon";
 
 interface Props {
   status: string;
@@ -38,63 +39,63 @@ interface StageDef {
 const PIPELINE: StageDef[] = [
   {
     key: "uploaded",
-    icon: "📤",
+    icon: "upload_file",
     label: "Uploading",
     description: "Receiving your audio file",
     matches: ["uploaded"],
   },
   {
     key: "initializing",
-    icon: "🔧",
+    icon: "build",
     label: "Getting Ready",
     description: "Preparing the transcription system",
     matches: ["initializing"],
   },
   {
     key: "diarization",
-    icon: "🔬",
+    icon: "group",
     label: "Identifying Speakers",
     description: "Detecting who speaks and when",
     matches: ["processing_diarization"],
   },
   {
     key: "voiceprints",
-    icon: "🧬",
+    icon: "badge",
     label: "Matching Voices",
     description: "Identifying and labeling each speaker",
     matches: ["matching_voiceprints", "paused_for_labeling", "resuming"],
   },
   {
     key: "transcription",
-    icon: "🎤",
+    icon: "mic",
     label: "Transcribing Speech",
     description: "Converting speech to text",
     matches: ["processing_transcription"],
   },
   {
     key: "aligning",
-    icon: "🔗",
+    icon: "link",
     label: "Building Transcript",
     description: "Matching words to each speaker",
     matches: ["aligning"],
   },
   {
     key: "agent",
-    icon: "🤖",
+    icon: "smart_toy",
     label: "AI Processing",
     description: "Refining, summarizing & analyzing",
     matches: ["transcribed", "ready_for_agent", "labeling_needed", "refined", "summarized"],
   },
   {
     key: "memory",
-    icon: "🧠",
+    icon: "memory",
     label: "Saving to Memory",
     description: "Storing meeting context for future reference",
     matches: ["analyzed"],
   },
   {
     key: "delivery",
-    icon: "📬",
+    icon: "mail",
     label: "Delivering Results",
     description: "Sending via email, Trello & Drive",
     matches: ["delivered"],
@@ -141,7 +142,12 @@ export default function PipelineProgress({ status, progress, error, onCancel, ca
       <div className="pp-header">
         <div className="pp-header-left">
           <h2 className="pp-title">
-            {isFailed ? "❌" : isComplete ? "✅" : "🔄"} {friendlyMessage}
+            <Icon
+              name={isFailed ? "error" : isComplete ? "check_circle" : "sync"}
+              color={isFailed ? "red" : isComplete ? "green" : "accent"}
+              size="20"
+            />{" "}
+            {friendlyMessage}
           </h2>
           <span className="pp-stage-label">{activeLabel}</span>
         </div>
@@ -167,16 +173,30 @@ export default function PipelineProgress({ status, progress, error, onCancel, ca
 
               {/* Status dot / icon */}
               <div className="pp-step-dot">
-                {state === "done" && <span className="pp-step-check">✓</span>}
+                {state === "done" && (
+                  <span className="pp-step-check">
+                    <Icon name="check" size="12" />
+                  </span>
+                )}
                 {state === "active" && <span className="pp-step-spinner" />}
-                {state === "error" && <span className="pp-step-error-icon">✕</span>}
-                {state === "skipped" && <span className="pp-step-skipped-icon">➖</span>}
+                {state === "error" && (
+                  <span className="pp-step-error-icon">
+                    <Icon name="close" size="12" />
+                  </span>
+                )}
+                {state === "skipped" && (
+                  <span className="pp-step-skipped-icon">
+                    <Icon name="remove" size="12" />
+                  </span>
+                )}
                 {state === "pending" && <span className="pp-step-pending-dot" />}
               </div>
 
               {/* Content */}
               <div className="pp-step-content">
-                <span className="pp-step-icon">{stage.icon}</span>
+                <span className="pp-step-icon">
+                  <Icon name={stage.icon} size="14" />
+                </span>
                 <div className="pp-step-text">
                   <span className="pp-step-label">{stage.label}</span>
                   <span className="pp-step-desc">{stage.description}</span>
@@ -193,7 +213,9 @@ export default function PipelineProgress({ status, progress, error, onCancel, ca
       {/* ── Diarization unavailable warning ── */}
       {diarizationAvailable === false && (
         <div className="pp-warning-box">
-          <span className="pp-warning-icon">⚠️</span>
+          <span className="pp-warning-icon">
+            <Icon name="warning" color="orange" size="16" />
+          </span>
           <div className="pp-warning-content">
             <strong>Speaker identification unavailable</strong>
             <p>
@@ -213,7 +235,15 @@ export default function PipelineProgress({ status, progress, error, onCancel, ca
             disabled={cancelling}
             title="Stop the current transcription job"
             data-tooltip="Cancels the running job — partial results may still be available">
-            {cancelling ? "⏳ Stopping…" : "⏹ Stop Processing"}
+            {cancelling ? (
+              <>
+                <Icon name="hourglass_top" size="14" /> Stopping…
+              </>
+            ) : (
+              <>
+                <Icon name="stop" size="14" /> Stop Processing
+              </>
+            )}
           </button>
           <span className="pp-stop-hint">Stops the pipeline and marks the job as cancelled.</span>
         </div>
@@ -223,7 +253,9 @@ export default function PipelineProgress({ status, progress, error, onCancel, ca
       {showConfirmCancel && (
         <div className="pp-confirm-overlay" onClick={() => setShowConfirmCancel(false)}>
           <div className="pp-confirm-dialog" onClick={(e) => e.stopPropagation()}>
-            <div className="pp-confirm-header">⏹ Stop Processing?</div>
+            <div className="pp-confirm-header">
+              <Icon name="stop" size="16" color="red" /> Stop Processing?
+            </div>
             <p className="pp-confirm-body">
               Are you sure you want to cancel this transcription job? The current progress will be lost and the job will be marked as cancelled. This
               cannot be undone.
@@ -254,7 +286,9 @@ export default function PipelineProgress({ status, progress, error, onCancel, ca
       {/* ── Error message ── */}
       {isFailed && error && (
         <div className="pp-error-box">
-          <div className="pp-error-header">❌ Something went wrong</div>
+          <div className="pp-error-header">
+            <Icon name="error" color="red" size="14" /> Something went wrong
+          </div>
           <p className="pp-error-message">{error}</p>
           <p className="pp-error-hint">You can go back and try uploading again, or check the developer logs for details.</p>
         </div>

@@ -3,6 +3,7 @@
  */
 
 import React from "react";
+import Icon from "./Icon";
 import type { TranscriptionSegment } from "../types";
 
 interface Props {
@@ -57,7 +58,9 @@ export default function TranscriptView({ segments, summary, loading }: Props) {
 
       {summary?.executive_summary && (
         <div className="summary-section">
-          <h3>📋 Executive Summary</h3>
+          <h3>
+            <Icon name="summarize" size="14" color="accent" /> Executive Summary
+          </h3>
           <p>{summary.executive_summary}</p>
 
           {summary.key_decisions && summary.key_decisions.length > 0 && (

@@ -3,6 +3,7 @@
  */
 
 import React, { useEffect, useState } from "react";
+import Icon from "./Icon";
 
 export default function AboutPanel({ onClose }: { onClose: () => void }) {
   const [appName, setAppName] = useState("Transcription Agent");
@@ -27,9 +28,11 @@ export default function AboutPanel({ onClose }: { onClose: () => void }) {
   return (
     <div className="panel about-panel">
       <div className="about-header">
-        <h2>🎙️ {appName}</h2>
+        <h2>
+          <Icon name="mic" size="18" color="accent" /> {appName}
+        </h2>
         <button className="about-close-btn" onClick={onClose} title="Close the About panel" data-tooltip="Close the About panel">
-          ✕
+          <Icon name="close" size="16" />
         </button>
       </div>
 

@@ -58,11 +58,14 @@ export function useJobStatus(jobId: string | null, fetcher: (id: string) => Prom
         const result = await fetcherRef.current(jobId);
         setData(result);
 
-        // Safety timeout — if we've been polling too long, treat it as complete
-        // so the user can see whatever data exists (transcript, partial results)
+        // Safety timeout — if we've been polling too long, the pipeline is hung.
+        // Report an error instead of pretending the job completed, so the user
+        // sees a clear message and can retry.
         if (Date.now() - startedAt > POLLING_TIMEOUT_MS) {
-          console.log(`[useJobStatus] Polling timeout for ${jobId} — forcing complete`);
-          setState("complete");
+          const timeoutErr = "Job processing timed out — the pipeline may be hung. Check the backend logs for details.";
+          console.log(`[useJobStatus] Polling timeout for ${jobId} — reporting as error`);
+          setState("error");
+          setError(timeoutErr);
           stopPolling();
           return;
         }

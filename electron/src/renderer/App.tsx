@@ -27,6 +27,7 @@ import AboutPanel from "./components/AboutPanel";
 import AppearancePanel from "./components/AppearancePanel";
 import ServerStatusBanner from "./components/ServerStatusBanner";
 import SpeakerLabelModal from "./components/SpeakerLabelModal";
+import Icon from "./components/Icon";
 import { useApi } from "./hooks/useApi";
 import { useJobStatus } from "./hooks/useJobStatus";
 import type { PollingState } from "./hooks/useJobStatus";
@@ -75,14 +76,14 @@ export default function App() {
   const [showHistory, setShowHistory] = useState(false);
   const [storageRefreshTrigger, setStorageRefreshTrigger] = useState(0);
   const [showNewForm, setShowNewForm] = useState(false);
+  // Isolated state for history job data — prevents overwriting when the current job's
+  // polling updates the shared transcript/metadata state.
+  const [historyTranscript, setHistoryTranscript] = useState<any>(null);
 
   // ── Speaker labeling modal ──
   const [speakerClips, setSpeakerClips] = useState<any>(null);
   const [showSpeakerModal, setShowSpeakerModal] = useState(false);
   const [labelingSubmitting, setLabelingSubmitting] = useState(false);
-
-  // Whether a job is currently running (processing)
-  const isJobRunning = view === "processing";
 
   // Notification helper — shows a toast at the top-right, auto-dismissed after 4s
   const notify = useCallback((message: string) => {
@@ -179,6 +180,14 @@ export default function App() {
     useCallback((id: string) => fetcherRef.current?.(id) ?? Promise.reject(new Error("no fetcher")), []),
   );
 
+  // Whether a job is currently running (processing).
+  // Uses statusHook.state (polling/paused) as the primary signal because the
+  // React view state ("processing") can become stale — e.g. the 10-minute
+  // polling timeout fires and view transitions to "results" while the backend
+  // pipeline is still actively running. The hook's state accurately reflects
+  // whether we're actively polling for a running job.
+  const isJobRunning = statusHook.state === "polling" || statusHook.state === "paused" || view === "processing";
+
   // Track status data for progress display
   React.useEffect(() => {
     if (statusHook.data) {
@@ -228,7 +237,7 @@ export default function App() {
       const jobTitle = jobMetadata?.title || "Untitled Meeting";
 
       // Show top-level OS notification (macOS / Windows)
-      window.electronAPI?.showNotification("✅ Transcription Complete", `"${jobTitle}" — your transcript and summary are ready.`);
+      window.electronAPI?.showNotification("Transcription Complete", `"${jobTitle}" — your transcript and summary are ready.`);
 
       Promise.all([
         getTranscriptRef.current?.(jobId) ?? Promise.reject(new Error("no fetcher")),
@@ -253,14 +262,24 @@ export default function App() {
 
     // When polling detects a failed status or network error — show notification
     if (statusHook.state === "error" && jobId) {
-      // Use the backend's error message if available, otherwise the network error
+      // Use the backend's error message if available, otherwise the network/hook error
       const errMsg = statusHook.data?.error || statusHook.error || "Processing failed — check the Logs tab for details";
       const jobTitle = jobMetadata?.title || "Untitled Meeting";
       setNotification(errMsg);
-      window.electronAPI?.showNotification("❌ Transcription Failed", `"${jobTitle}" — ${errMsg}`);
+      window.electronAPI?.showNotification("Transcription Failed", `"${jobTitle}" — ${errMsg}`);
       setTimeout(() => setNotification(null), 10000);
       // Transition to results view so the user can see the error + logs
       setView("results");
+
+      // If the backend status doesn't already reflect failure (e.g. a timeout
+      // or network error where the backend status is still a non-terminal state
+      // like "analyzed"), update statusData so PipelineProgress shows the error
+      // state instead of misleadingly showing the pipeline as still running.
+      if (statusData && statusData.status !== "failed") {
+        setStatusData((prev: any) =>
+          prev ? { ...prev, status: "failed", error: errMsg, progress: prev.progress ?? 0.0 } : prev,
+        );
+      }
     }
   }, [statusHook.state, jobId]);
 
@@ -341,7 +360,7 @@ export default function App() {
           api.getStatus(jobId).catch(() => null),
         ]);
         if (transcriptData) {
-          setTranscript({ ...transcriptData, summary: summaryData });
+          setHistoryTranscript({ ...transcriptData, summary: summaryData });
           // Store metadata from status if available (title, attendees, etc.)
           if (statusData?.metadata) {
             setJobMetadata(statusData.metadata);
@@ -369,13 +388,22 @@ export default function App() {
     setJobMetadata(null);
     setStatusData(null);
     setHistoryJobId(null);
+    setHistoryTranscript(null);
     statusHook.stopPolling();
   };
 
   return (
     <div className="app">
       <header className="app-header">
-        <h1 data-tooltip="Home — Transcription Agent desktop app">🎙️ Transcription Agent</h1>
+        <h1 data-tooltip="Home — Transcription Agent desktop app">
+          <Icon name="mic" size="24" color="accent" /> Transcription Agent
+        </h1>
+        {isJobRunning && (
+          <span className="app-header-job-indicator" data-tooltip="A transcription job is currently in progress">
+            <span className="app-header-job-indicator-dot" />
+            <span className="app-header-job-indicator-text">Job Running</span>
+          </span>
+        )}
       </header>
 
       {notification && (
@@ -389,7 +417,7 @@ export default function App() {
             }}
             title="Dismiss this notification"
             data-tooltip="Dismiss this notification">
-            ✕
+            <Icon name="close" size="14" />
           </button>
         </div>
       )}
@@ -415,9 +443,20 @@ export default function App() {
               setSidebarView("current");
               setShowHistory(false);
             }}
-            title="Start a new transcription — upload audio and configure meeting details"
-            data-tooltip="Start a new transcription — upload audio and configure meeting details">
-            <span className="sidebar-btn-icon">➕</span>
+            disabled={isJobRunning}
+            title={
+              isJobRunning
+                ? "A job is currently running — wait for it to finish"
+                : "Start a new transcription — upload audio and configure meeting details"
+            }
+            data-tooltip={
+              isJobRunning
+                ? "A transcription job is in progress — start a new one after it finishes"
+                : "Start a new transcription — upload audio and configure meeting details"
+            }>
+            <span className="sidebar-btn-icon">
+              <Icon name="add_circle" size="16" />
+            </span>
             <span className="sidebar-btn-label">New</span>
           </button>
           <button
@@ -430,7 +469,9 @@ export default function App() {
             }}
             title="View active or most recent job — pipeline progress, transcript, and results"
             data-tooltip="View active or most recent job — pipeline progress, transcript, and results">
-            <span className="sidebar-btn-icon">🏠</span>
+            <span className="sidebar-btn-icon">
+              <Icon name="home" size="16" />
+            </span>
             <span className="sidebar-btn-label">Current</span>
           </button>
           <button
@@ -445,7 +486,9 @@ export default function App() {
             }}
             title="Browse past transcription jobs — reload or delete previous sessions"
             data-tooltip="Browse past transcription jobs — reload or delete previous sessions">
-            <span className="sidebar-btn-icon">📋</span>
+            <span className="sidebar-btn-icon">
+              <Icon name="history" size="16" />
+            </span>
             <span className="sidebar-btn-label">History</span>
           </button>
           <button
@@ -457,7 +500,9 @@ export default function App() {
             }}
             title="View disk usage breakdown — jobs, logs, databases, and models"
             data-tooltip="View disk usage breakdown — jobs, logs, databases, and models">
-            <span className="sidebar-btn-icon">💾</span>
+            <span className="sidebar-btn-icon">
+              <Icon name="storage" size="16" />
+            </span>
             <span className="sidebar-btn-label">Storage</span>
           </button>
           <button
@@ -469,7 +514,9 @@ export default function App() {
             }}
             title="Developer tools — live logs, database browser, performance metrics, and updates"
             data-tooltip="Developer tools — live logs, database browser, performance metrics, and updates">
-            <span className="sidebar-btn-icon">🛠️</span>
+            <span className="sidebar-btn-icon">
+              <Icon name="build" size="16" />
+            </span>
             <span className="sidebar-btn-label">Dev</span>
           </button>
           <button
@@ -482,7 +529,9 @@ export default function App() {
             }}
             title="Configure API keys, LLM provider, delivery services, and agent pipeline settings"
             data-tooltip="Configure API keys, LLM provider, delivery services, and agent pipeline settings">
-            <span className="sidebar-btn-icon">⚙️</span>
+            <span className="sidebar-btn-icon">
+              <Icon name="settings" size="16" />
+            </span>
             <span className="sidebar-btn-label">Config</span>
             {!configOk && <span className="sidebar-badge" />}
           </button>
@@ -495,7 +544,9 @@ export default function App() {
             }}
             title="Customize theme, accent color, font size, and sidebar width"
             data-tooltip="Customize theme, accent color, font size, and sidebar width">
-            <span className="sidebar-btn-icon">🎨</span>
+            <span className="sidebar-btn-icon">
+              <Icon name="palette" size="16" />
+            </span>
             <span className="sidebar-btn-label">Appearance</span>
           </button>
           <button
@@ -507,7 +558,9 @@ export default function App() {
             }}
             title="App version, name, and README — learn about the Transcription Agent"
             data-tooltip="App version, name, and README — learn about the Transcription Agent">
-            <span className="sidebar-btn-icon">ℹ️</span>
+            <span className="sidebar-btn-icon">
+              <Icon name="info" size="16" />
+            </span>
             <span className="sidebar-btn-label">About</span>
           </button>
         </nav>
@@ -538,87 +591,101 @@ export default function App() {
             <>
               {sidebarView === "current" && (
                 <>
-                  <div className={`left-col ${showNewForm ? "left-col--new" : ""}`} id="left-col">
-                    {showNewForm ? (
+                  {showNewForm ? (
+                    <div className="upload-panel-full">
                       <UploadPanel onUpload={handleUpload} uploading={uploading} disabled={isJobRunning} />
-                    ) : showHistory ? (
-                      <HistoryPanel
-                        onSelectJob={loadHistoryJob}
-                        currentJobId={historyJobId || jobId}
-                        onNotify={notify}
-                        onStorageChanged={onStorageChanged}
-                      />
-                    ) : (
-                      <>
-                        {(view === "processing" || view === "results") && statusData && (
-                          <PipelineProgress
-                            status={statusData.status}
-                            progress={statusData.progress}
-                            error={statusData.error}
-                            onCancel={view === "processing" ? handleCancel : undefined}
-                            cancelling={cancelling}
-                            diarizationAvailable={diarizationAvailable}
-                            skippedSteps={computeSkippedStages(statusData)}
+                    </div>
+                  ) : (
+                    <>
+                      <div className="left-col" id="left-col">
+                        {showHistory ? (
+                          <HistoryPanel
+                            onSelectJob={loadHistoryJob}
+                            currentJobId={historyJobId || jobId}
+                            onNotify={notify}
+                            onStorageChanged={onStorageChanged}
+                          />
+                        ) : (
+                          <>
+                            {(view === "processing" || view === "results") && statusData && (
+                              <PipelineProgress
+                                status={statusData.status}
+                                progress={statusData.progress}
+                                error={statusData.error}
+                                onCancel={view === "processing" ? handleCancel : undefined}
+                                cancelling={cancelling}
+                                diarizationAvailable={diarizationAvailable}
+                                skippedSteps={computeSkippedStages(statusData)}
+                              />
+                            )}
+
+                            {view === "results" && statusHook.state === "error" && !statusData && (
+                              <div className="panel">
+                                <h2>
+                                  <Icon name="error" color="red" /> Processing Failed
+                                </h2>
+                                <p className="error-box" style={{ marginBottom: 12 }}>
+                                  {statusHook.error || "Unknown error"}
+                                </p>
+                              </div>
+                            )}
+
+                            {!jobId && (
+                              <div className="panel">
+                                <h2>No Active Job</h2>
+                                <p className="placeholder" style={{ color: "var(--text-muted)" }}>
+                                  Click{" "}
+                                  <strong>
+                                    <Icon name="add_circle" size="14" /> New
+                                  </strong>{" "}
+                                  to start a new transcription.
+                                </p>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+
+                      <div className="right-col">
+                        {/* Show results for a history job (history panel visible in left column) */}
+                        {historyJobId && (
+                          <ResultsViewer
+                            key={"history-" + historyJobId}
+                            jobId={historyJobId}
+                            segments={historyTranscript?.transcript}
+                            summary={historyTranscript?.summary}
+                            metadata={jobMetadata}
+                            jobStatus={historyJobStatus?.status}
+                            jobProgress={historyJobStatus?.progress}
+                            jobError={historyJobStatus?.error}
                           />
                         )}
-
-                        {view === "results" && statusHook.state === "error" && !statusData && (
-                          <div className="panel">
-                            <h2>❌ Processing Failed</h2>
-                            <p className="error-box" style={{ marginBottom: 12 }}>
-                              {statusHook.error || "Unknown error"}
+                        {/* Processing placeholder — hidden when viewing history */}
+                        {!historyJobId && view === "processing" && (
+                          <div className="panel transcript-panel">
+                            <h2>Transcript</h2>
+                            <p className="placeholder">
+                              Your results will appear here automatically once processing is complete. You&#39;ll be able to browse the full
+                              transcript, summary, and audio recording.
                             </p>
                           </div>
                         )}
-
-                        {!jobId && (
-                          <div className="panel">
-                            <h2>No Active Job</h2>
-                            <p className="placeholder" style={{ color: "var(--text-muted)" }}>
-                              Click <strong>➕ New</strong> to start a new transcription.
-                            </p>
-                          </div>
+                        {/* Live results from current upload — hidden when viewing history */}
+                        {!historyJobId && view === "results" && jobId && (
+                          <ResultsViewer
+                            key={"live-" + jobId}
+                            jobId={jobId}
+                            segments={transcript?.transcript}
+                            summary={transcript?.summary}
+                            metadata={jobMetadata}
+                            jobStatus={statusData?.status}
+                            jobProgress={statusData?.progress}
+                            jobError={statusData?.error}
+                          />
                         )}
-                      </>
-                    )}
-                  </div>
-
-                  <div className="right-col">
-                    {/* Show results for a history job (history panel visible in left column) */}
-                    {historyJobId && (
-                      <ResultsViewer
-                        jobId={historyJobId}
-                        segments={transcript?.transcript}
-                        summary={transcript?.summary}
-                        metadata={jobMetadata}
-                        jobStatus={historyJobStatus?.status}
-                        jobProgress={historyJobStatus?.progress}
-                        jobError={historyJobStatus?.error}
-                      />
-                    )}
-                    {/* Processing placeholder — hidden when viewing history */}
-                    {!historyJobId && view === "processing" && (
-                      <div className="panel transcript-panel">
-                        <h2>Transcript</h2>
-                        <p className="placeholder">
-                          Your results will appear here automatically once processing is complete. You&#39;ll be able to browse the full transcript,
-                          summary, and audio recording.
-                        </p>
                       </div>
-                    )}
-                    {/* Live results from current upload — hidden when viewing history */}
-                    {!historyJobId && view === "results" && jobId && (
-                      <ResultsViewer
-                        jobId={jobId}
-                        segments={transcript?.transcript}
-                        summary={transcript?.summary}
-                        metadata={jobMetadata}
-                        jobStatus={statusData?.status}
-                        jobProgress={statusData?.progress}
-                        jobError={statusData?.error}
-                      />
-                    )}
-                  </div>
+                    </>
+                  )}
                 </>
               )}
 

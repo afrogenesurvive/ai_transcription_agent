@@ -9,6 +9,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import Icon from "./Icon";
 
 interface SpeakerInfo {
   speaker_id: string;
@@ -97,7 +98,9 @@ export default function SpeakerLabelModal({ jobId, speakers, onConfirm, onCancel
     <div className="modal-overlay">
       <div className="modal speaker-label-modal">
         <div className="modal-header">
-          <h2>🎤 Identify Speakers</h2>
+          <h2>
+            <Icon name="mic" size="18" color="accent" /> Identify Speakers
+          </h2>
           <p className="modal-subtitle">
             {speakers.length} speaker{speakers.length !== 1 ? "s" : ""} detected. Listen to each clip and enter a name for every speaker. All must be
             labeled before continuing.
@@ -118,7 +121,7 @@ export default function SpeakerLabelModal({ jobId, speakers, onConfirm, onCancel
                     className="btn-icon speaker-play-btn"
                     onClick={() => playClip(spk.speaker_id, spk.sample_clip_url)}
                     title={playing === spk.speaker_id ? "Stop" : "Play clip"}>
-                    {playing === spk.speaker_id ? "⏹" : "▶️"}
+                    {playing === spk.speaker_id ? <Icon name="stop" size="14" color="red" /> : <Icon name="play_arrow" size="14" color="accent" />}
                   </button>
                 </div>
                 <div className="speaker-name-row">

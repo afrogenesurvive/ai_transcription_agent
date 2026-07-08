@@ -3,6 +3,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from "react";
+import Icon from "./Icon";
 
 interface JobSummary {
   job_id: string;
@@ -24,21 +25,21 @@ interface Props {
 }
 
 const STATUS_ICON: Record<string, string> = {
-  uploaded: "📤",
-  initializing: "🔧",
-  processing_diarization: "🔬",
-  matching_voiceprints: "🧬",
-  processing_transcription: "🎤",
-  aligning: "🔗",
-  transcribed: "🤖",
-  ready_for_agent: "🤖",
-  labeling_needed: "🏷️",
-  refined: "✅",
-  summarized: "✅",
-  analyzed: "✅",
-  delivered: "📬",
-  failed: "❌",
-  corrupted: "⚠️",
+  uploaded: "upload_file",
+  initializing: "build",
+  processing_diarization: "group",
+  matching_voiceprints: "badge",
+  processing_transcription: "mic",
+  aligning: "link",
+  transcribed: "smart_toy",
+  ready_for_agent: "smart_toy",
+  labeling_needed: "label",
+  refined: "check_circle",
+  summarized: "check_circle",
+  analyzed: "check_circle",
+  delivered: "mail",
+  failed: "error",
+  corrupted: "warning",
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -117,11 +118,11 @@ export default function HistoryPanel({ onSelectJob, currentJobId, onNotify, onSt
       try {
         await callBridge("transcribe_delete_job", { jobId });
         setJobs((prev) => prev.filter((j) => j.job_id !== jobId));
-        onNotify?.(`🗑️ Job deleted`);
+        onNotify?.(`Job deleted`);
         onStorageChanged?.();
       } catch (err: any) {
         setError(`Failed to delete job: ${err.message}`);
-        onNotify?.(`❌ Failed to delete job: ${err.message}`);
+        onNotify?.(`Failed to delete job: ${err.message}`);
       } finally {
         setDeleting(null);
       }
@@ -132,13 +133,15 @@ export default function HistoryPanel({ onSelectJob, currentJobId, onNotify, onSt
   return (
     <div className="history-panel">
       <div className="history-panel-header">
-        <h2 className="history-panel-title">📋 History</h2>
+        <h2 className="history-panel-title">
+          <Icon name="history" size="16" color="accent" /> History
+        </h2>
         <button
           className="history-panel-refresh"
           onClick={loadHistory}
           title="Refresh the job history list"
           data-tooltip="Refresh the job history list — check for newly completed jobs">
-          ↻
+          <Icon name="refresh" size="14" />
         </button>
       </div>
 
@@ -157,7 +160,9 @@ export default function HistoryPanel({ onSelectJob, currentJobId, onNotify, onSt
                   onSelectJob(job.job_id);
                 }}>
                 <div className="history-panel-item-top">
-                  <span className="history-panel-item-icon">{STATUS_ICON[job.status] || "📄"}</span>
+                  <span className="history-panel-item-icon">
+                    <Icon name={STATUS_ICON[job.status] || "description"} size="14" />
+                  </span>
                   <span className="history-panel-item-title">{job.title}</span>
                 </div>
                 <div className="history-panel-item-meta">
@@ -176,7 +181,7 @@ export default function HistoryPanel({ onSelectJob, currentJobId, onNotify, onSt
                 disabled={deleting === job.job_id}
                 title="Permanently delete this job and all its data"
                 data-tooltip="Permanently delete this job — transcript, summary, audio, and all associated data">
-                {deleting === job.job_id ? "⏳" : "🗑️"}
+                {deleting === job.job_id ? <Icon name="hourglass_top" size="14" color="accent" /> : <Icon name="delete" size="14" color="red" />}
               </button>
 
               {/* Confirmation dialog */}

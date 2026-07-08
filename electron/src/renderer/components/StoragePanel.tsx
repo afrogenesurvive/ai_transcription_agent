@@ -7,6 +7,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from "react";
+import Icon from "./Icon";
 import type { StorageUsage } from "../types";
 
 interface Props {
@@ -27,21 +28,21 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
-  history: "📋 History (Job Storage)",
-  logs: "🪵 Logs",
-  chroma: "🧠 ChromaDB",
-  databases: "🗄️ Databases",
-  system: "⚙️ System (Code & Config)",
-  ollama: "🤖 Ollama Models",
+  history: "History (Job Storage)",
+  logs: "Logs",
+  chroma: "ChromaDB",
+  databases: "Databases",
+  system: "System (Code & Config)",
+  ollama: "Ollama Models",
 };
 
 const CATEGORY_ITEMS: Array<{ key: string; icon: string; label: string }> = [
-  { key: "history", icon: "📋", label: "Transcription job data" },
-  { key: "logs", icon: "🪵", label: "Application log files" },
-  { key: "chroma", icon: "🧠", label: "ChromaDB vector store (semantic memory)" },
-  { key: "databases", icon: "🗄️", label: "Ephemeral memory + voiceprint databases" },
-  { key: "system", icon: "⚙️", label: "Source code, config, dependencies" },
-  { key: "ollama", icon: "🤖", label: "Downloaded Ollama LLM models (~/.ollama)" },
+  { key: "history", icon: "history", label: "Transcription job data" },
+  { key: "logs", icon: "terminal", label: "Application log files" },
+  { key: "chroma", icon: "memory", label: "ChromaDB vector store (semantic memory)" },
+  { key: "databases", icon: "database", label: "Ephemeral memory + voiceprint databases" },
+  { key: "system", icon: "settings", label: "Source code, config, dependencies" },
+  { key: "ollama", icon: "smart_toy", label: "Downloaded Ollama LLM models (~/.ollama)" },
 ];
 
 async function callBridge(tool: string, args: any = {}): Promise<any> {
@@ -100,12 +101,12 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
         const result = await callBridge("storage_clear_logs", { logType });
         const msg = result.message || `Deleted ${result.deleted} log file(s)${result.errors ? ` (${result.errors} error(s))` : ""}`;
         setLogDeleteResult(msg);
-        onNotify?.(`🪵 ${msg}`);
+        onNotify?.(`${msg}`);
         // Refresh storage usage to reflect the change
         fetchUsage();
       } catch (err: any) {
         setLogDeleteResult(`Error: ${err.message}`);
-        onNotify?.(`❌ Log deletion failed: ${err.message}`);
+        onNotify?.(`Log deletion failed: ${err.message}`);
       } finally {
         setDeletingLogs(false);
       }
@@ -127,9 +128,11 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
   return (
     <div className="config-panel--full" style={{ flex: 1, overflow: "auto" }}>
       <div className="config-header">
-        <h2 data-tooltip="Disk space usage breakdown by category">💾 Storage Usage</h2>
+        <h2 data-tooltip="Disk space usage breakdown by category">
+          <Icon name="storage" size="18" color="accent" /> Storage Usage
+        </h2>
         <button className="config-close-btn" onClick={onClose} title="Close storage panel" data-tooltip="Close the storage panel">
-          ✕
+          <Icon name="close" size="16" />
         </button>
       </div>
 
@@ -243,7 +246,7 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
                           whiteSpace: "nowrap",
                         }}
                         title={data[c.key].path ?? undefined}>
-                        📁 {data[c.key].path}
+                        <Icon name="folder" size="12" color="muted" /> {data[c.key].path}
                       </div>
                     )}
                   </div>
@@ -264,7 +267,13 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
                 disabled={loading}
                 title="Refresh storage usage data"
                 data-tooltip="Re-fetch disk usage information from the backend">
-                {loading ? "Refreshing…" : "↻ Refresh"}
+                {loading ? (
+                  "Refreshing…"
+                ) : (
+                  <>
+                    <Icon name="refresh" size="14" /> Refresh
+                  </>
+                )}
               </button>
             </div>
 
@@ -276,8 +285,12 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
                 onClick={() => setShowDevSection((v) => !v)}
                 title="Toggle developer log management section"
                 data-tooltip="Show/hide the developer section for managing agent trace log files">
-                <span className="storage-dev-toggle-icon">{showDevSection ? "▼" : "▶"}</span>
-                <span className="storage-dev-toggle-label">🧑‍💻 Developer: Log File Management</span>
+                <span className="storage-dev-toggle-icon">
+                  {showDevSection ? <Icon name="expand_more" size="14" /> : <Icon name="chevron_right" size="14" />}
+                </span>
+                <span className="storage-dev-toggle-label">
+                  <Icon name="terminal" size="14" color="accent" /> Developer: Log File Management
+                </span>
               </button>
 
               {showDevSection && (
@@ -290,7 +303,9 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
                   {/* Non-error log deletion — preserves error logs */}
                   <div className="storage-log-action">
                     <div className="storage-log-action-info">
-                      <strong>🗑️ Delete All Log Files (keep errors)</strong>
+                      <strong>
+                        <Icon name="delete" size="14" color="red" /> Delete All Log Files (keep errors)
+                      </strong>
                       <p>
                         Removes every <code>.jsonl</code> log file <strong>except</strong> those containing error events. Error files are preserved
                         for troubleshooting.
@@ -304,7 +319,9 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
                   {/* Error-only log deletion */}
                   <div className="storage-log-action">
                     <div className="storage-log-action-info">
-                      <strong>🛡️ Delete Error Logs Only</strong>
+                      <strong>
+                        <Icon name="shield" size="14" color="orange" /> Delete Error Logs Only
+                      </strong>
                       <p>
                         Delete only log files that contain <strong>error</strong> events. Files without error entries will be preserved.
                       </p>
@@ -318,7 +335,9 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
                   <div className="storage-log-error-section">
                     <div className="storage-log-action">
                       <div className="storage-log-action-info">
-                        <strong className="storage-error-label">⚠️ DANGER ZONE ⚠️</strong>
+                        <strong className="storage-error-label">
+                          <Icon name="warning" color="red" size="14" /> DANGER ZONE <Icon name="warning" color="red" size="14" />
+                        </strong>
                         <p className="storage-error-description">
                           Delete <strong>all</strong> <code>.jsonl</code> log files — including those with error events. Error logs that may be needed
                           for debugging will be lost.
@@ -349,11 +368,19 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
         <div className="confirm-overlay" onClick={() => setConfirmLogAction(null)}>
           <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
             <h3 className="confirm-dialog-title">
-              {confirmLogAction === "error"
-                ? "🛡️ Delete Error Logs"
-                : confirmLogAction === "all"
-                  ? "🗑️ Delete Non-Error Logs"
-                  : "⚠️ Delete All Logs (Including Errors)"}
+              {confirmLogAction === "error" ? (
+                <>
+                  <Icon name="shield" size="16" color="orange" /> Delete Error Logs
+                </>
+              ) : confirmLogAction === "all" ? (
+                <>
+                  <Icon name="delete" size="16" color="red" /> Delete Non-Error Logs
+                </>
+              ) : (
+                <>
+                  <Icon name="warning" size="16" color="red" /> Delete All Logs (Including Errors)
+                </>
+              )}
             </h3>
             <p className="confirm-dialog-text">
               {confirmLogAction === "error" ? (

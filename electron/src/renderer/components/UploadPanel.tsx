@@ -1,8 +1,14 @@
 /**
  * Upload Panel — drag-and-drop or file-picker for audio upload.
+ *
+ * Attendee autocomplete: previously entered attendees are saved to localStorage
+ * and suggested as the user types in the name or email fields. Clicking a
+ * suggestion fills both fields at once, making repeated entries much faster.
+ * The suggestion list is capped at 50 entries (most recent first).
  */
 
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import Icon from "./Icon";
 
 interface AttendeeEntry {
   name: string;
@@ -24,6 +30,38 @@ function validateEmail(email: string): boolean {
   return EMAIL_RE.test(email);
 }
 
+// ── Saved attendee persistence (localStorage) ──
+
+const STORAGE_KEY = "transcription_agent_saved_attendees";
+const MAX_SAVED = 50;
+
+function loadSavedAttendees(): AttendeeEntry[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as AttendeeEntry[];
+  } catch {
+    return [];
+  }
+}
+
+function saveAttendees(attendees: AttendeeEntry[]): void {
+  try {
+    // Deduplicate by name (case-insensitive), keep most recent first
+    const seen = new Set<string>();
+    const deduped: AttendeeEntry[] = [];
+    for (const a of attendees) {
+      const key = a.name.toLowerCase().trim();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(a);
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(deduped.slice(0, MAX_SAVED)));
+  } catch {
+    /* localStorage full or unavailable — non-fatal */
+  }
+}
+
 export default function UploadPanel({ onUpload, uploading, disabled }: Props) {
   const [dragOver, setDragOver] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -34,7 +72,50 @@ export default function UploadPanel({ onUpload, uploading, disabled }: Props) {
   const [emailError, setEmailError] = useState<string | null>(null);
   const [skipAnalysis, setSkipAnalysis] = useState(true);
   const [skipDelivery, setSkipDelivery] = useState(true);
+  const [savedAttendees, setSavedAttendees] = useState<AttendeeEntry[]>(loadSavedAttendees);
+  const [showNameSuggestions, setShowNameSuggestions] = useState(false);
+  const [showEmailSuggestions, setShowEmailSuggestions] = useState(false);
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const emailInputRef = useRef<HTMLInputElement>(null);
+  const suggestRef = useRef<HTMLDivElement>(null);
+
+  // Filter saved attendees that aren't already in the current list
+  const unusedSaved = useMemo(
+    () => savedAttendees.filter((a) => !attendeeList.some((cur) => cur.name.toLowerCase() === a.name.toLowerCase())),
+    [savedAttendees, attendeeList],
+  );
+
+  // Suggestions matching the current text input
+  const nameSuggestions = useMemo(() => {
+    if (!attendeeName.trim()) return unusedSaved;
+    const q = attendeeName.toLowerCase();
+    return unusedSaved.filter((a) => a.name.toLowerCase().includes(q));
+  }, [attendeeName, unusedSaved]);
+
+  const emailSuggestions = useMemo(() => {
+    if (!attendeeEmail.trim()) return unusedSaved.filter((a) => a.email);
+    const q = attendeeEmail.toLowerCase();
+    return unusedSaved.filter((a) => a.email && a.email.toLowerCase().includes(q));
+  }, [attendeeEmail, unusedSaved]);
+
+  // Reset active suggestion index when suggestions list changes
+  useEffect(() => {
+    setActiveSuggestionIndex(-1);
+  }, [nameSuggestions.length, emailSuggestions.length]);
+
+  // Close suggestions when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (suggestRef.current && !suggestRef.current.contains(e.target as Node)) {
+        setShowNameSuggestions(false);
+        setShowEmailSuggestions(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const handleFile = useCallback(
     (f: File) => {
@@ -69,21 +150,88 @@ export default function UploadPanel({ onUpload, uploading, disabled }: Props) {
       return;
     }
     setEmailError(null);
-    setAttendeeList([...attendeeList, { name, email }]);
+    const entry: AttendeeEntry = { name, email };
+    setAttendeeList([...attendeeList, entry]);
     setAttendeeName("");
     setAttendeeEmail("");
+    setShowNameSuggestions(false);
+    setShowEmailSuggestions(false);
+
+    // Persist this entry for future autocomplete
+    const updated = [entry, ...savedAttendees];
+    setSavedAttendees(updated);
+    saveAttendees(updated);
+  };
+
+  // Select a suggestion: fill name + email, then focus the email field
+  const selectSuggestion = (entry: AttendeeEntry) => {
+    setAttendeeName(entry.name);
+    setAttendeeEmail(entry.email || "");
+    setShowNameSuggestions(false);
+    setShowEmailSuggestions(false);
+    setActiveSuggestionIndex(-1);
+    // Focus the email input if there's an email, otherwise the Add button
+    setTimeout(() => {
+      if (entry.email) {
+        emailInputRef.current?.focus();
+      } else {
+        // Move focus to Add button or name input
+        nameInputRef.current?.focus();
+      }
+    }, 0);
+  };
+
+  // Keyboard navigation for name suggestions
+  const handleNameKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (activeSuggestionIndex >= 0 && activeSuggestionIndex < nameSuggestions.length) {
+        selectSuggestion(nameSuggestions[activeSuggestionIndex]);
+      } else {
+        addAttendee();
+      }
+      return;
+    }
+    if (!showNameSuggestions || nameSuggestions.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveSuggestionIndex((i) => Math.min(i + 1, nameSuggestions.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveSuggestionIndex((i) => Math.max(i - 1, -1));
+    } else if (e.key === "Escape") {
+      setShowNameSuggestions(false);
+      setActiveSuggestionIndex(-1);
+    }
+  };
+
+  // Keyboard navigation for email suggestions
+  const handleEmailKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (activeSuggestionIndex >= 0 && activeSuggestionIndex < emailSuggestions.length) {
+        selectSuggestion(emailSuggestions[activeSuggestionIndex]);
+      } else {
+        addAttendee();
+      }
+      return;
+    }
+    if (!showEmailSuggestions || emailSuggestions.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveSuggestionIndex((i) => Math.min(i + 1, emailSuggestions.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveSuggestionIndex((i) => Math.max(i - 1, -1));
+    } else if (e.key === "Escape") {
+      setShowEmailSuggestions(false);
+      setActiveSuggestionIndex(-1);
+    }
   };
 
   const removeAttendee = (index: number) => {
     setAttendeeList(attendeeList.filter((_, i) => i !== index));
     setEmailError(null);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      addAttendee();
-    }
   };
 
   const handleSubmit = () => {
@@ -96,6 +244,15 @@ export default function UploadPanel({ onUpload, uploading, disabled }: Props) {
     if (skipDelivery) {
       steps.push("transcribe_prepare_delivery", "send_delivery_email", "save_to_drive", "create_trello_action_items");
     }
+    // Persist all submitted attendees for future autocomplete
+    const updated = [...savedAttendees];
+    for (const a of attendeeList) {
+      if (!updated.some((s) => s.name.toLowerCase() === a.name.toLowerCase())) {
+        updated.unshift(a);
+      }
+    }
+    setSavedAttendees(updated);
+    saveAttendees(updated);
     onUpload(file, title || file.name, nameList, emailList, steps);
   };
 
@@ -107,7 +264,11 @@ export default function UploadPanel({ onUpload, uploading, disabled }: Props) {
   return (
     <div className={`panel upload-panel ${disabled ? "upload-panel--disabled" : ""}`}>
       <h2 data-tooltip="Upload audio files and configure meeting details for transcription">Upload Meeting Audio</h2>
-      {disabled && <p className="upload-disabled-notice">⏳ A job is currently running. Start a new transcription after it finishes.</p>}
+      {disabled && (
+        <p className="upload-disabled-notice">
+          <Icon name="hourglass_top" size="12" /> A job is currently running. Start a new transcription after it finishes.
+        </p>
+      )}
 
       <div
         className={`drop-zone ${dragOver ? "drag-over" : ""} ${file ? "has-file" : ""}`}
@@ -123,7 +284,9 @@ export default function UploadPanel({ onUpload, uploading, disabled }: Props) {
         data-tooltip={file ? "Click to select a different audio file" : "Drag and drop an audio file here, or click to browse"}>
         {file ? (
           <div className="file-info">
-            <span className="file-icon">🎵</span>
+            <span className="file-icon">
+              <Icon name="audio_file" size="32" color="accent" />
+            </span>
             <span className="file-name">{file.name}</span>
             <span className="file-size">{formatSize(file.size)}</span>
             <button
@@ -137,7 +300,9 @@ export default function UploadPanel({ onUpload, uploading, disabled }: Props) {
           </div>
         ) : (
           <div className="drop-hint">
-            <span className="drop-icon">📂</span>
+            <span className="drop-icon">
+              <Icon name="folder_open" size="32" color="accent" />
+            </span>
             <p>Drop an audio file here, or click to browse</p>
             <p className="hint">Supports WAV, MP3, M4A, FLAC, OGG, WebM</p>
           </div>
@@ -180,31 +345,78 @@ export default function UploadPanel({ onUpload, uploading, disabled }: Props) {
           <span className="field-hint">Names map positionally to detected speakers for labeling. Emails are used for delivery.</span>
 
           <div className="attendee-input-row">
-            <input
-              type="text"
-              className="attendee-name-input"
-              value={attendeeName}
-              onChange={(e) => setAttendeeName(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Name (e.g. Alice Johnson)"
-              disabled={disabled}
-              title="Enter attendee name — maps positionally to a detected speaker"
-              data-tooltip="Enter attendee name — maps positionally to a detected speaker"
-            />
-            <input
-              type="email"
-              className={`attendee-email-input${emailError ? " attendee-email-input--error" : ""}`}
-              value={attendeeEmail}
-              onChange={(e) => {
-                setAttendeeEmail(e.target.value);
-                if (emailError) setEmailError(null);
-              }}
-              onKeyDown={handleKeyDown}
-              placeholder="Email (optional)"
-              disabled={disabled}
-              title="Optional email address for delivery notifications"
-              data-tooltip="Optional email address — used for sending delivery notifications"
-            />
+            <div className="attendee-autocomplete-wrap">
+              <input
+                ref={nameInputRef}
+                type="text"
+                className="attendee-name-input"
+                value={attendeeName}
+                onChange={(e) => {
+                  setAttendeeName(e.target.value);
+                  if (e.target.value || !disabled) setShowNameSuggestions(true);
+                }}
+                onFocus={() => setShowNameSuggestions(true)}
+                onKeyDown={handleNameKeyDown}
+                placeholder="Name (e.g. Alice Johnson)"
+                disabled={disabled}
+                autoComplete="off"
+                title="Enter attendee name — maps positionally to a detected speaker"
+                data-tooltip="Enter attendee name — maps positionally to a detected speaker"
+              />
+              {showNameSuggestions && nameSuggestions.length > 0 && !disabled && (
+                <div className="attendee-suggestions" ref={suggestRef}>
+                  {nameSuggestions.map((entry, i) => (
+                    <button
+                      key={entry.name}
+                      className={`attendee-suggestion-item ${i === activeSuggestionIndex ? "attendee-suggestion-item--active" : ""}`}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        selectSuggestion(entry);
+                      }}
+                      type="button">
+                      <span className="attendee-suggestion-name">{entry.name}</span>
+                      {entry.email && <span className="attendee-suggestion-email">{entry.email}</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="attendee-autocomplete-wrap">
+              <input
+                ref={emailInputRef}
+                type="email"
+                className={`attendee-email-input${emailError ? " attendee-email-input--error" : ""}`}
+                value={attendeeEmail}
+                onChange={(e) => {
+                  setAttendeeEmail(e.target.value);
+                  if (e.target.value || !disabled) setShowEmailSuggestions(true);
+                }}
+                onFocus={() => setShowEmailSuggestions(true)}
+                onKeyDown={handleEmailKeyDown}
+                placeholder="Email (optional)"
+                disabled={disabled}
+                autoComplete="off"
+                title="Optional email address for delivery notifications"
+                data-tooltip="Optional email address — used for sending delivery notifications"
+              />
+              {showEmailSuggestions && emailSuggestions.length > 0 && !disabled && (
+                <div className="attendee-suggestions" ref={suggestRef}>
+                  {emailSuggestions.map((entry, i) => (
+                    <button
+                      key={entry.name}
+                      className={`attendee-suggestion-item ${i === activeSuggestionIndex ? "attendee-suggestion-item--active" : ""}`}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        selectSuggestion(entry);
+                      }}
+                      type="button">
+                      <span className="attendee-suggestion-name">{entry.name}</span>
+                      <span className="attendee-suggestion-email">{entry.email}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <button
               className="btn-attendee-add"
               onClick={addAttendee}
@@ -233,7 +445,7 @@ export default function UploadPanel({ onUpload, uploading, disabled }: Props) {
                     onClick={() => removeAttendee(i)}
                     title="Remove this attendee from the list"
                     data-tooltip="Remove this attendee from the list">
-                    ✕
+                    <Icon name="close" size="12" />
                   </button>
                 </li>
               ))}

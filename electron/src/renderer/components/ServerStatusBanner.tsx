@@ -8,6 +8,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import type { ServiceName, ServiceStatus } from "../hooks/useServerStatus";
 import { SERVICES, SERVICE_LABELS } from "../hooks/useServerStatus";
+import Icon from "./Icon";
 
 interface Props {
   services: Record<ServiceName, ServiceStatus>;
@@ -24,10 +25,10 @@ interface Props {
 }
 
 const SERVICE_ICONS: Record<string, string> = {
-  python: "🐍",
-  bridge: "🌉",
-  agent: "🤖",
-  diarization: "🧬",
+  python: "code",
+  bridge: "link",
+  agent: "smart_toy",
+  diarization: "badge",
 };
 
 const COUNTDOWN_SECONDS = 20;
@@ -128,7 +129,7 @@ export default function ServerStatusBanner({
     offlineItems.push({
       name: "ollama",
       label: "Ollama Server",
-      icon: "🦙",
+      icon: "psychology",
     });
   }
 
@@ -140,7 +141,9 @@ export default function ServerStatusBanner({
     <div className="ssb-overlay">
       <div className="ssb-card ssb-card--popover">
         <div className="ssb-header">
-          <span className="ssb-icon">⚠️</span>
+          <span className="ssb-icon">
+            <Icon name="warning" color="orange" size="24" />
+          </span>
           <div>
             <h2 className="ssb-title">Starting Backend Services</h2>
             <p className="ssb-subtitle">
@@ -160,7 +163,9 @@ export default function ServerStatusBanner({
             return (
               <div key={item.name} className={`ssb-service ${svcStatus === false ? "ssb-service--offline" : "ssb-service--unknown"}`}>
                 <div className="ssb-service-info">
-                  <span className="ssb-service-icon">{item.icon}</span>
+                  <span className="ssb-service-icon">
+                    <Icon name={item.icon} size="18" color="accent" />
+                  </span>
                   <div>
                     <span className="ssb-service-name">{item.label}</span>
                     <span className="ssb-service-status">
@@ -202,7 +207,19 @@ export default function ServerStatusBanner({
                         ? "Configure a Hugging Face token to enable speaker diarization"
                         : `Start the ${item.label} backend service`
                   }>
-                  {isDiarization ? "⚙ Config" : restarting[item.name] ? "⟳ Starting…" : "▶ Start"}
+                  {isDiarization ? (
+                    <>
+                      <Icon name="settings" size="14" /> Config
+                    </>
+                  ) : restarting[item.name] ? (
+                    <>
+                      <Icon name="sync" size="14" /> Starting…
+                    </>
+                  ) : (
+                    <>
+                      <Icon name="play_arrow" size="14" /> Start
+                    </>
+                  )}
                 </button>
               </div>
             );
@@ -217,7 +234,19 @@ export default function ServerStatusBanner({
             disabled={countdownActive || anyBusy}
             title="Restart all backend services"
             data-tooltip="Restart all backend services (Python, Bridge, Agent) at once">
-            {countdownActive ? `⏳ Wait ${countdown}s…` : restarting._all ? "⟳ Restarting All…" : "🔄 Restart All Services"}
+            {countdownActive ? (
+              <>
+                <Icon name="hourglass_top" size="14" /> Wait {countdown}s…
+              </>
+            ) : restarting._all ? (
+              <>
+                <Icon name="sync" size="14" /> Restarting All…
+              </>
+            ) : (
+              <>
+                <Icon name="refresh" size="14" /> Restart All Services
+              </>
+            )}
           </button>
           <button
             className="ssb-btn ssb-btn--secondary"
@@ -225,7 +254,19 @@ export default function ServerStatusBanner({
             disabled={countdownActive || anyBusy}
             title="Check server status again"
             data-tooltip="Re-check the status of all backend services">
-            {countdownActive ? `⏳ ${countdown}s` : checking ? "⟳ Checking…" : "↻ Re-check"}
+            {countdownActive ? (
+              <>
+                <Icon name="hourglass_top" size="14" /> {countdown}s
+              </>
+            ) : checking ? (
+              <>
+                <Icon name="sync" size="14" /> Checking…
+              </>
+            ) : (
+              <>
+                <Icon name="refresh" size="14" /> Re-check
+              </>
+            )}
           </button>
         </div>
 
