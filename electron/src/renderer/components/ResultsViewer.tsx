@@ -417,10 +417,14 @@ function AnalysisTab({ analysis }: { analysis: AnalysisData | null }) {
 
 /* ── Tab: Logs ── */
 
-/** Try to detect a source tag like [python], [bridge], [agent], [main] in a log line. */
+/** Try to detect a source tag like [python], [bridge], [agent], [main],
+ *  [transcription], [usage], [ollama] in a log line. */
 function detectSource(line: string): string | null {
-  const match = line.match(/\[(python|bridge|agent|main)\]/i);
-  return match ? match[1].toLowerCase() : null;
+  const match = line.match(/\[(python|bridge|agent|main|transcription|usage|ollama)\]/i);
+  if (match) return match[1].toLowerCase();
+  // Also match the 💰 [USAGE] pattern
+  if (/💰\s*\[usage\]/i.test(line)) return "usage";
+  return null;
 }
 
 /** Try to detect a log level like error, warn, info, debug in a log line. */
@@ -440,7 +444,12 @@ function LogsTab({ jobId }: { jobId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [levelFilter, setLevelFilter] = useState<string>("all");
+  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
+  const [activeFile, setActiveFile] = useState<string | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
+
+  // Max chars to show when collapsed — large files get truncated
+  const MAX_COLLAPSED_CHARS = 2000;
 
   useEffect(() => {
     let cancelled = false;
@@ -469,6 +478,52 @@ function LogsTab({ jobId }: { jobId: string }) {
       cancelled = true;
     };
   }, [jobId]);
+
+  // Toggle file expand/collapse
+  const toggleFile = useCallback((fileName: string) => {
+    setExpandedFiles((prev) => {
+      const next = new Set(prev);
+      if (next.has(fileName)) {
+        next.delete(fileName);
+      } else {
+        next.add(fileName);
+      }
+      return next;
+    });
+  }, []);
+
+  // Select a file in the browser view
+  const selectFile = useCallback((fileName: string) => {
+    setActiveFile((prev) => (prev === fileName ? null : fileName));
+  }, []);
+
+  // Format content for display: try to pretty-print JSON
+  const formatContent = useCallback((content: string, fileName: string): string => {
+    if (!content) return "";
+    // Try JSON pretty-print for .json files
+    if (fileName.endsWith(".json")) {
+      try {
+        const parsed = JSON.parse(content);
+        return JSON.stringify(parsed, null, 2);
+      } catch {
+        return content;
+      }
+    }
+    // For .jsonl files, try to pretty-print each line
+    if (fileName.endsWith(".jsonl")) {
+      const lines = content.split("\n").filter(Boolean);
+      const formatted = lines.map((line) => {
+        try {
+          const parsed = JSON.parse(line);
+          return JSON.stringify(parsed, null, 2);
+        } catch {
+          return line;
+        }
+      });
+      return formatted.join("\n---\n");
+    }
+    return content;
+  }, []);
 
   // Filter logs by source and level
   const filteredLogs = logs.filter((line) => {
@@ -508,20 +563,51 @@ function LogsTab({ jobId }: { jobId: string }) {
 
   return (
     <div className="rv-tab-content rv-tab-content--logs">
-      {/* Job-specific log files */}
+      {/* Job-specific log files — file browser + expandable content */}
       {jobLogFiles.length > 0 && (
         <div className="rv-logs-section">
           <h4 className="rv-logs-section-title">
             <Icon name="folder" size="14" /> Job-Specific Files
           </h4>
-          <div className="rv-logs-file-list">
-            {jobLogFiles.map((jf, i) => (
-              <div key={i} className="rv-logs-file-item">
-                <span className="rv-logs-file-name">{jf.file}</span>
-                <pre className="rv-logs-pre">{jf.content}</pre>
-              </div>
+          {/* File browser buttons */}
+          <div className="rv-logs-file-browser">
+            {jobLogFiles.map((jf) => (
+              <button
+                key={jf.file}
+                className={`rv-logs-file-btn ${activeFile === jf.file ? "rv-logs-file-btn--active" : ""}`}
+                onClick={() => selectFile(jf.file)}
+                title={`View ${jf.file} (${(jf.content.length / 1024).toFixed(1)} KB)`}>
+                <span className="rv-logs-file-btn-name">{jf.file}</span>
+                <span className="rv-logs-file-btn-meta">{(jf.content.length / 1024).toFixed(1)} KB</span>
+              </button>
             ))}
           </div>
+          {/* Active file content */}
+          {activeFile &&
+            (() => {
+              const jf = jobLogFiles.find((f) => f.file === activeFile);
+              if (!jf) return null;
+              const isExpanded = expandedFiles.has(jf.file);
+              const formatted = formatContent(jf.content, jf.file);
+              const isLarge = formatted.length > MAX_COLLAPSED_CHARS;
+              const displayContent =
+                isExpanded || !isLarge ? formatted : formatted.slice(0, MAX_COLLAPSED_CHARS) + "\n\n... (truncated — click to expand)";
+              return (
+                <div className="rv-logs-file-item">
+                  <div className="rv-logs-file-header">
+                    <span className="rv-logs-file-name">{jf.file}</span>
+                    <span className="rv-logs-file-size">{(jf.content.length / 1024).toFixed(1)} KB</span>
+                    {isLarge && (
+                      <button className="rv-logs-expand-btn" onClick={() => toggleFile(jf.file)}>
+                        <Icon name={isExpanded ? "unfold_less" : "unfold_more"} size="14" />
+                        {isExpanded ? " Collapse" : " Expand full file"}
+                      </button>
+                    )}
+                  </div>
+                  <pre className="rv-logs-pre">{displayContent}</pre>
+                </div>
+              );
+            })()}
         </div>
       )}
 
@@ -529,7 +615,7 @@ function LogsTab({ jobId }: { jobId: string }) {
       {logs.length > 0 && (
         <div className="rv-logs-toolbar">
           <span className="rv-logs-toolbar-title">
-            <Icon name="terminal" size="14" color="accent" /> Job Log Files
+            <Icon name="terminal" size="14" color="accent" /> Pipeline Logs
           </span>
           <div className="rv-logs-toolbar-filters">
             <select className="rv-logs-filter-select" value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
@@ -538,6 +624,9 @@ function LogsTab({ jobId }: { jobId: string }) {
               <option value="bridge">Bridge</option>
               <option value="agent">Agent</option>
               <option value="main">Main</option>
+              <option value="transcription">Transcription</option>
+              <option value="usage">Usage</option>
+              <option value="ollama">Ollama</option>
             </select>
             <select className="rv-logs-filter-select" value={levelFilter} onChange={(e) => setLevelFilter(e.target.value)}>
               <option value="all">All levels</option>

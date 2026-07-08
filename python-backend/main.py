@@ -740,12 +740,13 @@ async def get_job_logs(job_id: str, max_lines: int = 200):
     job_logs = []
     if os.path.exists(job_dir):
         for fname in os.listdir(job_dir):
-            if fname.endswith(".log") or fname.endswith(".txt"):
+            # Include .log, .txt, and .jsonl files; skip large audio/binary files
+            if any(fname.endswith(ext) for ext in (".log", ".txt", ".jsonl")):
                 fpath = os.path.join(job_dir, fname)
                 try:
                     with open(fpath) as f:
                         content = f.read()
-                        job_logs.append({"file": fname, "content": content})
+                    job_logs.append({"file": fname, "content": content})
                 except Exception:
                     continue
     return {"logs": matched_lines[-max_lines:], "job_logs": job_logs}

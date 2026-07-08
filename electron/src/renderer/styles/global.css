@@ -5060,6 +5060,46 @@ body {
   opacity: 0.6;
 }
 
+.rv-logs-file-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.rv-logs-file-header .rv-logs-file-name {
+  margin-bottom: 0;
+  flex-shrink: 0;
+}
+
+.rv-logs-file-size {
+  font-size: var(--fs-10);
+  color: var(--text-muted);
+  font-family: "SF Mono", "Fira Code", monospace;
+  opacity: 0.6;
+}
+
+.rv-logs-expand-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--accent);
+  font-size: var(--fs-11);
+  font-family: var(--font);
+  cursor: pointer;
+  padding: 2px 8px;
+  margin-left: auto;
+  transition: all 0.15s;
+}
+
+.rv-logs-expand-btn:hover {
+  background: var(--surface-hover);
+  border-color: var(--accent);
+}
+
 /* ── Actions Grid ── */
 
 .rv-actions-grid {

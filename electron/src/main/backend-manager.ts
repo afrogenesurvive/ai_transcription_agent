@@ -153,6 +153,7 @@ export async function startPythonBackend(port = 5001): Promise<void> {
     env: {
       ...getChildEnv(),
       ...ffmpegEnv,
+      PYTHONUNBUFFERED: "1",
       TRANSCRIPTION_PORT: String(port),
       TRANSCRIPTION_STORAGE: path.join(app.getPath("userData"), "storage"),
       TRANSCRIPTION_QUEUE_DIR: path.join(app.getPath("userData"), "queue"),
