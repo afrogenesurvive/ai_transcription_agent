@@ -188,7 +188,20 @@ export default function ServerStatusBanner({
                     }
                   }}
                   disabled={countdownActive || anyBusy || svcStatus === null}
-                  title={countdownActive ? `Auto-checking in ${countdown}s…` : isDiarization ? "Configure HF token" : `Start ${item.label}`}>
+                  title={
+                    countdownActive
+                      ? `Auto-checking in ${countdown}s…`
+                      : isDiarization
+                        ? "Open config to set Hugging Face token"
+                        : `Start ${item.label}`
+                  }
+                  data-tooltip={
+                    countdownActive
+                      ? `Waiting ${countdown}s before auto-check`
+                      : isDiarization
+                        ? "Configure a Hugging Face token to enable speaker diarization"
+                        : `Start the ${item.label} backend service`
+                  }>
                   {isDiarization ? "⚙ Config" : restarting[item.name] ? "⟳ Starting…" : "▶ Start"}
                 </button>
               </div>
@@ -198,10 +211,20 @@ export default function ServerStatusBanner({
 
         {/* Actions */}
         <div className="ssb-actions">
-          <button className="ssb-btn ssb-btn--primary" onClick={handleRestartAll} disabled={countdownActive || anyBusy}>
+          <button
+            className="ssb-btn ssb-btn--primary"
+            onClick={handleRestartAll}
+            disabled={countdownActive || anyBusy}
+            title="Restart all backend services"
+            data-tooltip="Restart all backend services (Python, Bridge, Agent) at once">
             {countdownActive ? `⏳ Wait ${countdown}s…` : restarting._all ? "⟳ Restarting All…" : "🔄 Restart All Services"}
           </button>
-          <button className="ssb-btn ssb-btn--secondary" onClick={onCheckServers} disabled={countdownActive || anyBusy}>
+          <button
+            className="ssb-btn ssb-btn--secondary"
+            onClick={onCheckServers}
+            disabled={countdownActive || anyBusy}
+            title="Check server status again"
+            data-tooltip="Re-check the status of all backend services">
             {countdownActive ? `⏳ ${countdown}s` : checking ? "⟳ Checking…" : "↻ Re-check"}
           </button>
         </div>

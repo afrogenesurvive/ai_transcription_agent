@@ -28,7 +28,7 @@ export default function AboutPanel({ onClose }: { onClose: () => void }) {
     <div className="panel about-panel">
       <div className="about-header">
         <h2>🎙️ {appName}</h2>
-        <button className="about-close-btn" onClick={onClose} title="Close">
+        <button className="about-close-btn" onClick={onClose} title="Close the About panel" data-tooltip="Close the About panel">
           ✕
         </button>
       </div>

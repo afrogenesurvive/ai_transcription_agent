@@ -79,12 +79,12 @@ const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secre
   { key: "GITHUB_TOKEN", label: "GitHub PAT (for private repo auto-updates)", required: false, secret: true, section: "Auto-Update" },
   { key: "WHISPER_MODEL_SIZE", label: "Whisper Model Size", required: false, secret: false, section: "LLM Provider" },
   { key: "KEEP_TRANSCRIPT_TIMESTAMPS", label: "Keep Transcript Timestamps", required: false, secret: false, section: "LLM Provider" },
-  { key: "GMAIL_CLIENT_ID", label: "Gmail Client ID", required: false, secret: true, section: "Email Delivery" },
-  { key: "GMAIL_CLIENT_SECRET", label: "Gmail Client Secret", required: false, secret: true, section: "Email Delivery" },
-  { key: "GMAIL_REFRESH_TOKEN", label: "Gmail Refresh Token", required: false, secret: true, section: "Email Delivery" },
-  { key: "GMAIL_USER", label: "Gmail User Email", required: false, secret: false, section: "Email Delivery" },
-  { key: "TRELLO_KEY", label: "Trello API Key", required: false, secret: true, section: "Trello Delivery" },
-  { key: "TRELLO_TOKEN", label: "Trello Token", required: false, secret: true, section: "Trello Delivery" },
+  { key: "GMAIL_CLIENT_ID", label: "Gmail Client ID", required: false, secret: true, section: "Services" },
+  { key: "GMAIL_CLIENT_SECRET", label: "Gmail Client Secret", required: false, secret: true, section: "Services" },
+  { key: "GMAIL_REFRESH_TOKEN", label: "Gmail Refresh Token", required: false, secret: true, section: "Services" },
+  { key: "GMAIL_USER", label: "Gmail User Email", required: false, secret: false, section: "Services" },
+  { key: "TRELLO_KEY", label: "Trello API Key", required: false, secret: true, section: "Services" },
+  { key: "TRELLO_TOKEN", label: "Trello Token", required: false, secret: true, section: "Services" },
   { key: "DELIVERY_RECIPIENT_EMAILS", label: "Default Recipient Emails", required: false, secret: false, section: "Delivery Config" },
   { key: "DELIVERY_EMAIL_SUBJECT", label: "Email Subject Template", required: false, secret: false, section: "Delivery Config" },
   { key: "DELIVERY_EMAIL_ADDITIONAL_CONTENT", label: "Additional Email Content", required: false, secret: false, section: "Delivery Config" },
@@ -96,6 +96,28 @@ const SOURCE_LABELS: Record<string, string> = {
   env_file: "Environment (.env)",
   default: "Default value",
 };
+
+// ── Email validation ──
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function validateEmail(email: string): boolean {
+  return EMAIL_RE.test(email);
+}
+
+function validateEmailList(value: string): { valid: string[]; invalid: string[] } {
+  const emails = value
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const valid: string[] = [];
+  const invalid: string[] = [];
+  for (const e of emails) {
+    if (validateEmail(e)) valid.push(e);
+    else invalid.push(e);
+  }
+  return { valid, invalid };
+}
 
 /**
  * Generate default pipeline steps from tools.json and pipeline hints.
@@ -188,6 +210,8 @@ export default function ConfigPanel({ onClose }: Props) {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [visibleKeys, setVisibleKeys] = useState<Set<keyof ConfigValues>>(new Set());
+  // ── Email validation state ──
+  const [emailValidationError, setEmailValidationError] = useState<string | null>(null);
 
   const toggleVisible = (key: keyof ConfigValues) => {
     setVisibleKeys((prev) => {
@@ -501,6 +525,19 @@ export default function ConfigPanel({ onClose }: Props) {
   const handleChange = (key: keyof ConfigValues, value: string) => {
     setValues((prev) => ({ ...prev, [key]: value }));
     setSaved(false);
+    // Validate emails for the recipient field
+    if (key === "DELIVERY_RECIPIENT_EMAILS") {
+      if (value.trim()) {
+        const { valid, invalid } = validateEmailList(value);
+        if (invalid.length > 0) {
+          setEmailValidationError(`Invalid email(s): ${invalid.join(", ")}`);
+        } else {
+          setEmailValidationError(null);
+        }
+      } else {
+        setEmailValidationError(null);
+      }
+    }
   };
 
   const handleSave = useCallback(async () => {
@@ -761,8 +798,20 @@ The system provides existing memory context at the start of each pipeline run. U
       if (result?.error) {
         setError(result.error);
       } else if (result?.success) {
-        // Clear the agent config cache so it reloads fresh
-        setAgentConfig(null);
+        // Re-fetch the restored config immediately so the edit buffers reflect the new content
+        const freshConfig = await window.electronAPI?.getAgentConfig();
+        if (freshConfig && !freshConfig.error) {
+          setEditSystemPrompt(freshConfig.systemPrompt || "");
+          setEditPipelineHints(freshConfig.pipeline?.pipeline_hints || {});
+          setEditPipelineSteps(freshConfig.pipeline?.pipeline_steps || getDefaultPipelineSteps(freshConfig));
+          setEditMaxSteps(freshConfig.pipeline?.max_pipeline_steps ?? 25);
+          setEditMaxRetries(freshConfig.pipeline?.max_retries ?? 3);
+          setEditRetryDelay(freshConfig.pipeline?.retry_base_delay_ms ?? 2000);
+          setEditTerminalTools((freshConfig.pipeline?.terminal_tools || []).join(", "));
+          setAgentConfig(freshConfig);
+        } else {
+          setAgentConfig(null);
+        }
         setRestartNeeded(true);
         setSaved(true);
         setError(null); // clear any previous error
@@ -787,27 +836,49 @@ The system provides existing memory context at the start of each pipeline run. U
       {/* Header: action buttons only */}
       <div className="config-header">
         <div className="config-io-buttons">
-          <button className="config-io-btn" onClick={handleExport} disabled={exporting} title="Export configuration to a file">
+          <button
+            className="config-io-btn"
+            onClick={handleExport}
+            disabled={exporting}
+            title="Export configuration to a JSON file"
+            data-tooltip="Save current configuration to a JSON file for backup or transfer">
             {exporting ? "⟳" : "📤"} Export
           </button>
-          <button className="config-io-btn" onClick={handleImport} disabled={importing} title="Import configuration from a file">
+          <button
+            className="config-io-btn"
+            onClick={handleImport}
+            disabled={importing}
+            title="Import configuration from a JSON file"
+            data-tooltip="Load configuration from a previously exported JSON file">
             {importing ? "⟳" : "📥"} Import
           </button>
         </div>
-        <button className="config-close-btn" onClick={onClose}>
+        <button className="config-close-btn" onClick={onClose} title="Close configuration panel" data-tooltip="Close the configuration panel">
           ✕
         </button>
       </div>
 
       {/* Tab bar (full width, styled like dev-panel-tabs) */}
       <div className="config-tab-bar">
-        <button className={`config-tab ${activeTab === "config" ? "config-tab--active" : ""}`} onClick={() => setActiveTab("config")}>
+        <button
+          className={`config-tab ${activeTab === "config" ? "config-tab--active" : ""}`}
+          onClick={() => setActiveTab("config")}
+          title="Configure LLM provider, API keys, and delivery services"
+          data-tooltip="Configure LLM provider, API keys, and delivery services">
           🔑 LLM & Delivery
         </button>
-        <button className={`config-tab ${activeTab === "agent" ? "config-tab--active" : ""}`} onClick={() => setActiveTab("agent")}>
+        <button
+          className={`config-tab ${activeTab === "agent" ? "config-tab--active" : ""}`}
+          onClick={() => setActiveTab("agent")}
+          title="Edit agent system prompt, tool definitions, and pipeline hints"
+          data-tooltip="Edit agent system prompt, tool definitions, and pipeline hints">
           🤖 Agent Instructions
         </button>
-        <button className={`config-tab ${activeTab === "logging" ? "config-tab--active" : ""}`} onClick={() => setActiveTab("logging")}>
+        <button
+          className={`config-tab ${activeTab === "logging" ? "config-tab--active" : ""}`}
+          onClick={() => setActiveTab("logging")}
+          title="Configure log sources, levels, file size, and rotation"
+          data-tooltip="Configure log sources, levels, file size, and rotation">
           📝 Logging
         </button>
       </div>
@@ -837,10 +908,11 @@ The system provides existing memory context at the start of each pipeline run. U
                 <button
                   key={name}
                   className={`config-section-tab ${configSection === name ? "config-section-tab--active" : ""}`}
-                  onClick={() => setConfigSection(name)}>
+                  onClick={() => setConfigSection(name)}
+                  title={`Switch to ${name} settings`}
+                  data-tooltip={`Switch to ${name} settings section`}>
                   {name === "LLM Provider" && "🧠 "}
-                  {name === "Email Delivery" && "📧 "}
-                  {name === "Trello Delivery" && "📋 "}
+                  {name === "Services" && "🔗 "}
                   {name === "Delivery Config" && "📬 "}
                   {name === "Auto-Update" && "🔄 "}
                   {name}
@@ -934,9 +1006,12 @@ The system provides existing memory context at the start of each pipeline run. U
                                 <button
                                   className="config-visibility-toggle"
                                   onClick={() => toggleVisible(field.key)}
-                                  title={visibleKeys.has(field.key) ? "Hide value" : "Show value"}
+                                  title={visibleKeys.has(field.key) ? "Hide the secret value" : "Reveal the secret value"}
                                   type="button"
-                                  tabIndex={-1}>
+                                  tabIndex={-1}
+                                  data-tooltip={
+                                    visibleKeys.has(field.key) ? "Click to mask the secret value" : "Click to temporarily reveal the secret value"
+                                  }>
                                   {visibleKeys.has(field.key) ? "👁️" : "🙈"}
                                 </button>
                               </div>
@@ -1182,11 +1257,85 @@ The system provides existing memory context at the start of each pipeline run. U
                     </>
                   )}
 
-                  {sectionName === "Delivery Config" ? (
+                  {sectionName === "Services" ? (
                     <div className="delivery-config-accordion">
                       {/* ── Gmail accordion section ── */}
                       <details className="delivery-config-details" open>
-                        <summary className="delivery-config-summary">📧 Gmail Delivery Config</summary>
+                        <summary className="delivery-config-summary">📧 Gmail / Google Services</summary>
+                        <div className="delivery-config-body">
+                          <p className="config-field-hint">
+                            Google OAuth credentials for Gmail and Drive. Uses the same Google Cloud project for both services.
+                          </p>
+                          {fields
+                            .filter((f) => ["GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "GMAIL_REFRESH_TOKEN", "GMAIL_USER"].includes(f.key as string))
+                            .map((field) => (
+                              <div key={field.key} className="config-field">
+                                <label className="config-label">{field.label}</label>
+                                <div className="config-input-row">
+                                  <input
+                                    className="config-input"
+                                    type={field.secret && !visibleKeys.has(field.key) ? "password" : "text"}
+                                    value={values[field.key] || ""}
+                                    onChange={(e) => handleChange(field.key, e.target.value)}
+                                    placeholder={field.label.includes("Email") ? "you@gmail.com" : "Optional"}
+                                    disabled={activeJobs.length > 0}
+                                  />
+                                  {field.secret && (
+                                    <button
+                                      className="config-visibility-toggle"
+                                      onClick={() => toggleVisible(field.key)}
+                                      title={visibleKeys.has(field.key) ? "Hide value" : "Show value"}
+                                      type="button"
+                                      tabIndex={-1}>
+                                      {visibleKeys.has(field.key) ? "👁️" : "🙈"}
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                        </div>
+                      </details>
+
+                      {/* ── Trello accordion section ── */}
+                      <details className="delivery-config-details">
+                        <summary className="delivery-config-summary">📋 Trello</summary>
+                        <div className="delivery-config-body">
+                          <p className="config-field-hint">Trello API credentials for creating action item cards from meeting decisions.</p>
+                          {fields
+                            .filter((f) => ["TRELLO_KEY", "TRELLO_TOKEN"].includes(f.key as string))
+                            .map((field) => (
+                              <div key={field.key} className="config-field">
+                                <label className="config-label">{field.label}</label>
+                                <div className="config-input-row">
+                                  <input
+                                    className="config-input"
+                                    type={field.secret && !visibleKeys.has(field.key) ? "password" : "text"}
+                                    value={values[field.key] || ""}
+                                    onChange={(e) => handleChange(field.key, e.target.value)}
+                                    placeholder="Optional"
+                                    disabled={activeJobs.length > 0}
+                                  />
+                                  {field.secret && (
+                                    <button
+                                      className="config-visibility-toggle"
+                                      onClick={() => toggleVisible(field.key)}
+                                      title={visibleKeys.has(field.key) ? "Hide value" : "Show value"}
+                                      type="button"
+                                      tabIndex={-1}>
+                                      {visibleKeys.has(field.key) ? "👁️" : "🙈"}
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                        </div>
+                      </details>
+                    </div>
+                  ) : sectionName === "Delivery Config" ? (
+                    <div className="delivery-config-accordion">
+                      {/* ── Gmail accordion section ── */}
+                      <details className="delivery-config-details" open>
+                        <summary className="delivery-config-summary">📧 Email Delivery Config</summary>
                         <div className="delivery-config-body">
                           <p className="config-field-hint">
                             Default recipients receive emails in addition to per-job attendee emails. Subject and additional content are appended to
@@ -1210,20 +1359,25 @@ The system provides existing memory context at the start of each pipeline run. U
                                       disabled={activeJobs.length > 0}
                                     />
                                   ) : (
-                                    <input
-                                      className="config-input"
-                                      type="text"
-                                      value={values[field.key] || ""}
-                                      onChange={(e) => handleChange(field.key, e.target.value)}
-                                      placeholder={
-                                        field.key === "DELIVERY_RECIPIENT_EMAILS"
-                                          ? "alice@example.com, bob@example.com"
-                                          : field.key === "DELIVERY_EMAIL_SUBJECT"
-                                            ? "Meeting Summary: {title}"
-                                            : ""
-                                      }
-                                      disabled={activeJobs.length > 0}
-                                    />
+                                    <div style={{ width: "100%" }}>
+                                      <input
+                                        className={`config-input${field.key === "DELIVERY_RECIPIENT_EMAILS" && emailValidationError ? " config-input--error" : ""}`}
+                                        type="text"
+                                        value={values[field.key] || ""}
+                                        onChange={(e) => handleChange(field.key, e.target.value)}
+                                        placeholder={
+                                          field.key === "DELIVERY_RECIPIENT_EMAILS"
+                                            ? "alice@example.com, bob@example.com"
+                                            : field.key === "DELIVERY_EMAIL_SUBJECT"
+                                              ? "Meeting Summary: {title}"
+                                              : ""
+                                        }
+                                        disabled={activeJobs.length > 0}
+                                      />
+                                      {field.key === "DELIVERY_RECIPIENT_EMAILS" && emailValidationError && (
+                                        <span className="config-field-error">{emailValidationError}</span>
+                                      )}
+                                    </div>
                                   )}
                                 </div>
                               </div>
@@ -1308,17 +1462,12 @@ The system provides existing memory context at the start of each pipeline run. U
               Edit the instructions that control the transcription agent's behavior. Changes take effect after restarting the agent runner.
             </p>
 
-            {/* Agent sub-tab bar */}
+            {/* Agent sub-tab bar — System Prompt is at the right end, read-only */}
             <div className="config-section-tabs config-section-tabs--agent">
               <button
                 className={`config-section-tab ${agentSubTab === "pipeline-steps" ? "config-section-tab--active" : ""}`}
                 onClick={() => setAgentSubTab("pipeline-steps")}>
                 ✅ Pipeline Steps
-              </button>
-              <button
-                className={`config-section-tab ${agentSubTab === "system-prompt" ? "config-section-tab--active" : ""}`}
-                onClick={() => setAgentSubTab("system-prompt")}>
-                📝 System Prompt
               </button>
               <button
                 className={`config-section-tab ${agentSubTab === "pipeline-hints" ? "config-section-tab--active" : ""}`}
@@ -1329,6 +1478,11 @@ The system provides existing memory context at the start of each pipeline run. U
                 className={`config-section-tab ${agentSubTab === "pipeline-constants" ? "config-section-tab--active" : ""}`}
                 onClick={() => setAgentSubTab("pipeline-constants")}>
                 ⚙️ Pipeline Constants
+              </button>
+              <button
+                className={`config-section-tab config-section-tab--readonly ${agentSubTab === "system-prompt" ? "config-section-tab--active" : ""}`}
+                onClick={() => setAgentSubTab("system-prompt")}>
+                📝 System Prompt
               </button>
             </div>
 
@@ -1501,44 +1655,27 @@ The system provides existing memory context at the start of each pipeline run. U
               </div>
             )}
 
-            {/* System Prompt */}
+            {/* System Prompt — read-only. The system prompt is auto-generated from Pipeline Steps. */}
             {agentSubTab === "system-prompt" && (
               <div className="config-section">
                 <div className="config-section-header-row">
                   <h3 className="config-section-title">📝 System Prompt</h3>
-                  <button
-                    className="config-regenerate-btn"
-                    onClick={handleRegenerateFromSteps}
-                    disabled={activeJobs.length > 0}
-                    title="Reset to auto-generated version from the Pipeline Steps checklist">
-                    ⟳ Regenerate from Steps
-                  </button>
+                  <span className="config-section-badge config-section-badge--readonly">🔒 Read-only</span>
                 </div>
                 <p className="config-field-hint">
-                  The main instruction template sent to the LLM. <strong>Edits are preserved when saving from this tab.</strong> Use{" "}
-                  <code>{`{{TOOL_LIST}}`}</code> as a placeholder where tool descriptions are injected.
+                  The system prompt is auto-generated from the <strong>Pipeline Steps</strong> checklist. Edit step labels, descriptions, and
+                  enabled/disabled state in the Pipeline Steps tab to change the prompt.
                 </p>
 
-                {/* Diff-style: show what the auto-generated version would look like */}
-                <details className="config-preview-details">
+                {/* Read-only preview of the auto-generated prompt */}
+                <details className="config-preview-details" open>
                   <summary className="config-preview-summary">
-                    🔍 Preview: auto-generated from Pipeline Steps ({editPipelineSteps.filter((s) => s.enabled).length} enabled steps)
+                    🔍 Auto-generated from Pipeline Steps ({editPipelineSteps.filter((s) => s.enabled).length} enabled steps)
                   </summary>
                   <pre className="config-preview-block">{generatedPromptPreview}</pre>
                 </details>
 
-                <textarea
-                  className="config-textarea config-textarea--large"
-                  value={editSystemPrompt}
-                  onChange={(e) => {
-                    setEditSystemPrompt(e.target.value);
-                    setSaved(false);
-                    setRestartNeeded(false);
-                  }}
-                  rows={14}
-                  placeholder="You are an AI meeting transcription assistant..."
-                  disabled={activeJobs.length > 0}
-                />
+                <pre className="config-textarea config-textarea--large config-textarea--readonly">{editSystemPrompt}</pre>
               </div>
             )}
 
@@ -1823,7 +1960,12 @@ The system provides existing memory context at the start of each pipeline run. U
                 ⛔ Cannot save — {activeJobs.length} job{activeJobs.length > 1 ? "s" : ""} running. Wait for completion.
               </span>
             ) : (
-              <button className="config-save-btn" onClick={handleSave} disabled={saving || saved}>
+              <button
+                className="config-save-btn"
+                onClick={handleSave}
+                disabled={saving || saved}
+                title="Save all configuration values to disk"
+                data-tooltip="Save all API keys, provider settings, and delivery config to disk">
                 {saving ? "Saving…" : saved ? "Saved ✓" : "Save Configuration"}
               </button>
             )}
@@ -1837,7 +1979,12 @@ The system provides existing memory context at the start of each pipeline run. U
                 ⛔ Cannot save — {activeJobs.length} job{activeJobs.length > 1 ? "s" : ""} running. Wait for completion.
               </span>
             ) : (
-              <button className="config-save-btn" onClick={handleSave} disabled={saving || saved}>
+              <button
+                className="config-save-btn"
+                onClick={handleSave}
+                disabled={saving || saved}
+                title="Save logging configuration"
+                data-tooltip="Save log source filters, levels, and rotation settings">
                 {saving ? "Saving…" : saved ? "Saved ✓" : "Save Configuration"}
               </button>
             )}
@@ -1887,11 +2034,16 @@ The system provides existing memory context at the start of each pipeline run. U
                   className="config-restore-btn"
                   onClick={handleRestoreDefaults}
                   disabled={saving || restoringDefaults || activeJobs.length > 0}
-                  title="Restore the original shipped agent configs (tools, pipeline, system prompt)">
+                  title="Restore the original shipped agent configs (tools, pipeline, system prompt)"
+                  data-tooltip="Reset agent configuration to factory defaults — tools, pipeline steps, and system prompt">
                   {restoringDefaults ? "⟳ Restoring..." : "↩ Restore Defaults"}
                 </button>
                 {restartNeeded && (
-                  <button className="config-restart-btn" onClick={handleRestartAgent}>
+                  <button
+                    className="config-restart-btn"
+                    onClick={handleRestartAgent}
+                    title="Restart the agent runner to apply new configuration"
+                    data-tooltip="Restart the agent runner service to apply the updated configuration">
                     🔄 Restart Agent Runner Now
                   </button>
                 )}

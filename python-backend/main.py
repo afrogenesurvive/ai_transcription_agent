@@ -398,6 +398,19 @@ async def get_analysis(job_id: str):
     return data
 
 
+@app.get("/transcribe/delivery/{job_id}")
+async def get_delivery_results(job_id: str):
+    """Get delivery results for a job (email, Drive, Trello success/failure data)."""
+    p = os.path.join(config.STORAGE_PATH, job_id, "delivery-results.json")
+    if not os.path.exists(p):
+        print(f"[api] GET /transcribe/delivery/{job_id} → not_found")
+        raise HTTPException(404, "Delivery results not available")
+    with open(p) as f:
+        data = json.load(f)
+    print(f"[api] GET /transcribe/delivery/{job_id} → OK ({data.get('summary', {}).get('total', 0)} deliveries)")
+    return data
+
+
 @app.get("/transcribe/usage/aggregate")
 async def get_aggregate_usage():
     """Aggregate token usage across all jobs. Scans storage dir for usage.json files."""

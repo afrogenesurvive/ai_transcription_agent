@@ -1624,6 +1624,73 @@ body {
   background: var(--text-muted);
 }
 
+/* ═══════════════════════════════════════════════════════
+   Tooltips — data-tooltip attribute system
+   ═══════════════════════════════════════════════════════ */
+
+/* Elements with data-tooltip get a custom tooltip on hover */
+[data-tooltip] {
+  position: relative;
+}
+
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1c2333;
+  color: #e6edf3;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  white-space: nowrap;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 9999;
+  border: 1px solid #30363d;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+
+[data-tooltip]:hover::after {
+  opacity: 1;
+}
+
+/* Tooltip positioning variants */
+[data-tooltip-pos="bottom"]::after {
+  bottom: auto;
+  top: calc(100% + 6px);
+}
+
+[data-tooltip-pos="left"]::after {
+  left: auto;
+  right: calc(100% + 8px);
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
+}
+
+[data-tooltip-pos="right"]::after {
+  left: calc(100% + 8px);
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
+}
+
+/* Light theme override */
+:root[data-theme="light"] [data-tooltip]::after {
+  background: #f6f8fa;
+  color: #1f2328;
+  border-color: #d0d7de;
+}
+
 /* ── Config Panel ── */
 
 .config-overlay {
@@ -1771,9 +1838,26 @@ body {
   border-color: var(--accent);
 }
 
+.config-input--error {
+  border-color: var(--red) !important;
+}
+
+.config-input--error:focus {
+  border-color: var(--red) !important;
+  box-shadow: 0 0 0 1px var(--red);
+}
+
 .config-input::placeholder {
   color: var(--text-muted);
   opacity: 0.5;
+}
+
+.config-field-error {
+  display: block;
+  color: var(--red);
+  font-size: var(--fs-11);
+  margin-top: 4px;
+  line-height: 1.4;
 }
 
 .config-select {
@@ -2001,6 +2085,50 @@ body {
   color: var(--text);
   border-bottom-color: var(--accent);
   background: var(--surface-hover);
+}
+
+/* Read-only tab style — muted, non-interactive appearance */
+.config-section-tab--readonly {
+  opacity: 0.7;
+  font-style: italic;
+  cursor: pointer;
+}
+
+.config-section-tab--readonly.config-section-tab--active {
+  opacity: 0.7;
+  border-bottom-color: var(--text-muted);
+}
+
+.config-section-tab--readonly:hover {
+  opacity: 0.9;
+  color: var(--text-muted);
+}
+
+/* Read-only badge shown in section headers */
+.config-section-badge--readonly {
+  font-size: var(--fs-11);
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+/* Read-only textarea (pre block replacement) */
+.config-textarea--readonly {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text-muted);
+  cursor: default;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  min-height: 250px;
+  padding: 10px;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  font-size: inherit;
+  line-height: 1.5;
+  border-radius: 4px;
 }
 
 /* ── Config Panel — input row with visibility toggle inside the input ── */
@@ -2487,8 +2615,6 @@ body {
   font-style: italic;
   padding: 16px;
   text-align: center;
-}
-  color: var(--accent);
 }
 
 .config-field-row {
@@ -4813,6 +4939,11 @@ body {
   overflow-y: auto;
 }
 
+.rv-tab-content--delivery {
+  padding: 16px 20px;
+  overflow-y: auto;
+}
+
 .rv-tokens-summary {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -4929,6 +5060,108 @@ body {
 .rv-tokens-num--total {
   color: var(--accent);
   font-weight: 600;
+}
+
+/* ── Delivery Tab (ResultsViewer) ── */
+
+.rv-delivery-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rv-delivery-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.rv-delivery-card--success {
+  border-left: 3px solid var(--green);
+}
+
+.rv-delivery-card--failed {
+  border-left: 3px solid var(--red);
+}
+
+.rv-delivery-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.rv-delivery-card-icon {
+  font-size: var(--fs-18);
+}
+
+.rv-delivery-card-name {
+  font-weight: 600;
+  font-size: var(--fs-13);
+  color: var(--text);
+  flex: 1;
+}
+
+.rv-delivery-card-badge {
+  font-size: var(--fs-11);
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.rv-delivery-badge--ok {
+  background: rgba(63, 185, 80, 0.12);
+  color: var(--green);
+}
+
+.rv-delivery-badge--fail {
+  background: rgba(248, 81, 73, 0.12);
+  color: var(--red);
+}
+
+.rv-delivery-card-body {
+  padding: 10px 14px;
+}
+
+.rv-delivery-card-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+}
+
+.rv-delivery-detail-item {
+  display: inline-flex;
+  gap: 4px;
+  font-size: var(--fs-12);
+  color: var(--text);
+}
+
+.rv-delivery-detail-key {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.rv-delivery-detail-value {
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: var(--fs-11);
+  color: var(--text);
+  word-break: break-all;
+}
+
+.rv-delivery-card-error {
+  color: var(--red);
+  font-size: var(--fs-12);
+  line-height: 1.4;
+}
+
+.rv-delivery-card-time {
+  padding: 6px 14px;
+  font-size: var(--fs-10);
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  text-align: right;
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -6580,6 +6813,11 @@ body {
 
 .attendee-email-input:focus {
   border-color: var(--accent);
+}
+
+.attendee-email-input--error,
+.attendee-email-input--error:focus {
+  border-color: var(--red) !important;
 }
 
 .btn-attendee-add {

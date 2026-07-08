@@ -250,6 +250,9 @@ async function dispatch(tool, args) {
     case "transcribe_get_analysis":
       return await callPython("GET", `/transcribe/analysis/${args.jobId}`);
 
+    case "transcribe_get_delivery_results":
+      return await callPython("GET", `/transcribe/delivery/${args.jobId}`);
+
     case "transcribe_get_speaker_clips":
       return await callPython("GET", `/transcribe/speaker_clips/${args.jobId}`);
 

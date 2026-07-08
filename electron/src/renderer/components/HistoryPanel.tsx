@@ -133,7 +133,11 @@ export default function HistoryPanel({ onSelectJob, currentJobId, onNotify, onSt
     <div className="history-panel">
       <div className="history-panel-header">
         <h2 className="history-panel-title">📋 History</h2>
-        <button className="history-panel-refresh" onClick={loadHistory} title="Refresh">
+        <button
+          className="history-panel-refresh"
+          onClick={loadHistory}
+          title="Refresh the job history list"
+          data-tooltip="Refresh the job history list — check for newly completed jobs">
           ↻
         </button>
       </div>
@@ -170,7 +174,8 @@ export default function HistoryPanel({ onSelectJob, currentJobId, onNotify, onSt
                   setConfirmDelete(job.job_id);
                 }}
                 disabled={deleting === job.job_id}
-                title="Delete this job">
+                title="Permanently delete this job and all its data"
+                data-tooltip="Permanently delete this job — transcript, summary, audio, and all associated data">
                 {deleting === job.job_id ? "⏳" : "🗑️"}
               </button>
 
@@ -185,10 +190,19 @@ export default function HistoryPanel({ onSelectJob, currentJobId, onNotify, onSt
                       This will permanently remove all associated data including transcript, summary, and audio.
                     </p>
                     <div className="confirm-dialog-actions">
-                      <button className="btn-secondary" onClick={() => setConfirmDelete(null)}>
+                      <button
+                        className="btn-secondary"
+                        onClick={() => setConfirmDelete(null)}
+                        title="Keep this job — do not delete"
+                        data-tooltip="Cancel deletion and keep the job">
                         Cancel
                       </button>
-                      <button className="btn-danger" onClick={() => handleDelete(job.job_id)} disabled={deleting === job.job_id}>
+                      <button
+                        className="btn-danger"
+                        onClick={() => handleDelete(job.job_id)}
+                        disabled={deleting === job.job_id}
+                        title="Confirm permanent deletion"
+                        data-tooltip="Permanently delete this job — this cannot be undone">
                         {deleting === job.job_id ? "Deleting..." : "Delete"}
                       </button>
                     </div>

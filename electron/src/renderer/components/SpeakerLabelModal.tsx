@@ -129,6 +129,8 @@ export default function SpeakerLabelModal({ jobId, speakers, onConfirm, onCancel
                     value={labels[spk.speaker_id] ?? ""}
                     onChange={(e) => setLabels((prev) => ({ ...prev, [spk.speaker_id]: e.target.value }))}
                     autoFocus={idx === 0 && !spk.suggested_name}
+                    title="Enter a name for this speaker"
+                    data-tooltip="Type the speaker's name — this maps the detected voice to a person"
                   />
                   {hasName && <span className="speaker-label-check">✓</span>}
                 </div>
@@ -138,13 +140,28 @@ export default function SpeakerLabelModal({ jobId, speakers, onConfirm, onCancel
         </div>
 
         <div className="modal-actions">
-          <button className="btn-secondary" onClick={onCancel} disabled={submitting}>
+          <button
+            className="btn-secondary"
+            onClick={onCancel}
+            disabled={submitting}
+            title="Cancel the entire transcription job"
+            data-tooltip="Cancel the entire job without saving speaker labels">
             Cancel Job
           </button>
-          <button className="btn-secondary" onClick={handleSkip} disabled={submitting}>
+          <button
+            className="btn-secondary"
+            onClick={handleSkip}
+            disabled={submitting}
+            title="Use auto-generated speaker IDs instead of names"
+            data-tooltip="Skip naming — speakers will use their auto-generated IDs (Speaker_1, etc.)">
             Use Default Names
           </button>
-          <button className="btn-primary" onClick={handleConfirm} disabled={submitting || !allLabeled}>
+          <button
+            className="btn-primary"
+            onClick={handleConfirm}
+            disabled={submitting || !allLabeled}
+            title="Save labels and resume pipeline"
+            data-tooltip="Save all speaker names and continue the transcription pipeline">
             {submitting ? "Saving & Resuming..." : `Confirm & Continue (${speakers.length} speaker${speakers.length !== 1 ? "s" : ""})`}
           </button>
         </div>

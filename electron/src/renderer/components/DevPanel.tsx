@@ -142,7 +142,12 @@ function LiveLogsTab() {
         <span className="dev-panel-title">📋 Live Logs</span>
 
         <div className="dev-panel-filters">
-          <select className="dev-panel-select" value={sourceFilter} onChange={(e) => handleSourceFilterChange(e.target.value as SourceFilter)}>
+          <select
+            className="dev-panel-select"
+            value={sourceFilter}
+            onChange={(e) => handleSourceFilterChange(e.target.value as SourceFilter)}
+            title="Filter logs by source service"
+            data-tooltip="Filter logs by source — Python, Bridge, Agent, or Main process">
             <option value="all">All sources</option>
             <option value="python">Python</option>
             <option value="bridge">Bridge</option>
@@ -150,21 +155,30 @@ function LiveLogsTab() {
             <option value="main">Main</option>
           </select>
 
-          <select className="dev-panel-select" value={levelFilter} onChange={(e) => handleLevelFilterChange(e.target.value as LevelFilter)}>
+          <select
+            className="dev-panel-select"
+            value={levelFilter}
+            onChange={(e) => handleLevelFilterChange(e.target.value as LevelFilter)}
+            title="Filter logs by severity level"
+            data-tooltip="Filter logs by severity — Info, Warnings, or Errors only">
             <option value="all">All levels</option>
             <option value="info">Info</option>
             <option value="warn">Warnings</option>
             <option value="error">Errors</option>
           </select>
 
-          <label className="dev-panel-checkbox">
+          <label className="dev-panel-checkbox" data-tooltip="Automatically scroll to the bottom when new logs arrive">
             <input type="checkbox" checked={autoScroll} onChange={(e) => handleAutoScrollChange(e.target.checked)} />
             Auto-scroll
           </label>
         </div>
 
         <div className="dev-panel-actions">
-          <button className="dev-panel-btn" onClick={handleClear} title="Clear logs">
+          <button
+            className="dev-panel-btn"
+            onClick={handleClear}
+            title="Clear all logs from the display"
+            data-tooltip="Clear all log entries from the current view">
             Clear
           </button>
         </div>
@@ -1245,7 +1259,8 @@ function PerformanceTab() {
             className="dev-panel-select"
             value={pollIntervalMs}
             onChange={(e) => setPollIntervalMs(Number(e.target.value))}
-            title="Polling interval">
+            title="Performance data polling interval"
+            data-tooltip="How often to poll for new performance data">
             {POLL_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
                 Every {opt.label}
@@ -1257,7 +1272,7 @@ function PerformanceTab() {
           {aggData.length} job(s) · {allSamples.length} samples
         </span>
         <div className="dev-panel-actions">
-          <button className="dev-panel-btn" onClick={fetchData} title="Refresh now">
+          <button className="dev-panel-btn" onClick={fetchData} title="Refresh performance data" data-tooltip="Fetch the latest performance data now">
             ↻ Refresh
           </button>
         </div>
@@ -1737,7 +1752,8 @@ function UsageTab() {
             className="dev-panel-select"
             value={pollInterval}
             onChange={(e) => handleIntervalChange(Number(e.target.value))}
-            title="Credit polling interval">
+            title="Credit balance polling interval"
+            data-tooltip="How often to check the DeepSeek API credit balance">
             <option value={30000}>Every 30s</option>
             <option value={60000}>Every 1 min</option>
             <option value={300000}>Every 5 min</option>
@@ -1745,7 +1761,11 @@ function UsageTab() {
           </select>
         </div>
         <div className="dev-panel-actions">
-          <button className="dev-panel-btn" onClick={fetchAggregate} title="Refresh usage data">
+          <button
+            className="dev-panel-btn"
+            onClick={fetchAggregate}
+            title="Refresh token usage data"
+            data-tooltip="Fetch the latest token usage and credit balance data">
             ↻ Refresh
           </button>
         </div>
@@ -2150,26 +2170,54 @@ export default function DevPanel({ onClose }: Props) {
     <div className="dev-panel dev-panel--full">
       {/* Tab bar */}
       <div className="dev-panel-tabs">
-        <button className={`dev-panel-tab ${activeTab === "live" ? "dev-panel-tab--active" : ""}`} onClick={() => setActiveTab("live")}>
+        <button
+          className={`dev-panel-tab ${activeTab === "live" ? "dev-panel-tab--active" : ""}`}
+          onClick={() => setActiveTab("live")}
+          title="Live real-time logs from all services"
+          data-tooltip="View real-time log stream from Python, Bridge, Agent, and Main processes">
           📋 Live Logs
         </button>
-        <button className={`dev-panel-tab ${activeTab === "files" ? "dev-panel-tab--active" : ""}`} onClick={() => setActiveTab("files")}>
+        <button
+          className={`dev-panel-tab ${activeTab === "files" ? "dev-panel-tab--active" : ""}`}
+          onClick={() => setActiveTab("files")}
+          title="Browse on-disk log files"
+          data-tooltip="Browse and view saved log files from disk">
           📁 Log Files
         </button>
-        <button className={`dev-panel-tab ${activeTab === "database" ? "dev-panel-tab--active" : ""}`} onClick={() => setActiveTab("database")}>
+        <button
+          className={`dev-panel-tab ${activeTab === "database" ? "dev-panel-tab--active" : ""}`}
+          onClick={() => setActiveTab("database")}
+          title="Browse internal databases"
+          data-tooltip="Explore ChromaDB, ephemeral memory, and voiceprint databases">
           🗄️ Database
         </button>
-        <button className={`dev-panel-tab ${activeTab === "performance" ? "dev-panel-tab--active" : ""}`} onClick={() => setActiveTab("performance")}>
+        <button
+          className={`dev-panel-tab ${activeTab === "performance" ? "dev-panel-tab--active" : ""}`}
+          onClick={() => setActiveTab("performance")}
+          title="Performance metrics across jobs"
+          data-tooltip="View CPU, memory, and pipeline performance metrics across jobs">
           ⚡ Performance
         </button>
-        <button className={`dev-panel-tab ${activeTab === "usage" ? "dev-panel-tab--active" : ""}`} onClick={() => setActiveTab("usage")}>
+        <button
+          className={`dev-panel-tab ${activeTab === "usage" ? "dev-panel-tab--active" : ""}`}
+          onClick={() => setActiveTab("usage")}
+          title="LLM token usage and costs"
+          data-tooltip="View DeepSeek API credit balance and LLM token usage across jobs">
           💰 Usage
         </button>
-        <button className={`dev-panel-tab ${activeTab === "updates" ? "dev-panel-tab--active" : ""}`} onClick={() => setActiveTab("updates")}>
+        <button
+          className={`dev-panel-tab ${activeTab === "updates" ? "dev-panel-tab--active" : ""}`}
+          onClick={() => setActiveTab("updates")}
+          title="Check for app updates"
+          data-tooltip="Check for and install application updates">
           🔄 Updates
         </button>
         <div className="dev-panel-tabs-spacer" />
-        <button className="dev-panel-btn dev-panel-btn-close" onClick={onClose} title="Close dev panel">
+        <button
+          className="dev-panel-btn dev-panel-btn-close"
+          onClick={onClose}
+          title="Close developer tools"
+          data-tooltip="Close the developer tools panel">
           ✕
         </button>
       </div>

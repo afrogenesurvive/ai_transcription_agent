@@ -127,8 +127,8 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
   return (
     <div className="config-panel--full" style={{ flex: 1, overflow: "auto" }}>
       <div className="config-header">
-        <h2>💾 Storage Usage</h2>
-        <button className="config-close-btn" onClick={onClose} title="Close">
+        <h2 data-tooltip="Disk space usage breakdown by category">💾 Storage Usage</h2>
+        <button className="config-close-btn" onClick={onClose} title="Close storage panel" data-tooltip="Close the storage panel">
           ✕
         </button>
       </div>
@@ -258,7 +258,12 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
 
             {/* Refresh button */}
             <div style={{ marginTop: 20, textAlign: "center" }}>
-              <button className="btn-primary" onClick={fetchUsage} disabled={loading}>
+              <button
+                className="btn-primary"
+                onClick={fetchUsage}
+                disabled={loading}
+                title="Refresh storage usage data"
+                data-tooltip="Re-fetch disk usage information from the backend">
                 {loading ? "Refreshing…" : "↻ Refresh"}
               </button>
             </div>
@@ -266,7 +271,11 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
             {/* ── Developer Section ── */}
             <hr className="storage-divider" />
             <div className="storage-dev-section">
-              <button className="storage-dev-toggle" onClick={() => setShowDevSection((v) => !v)}>
+              <button
+                className="storage-dev-toggle"
+                onClick={() => setShowDevSection((v) => !v)}
+                title="Toggle developer log management section"
+                data-tooltip="Show/hide the developer section for managing agent trace log files">
                 <span className="storage-dev-toggle-icon">{showDevSection ? "▼" : "▶"}</span>
                 <span className="storage-dev-toggle-label">🧑‍💻 Developer: Log File Management</span>
               </button>

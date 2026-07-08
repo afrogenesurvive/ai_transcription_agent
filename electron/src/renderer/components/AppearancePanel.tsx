@@ -79,7 +79,11 @@ export default function AppearancePanel({ onClose }: Props) {
     <div className="panel appearance-panel">
       <div className="appearance-header">
         <h2>🎨 Appearance</h2>
-        <button className="appearance-close-btn" onClick={onClose} title="Close">
+        <button
+          className="appearance-close-btn"
+          onClick={onClose}
+          title="Close the Appearance panel"
+          data-tooltip="Close the Appearance settings panel">
           ✕
         </button>
       </div>
@@ -89,14 +93,20 @@ export default function AppearancePanel({ onClose }: Props) {
         <div className="appearance-section">
           <h3 className="appearance-section-title">Theme</h3>
           <div className="appearance-theme-options">
-            <label className={`appearance-theme-card ${theme === "dark" ? "appearance-theme-card--selected" : ""}`}>
+            <label
+              className={`appearance-theme-card ${theme === "dark" ? "appearance-theme-card--selected" : ""}`}
+              title="Dark theme — easy on the eyes for low-light environments"
+              data-tooltip="Dark theme — easy on the eyes for low-light environments">
               <input type="radio" name="theme" value="dark" checked={theme === "dark"} onChange={() => setTheme("dark")} />
               <span className="appearance-theme-preview appearance-theme-preview--dark">
                 <span className="appearance-theme-preview-dot" />
               </span>
               <span className="appearance-theme-card-label">Dark</span>
             </label>
-            <label className={`appearance-theme-card ${theme === "light" ? "appearance-theme-card--selected" : ""}`}>
+            <label
+              className={`appearance-theme-card ${theme === "light" ? "appearance-theme-card--selected" : ""}`}
+              title="Light theme — bright appearance for well-lit environments"
+              data-tooltip="Light theme — bright appearance for well-lit environments">
               <input type="radio" name="theme" value="light" checked={theme === "light"} onChange={() => setTheme("light")} />
               <span className="appearance-theme-preview appearance-theme-preview--light">
                 <span className="appearance-theme-preview-dot" />
@@ -108,7 +118,9 @@ export default function AppearancePanel({ onClose }: Props) {
 
         {/* ── Accent Color ── */}
         <div className="appearance-section">
-          <h3 className="appearance-section-title">Accent Color</h3>
+          <h3 className="appearance-section-title" data-tooltip="Choose your preferred accent color for highlights and interactive elements">
+            Accent Color
+          </h3>
           <div className="appearance-accent-grid">
             {ACCENT_PRESETS.map((c) => (
               <button
@@ -116,15 +128,23 @@ export default function AppearancePanel({ onClose }: Props) {
                 className={`appearance-accent-swatch ${accentColor === c.value ? "appearance-accent-swatch--selected" : ""}`}
                 style={{ background: c.value }}
                 onClick={() => setAccentColor(c.value)}
-                title={c.label}
+                title={`Accent color: ${c.label}`}
+                data-tooltip={`Set accent color to ${c.label}`}
                 aria-label={c.label}
               />
             ))}
           </div>
           <div className="appearance-accent-custom">
-            <label className="appearance-accent-custom-label">
+            <label className="appearance-accent-custom-label" data-tooltip="Pick any custom color using the color picker">
               Custom
-              <input type="color" className="appearance-accent-picker" value={accentColor} onChange={(e) => setAccentColor(e.target.value)} />
+              <input
+                type="color"
+                className="appearance-accent-picker"
+                value={accentColor}
+                onChange={(e) => setAccentColor(e.target.value)}
+                title="Pick a custom accent color"
+                data-tooltip="Pick any color for the accent"
+              />
             </label>
             <code className="appearance-accent-hex">{accentColor}</code>
           </div>
@@ -132,13 +152,17 @@ export default function AppearancePanel({ onClose }: Props) {
 
         {/* ── Font Size Presets ── */}
         <div className="appearance-section">
-          <h3 className="appearance-section-title">Font Size</h3>
+          <h3 className="appearance-section-title" data-tooltip="Adjust the overall font size of the application">
+            Font Size
+          </h3>
           <div className="appearance-font-presets-grid">
             {FONT_SIZE_PRESETS.map((p) => (
               <button
                 key={p.value}
                 className={`appearance-font-preset-card ${fontPreset === p.value ? "appearance-font-preset-card--selected" : ""}`}
-                onClick={() => setFontPreset(p.value)}>
+                onClick={() => setFontPreset(p.value)}
+                title={`Font size: ${p.label}`}
+                data-tooltip={`Switch to ${p.label} font size — ${p.description}`}>
                 <span className="appearance-font-preset-label">{p.label}</span>
                 <span className="appearance-font-preset-desc">{p.description}</span>
               </button>
@@ -148,7 +172,9 @@ export default function AppearancePanel({ onClose }: Props) {
       </div>
 
       <div className="appearance-footer">
-        <span className="appearance-hint">Changes are saved automatically</span>
+        <span className="appearance-hint" data-tooltip="All appearance changes are saved to your config automatically — no save button needed">
+          Changes are saved automatically
+        </span>
       </div>
     </div>
   );

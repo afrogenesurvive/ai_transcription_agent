@@ -207,7 +207,12 @@ export default function PipelineProgress({ status, progress, error, onCancel, ca
       {/* ── Stop button (during active processing) ── */}
       {isProcessing && onCancel && (
         <div className="pp-stop-row">
-          <button className="pp-stop-btn" onClick={() => setShowConfirmCancel(true)} disabled={cancelling}>
+          <button
+            className="pp-stop-btn"
+            onClick={() => setShowConfirmCancel(true)}
+            disabled={cancelling}
+            title="Stop the current transcription job"
+            data-tooltip="Cancels the running job — partial results may still be available">
             {cancelling ? "⏳ Stopping…" : "⏹ Stop Processing"}
           </button>
           <span className="pp-stop-hint">Stops the pipeline and marks the job as cancelled.</span>
@@ -224,7 +229,11 @@ export default function PipelineProgress({ status, progress, error, onCancel, ca
               cannot be undone.
             </p>
             <div className="pp-confirm-actions">
-              <button className="pp-confirm-cancel-btn" onClick={() => setShowConfirmCancel(false)}>
+              <button
+                className="pp-confirm-cancel-btn"
+                onClick={() => setShowConfirmCancel(false)}
+                title="Go back — do not cancel"
+                data-tooltip="Resume processing without cancelling">
                 Continue Processing
               </button>
               <button
@@ -232,7 +241,9 @@ export default function PipelineProgress({ status, progress, error, onCancel, ca
                 onClick={() => {
                   setShowConfirmCancel(false);
                   onCancel();
-                }}>
+                }}
+                title="Confirm — cancel this job permanently"
+                data-tooltip="Permanently cancel the transcription job">
                 Yes, Stop It
               </button>
             </div>

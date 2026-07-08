@@ -441,6 +441,50 @@ async function processEvent(event) {
     }
   }
 
+  // ── Delivery results tracking ──
+  // Captures success/failure data from send_delivery_email, save_to_drive,
+  // and create_trello_action_items. Saved to delivery-results.json alongside usage.json.
+  const deliveryResults = [];
+
+  /** Track whether a delivery tool has already handled job completion/failure inline. */
+  let deliveryHandled = false;
+
+  /** Record a delivery tool result for later persistence. */
+  function recordDeliveryResult(toolName, success, resultData, errorMsg) {
+    deliveryResults.push({
+      tool: toolName,
+      success,
+      result: resultData || null,
+      error: errorMsg || null,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  /** Save delivery results to disk immediately. */
+  function saveDeliveryResults() {
+    if (deliveryResults.length === 0) return;
+    try {
+      const deliveryData = {
+        job_id: jobId,
+        title: safeTitle,
+        results: deliveryResults,
+        summary: {
+          total: deliveryResults.length,
+          success: deliveryResults.filter((r) => r.success).length,
+          failed: deliveryResults.filter((r) => !r.success).length,
+        },
+        saved_at: new Date().toISOString(),
+      };
+      fs.mkdirSync(storageDir, { recursive: true });
+      fs.writeFileSync(path.join(storageDir, "delivery-results.json"), JSON.stringify(deliveryData, null, 2), "utf8");
+      console.log(
+        `   📬 [RUNNER] Delivery results saved for job ${jobId?.slice(0, 8) || "???"}: ${deliveryData.summary.success} success, ${deliveryData.summary.failed} failed`,
+      );
+    } catch (err) {
+      console.log(`   ⚠️  [RUNNER] Failed to save delivery results: ${err.message}`);
+    }
+  }
+
   // ── Multi-step pipeline loop ──
   // Each iteration: LLM picks one tool → executes it → result appended to context
   // Loop ends when a terminal tool is called, LLM returns nothing, or max steps hit.
@@ -572,6 +616,22 @@ async function processEvent(event) {
     });
 
     if (!ok) {
+      // Record failed delivery result and update terminal steps immediately
+      const DELIVERY_TOOLS = new Set(["send_delivery_email", "save_to_drive", "create_trello_action_items"]);
+      if (DELIVERY_TOOLS.has(decision.name)) {
+        recordDeliveryResult(decision.name, false, null, errorMsg);
+        console.log(`   📬 [RUNNER] Delivery failure recorded for ${decision.name}: ${errorMsg}`);
+        // Save delivery results and mark job failed immediately (within the delivery step)
+        saveDeliveryResults();
+        try {
+          await executeToolCall("transcribe_fail_job", { jobId, error: errorMsg });
+          console.log(`   ✅ [RUNNER] Job ${jobId.slice(0, 8)} marked as failed by delivery tool`);
+        } catch (failErr) {
+          console.log(`   ⚠️  [RUNNER] Could not update job status to failed from delivery: ${failErr.message}`);
+        }
+        deliveryHandled = true;
+      }
+
       pipelineError = errorMsg || `Unknown error in ${decision.name}`;
       console.log(`   ❌ [RUNNER] ${pipelineError}`);
       logAction({ eventId, eventType: event.type, action: "failed", detail: pipelineError });
@@ -580,6 +640,14 @@ async function processEvent(event) {
     }
 
     console.log(`   ✅ [RUNNER] ${decision.name} succeeded`);
+
+    // ── Record delivery tool results ──
+    const DELIVERY_TOOLS = new Set(["send_delivery_email", "save_to_drive", "create_trello_action_items"]);
+    if (DELIVERY_TOOLS.has(decision.name)) {
+      const resultData = result?.result || null;
+      recordDeliveryResult(decision.name, true, resultData, null);
+      console.log(`   📬 [RUNNER] Delivery result recorded for ${decision.name}`);
+    }
 
     // ── One-shot tool removal ──
     // After a transcript has been read successfully, remove the read-transcript
@@ -601,6 +669,7 @@ async function processEvent(event) {
     }
 
     // Check if this was a terminal delivery tool — pipeline ends
+    // Delivery tools update terminal steps immediately: save results and mark job complete.
     if (TERMINAL_TOOLS.has(decision.name)) {
       console.log(`   📬 [RUNNER] Delivery complete — pipeline finished`);
       logAction({ eventId, eventType: event.type, action: "complete", detail: `delivered via ${decision.name}` });
@@ -609,6 +678,15 @@ async function processEvent(event) {
         type: "terminal_tool",
         detail: `Terminal delivery tool "${decision.name}" called — pipeline finished`,
       });
+      // Save delivery results and mark job complete immediately (within the delivery step)
+      saveDeliveryResults();
+      try {
+        await executeToolCall("transcribe_complete_job", { jobId });
+        console.log(`   ✅ [RUNNER] Job ${jobId.slice(0, 8)} marked as complete by delivery tool`);
+      } catch (completeErr) {
+        console.log(`   ⚠️  [RUNNER] Could not update job status to complete from delivery: ${completeErr.message}`);
+      }
+      deliveryHandled = true;
       pipelineComplete = true;
       break;
     }
@@ -729,6 +807,30 @@ async function processEvent(event) {
     );
   }
 
+  // ── Save delivery results (only if not already handled by a delivery tool inline) ──
+  if (!deliveryHandled && deliveryResults.length > 0) {
+    try {
+      const deliveryData = {
+        job_id: jobId,
+        title: safeTitle,
+        results: deliveryResults,
+        summary: {
+          total: deliveryResults.length,
+          success: deliveryResults.filter((r) => r.success).length,
+          failed: deliveryResults.filter((r) => !r.success).length,
+        },
+        saved_at: new Date().toISOString(),
+      };
+      fs.mkdirSync(storageDir, { recursive: true });
+      fs.writeFileSync(path.join(storageDir, "delivery-results.json"), JSON.stringify(deliveryData, null, 2), "utf8");
+      console.log(
+        `   📬 [RUNNER] Delivery results saved for job ${jobId?.slice(0, 8) || "???"}: ${deliveryData.summary.success} success, ${deliveryData.summary.failed} failed`,
+      );
+    } catch (err) {
+      console.log(`   ⚠️  [RUNNER] Failed to save delivery results: ${err.message}`);
+    }
+  }
+
   agentTrace.recordPipelineEnd({
     status: pipelineError ? "failed" : "complete",
     error: pipelineError,
@@ -736,31 +838,38 @@ async function processEvent(event) {
     tokensUsed: totalTokens,
   });
 
-  if (pipelineError) {
-    console.log(`   ❌ [RUNNER] Pipeline failed for job ${tag}: ${pipelineError}`);
-    logAction({ eventId, eventType: event.type, action: "failed", detail: pipelineError });
-    // Directly fail the job on the Python backend so the UI sees the error
-    try {
-      const jobId = jobData.jobId || eventId;
-      await executeToolCall("transcribe_fail_job", { jobId, error: pipelineError });
-      console.log(`   ✅ [RUNNER] Job ${jobId.slice(0, 8)} marked as failed on backend`);
-    } catch (failErr) {
-      console.log(`   ⚠️  [RUNNER] Could not update job status to failed: ${failErr.message}`);
+  // Only update job status here if a delivery tool did not already handle it inline.
+  // When a delivery tool succeeds or fails, it saves delivery results and calls
+  // transcribe_complete_job / transcribe_fail_job immediately within the pipeline loop.
+  if (!deliveryHandled) {
+    if (pipelineError) {
+      console.log(`   ❌ [RUNNER] Pipeline failed for job ${tag}: ${pipelineError}`);
+      logAction({ eventId, eventType: event.type, action: "failed", detail: pipelineError });
+      // Directly fail the job on the Python backend so the UI sees the error
+      try {
+        const jobId = jobData.jobId || eventId;
+        await executeToolCall("transcribe_fail_job", { jobId, error: pipelineError });
+        console.log(`   ✅ [RUNNER] Job ${jobId.slice(0, 8)} marked as failed on backend`);
+      } catch (failErr) {
+        console.log(`   ⚠️  [RUNNER] Could not update job status to failed: ${failErr.message}`);
+      }
+      // Also enqueue a failed event as a fallback
+      await enqueueFailed(event, pipelineError);
+    } else {
+      console.log(`   ✅ [RUNNER] Pipeline finished for job ${tag}`);
+      // Mark the job as complete on the backend so the frontend knows all
+      // processing (including LLM summarization, analysis, memory context)
+      // is done and the summary.json is ready to be fetched.
+      try {
+        const jobId = jobData.jobId || eventId;
+        await executeToolCall("transcribe_complete_job", { jobId });
+        console.log(`   ✅ [RUNNER] Job ${jobId.slice(0, 8)} marked as complete on backend`);
+      } catch (completeErr) {
+        console.log(`   ⚠️  [RUNNER] Could not update job status to complete: ${completeErr.message}`);
+      }
     }
-    // Also enqueue a failed event as a fallback
-    await enqueueFailed(event, pipelineError);
   } else {
-    console.log(`   ✅ [RUNNER] Pipeline finished for job ${tag}`);
-    // Mark the job as complete on the backend so the frontend knows all
-    // processing (including LLM summarization, analysis, memory context)
-    // is done and the summary.json is ready to be fetched.
-    try {
-      const jobId = jobData.jobId || eventId;
-      await executeToolCall("transcribe_complete_job", { jobId });
-      console.log(`   ✅ [RUNNER] Job ${jobId.slice(0, 8)} marked as complete on backend`);
-    } catch (completeErr) {
-      console.log(`   ⚠️  [RUNNER] Could not update job status to complete: ${completeErr.message}`);
-    }
+    console.log(`   📬 [RUNNER] Job status already updated by delivery tool — skipping post-loop complete/fail`);
   }
 
   // ── Close agent trace ──

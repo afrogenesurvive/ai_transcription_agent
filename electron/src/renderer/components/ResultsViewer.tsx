@@ -15,7 +15,7 @@ import type { TranscriptionSegment, AnalysisData } from "../types";
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
-type TabId = "pipeline" | "audio" | "transcript" | "summary" | "analysis" | "tokens" | "performance" | "logs";
+type TabId = "pipeline" | "audio" | "transcript" | "summary" | "analysis" | "tokens" | "performance" | "logs" | "delivery";
 
 interface Tab {
   id: TabId;
@@ -31,6 +31,7 @@ const TABS: Tab[] = [
   { id: "analysis", label: "Analysis", icon: "📊" },
   { id: "tokens", label: "Tokens", icon: "💰" },
   { id: "performance", label: "Performance", icon: "🚀" },
+  { id: "delivery", label: "Delivery", icon: "📬" },
   { id: "logs", label: "Logs", icon: "🪵" },
 ];
 
@@ -186,9 +187,15 @@ function TranscriptTab({ segments }: { segments?: TranscriptionSegment[] }) {
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="rv-search-input"
+            title="Search through transcript text by speaker name or keyword"
+            data-tooltip="Search through transcript text by speaker name or keyword"
           />
           {searchTerm && (
-            <button className="rv-search-clear" onClick={() => setSearchTerm("")}>
+            <button
+              className="rv-search-clear"
+              onClick={() => setSearchTerm("")}
+              title="Clear search"
+              data-tooltip="Clear the transcript search term">
               ✕
             </button>
           )}
@@ -1034,6 +1041,156 @@ function PerformanceTab({ jobId }: { jobId: string }) {
   );
 }
 
+/* ── Tab: Delivery ── */
+
+interface DeliveryToolResult {
+  tool: string;
+  success: boolean;
+  result: Record<string, unknown> | null;
+  error: string | null;
+  timestamp: string;
+}
+
+interface DeliveryResultsData {
+  job_id: string;
+  title: string;
+  results: DeliveryToolResult[];
+  summary: {
+    total: number;
+    success: number;
+    failed: number;
+  };
+  saved_at: string;
+}
+
+const DELIVERY_TOOL_LABELS: Record<string, { icon: string; label: string }> = {
+  send_delivery_email: { icon: "📧", label: "Email" },
+  save_to_drive: { icon: "☁️", label: "Google Drive" },
+  create_trello_action_items: { icon: "📋", label: "Trello Cards" },
+};
+
+function DeliveryTab({ jobId }: { jobId: string }) {
+  const [data, setData] = useState<DeliveryResultsData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchDelivery = async () => {
+      try {
+        const res = await fetch(`${BRIDGE_URL}/tools/call`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tool: "transcribe_get_delivery_results", args: { jobId } }),
+        });
+        if (!res.ok) {
+          let serverMsg = "";
+          try {
+            const body = await res.json();
+            serverMsg = body.error || "";
+          } catch {
+            /* ignore */
+          }
+          if (res.status === 404) throw new Error(serverMsg || "Delivery results not available for this job");
+          throw new Error(serverMsg || `Bridge error: ${res.status}`);
+        }
+        const result = await res.json();
+        if (!cancelled) setData(result);
+      } catch (err: any) {
+        if (!cancelled) setError(err.message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    fetchDelivery();
+    return () => {
+      cancelled = true;
+    };
+  }, [jobId]);
+
+  if (loading) {
+    return (
+      <div className="rv-tab-content">
+        <div className="rv-empty-state">
+          <p>Loading delivery results…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="rv-tab-content">
+        <div className="rv-empty-state">
+          <span className="rv-empty-icon">📬</span>
+          <p>Delivery data unavailable</p>
+          <p className="rv-muted">{error || "No delivery results recorded for this job."}</p>
+          <p className="rv-muted">Delivery results appear here after the agent pipeline runs delivery steps.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rv-tab-content rv-tab-content--delivery">
+      {/* Summary cards */}
+      <div className="rv-tokens-summary">
+        <div className="rv-tokens-card">
+          <span className="rv-tokens-card-value">{data.summary.total}</span>
+          <span className="rv-tokens-card-label">Total Deliveries</span>
+        </div>
+        <div className="rv-tokens-card">
+          <span className="rv-tokens-card-value" style={{ color: "var(--green)" }}>
+            {data.summary.success}
+          </span>
+          <span className="rv-tokens-card-label">Succeeded</span>
+        </div>
+        <div className="rv-tokens-card">
+          <span className="rv-tokens-card-value" style={{ color: data.summary.failed > 0 ? "var(--red)" : undefined }}>
+            {data.summary.failed}
+          </span>
+          <span className="rv-tokens-card-label">Failed</span>
+        </div>
+      </div>
+
+      {/* Per-delivery breakdown */}
+      <h4 className="rv-tokens-steps-title">Per-Delivery Results</h4>
+      <div className="rv-delivery-list">
+        {data.results.map((r, i) => {
+          const meta = DELIVERY_TOOL_LABELS[r.tool] || { icon: "🔧", label: r.tool };
+          return (
+            <div key={i} className={`rv-delivery-card ${r.success ? "rv-delivery-card--success" : "rv-delivery-card--failed"}`}>
+              <div className="rv-delivery-card-header">
+                <span className="rv-delivery-card-icon">{meta.icon}</span>
+                <span className="rv-delivery-card-name">{meta.label}</span>
+                <span className={`rv-delivery-card-badge ${r.success ? "rv-delivery-badge--ok" : "rv-delivery-badge--fail"}`}>
+                  {r.success ? "✅ Success" : "❌ Failed"}
+                </span>
+              </div>
+              <div className="rv-delivery-card-body">
+                {r.success && r.result && (
+                  <div className="rv-delivery-card-detail">
+                    {Object.entries(r.result)
+                      .slice(0, 6)
+                      .map(([k, v]) => (
+                        <span key={k} className="rv-delivery-detail-item">
+                          <span className="rv-delivery-detail-key">{k}:</span>
+                          <span className="rv-delivery-detail-value">{String(v ?? "").slice(0, 80)}</span>
+                        </span>
+                      ))}
+                  </div>
+                )}
+                {!r.success && r.error && <div className="rv-delivery-card-error">{r.error}</div>}
+              </div>
+              <div className="rv-delivery-card-time">{new Date(r.timestamp).toLocaleString()}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /* ── Main ResultsViewer ── */
 
 export default function ResultsViewer({ jobId, segments, summary, metadata, jobStatus, jobProgress, jobError }: Props) {
@@ -1080,17 +1237,31 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
     <div className="rv-container">
       {/* Tab navigation */}
       <div className="rv-tabs">
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            className={`rv-tab ${activeTab === tab.id ? "rv-tab--active" : ""}`}
-            onClick={() => setActiveTab(tab.id)}
-            title={tab.label}>
-            <span className="rv-tab-icon">{tab.icon}</span>
-            <span className="rv-tab-label">{tab.label}</span>
-            {tab.id === "analysis" && analysisLoading && <span className="rv-tab-spinner" />}
-          </button>
-        ))}
+        {TABS.map((tab) => {
+          const tabDescriptions: Record<string, string> = {
+            pipeline: "View pipeline progress — current stage, completion status, and any errors",
+            audio: "Play the original meeting recording audio",
+            transcript: "Browse the speaker-labeled transcript with timestamps and search",
+            summary: "Read the executive summary, key decisions, discussion points, and action items",
+            analysis: "Explore topics discussed, sentiment, key entities, and meeting effectiveness",
+            tokens: "View LLM token usage breakdown per pipeline step",
+            performance: "See performance metrics — stage durations and timing",
+            delivery: "Check delivery status — email, Trello, and Google Drive",
+            logs: "View job-specific log files for debugging",
+          };
+          return (
+            <button
+              key={tab.id}
+              className={`rv-tab ${activeTab === tab.id ? "rv-tab--active" : ""}`}
+              onClick={() => setActiveTab(tab.id)}
+              title={tabDescriptions[tab.id] || tab.label}
+              data-tooltip={tabDescriptions[tab.id] || tab.label}>
+              <span className="rv-tab-icon">{tab.icon}</span>
+              <span className="rv-tab-label">{tab.label}</span>
+              {tab.id === "analysis" && analysisLoading && <span className="rv-tab-spinner" />}
+            </button>
+          );
+        })}
       </div>
 
       {/* Tab header with meta info */}
@@ -1104,7 +1275,8 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
         <div className="rv-panel-header-right">
           <span
             className="rv-job-badge"
-            title="Click to copy job ID"
+            title="Click to copy job ID to clipboard"
+            data-tooltip="Click to copy the full job ID to your clipboard"
             onClick={() => {
               navigator.clipboard.writeText(jobId);
             }}>
@@ -1131,6 +1303,7 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
           ))}
         {activeTab === "tokens" && <TokensTab jobId={jobId} />}
         {activeTab === "performance" && <PerformanceTab jobId={jobId} />}
+        {activeTab === "delivery" && <DeliveryTab jobId={jobId} />}
         {activeTab === "logs" && <LogsTab jobId={jobId} />}
       </div>
     </div>

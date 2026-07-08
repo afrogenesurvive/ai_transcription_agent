@@ -375,7 +375,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>🎙️ Transcription Agent</h1>
+        <h1 data-tooltip="Home — Transcription Agent desktop app">🎙️ Transcription Agent</h1>
       </header>
 
       {notification && (
@@ -387,7 +387,8 @@ export default function App() {
               e.stopPropagation();
               setNotification(null);
             }}
-            title="Dismiss">
+            title="Dismiss this notification"
+            data-tooltip="Dismiss this notification">
             ✕
           </button>
         </div>
@@ -414,7 +415,8 @@ export default function App() {
               setSidebarView("current");
               setShowHistory(false);
             }}
-            title="Start a new transcription">
+            title="Start a new transcription — upload audio and configure meeting details"
+            data-tooltip="Start a new transcription — upload audio and configure meeting details">
             <span className="sidebar-btn-icon">➕</span>
             <span className="sidebar-btn-label">New</span>
           </button>
@@ -426,7 +428,8 @@ export default function App() {
               setShowHistory(false);
               setHistoryJobId(null);
             }}
-            title="Current job">
+            title="View active or most recent job — pipeline progress, transcript, and results"
+            data-tooltip="View active or most recent job — pipeline progress, transcript, and results">
             <span className="sidebar-btn-icon">🏠</span>
             <span className="sidebar-btn-label">Current</span>
           </button>
@@ -440,7 +443,8 @@ export default function App() {
               setShowNewForm(false);
               setShowHistory((v) => !v);
             }}
-            title="Job history">
+            title="Browse past transcription jobs — reload or delete previous sessions"
+            data-tooltip="Browse past transcription jobs — reload or delete previous sessions">
             <span className="sidebar-btn-icon">📋</span>
             <span className="sidebar-btn-label">History</span>
           </button>
@@ -451,7 +455,8 @@ export default function App() {
               setShowNewForm(false);
               setShowHistory(false);
             }}
-            title="Storage usage">
+            title="View disk usage breakdown — jobs, logs, databases, and models"
+            data-tooltip="View disk usage breakdown — jobs, logs, databases, and models">
             <span className="sidebar-btn-icon">💾</span>
             <span className="sidebar-btn-label">Storage</span>
           </button>
@@ -462,7 +467,8 @@ export default function App() {
               setShowNewForm(false);
               setShowHistory(false);
             }}
-            title="Developer tools — always available">
+            title="Developer tools — live logs, database browser, performance metrics, and updates"
+            data-tooltip="Developer tools — live logs, database browser, performance metrics, and updates">
             <span className="sidebar-btn-icon">🛠️</span>
             <span className="sidebar-btn-label">Dev</span>
           </button>
@@ -474,7 +480,8 @@ export default function App() {
               setShowHistory(false);
               window.electronAPI?.getConfigWithSources();
             }}
-            title="Configuration">
+            title="Configure API keys, LLM provider, delivery services, and agent pipeline settings"
+            data-tooltip="Configure API keys, LLM provider, delivery services, and agent pipeline settings">
             <span className="sidebar-btn-icon">⚙️</span>
             <span className="sidebar-btn-label">Config</span>
             {!configOk && <span className="sidebar-badge" />}
@@ -486,7 +493,8 @@ export default function App() {
               setShowNewForm(false);
               setShowHistory(false);
             }}
-            title="Appearance settings">
+            title="Customize theme, accent color, font size, and sidebar width"
+            data-tooltip="Customize theme, accent color, font size, and sidebar width">
             <span className="sidebar-btn-icon">🎨</span>
             <span className="sidebar-btn-label">Appearance</span>
           </button>
@@ -497,7 +505,8 @@ export default function App() {
               setShowNewForm(false);
               setShowHistory(false);
             }}
-            title="About Transcription Agent">
+            title="App version, name, and README — learn about the Transcription Agent"
+            data-tooltip="App version, name, and README — learn about the Transcription Agent">
             <span className="sidebar-btn-icon">ℹ️</span>
             <span className="sidebar-btn-label">About</span>
           </button>
