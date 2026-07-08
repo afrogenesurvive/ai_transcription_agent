@@ -86,6 +86,22 @@ function formatBytes(bytes: number): string {
 function AudioTab({ jobId, metadata }: { jobId: string; metadata?: Props["metadata"] }) {
   const audioUrl = `http://127.0.0.1:5010/transcribe/audio/${jobId}`;
   const [audioError, setAudioError] = useState(false);
+  const [audioKey, setAudioKey] = useState(0);
+
+  // Reset error state when switching jobs
+  useEffect(() => {
+    setAudioError(false);
+    setAudioKey((k) => k + 1);
+  }, [jobId]);
+
+  const handleRetry = () => {
+    setAudioError(false);
+    setAudioKey((k) => k + 1);
+  };
+
+  const handleAudioError = () => {
+    setAudioError(true);
+  };
 
   return (
     <div className="rv-tab-content rv-tab-content--audio">
@@ -96,8 +112,8 @@ function AudioTab({ jobId, metadata }: { jobId: string; metadata?: Props["metada
 
       <div className="rv-audio-player-wrapper">
         {!audioError ? (
-          <audio controls className="rv-audio-player" onError={() => setAudioError(true)} preload="metadata">
-            <source src={audioUrl} type="audio/wav" />
+          <audio key={audioKey} controls className="rv-audio-player" onError={handleAudioError} preload="metadata">
+            <source src={audioUrl} />
             Your browser does not support the audio element.
           </audio>
         ) : (
@@ -107,7 +123,10 @@ function AudioTab({ jobId, metadata }: { jobId: string; metadata?: Props["metada
               <p>
                 <strong>Audio file unavailable</strong>
               </p>
-              <p className="rv-muted">The standardized audio may not be accessible. Check that the backend is running.</p>
+              <p className="rv-muted">The audio could not be loaded. The file may be missing or the backend may not be running.</p>
+              <button className="rv-audio-retry-btn" onClick={handleRetry}>
+                🔄 Retry
+              </button>
             </div>
           </div>
         )}
@@ -1054,8 +1073,13 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
           {metadata?.title && <span className="rv-panel-subtitle">{metadata.title}</span>}
         </div>
         <div className="rv-panel-header-right">
-          <span className="rv-job-badge" title={jobId}>
-            🆔 {jobId}
+          <span
+            className="rv-job-badge"
+            title="Click to copy job ID"
+            onClick={() => {
+              navigator.clipboard.writeText(jobId);
+            }}>
+            🆔 {jobId.slice(0, 12)}…
           </span>
         </div>
       </div>

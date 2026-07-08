@@ -205,11 +205,18 @@ async function dispatch(tool, args) {
       return await callPython("GET", `/memory/semantic/search?query=${encodeURIComponent(args.query || "")}&n=${args.n || 5}`);
 
     case "transcribe_get_audio":
-      // Returns the audio stream URL — frontend constructs the URL directly
-      return { url: `${PYTHON_API}/transcribe/audio/${args.jobId}` };
+      // Returns the bridge-proxied audio URL (port 5010) so the frontend
+      // gets the URL through the bridge, avoiding CORS issues with Python.
+      return { url: `http://127.0.0.1:${BRIDGE_PORT}/transcribe/audio/${args.jobId}` };
 
     case "transcribe_get_analysis":
       return await callPython("GET", `/transcribe/analysis/${args.jobId}`);
+
+    case "transcribe_get_speaker_clips":
+      return await callPython("GET", `/transcribe/speaker_clips/${args.jobId}`);
+
+    case "transcribe_label_and_resume":
+      return await callPython("POST", `/transcribe/label_and_resume/${args.jobId}`, args.labels || []);
 
     case "transcribe_get_token_usage": {
       const usageResult = await callPython("GET", `/transcribe/usage/${args.jobId}`);
@@ -271,7 +278,8 @@ async function dispatch(tool, args) {
 const server = http.createServer(async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Range");
+  res.setHeader("Access-Control-Expose-Headers", "Content-Range, Accept-Ranges, Content-Length");
 
   if (req.method === "OPTIONS") {
     res.writeHead(204);
@@ -344,31 +352,34 @@ const server = http.createServer(async (req, res) => {
       // Proxy audio file serving — pipe through for streaming
       const jobId = url.pathname.split("/").pop();
       console.log(`[bridge] → GET /transcribe/audio/${jobId} (proxying audio stream)`);
-      const audioUrl = `${PYTHON_API}/transcribe/audio/${jobId}`;
-      const audioResp = await fetch(audioUrl);
-      if (!audioResp.ok) {
-        res.writeHead(audioResp.status, { "Access-Control-Allow-Origin": "*" });
-        res.end(JSON.stringify({ error: "Audio not found" }));
-        return;
-      }
-      // Forward Range header if present (for audio seeking support)
+
+      // Forward Range header (for audio seeking) in a single fetch — avoids
+      // double-fetching the entire file just to check existence.
       const rangeHeader = req.headers["range"];
+      const audioUrl = `${PYTHON_API}/transcribe/audio/${jobId}`;
       const fetchOpts = {};
       if (rangeHeader) fetchOpts.headers = { Range: rangeHeader };
 
-      const audioResp2 = rangeHeader ? await fetch(audioUrl, fetchOpts) : audioResp;
-      const resp = rangeHeader ? audioResp2 : audioResp;
+      const audioResp = await fetch(audioUrl, fetchOpts);
+      if (!audioResp.ok) {
+        const errBody = await audioResp.text().catch(() => "");
+        console.error(`[bridge] ← GET /transcribe/audio/${jobId} → ${audioResp.status}: ${errBody.slice(0, 200)}`);
+        res.writeHead(audioResp.status, { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Audio not found" }));
+        return;
+      }
 
-      const contentType = resp.headers.get("content-type") || "audio/wav";
-      const contentLength = resp.headers.get("content-length");
-      const contentRange = resp.headers.get("content-range");
-      const statusCode = rangeHeader && resp.status === 206 ? 206 : 200;
+      const contentType = audioResp.headers.get("content-type") || "audio/wav";
+      const contentLength = audioResp.headers.get("content-length");
+      const contentRange = audioResp.headers.get("content-range");
+      const statusCode = rangeHeader && audioResp.status === 206 ? 206 : 200;
 
       const responseHeaders = {
         "Content-Type": contentType,
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, OPTIONS",
         "Access-Control-Allow-Headers": "Range, Content-Type",
+        "Access-Control-Expose-Headers": "Content-Range, Accept-Ranges, Content-Length",
         "Content-Disposition": `inline; filename="${jobId}.wav"`,
         "Accept-Ranges": "bytes",
         "Cache-Control": "no-cache",
@@ -378,7 +389,7 @@ const server = http.createServer(async (req, res) => {
 
       res.writeHead(statusCode, responseHeaders);
       // Stream the audio data through
-      const reader = resp.body.getReader();
+      const reader = audioResp.body.getReader();
       const pump = async () => {
         while (true) {
           const { done, value } = await reader.read();

@@ -62,6 +62,32 @@ export function useApi() {
       return bridgeCall("transcribe_get_analysis", { jobId }) as Promise<any>;
     },
 
+    /** Get speaker clips for manual labeling (paused_for_labeling state) */
+    getSpeakerClips: async (jobId: string) => {
+      return bridgeCall("transcribe_get_speaker_clips", { jobId }) as Promise<{
+        job_id: string;
+        speakers: Array<{
+          speaker_id: string;
+          segment_count: number;
+          total_duration: number;
+          sample_clip_url: string;
+          sample_start: number;
+          sample_end: number;
+          suggested_name: string;
+        }>;
+        total_speakers: number;
+      }>;
+    },
+
+    /** Submit speaker labels and resume the pipeline */
+    labelAndResume: async (jobId: string, labels: Array<{ speaker_id: string; name: string; email?: string }>) => {
+      return bridgeCall("transcribe_label_and_resume", { jobId, labels }) as Promise<{
+        job_id: string;
+        status: string;
+        applied_labels: number;
+      }>;
+    },
+
     /** Get audio stream URL */
     getAudioUrl: (jobId: string) => {
       return `http://127.0.0.1:5010/transcribe/audio/${jobId}`;

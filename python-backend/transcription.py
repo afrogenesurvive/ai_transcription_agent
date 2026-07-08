@@ -29,6 +29,7 @@ This module does two independent ML tasks and then merges them:
 """
 
 import os
+import time
 import platform as sys_platform
 import warnings
 from typing import Optional
@@ -153,6 +154,7 @@ class TranscriptionEngine:
                     try:
                         # Re-apply patch (finally block restores original)
                         _torch.load = _permissive_load
+                        t_cpu = time.time()
                         # Try online first; fall back to local cache on network error
                         try:
                             pipeline_cpu = Pipeline.from_pretrained(
@@ -172,7 +174,7 @@ class TranscriptionEngine:
                             pipeline_cpu.to(_torch.device("cpu"))
                             self._diarization = pipeline_cpu
                             self.device = "cpu"
-                            print(f"[transcription] ✅ Diarization model loaded on CPU (fallback)")
+                            print(f"[transcription] ✅ Diarization model loaded on CPU (fallback) in {time.time()-t_cpu:.1f}s")
                         else:
                             raise RuntimeError("Pipeline returned None on CPU fallback")
                     except Exception as cpu_err:
@@ -197,14 +199,39 @@ class TranscriptionEngine:
                 # Always restore original torch.load to avoid side effects
                 _torch.load = _orig_load
 
-        print(f"[transcription] Running diarization on {audio_path}...")
+        # ── Run diarization inference with timing ──
+        t0 = time.time()
+        # Log audio info before inference
+        import soundfile as _sf
+        try:
+            _sinfo = _sf.info(audio_path)
+            print(f"[transcription]   🎯 Audio: {_sinfo.samplerate}Hz, {_sinfo.channels}ch, "
+                  f"{_sinfo.frames/_sinfo.samplerate:.1f}s, {os.path.getsize(audio_path)/1024:.0f}KB")
+        except Exception:
+            pass
+
+        print(f"[transcription]   ⏳ Running diarization pipeline on {self.device}...")
         diarization = self._diarization(audio_path)
-        result = [
-            {"speaker": s, "start": t.start, "end": t.end, "duration": t.end - t.start}
-            for t, _, s in diarization.itertracks(yield_label=True)
-        ]
-        print(f"[transcription] Diarization done: {len(result)} segments")
-        return result
+        infer_elapsed = time.time() - t0
+
+        # Collect segments and compute per-speaker stats
+        segments = []
+        speaker_duration = {}
+        for t, _, s in diarization.itertracks(yield_label=True):
+            dur = t.end - t.start
+            segments.append({"speaker": s, "start": t.start, "end": t.end, "duration": dur})
+            speaker_duration[s] = speaker_duration.get(s, 0.0) + dur
+
+        # Log detailed results
+        total_speech = sum(speaker_duration.values())
+        print(f"[transcription]   ✅ Diarization complete in {infer_elapsed:.1f}s — "
+              f"{len(segments)} segments, {len(speaker_duration)} speakers, "
+              f"{total_speech:.1f}s total speech")
+        for spk, dur in sorted(speaker_duration.items()):
+            pct = dur / total_speech * 100 if total_speech else 0
+            seg_count = sum(1 for s in segments if s["speaker"] == spk)
+            print(f"[transcription]      {spk}: {dur:.1f}s ({pct:.0f}%) across {seg_count} segment(s)")
+        return segments
 
     # ── Step 2: ASR (what was said) ──
 
@@ -221,59 +248,88 @@ class TranscriptionEngine:
           Windows → faster_whisper (CTranslate2 w/ INT8 or FP16)
           Linux   → openai-whisper (PyTorch baseline)
         """
-        print(f"[transcription] Running ASR on {audio_path} (platform={self.platform}, model={self.model_size}, device={self.device})...")
+        t0 = time.time()
+        # Log audio info upfront
+        import soundfile as _sf
+        try:
+            _sinfo = _sf.info(audio_path)
+            print(f"[transcription] 🎤 ASR starting — {_sinfo.samplerate}Hz, {_sinfo.channels}ch, "
+                  f"{_sinfo.frames/_sinfo.samplerate:.1f}s audio, "
+                  f"platform={self.platform}, model={self.model_size}, device={self.device}")
+        except Exception:
+            print(f"[transcription] 🎤 ASR starting — platform={self.platform}, "
+                  f"model={self.model_size}, device={self.device}")
+
         if self.platform == "mac":
             result = self._transcribe_mac(audio_path)
         elif self.platform == "windows":
             result = self._transcribe_windows(audio_path)
         else:
             result = self._transcribe_standard(audio_path)
-        print(f"[transcription] ASR complete: {len(result.get('words', []))} words, {len(result.get('segments', []))} segments")
+
+        total_elapsed = time.time() - t0
+        words = result.get("words", [])
+        segments = result.get("segments", [])
+        rt_factor = total_elapsed / (_sinfo.frames / _sinfo.samplerate) if _sinfo and _sinfo.frames else 0
+        print(f"[transcription]   ✅ ASR complete in {total_elapsed:.1f}s "
+              f"(RT={rt_factor:.2f}x) — {len(words)} words, {len(segments)} segments")
         return result
 
     def _transcribe_standard(self, audio_path: str) -> dict:
         """Transcribe using openai-whisper (PyTorch). Works on any platform."""
-        print(f"[transcription] Using openai-whisper (PyTorch)...")
         import whisper
         if self._whisper is None:
-            print(f"[transcription] Loading whisper model '{self.model_size}' on {self.device}...")
+            t_load = time.time()
+            print(f"[transcription]   📦 Loading openai-whisper model '{self.model_size}' on {self.device}...")
             self._whisper = whisper.load_model(self.model_size, device=self.device)
-            print(f"[transcription] Whisper model loaded")
+            print(f"[transcription]   ✅ Model loaded in {time.time()-t_load:.1f}s")
+        t_infer = time.time()
+        print(f"[transcription]   ⏳ Transcribing (openai-whisper)...")
         result = self._whisper.transcribe(audio_path, word_timestamps=True)
+        print(f"[transcription]   ⏱️  Inference done in {time.time()-t_infer:.1f}s")
         return self._extract_words(result)
 
     def _transcribe_mac(self, audio_path: str) -> dict:
-        """Transcribe using mlx-whisper — optimized for Apple Silicon (MPS).
-
-        Uses a community-converted MLX model from HuggingFace
-        (mlx-community/whisper-{size}). Much faster than PyTorch on Mac.
-        """
-        print(f"[transcription] Using mlx-whisper (Apple Silicon)...")
+        """Transcribe using mlx-whisper — optimized for Apple Silicon (MPS)."""
+        t_infer = time.time()
+        print(f"[transcription]   📦 Using mlx-whisper (Apple Silicon) model 'mlx-community/whisper-{self.model_size}'...")
         import mlx_whisper
         result = mlx_whisper.transcribe(
             audio_path,
             path_or_hf_repo=f"mlx-community/whisper-{self.model_size}",
             word_timestamps=True,
         )
+        elapsed = time.time() - t_infer
+        print(f"[transcription]   ⏱️  mlx-whisper done in {elapsed:.1f}s")
         return self._extract_words(result)
 
     def _transcribe_windows(self, audio_path: str) -> dict:
-        """Transcribe using faster-whisper — CTranslate2 backend with INT8/FP16.
-
-        Up to 4x faster than openai-whisper on CUDA. Falls back to INT8 on CPU.
-        """
-        print(f"[transcription] Using faster-whisper (CTranslate2)...")
+        """Transcribe using faster-whisper — CTranslate2 backend with INT8/FP16."""
         from faster_whisper import WhisperModel
         ct = "float16" if self.device == "cuda" else "int8"
-        print(f"[transcription] Loading faster-whisper model '{self.model_size}' (compute_type={ct})...")
-        model = WhisperModel(self.model_size, device=self.device, compute_type=ct)
-        print(f"[transcription] Transcribing...")
+
+        if self._whisper is None:
+            t_load = time.time()
+            print(f"[transcription]   📦 Loading faster-whisper model '{self.model_size}' "
+                  f"(compute_type={ct}, device={self.device})...")
+            self._whisper = WhisperModel(self.model_size, device=self.device, compute_type=ct)
+            print(f"[transcription]   ✅ Model loaded in {time.time()-t_load:.1f}s")
+
+        t_infer = time.time()
+        print(f"[transcription]   ⏳ Transcribing (faster-whisper, beam_size=5)...")
         segs, info = model.transcribe(audio_path, beam_size=5, word_timestamps=True)
+        elapsed = time.time() - t_infer
+
         words = []
+        seg_count = 0
         for s in segs:
+            seg_count += 1
             for w in s.words:
                 words.append({"text": w.word, "start": w.start, "end": w.end})
-        print(f"[transcription] faster-whisper done: language={info.language}, duration={info.duration:.1f}s")
+
+        print(f"[transcription]   ⏱️  faster-whisper done in {elapsed:.1f}s — "
+              f"lang={info.language} ({info.language_probability*100:.0f}%), "
+              f"audio_dur={info.duration:.1f}s, {seg_count} segments, {len(words)} words")
         return {"text": "", "segments": list(segs), "words": words}
 
     def _extract_words(self, result: dict) -> dict:
@@ -325,7 +381,8 @@ class TranscriptionEngine:
         """
         aligned, word_index = [], 0
         words = transcription.get("words", [])
-        print(f"[transcription] Aligning {len(words)} words with {len(diarization)} diarization segments...")
+        t0 = time.time()
+        print(f"[transcription] 🔗 Aligning {len(words)} words with {len(diarization)} diarization segments...")
 
         for diar_seg in diarization:
             spk, start, end = diar_seg["speaker"], diar_seg["start"], diar_seg["end"]
@@ -353,7 +410,10 @@ class TranscriptionEngine:
                     "end": end,
                 })
 
-        print(f"[transcription] Alignment done: {len(aligned)} merged segments")
+        elapsed = time.time() - t0
+        words_used = sum(len(a["text"].split()) for a in aligned)
+        print(f"[transcription]   ✅ Alignment done in {elapsed*1000:.0f}ms — "
+              f"{len(aligned)} merged segments ({words_used}/{len(words)} words assigned)")
 
         # Fallback: if diarization produced nothing but ASR has words,
         # create a flat single-speaker transcript so the result isn't empty.
@@ -365,12 +425,20 @@ class TranscriptionEngine:
                 "start": words[0].get("start", 0.0),
                 "end": words[-1].get("end", 0.0),
             })
-            print(f"[transcription] ⚠️  No diarization segments — created flat transcript ({len(words)} words)")
+            print(f"[transcription]   ⚠️  No diarization segments — created flat transcript ({len(words)} words)")
 
         return aligned
 
     def process_full(self, audio_path: str) -> dict:
+        t_total = time.time()
+        print(f"\n{'='*60}")
+        print(f"   🎬 PROCESSING: {audio_path}")
+        print(f"{'='*60}")
         diarization = self.run_diarization(audio_path)
         transcription = self.run_transcription(audio_path)
         aligned = self.align_transcript(transcription, diarization)
+        total_elapsed = time.time() - t_total
+        print(f"\n{'='*60}")
+        print(f"   ✅ FULL PIPELINE done in {total_elapsed:.1f}s")
+        print(f"{'='*60}")
         return {"aligned_transcript": aligned, "raw_diarization": diarization}

@@ -56,10 +56,16 @@ class AudioUploader:
         return {"job_id": job_id, "audio_path": wav_path, "metadata": metadata}
 
     def get_audio_path(self, job_id: str) -> str:
-        p = os.path.join(self.storage_path, job_id, "standardized.wav")
-        if not os.path.exists(p):
-            raise FileNotFoundError(f"Audio not found for job {job_id}")
-        return p
+        from pathlib import Path
+        # Prefer standardized.wav (16kHz mono), fall back to original.*
+        wav = os.path.join(self.storage_path, job_id, "standardized.wav")
+        if os.path.exists(wav):
+            return wav
+        job_dir = os.path.join(self.storage_path, job_id)
+        orig = sorted(Path(job_dir).glob("original.*"))
+        if orig:
+            return str(orig[0])
+        raise FileNotFoundError(f"No audio file found for job {job_id}")
 
     def get_status(self, job_id: str) -> dict:
         p = os.path.join(self.storage_path, job_id, "status.json")
@@ -86,6 +92,20 @@ class AudioUploader:
 
     def get_metadata(self, job_id: str) -> dict:
         p = os.path.join(self.storage_path, job_id, "metadata.json")
+        if not os.path.exists(p):
+            return {}
+        with open(p) as f:
+            return json.load(f)
+
+    def save_diarization(self, job_id: str, data: dict):
+        """Save diarization results so the pipeline can resume after labeling."""
+        with open(os.path.join(self.storage_path, job_id, "diarization.json"), "w") as f:
+            json.dump(data, f, indent=2)
+        print(f"[upload] Diarization data saved for job {job_id}")
+
+    def load_diarization(self, job_id: str) -> dict:
+        """Load saved diarization results. Returns empty dict if not found."""
+        p = os.path.join(self.storage_path, job_id, "diarization.json")
         if not os.path.exists(p):
             return {}
         with open(p) as f:
@@ -143,4 +163,9 @@ class AudioUploader:
             "-acodec", "pcm_s16le", "-ac", "1", "-ar", "16000",
             "-y", output_path,
         ]
-        subprocess.run(cmd, check=True, capture_output=True)
+        try:
+            subprocess.run(cmd, check=True, capture_output=True)
+        except subprocess.CalledProcessError as e:
+            stderr = e.stderr.decode("utf-8", errors="replace") if e.stderr else "(no stderr)"
+            print(f"[upload] ⚠️  ffmpeg standardization FAILED (exit {e.returncode}): {stderr[:500]}")
+            raise

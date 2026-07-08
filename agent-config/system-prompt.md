@@ -43,4 +43,3 @@ The system provides existing memory context at the start of each pipeline run. U
 4. **Use past context for better summaries** — reference how topics evolved across meetings.
 
 - Respond only with a tool call
-- Respond only with a tool call

@@ -4,18 +4,22 @@
   "retry_base_delay_ms": 2000,
   "ollama_max_retries": 5,
   "ollama_retry_base_delay_ms": 5000,
-  "terminal_tools": ["send_delivery_email", "save_to_drive", "create_trello_action_items"],
+  "terminal_tools": [
+    "send_delivery_email",
+    "save_to_drive",
+    "create_trello_action_items"
+  ],
   "pipeline_hints": {
-    "transcribe_refine": "Refinement cleaned filler words and PII (timestamps preserved). Next: Call transcribe_get_transcript to read the cleaned transcript, then call transcribe_summarize to generate a structured summary. Check the Memory Context above for continuity \u2014 reference past items where relevant.",
+    "transcribe_refine": "Refinement cleaned filler words and PII (timestamps preserved). Next: Call transcribe_get_transcript to read the cleaned transcript, then call transcribe_summarize to generate a structured summary. Check the Memory Context above for continuity — reference past items where relevant.",
     "transcribe_get_transcript": "Next: Call transcribe_summarize to generate a structured summary from the transcript, then call transcribe_analyze to store analysis results. Note recurring topics vs new topics compared to the Memory Context.",
-    "transcribe_summarize": "Next: Call transcribe_analyze to store analysis of topics, sentiment, entities, and follow-ups. Cross-reference with the Memory Context above \u2014 note which action items are recurring (still open from previous meetings) vs newly created. Repetition is signal, not noise.",
-    "transcribe_analyze": "Next: Call transcribe_save_context to persist the meeting to semantic + ephemeral memory. All entries are timestamped and preserved for audit \u2014 nothing is deduplicated at the code level.",
+    "transcribe_summarize": "Next: Call transcribe_analyze to store analysis of topics, sentiment, entities, and follow-ups. Cross-reference with the Memory Context above — note which action items are recurring (still open from previous meetings) vs newly created. Repetition is signal, not noise.",
+    "transcribe_analyze": "Next: Call transcribe_save_context to persist the meeting to semantic + ephemeral memory. All entries are timestamped and preserved for audit — nothing is deduplicated at the code level.",
     "transcribe_save_context": "Next: Call transcribe_prepare_delivery to package results for delivery.",
     "transcribe_prepare_delivery": "Next: Deliver results using send_delivery_email, save_to_drive, or create_trello_action_items.",
     "transcribe_label_speaker": "Next: If more unknown speakers remain, call transcribe_label_speaker again. Otherwise, call transcribe_summarize to generate a structured summary from the transcript you already read."
   },
   "event_templates": {
-    "ready_for_processing": "Actions: refine transcript (removes fillers and PII, preserves timestamps), extract action items, generate summary, generate analysis, prepare delivery.\nExisting memory context is provided below \u2014 use it for continuity and to identify recurring topics. Repetition is signal (e.g., same action item across weeks = blocker).\nIf an action item from a previous meeting is resolved here, note it as completed.\nTranscript ({{segment_count}} segments):\n{{transcript_preview}}",
+    "ready_for_processing": "Actions: refine transcript (removes fillers and PII, preserves timestamps), extract action items, generate summary, generate analysis, prepare delivery.\nExisting memory context is provided below — use it for continuity and to identify recurring topics. Repetition is signal (e.g., same action item across weeks = blocker).\nIf an action item from a previous meeting is resolved here, note it as completed.\nTranscript ({{segment_count}} segments):\n{{transcript_preview}}",
     "labeling_needed": "Unknown speakers detected. List voiceprints, notify user, or apply labels if info available.\n{{speaker_details}}",
     "failed": "Processing failed. Notify the user. Error: {{error}}"
   }

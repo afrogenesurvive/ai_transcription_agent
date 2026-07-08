@@ -125,7 +125,7 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
     : [];
 
   return (
-    <div className="config-panel" style={{ flex: 1, overflow: "auto" }}>
+    <div className="config-panel--full" style={{ flex: 1, overflow: "auto" }}>
       <div className="config-header">
         <h2>💾 Storage Usage</h2>
         <button className="config-close-btn" onClick={onClose} title="Close">

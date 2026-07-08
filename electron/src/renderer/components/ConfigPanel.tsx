@@ -47,7 +47,7 @@ interface ConfigValues {
 
 interface ConfigSourceInfo {
   value: string;
-  source: "user_config" | "default";
+  source: "user_config" | "env_file" | "default";
 }
 
 interface AgentConfig {
@@ -267,34 +267,31 @@ export default function ConfigPanel({ onClose }: Props) {
         const agentMsg = result.agentConfigImported ? " (agent instructions included)" : "";
         setImportResult(`✅ Configuration imported successfully${agentMsg}`);
         // Reload config values after import
-        window.electronAPI?.getConfig().then((cfg) => {
+        window.electronAPI?.getConfigWithSources().then((cfg) => {
           setValues({
-            DEEPSEEK_API_KEY: cfg.DEEPSEEK_API_KEY || "",
-            LLM_PROVIDER: cfg.LLM_PROVIDER || "deepseek",
-            OLLAMA_BASE_URL: cfg.OLLAMA_BASE_URL || "http://127.0.0.1:11434/v1",
-            OLLAMA_MODEL: cfg.OLLAMA_MODEL || "",
-            OLLAMA_NUM_CTX: cfg.OLLAMA_NUM_CTX || "32768",
-            HUGGING_FACE_TOKEN: cfg.HUGGING_FACE_TOKEN || "",
-            GITHUB_TOKEN: cfg.GITHUB_TOKEN || "",
-            WHISPER_MODEL_SIZE: cfg.WHISPER_MODEL_SIZE || "medium",
-            KEEP_TRANSCRIPT_TIMESTAMPS: cfg.KEEP_TRANSCRIPT_TIMESTAMPS || "false",
-            GMAIL_CLIENT_ID: cfg.GMAIL_CLIENT_ID || "",
-            GMAIL_CLIENT_SECRET: cfg.GMAIL_CLIENT_SECRET || "",
-            GMAIL_REFRESH_TOKEN: cfg.GMAIL_REFRESH_TOKEN || "",
-            GMAIL_USER: cfg.GMAIL_USER || "",
-            TRELLO_KEY: cfg.TRELLO_KEY || "",
-            TRELLO_TOKEN: cfg.TRELLO_TOKEN || "",
-            LOG_ENABLED_SOURCES: cfg.LOG_ENABLED_SOURCES || "all",
-            LOG_LEVEL: cfg.LOG_LEVEL || "info",
-            LOG_MAX_FILE_SIZE_MB: cfg.LOG_MAX_FILE_SIZE_MB || "50",
-            LOG_MAX_FILES: cfg.LOG_MAX_FILES || "10",
-            LOG_LLM_DATA: cfg.LOG_LLM_DATA || "false",
+            DEEPSEEK_API_KEY: cfg.DEEPSEEK_API_KEY?.value || "",
+            LLM_PROVIDER: cfg.LLM_PROVIDER?.value || "deepseek",
+            OLLAMA_BASE_URL: cfg.OLLAMA_BASE_URL?.value || "http://127.0.0.1:11434/v1",
+            OLLAMA_MODEL: cfg.OLLAMA_MODEL?.value || "",
+            OLLAMA_NUM_CTX: cfg.OLLAMA_NUM_CTX?.value || "32768",
+            HUGGING_FACE_TOKEN: cfg.HUGGING_FACE_TOKEN?.value || "",
+            GITHUB_TOKEN: cfg.GITHUB_TOKEN?.value || "",
+            WHISPER_MODEL_SIZE: cfg.WHISPER_MODEL_SIZE?.value || "medium",
+            KEEP_TRANSCRIPT_TIMESTAMPS: cfg.KEEP_TRANSCRIPT_TIMESTAMPS?.value || "false",
+            GMAIL_CLIENT_ID: cfg.GMAIL_CLIENT_ID?.value || "",
+            GMAIL_CLIENT_SECRET: cfg.GMAIL_CLIENT_SECRET?.value || "",
+            GMAIL_REFRESH_TOKEN: cfg.GMAIL_REFRESH_TOKEN?.value || "",
+            GMAIL_USER: cfg.GMAIL_USER?.value || "",
+            TRELLO_KEY: cfg.TRELLO_KEY?.value || "",
+            TRELLO_TOKEN: cfg.TRELLO_TOKEN?.value || "",
+            LOG_ENABLED_SOURCES: cfg.LOG_ENABLED_SOURCES?.value || "all",
+            LOG_LEVEL: cfg.LOG_LEVEL?.value || "info",
+            LOG_MAX_FILE_SIZE_MB: cfg.LOG_MAX_FILE_SIZE_MB?.value || "50",
+            LOG_MAX_FILES: cfg.LOG_MAX_FILES?.value || "10",
+            LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
           });
+          setSourceInfo(cfg);
         });
-        window.electronAPI
-          ?.getConfigWithSources()
-          .then(setSourceInfo)
-          .catch(() => {});
         // Refresh active jobs list after import (services were restarted)
         window.electronAPI
           ?.getActiveJobs()
@@ -339,34 +336,32 @@ export default function ConfigPanel({ onClose }: Props) {
     setSaved(false);
     setError(null);
     setRestartNeeded(false);
-    window.electronAPI?.getConfig().then((cfg) => {
+    // Use getConfigWithSources so .env values appear as fallback when not in config.json
+    window.electronAPI?.getConfigWithSources().then((cfg) => {
       setValues({
-        DEEPSEEK_API_KEY: cfg.DEEPSEEK_API_KEY || "",
-        LLM_PROVIDER: cfg.LLM_PROVIDER || "deepseek",
-        OLLAMA_BASE_URL: cfg.OLLAMA_BASE_URL || "http://127.0.0.1:11434/v1",
-        OLLAMA_MODEL: cfg.OLLAMA_MODEL || "",
-        OLLAMA_NUM_CTX: cfg.OLLAMA_NUM_CTX || "32768",
-        HUGGING_FACE_TOKEN: cfg.HUGGING_FACE_TOKEN || "",
-        GITHUB_TOKEN: cfg.GITHUB_TOKEN || "",
-        WHISPER_MODEL_SIZE: cfg.WHISPER_MODEL_SIZE || "medium",
-        KEEP_TRANSCRIPT_TIMESTAMPS: cfg.KEEP_TRANSCRIPT_TIMESTAMPS || "false",
-        GMAIL_CLIENT_ID: cfg.GMAIL_CLIENT_ID || "",
-        GMAIL_CLIENT_SECRET: cfg.GMAIL_CLIENT_SECRET || "",
-        GMAIL_REFRESH_TOKEN: cfg.GMAIL_REFRESH_TOKEN || "",
-        GMAIL_USER: cfg.GMAIL_USER || "",
-        TRELLO_KEY: cfg.TRELLO_KEY || "",
-        TRELLO_TOKEN: cfg.TRELLO_TOKEN || "",
-        LOG_ENABLED_SOURCES: cfg.LOG_ENABLED_SOURCES || "all",
-        LOG_LEVEL: cfg.LOG_LEVEL || "info",
-        LOG_MAX_FILE_SIZE_MB: cfg.LOG_MAX_FILE_SIZE_MB || "50",
-        LOG_MAX_FILES: cfg.LOG_MAX_FILES || "10",
-        LOG_LLM_DATA: cfg.LOG_LLM_DATA || "false",
+        DEEPSEEK_API_KEY: cfg.DEEPSEEK_API_KEY?.value || "",
+        LLM_PROVIDER: cfg.LLM_PROVIDER?.value || "deepseek",
+        OLLAMA_BASE_URL: cfg.OLLAMA_BASE_URL?.value || "http://127.0.0.1:11434/v1",
+        OLLAMA_MODEL: cfg.OLLAMA_MODEL?.value || "",
+        OLLAMA_NUM_CTX: cfg.OLLAMA_NUM_CTX?.value || "32768",
+        HUGGING_FACE_TOKEN: cfg.HUGGING_FACE_TOKEN?.value || "",
+        GITHUB_TOKEN: cfg.GITHUB_TOKEN?.value || "",
+        WHISPER_MODEL_SIZE: cfg.WHISPER_MODEL_SIZE?.value || "medium",
+        KEEP_TRANSCRIPT_TIMESTAMPS: cfg.KEEP_TRANSCRIPT_TIMESTAMPS?.value || "false",
+        GMAIL_CLIENT_ID: cfg.GMAIL_CLIENT_ID?.value || "",
+        GMAIL_CLIENT_SECRET: cfg.GMAIL_CLIENT_SECRET?.value || "",
+        GMAIL_REFRESH_TOKEN: cfg.GMAIL_REFRESH_TOKEN?.value || "",
+        GMAIL_USER: cfg.GMAIL_USER?.value || "",
+        TRELLO_KEY: cfg.TRELLO_KEY?.value || "",
+        TRELLO_TOKEN: cfg.TRELLO_TOKEN?.value || "",
+        LOG_ENABLED_SOURCES: cfg.LOG_ENABLED_SOURCES?.value || "all",
+        LOG_LEVEL: cfg.LOG_LEVEL?.value || "info",
+        LOG_MAX_FILE_SIZE_MB: cfg.LOG_MAX_FILE_SIZE_MB?.value || "50",
+        LOG_MAX_FILES: cfg.LOG_MAX_FILES?.value || "10",
+        LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
       });
+      setSourceInfo(cfg);
     });
-    window.electronAPI
-      ?.getConfigWithSources()
-      .then(setSourceInfo)
-      .catch(() => {});
   }, []);
 
   // ── Load agent config when switching to agent tab ──
@@ -626,7 +621,7 @@ export default function ConfigPanel({ onClose }: Props) {
                                   title={visibleKeys.has(field.key) ? "Hide value" : "Show value"}
                                   type="button"
                                   tabIndex={-1}>
-                                  {visibleKeys.has(field.key) ? "🙈" : "👁️"}
+                                  {visibleKeys.has(field.key) ? "👁️" : "🙈"}
                                 </button>
                               </div>
                             </div>
@@ -661,7 +656,7 @@ export default function ConfigPanel({ onClose }: Props) {
                                     title={visibleKeys.has(field.key) ? "Hide value" : "Show value"}
                                     type="button"
                                     tabIndex={-1}>
-                                    {visibleKeys.has(field.key) ? "🙈" : "👁️"}
+                                    {visibleKeys.has(field.key) ? "👁️" : "🙈"}
                                   </button>
                                 )}
                               </div>
@@ -894,7 +889,7 @@ export default function ConfigPanel({ onClose }: Props) {
                               title={visibleKeys.has(field.key) ? "Hide value" : "Show value"}
                               type="button"
                               tabIndex={-1}>
-                              {visibleKeys.has(field.key) ? "🙈" : "👁️"}
+                              {visibleKeys.has(field.key) ? "👁️" : "🙈"}
                             </button>
                           )}
                         </div>

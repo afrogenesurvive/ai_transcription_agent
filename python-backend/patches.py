@@ -30,6 +30,7 @@ try:
         return _orig_lazy_getattr(self, attr)
 
     _sb_utils.LazyModule.__getattr__ = _safe_lazy_getattr
+    print("[patches] ✅ Patched speechbrain LazyModule.__getattr__ (safe __file__)")
 except Exception:
     pass  # speechbrain may not be installed
 
@@ -41,6 +42,7 @@ except Exception:
 # IMPORTANT: Must run BEFORE any pyannote import, because
 # pyannote.audio.utils.protocol creates Audio(mono="downmix") at module level.
 _torchaudio.list_audio_backends = lambda: ["soundfile"]
+print("[patches] ✅ Patched torchaudio.list_audio_backends → soundfile")
 
 
 # ── 3. pyannote.audio get_torchaudio_info patch ──

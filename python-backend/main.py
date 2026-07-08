@@ -9,6 +9,7 @@ Endpoints:
 
 import os
 import json
+import time
 import asyncio
 import warnings
 from datetime import datetime
@@ -697,6 +698,304 @@ async def get_job_files(job_id: str):
             continue
     files.sort(key=lambda f: f["name"])
     return {"job_id": job_id, "files": files}
+
+
+# ── Speaker Labeling (pause & resume) ──
+
+@app.get("/transcribe/speaker_clips/{job_id}")
+async def get_speaker_clips(job_id: str):
+    """Return detected speakers with audio clip URLs for manual labeling.
+
+    Only available when status is 'paused_for_labeling'. Returns each
+    detected speaker with a playable audio clip URL so the user can
+    hear who they are and assign a name.
+    """
+    s = uploader.get_status(job_id)
+    if s["status"] == "not_found":
+        raise HTTPException(404, "Job not found")
+    if s["status"] != "paused_for_labeling":
+        raise HTTPException(409, f"Job is not paused for labeling (status={s['status']})")
+
+    diar_data = uploader.load_diarization(job_id)
+    if not diar_data or "speaker_segments" not in diar_data:
+        raise HTTPException(500, "Diarization data not found for this job")
+
+    speaker_segments = diar_data["speaker_segments"]
+    audio_path = uploader.get_audio_path(job_id)
+    metadata = uploader.get_metadata(job_id)
+    attendee_names = metadata.get("attendees", [])
+
+    speakers = []
+    for spk, segs in speaker_segments.items():
+        # Find the longest segment for a good sample clip
+        longest = max(segs, key=lambda s: s["duration"])
+        clip_duration = min(3.0, longest["duration"])
+        clip_start = longest["start"]
+        clip_end = clip_start + clip_duration
+
+        speakers.append({
+            "speaker_id": spk,
+            "segment_count": len(segs),
+            "total_duration": sum(s["duration"] for s in segs),
+            "sample_clip_url": f"/transcribe/audio/speaker_clip/{job_id}/{spk}/0",
+            "sample_start": clip_start,
+            "sample_end": clip_end,
+            "suggested_name": attendee_names[len(speakers)] if len(speakers) < len(attendee_names) else "",
+        })
+
+    return {"job_id": job_id, "speakers": speakers, "total_speakers": len(speakers)}
+
+
+@app.get("/transcribe/audio/speaker_clip/{job_id}/{speaker_id}/{clip_index}")
+async def serve_speaker_clip(job_id: str, speaker_id: str, clip_index: int):
+    """Serve a short audio clip for a detected speaker.
+
+    Extracts ~3 seconds from the middle of the speaker's longest segment
+    using ffmpeg, served as a WAV for in-browser playback.
+    """
+    from fastapi.responses import FileResponse, Response
+    import subprocess as _sp
+    import tempfile as _tf
+
+    diar_data = uploader.load_diarization(job_id)
+    if not diar_data or "speaker_segments" not in diar_data:
+        raise HTTPException(404, "Diarization data not found")
+
+    speaker_segments = diar_data["speaker_segments"]
+    if speaker_id not in speaker_segments:
+        raise HTTPException(404, f"Speaker {speaker_id} not found")
+
+    segs = speaker_segments[speaker_id]
+    longest = max(segs, key=lambda s: s["duration"])
+    audio_path = uploader.get_audio_path(job_id)
+
+    clip_duration = min(3.0, longest["duration"])
+    clip_start = longest["start"]
+    clip_end = clip_start + clip_duration
+
+    # Extract clip via ffmpeg to a temp file, serve it, then clean up
+    fd, clip_path = _tf.mkstemp(suffix=f"_{speaker_id}.wav")
+    os.close(fd)
+    try:
+        cmd = [
+            config.FFMPEG_PATH, "-y",
+            "-i", audio_path,
+            "-ss", str(clip_start),
+            "-to", str(clip_end),
+            "-acodec", "pcm_s16le",
+            "-ac", "1",
+            "-ar", "16000",
+            clip_path,
+        ]
+        _sp.run(cmd, check=True, capture_output=True, timeout=30)
+
+        with open(clip_path, "rb") as f:
+            wav_data = f.read()
+    finally:
+        try:
+            os.unlink(clip_path)
+        except OSError:
+            pass
+
+    return Response(content=wav_data, media_type="audio/wav",
+                    headers={"Content-Disposition": f"inline; filename=\"{speaker_id}_clip.wav\""})
+
+
+@app.post("/transcribe/label_and_resume/{job_id}")
+async def label_and_resume(job_id: str, labels: list):
+    """Accept speaker labels from the user and resume the pipeline.
+
+    Body: JSON array of {speaker_id, name, email?}
+    Saves voiceprints with actual audio embeddings, remaps speaker IDs,
+    then continues the pipeline from diarization → ASR → alignment → agent.
+    """
+    s = uploader.get_status(job_id)
+    if s["status"] == "not_found":
+        raise HTTPException(404, "Job not found")
+    if s["status"] != "paused_for_labeling":
+        raise HTTPException(409, f"Job is not paused for labeling (status={s['status']})")
+
+    if not labels or not isinstance(labels, list):
+        raise HTTPException(400, "Body must be a JSON array of {speaker_id, name} objects")
+
+    print(f"[api] POST /transcribe/label_and_resume/{job_id} labels={[l.get('name', '?') for l in labels]}")
+
+    # Save voiceprints with actual audio embeddings
+    diar_data = uploader.load_diarization(job_id)
+    audio_path = uploader.get_audio_path(job_id)
+    label_map = {}
+    for label in labels:
+        spk = label.get("speaker_id", "")
+        name = label.get("name", "").strip()
+        email = label.get("email", "").strip()
+        if not spk or not name:
+            continue
+        label_map[spk] = {"name": name, "email": email}
+
+        # Extract an actual embedding from this speaker's audio
+        if diar_data and spk in diar_data.get("speaker_segments", {}):
+            segs = diar_data["speaker_segments"][spk]
+            # Use the longest segment for a clean embedding
+            longest = max(segs, key=lambda s: s["duration"])
+            try:
+                emb = vp_manager.extract_embedding(
+                    audio_path,
+                    segment=(longest["start"], longest["end"]),
+                )
+                vp_manager.save_voiceprint(name, email, emb)
+                print(f"[api]   ✅ Saved voiceprint for '{name}' ({spk})")
+            except Exception as e:
+                print(f"[api]   ⚠️  Could not extract embedding for '{name}': {e}")
+                vp_manager.save_voiceprint(name, email, None)
+
+    # Start the resumed pipeline in background
+    _start_resumed_pipeline(job_id, label_map)
+    return {"job_id": job_id, "status": "resuming", "applied_labels": len(label_map)}
+
+
+def _start_resumed_pipeline(job_id: str, label_map: dict):
+    """Launch the resumed pipeline in a background asyncio task."""
+    task = asyncio.create_task(_run_resumed_pipeline_async(job_id, label_map))
+    _pipeline_tasks[job_id] = task
+
+
+async def _run_resumed_pipeline_async(job_id: str, label_map: dict):
+    """Async wrapper for the resumed pipeline (diarization → ASR → alignment)."""
+    async with _pipeline_semaphore:
+        print(f"\n{'='*60}")
+        print(f"   ▶️  [PIPELINE] Resuming pipeline for job {job_id} (after labeling)")
+        print(f"{'='*60}")
+        _active_jobs[job_id] = {"status": "resuming", "progress": 0.35, "title": "..."}
+        try:
+            metadata = uploader.get_metadata(job_id)
+            _active_jobs[job_id]["title"] = metadata.get("title", "Untitled")
+        except Exception:
+            pass
+        try:
+            await asyncio.to_thread(_run_pipeline_resumed_sync, job_id, label_map)
+            print(f"\n{'='*60}")
+            print(f"   ✅ [PIPELINE] Resumed pipeline complete for job {job_id}")
+            print(f"{'='*60}\n")
+        except asyncio.CancelledError:
+            _pipeline_cancel.add(job_id)
+            print(f"\n   🛑 [pipeline] Job {job_id} task cancelled.")
+            _active_jobs.pop(job_id, None)
+            raise
+        except Exception as e:
+            print(f"\n   ❌ [pipeline] ERROR in resumed job {job_id}: {e}")
+            import traceback
+            traceback.print_exc()
+            uploader.update_status(job_id, {"status": "failed", "error": str(e)})
+            agent_bridge.enqueue_failed(job_id, str(e), {})
+        finally:
+            _pipeline_tasks.pop(job_id, None)
+            _pipeline_cancel.discard(job_id)
+            _active_jobs.pop(job_id, None)
+
+
+def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
+    """Resumed pipeline — loads saved diarization, skips to ASR + alignment.
+
+    The diarization was already done and saved. We load it, apply the
+    user-provided label map, then run ASR, alignment, and enqueue for agent.
+    """
+    try:
+        _update_active(job_id, "resuming", 0.35)
+        engine = TranscriptionEngine()
+        metadata = uploader.get_metadata(job_id)
+        audio_path = uploader.get_audio_path(job_id)
+
+        # Load saved diarization
+        diar_data = uploader.load_diarization(job_id)
+        if not diar_data or "diarization" not in diar_data:
+            raise RuntimeError("Diarization data not found — cannot resume pipeline")
+        diarization = diar_data["diarization"]
+        speaker_segments = diar_data["speaker_segments"]
+        print(f"[pipeline] Loaded saved diarization ({len(diarization)} segments, "
+              f"{len(speaker_segments)} speakers)")
+
+        # Build match_result from user labels
+        unknown = []
+        known = {}
+        for spk, segs in speaker_segments.items():
+            if spk in label_map:
+                info = label_map[spk]
+                known[info["name"]] = segs
+            else:
+                unknown.append({
+                    "speaker_id": spk,
+                    "segments": [{"start": s["start"], "end": s["end"], "duration": s["duration"], "speaker": s["speaker"]} for s in segs],
+                    "sample_segment": {"start": segs[0]["start"], "end": segs[0]["end"]},
+                })
+        match_result = {"known": known, "unknown": unknown}
+        print(f"[pipeline] User labels applied: {len(known)} known, {len(unknown)} unknown")
+
+        # ── Step 3: ASR Transcription ──
+        print(f"\n   🎤 [PIPELINE] Step 3/5: ASR transcription (Whisper)...")
+        _update_active(job_id, "processing_transcription", 0.5)
+        if _check_cancelled(job_id): return
+        t_asr = time.time()
+        transcription = engine.run_transcription(audio_path)
+        asr_elapsed = time.time() - t_asr
+
+        # ── Step 4: Alignment ──
+        print(f"\n   🔗 [PIPELINE] Step 4/5: Aligning diarization with transcript...")
+        _update_active(job_id, "aligning", 0.7)
+        if _check_cancelled(job_id): return
+        t_align = time.time()
+        aligned = engine.align_transcript(transcription, diarization)
+        align_elapsed = time.time() - t_align
+
+        # Apply user-provided speaker labels
+        label_count = 0
+        for seg in aligned:
+            for name, segs in known.items():
+                for s in segs:
+                    if abs(seg["start"] - s["start"]) < 0.5:
+                        seg["speaker"] = name
+                        label_count += 1
+                        break
+        if label_count:
+            print(f"[pipeline] Applied {label_count} speaker label(s) from user")
+
+        uploader.save_transcript(job_id, aligned)
+        uploader.save_transcript_text(job_id, aligned)
+        _update_active(job_id, "transcribed", 0.85)
+
+        # Timing summary
+        print(f"\n{'='*50}")
+        print(f"   ⏱️  RESUMED PIPELINE TIMING")
+        print(f"{'='*50}")
+        print(f"      ASR:             {asr_elapsed:>7.1f}s")
+        print(f"      Alignment:       {align_elapsed*1000:>7.0f}ms")
+        print(f"{'='*50}\n")
+
+        # ── Step 5: Enqueue for agent ──
+        print(f"\n   📨 [PIPELINE] Step 5/5: Enqueueing for agent runner...")
+        if _check_cancelled(job_id): return
+        if unknown:
+            for u in unknown:
+                for seg in aligned:
+                    if abs(seg["start"] - u["sample_segment"]["start"]) < 1.0:
+                        u["sample_text"] = seg["text"][:200]
+                        break
+            _update_active(job_id, "labeling_needed", 0.9, unknown_speakers=unknown)
+            print(f"[pipeline] {len(unknown)} unknown speaker(s) — enqueueing labeling_needed")
+            agent_bridge.enqueue_labeling_needed(job_id, unknown, aligned, metadata)
+        else:
+            _update_active(job_id, "ready_for_agent", 0.95)
+            skip = metadata.get("skip_steps")
+            print(f"[pipeline] All speakers known — enqueueing ready_for_processing")
+            agent_bridge.enqueue_ready(job_id, aligned, metadata, skip_steps=skip)
+
+    except Exception as e:
+        print(f"\n   ❌ [pipeline] ERROR in resumed job {job_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        uploader.update_status(job_id, {"status": "failed", "error": str(e)})
+        agent_bridge.enqueue_failed(job_id, str(e), {})
+    finally:
+        _pipeline_cancel.discard(job_id)
 
 
 @app.post("/transcribe/cancel/{job_id}")
@@ -1422,9 +1721,12 @@ def _run_pipeline_sync(job_id: str):
         print(f"\n   🔬 [PIPELINE] Step 1/5: Diarization (identifying speakers)...")
         _update_active(job_id, "processing_diarization", 0.2)
         if _check_cancelled(job_id): return
+        t_diar = time.time()
         diarization = engine.run_diarization(audio_path)
+        diar_elapsed = time.time() - t_diar
         speakers_found = set(s["speaker"] for s in diarization)
-        print(f"   ✅ [pipeline] Diarization complete: {len(diarization)} segments, {len(speakers_found)} speakers: {', '.join(sorted(speakers_found))}")
+        print(f"   ✅ [pipeline] Diarization: {len(diarization)} segments, {len(speakers_found)} speakers "
+              f"({', '.join(sorted(speakers_found))}) in {diar_elapsed:.1f}s")
 
         # Group by speaker (use dicts consistently — no SimpleNamespace)
         speaker_segments = {}
@@ -1437,10 +1739,46 @@ def _run_pipeline_sync(job_id: str):
                 "duration": seg.get("duration", seg["end"] - seg["start"]),
             })
 
+        # ── Pause for user labeling if speaker count doesn't match attendees ──
+        # After diarization we know how many unique voices exist. If the number
+        # of attendees provided by the user doesn't match, pause and let them
+        # label each detected speaker before we proceed to the expensive ASR step.
+        speaker_count = len(speaker_segments)
+        attendee_count = len(metadata.get("attendees", []))
+        should_pause = (
+            speaker_count > 0 and (
+                attendee_count == 0 or
+                attendee_count != speaker_count
+            )
+        )
+        if should_pause:
+            print(f"\n   ⏸️  [PIPELINE] Speaker count ({speaker_count}) != attendee count ({attendee_count}) — pausing for labeling")
+            uploader.save_diarization(job_id, {
+                "speaker_segments": speaker_segments,
+                "diarization": diarization,
+                "total_speakers": speaker_count,
+            })
+            # Build speaker info for the status so the UI can display it
+            speaker_info = []
+            for spk, segs in speaker_segments.items():
+                longest = max(segs, key=lambda s: s["duration"])
+                speaker_info.append({
+                    "speaker_id": spk,
+                    "segment_count": len(segs),
+                    "total_duration": sum(s["duration"] for s in segs),
+                    "sample_start": longest["start"],
+                    "sample_end": longest["end"],
+                })
+            _update_active(job_id, "paused_for_labeling", 0.3, speakers=speaker_info)
+            print(f"[pipeline] ⏸️  Pipeline paused — waiting for speaker labels from user")
+            print(f"[pipeline]   Detected speakers: {', '.join(sorted(speaker_segments.keys()))}")
+            return  # Exit pipeline — resume via POST /transcribe/label_and_resume
+
         # ── Step 2: Voiceprint matching ──
         print(f"\n   🧬 [PIPELINE] Step 2/5: Voiceprint matching...")
         _update_active(job_id, "matching_voiceprints", 0.35)
         if _check_cancelled(job_id): return
+        t_vp = time.time()
         attendees = metadata.get("attendees", [])
         if attendees:
             print(f"[pipeline] Matching against {len(attendees)} known attendees: {attendees}")
@@ -1457,23 +1795,30 @@ def _run_pipeline_sync(job_id: str):
                 }
                 for spk, segs in speaker_segments.items()
             ]}
-        print(f"[pipeline] Voiceprint result: {len(match_result['known'])} known, {len(match_result.get('unknown', []))} unknown")
+        vp_elapsed = time.time() - t_vp
+        print(f"   ✅ [pipeline] Voiceprint matching in {vp_elapsed:.1f}s: "
+              f"{len(match_result['known'])} known, {len(match_result.get('unknown', []))} unknown")
         if match_result['known']:
-            print(f"[pipeline] Matched speakers: {list(match_result['known'].keys())}")
+            print(f"[pipeline]   Matched: {list(match_result['known'].keys())}")
 
         # ── Step 3: ASR Transcription ──
         print(f"\n   🎤 [PIPELINE] Step 3/5: ASR transcription (Whisper)...")
         _update_active(job_id, "processing_transcription", 0.5)
         if _check_cancelled(job_id): return
+        t_asr = time.time()
         transcription = engine.run_transcription(audio_path)
-        print(f"   ✅ [pipeline] ASR complete: {len(transcription.get('words', []))} words, {len(transcription.get('segments', []))} segments")
+        asr_elapsed = time.time() - t_asr
+        print(f"   ✅ [pipeline] ASR: {len(transcription.get('words', []))} words, "
+              f"{len(transcription.get('segments', []))} segments in {asr_elapsed:.1f}s")
 
         # ── Step 4: Alignment ──
         print(f"\n   🔗 [PIPELINE] Step 4/5: Aligning diarization with transcript...")
         _update_active(job_id, "aligning", 0.7)
         if _check_cancelled(job_id): return
+        t_align = time.time()
         aligned = engine.align_transcript(transcription, diarization)
-        print(f"   ✅ [pipeline] Alignment complete: {len(aligned)} transcript segments")
+        align_elapsed = time.time() - t_align
+        print(f"   ✅ [pipeline] Alignment: {len(aligned)} transcript segments in {align_elapsed*1000:.0f}ms")
 
         # Apply known speaker labels
         label_count = 0
@@ -1490,6 +1835,19 @@ def _run_pipeline_sync(job_id: str):
         uploader.save_transcript(job_id, aligned)
         uploader.save_transcript_text(job_id, aligned)
         _update_active(job_id, "transcribed", 0.85)
+
+        # ── Pipeline timing summary ──
+        pipeline_total = time.time() - (t_diar - diar_elapsed)
+        print(f"\n{'='*50}")
+        print(f"   ⏱️  PIPELINE TIMING SUMMARY")
+        print(f"{'='*50}")
+        print(f"      Diarization:     {diar_elapsed:>7.1f}s")
+        print(f"      Voiceprint:      {vp_elapsed:>7.1f}s")
+        print(f"      ASR:             {asr_elapsed:>7.1f}s")
+        print(f"      Alignment:       {align_elapsed*1000:>7.0f}ms")
+        print(f"      ─────────────────────")
+        print(f"      Total (ML):      {pipeline_total:>7.1f}s")
+        print(f"{'='*50}\n")
 
         # ── Step 5: Enqueue for agent ──
         print(f"\n   📨 [PIPELINE] Step 5/5: Enqueueing for agent runner...")

@@ -1416,6 +1416,7 @@ body {
 .dev-panel--full {
   flex: 1;
   border: none;
+  overflow: scroll;
 }
 
 .dev-panel-toolbar {
@@ -1980,35 +1981,39 @@ body {
   background: var(--surface-hover);
 }
 
-/* ── Config Panel — input row with visibility toggle ── */
+/* ── Config Panel — input row with visibility toggle inside the input ── */
 
 .config-input-row {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
 }
 
 .config-input-row .config-input {
   flex: 1;
+  padding-right: 40px;
 }
 
 .config-visibility-toggle {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
   background: none;
-  border: 1px solid var(--border);
+  border: none;
   color: var(--text-muted);
   cursor: pointer;
-  padding: 6px 8px;
-  border-radius: var(--radius);
+  padding: 4px 6px;
   font-size: var(--fs-14);
   line-height: 1;
+  border-radius: 4px;
   transition: all 0.15s;
-  flex-shrink: 0;
+  z-index: 1;
 }
 
 .config-visibility-toggle:hover {
   background: var(--surface-hover);
   color: var(--text);
-  border-color: var(--accent);
 }
 
 .config-footer-hint {
@@ -2661,7 +2666,8 @@ body {
 .dev-panel-db {
   display: flex;
   flex: 1;
-  overflow: hidden;
+  overflow: scroll;
+  min-width: 0;
 }
 
 .dev-panel-db-sidebar {
@@ -2707,15 +2713,17 @@ body {
 .dev-panel-db-content {
   flex: 1;
   overflow: auto;
+  overflow-x: auto;
+  overflow-y: auto;
   padding: 4px 0;
 }
 
 .dev-panel-db-table {
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
   border-collapse: collapse;
   font-size: var(--fs-11);
   font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
-  min-width: max-content;
 }
 
 .dev-panel-db-table th {
@@ -2802,6 +2810,42 @@ body {
   padding: 4px 6px !important;
   text-align: center;
   vertical-align: middle;
+  position: sticky;
+  left: 0;
+}
+
+/* Expand column header — sticky on both axes, highest z-index */
+.dev-panel-db-table th.dev-panel-db-cell-expand {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 4;
+  background: var(--surface);
+}
+
+/* Suppress the col-resize handle on the expand column header */
+.dev-panel-db-table th.dev-panel-db-cell-expand::after {
+  display: none;
+}
+
+/* Expand column body cells — sticky on left axis */
+.dev-panel-db-table td.dev-panel-db-cell-expand {
+  z-index: 2;
+  background: var(--bg);
+}
+
+/* When a row is expanded, give the sticky cell matching background */
+.dev-panel-db-row--expanded td.dev-panel-db-cell-expand {
+  background: rgba(88, 166, 255, 0.04);
+}
+
+/* Hover state for sticky expand cell */
+.dev-panel-db-table tbody tr:hover td.dev-panel-db-cell-expand {
+  background: var(--surface-hover) !important;
+}
+
+.dev-panel-db-row--expanded:hover td.dev-panel-db-cell-expand {
+  background: rgba(88, 166, 255, 0.08) !important;
 }
 
 .dev-panel-db-expand-icon {
@@ -2817,16 +2861,16 @@ body {
   background: var(--bg);
 }
 
-/* Table-based expanded detail — matches collapsed row styling, no boxes */
+/* Table-based expanded detail — wraps content within column width, increases row height */
 .dev-panel-db-detail-cell {
   padding: 4px 12px !important;
   vertical-align: top;
-  max-width: none !important;
   overflow: visible !important;
   text-overflow: clip !important;
   white-space: normal !important;
   word-break: break-word;
   line-height: 1.5;
+  max-width: 300px;
 }
 
 /* Legacy stacked detail — kept for backward compatibility */
@@ -2920,43 +2964,11 @@ body {
   background: var(--accent);
 }
 
-.dev-panel-db-table td.dev-panel-db-cell-wrap {
-  white-space: normal;
-  word-break: break-word;
-  overflow: visible;
-  text-overflow: clip;
-  max-width: none;
-}
-
 .dev-panel-db-table td.dev-panel-db-cell-nowrap {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 300px;
-}
-
-.dev-panel-db-wrap-toggle {
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  padding: 3px 8px;
-  border-radius: 4px;
-  font-size: var(--fs-10);
-  cursor: pointer;
-  font-family: var(--font);
-  transition: all 0.15s;
-  white-space: nowrap;
-}
-
-.dev-panel-db-wrap-toggle:hover {
-  border-color: var(--accent);
-  color: var(--text);
-}
-
-.dev-panel-db-wrap-toggle--active {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: rgba(88, 166, 255, 0.08);
+  max-width: 200px;
 }
 
 /* ── DevPanel — semantic view stats & info ── */
@@ -3076,16 +3088,7 @@ body {
   min-width: 30px;
 }
 
-/* ── Collapse all bar ── */
-
-.dev-panel-db-collapse-bar {
-  display: flex;
-  justify-content: flex-end;
-  padding: 6px 12px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-}
-
+/* Collapse all button in toolbar */
 .dev-panel-db-collapse-btn {
   background: none;
   border: 1px solid var(--border);
@@ -3708,6 +3711,15 @@ body {
   border-radius: 4px;
   padding: 2px 8px;
   font-family: "SF Mono", "Fira Code", monospace;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s;
+}
+
+.rv-job-badge:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--surface);
 }
 
 /* ── Body ── */
@@ -3827,6 +3839,23 @@ body {
 
 .rv-audio-error p {
   margin-bottom: 2px;
+}
+
+.rv-audio-retry-btn {
+  margin-top: 8px;
+  padding: 4px 12px;
+  font-size: var(--fs-12);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.rv-audio-retry-btn:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
 }
 
 .rv-audio-info {
@@ -5852,4 +5881,188 @@ body {
   font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
   min-width: 45px;
   text-align: right;
+}
+
+/* ── Speaker Label Modal ── */
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.speaker-label-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 560px;
+  max-width: 90vw;
+  max-height: 85vh;
+  overflow-y: auto;
+  padding: 28px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+}
+
+.speaker-label-modal .modal-header {
+  margin-bottom: 24px;
+}
+
+.speaker-label-modal .modal-header h2 {
+  font-size: 20px;
+  margin-bottom: 8px;
+}
+
+.speaker-label-modal .modal-subtitle {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.speaker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.speaker-item {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  transition: border-color 0.15s;
+}
+
+.speaker-item:hover {
+  border-color: var(--accent);
+}
+
+.speaker-item--labeled {
+  border-color: var(--green);
+}
+
+.speaker-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.speaker-number {
+  font-weight: 600;
+  color: var(--accent);
+  font-size: 14px;
+  min-width: 28px;
+}
+
+.speaker-stats {
+  color: var(--text-muted);
+  font-size: 12px;
+  flex: 1;
+}
+
+.btn-icon {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  transition: all 0.15s;
+}
+
+.btn-icon:hover {
+  background: var(--surface-hover);
+  border-color: var(--accent);
+}
+
+.speaker-play-btn {
+  min-width: 36px;
+  text-align: center;
+}
+
+.speaker-name-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.speaker-name-input {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.speaker-name-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.15);
+}
+
+.speaker-name-input::placeholder {
+  color: var(--text-muted);
+}
+
+.speaker-label-check {
+  color: var(--green);
+  font-weight: 700;
+  font-size: 16px;
+  min-width: 20px;
+  text-align: center;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.modal-actions .btn-primary,
+.modal-actions .btn-secondary {
+  padding: 8px 18px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  transition: all 0.15s;
+}
+
+.modal-actions .btn-primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.modal-actions .btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.modal-actions .btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.modal-actions .btn-secondary {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.modal-actions .btn-secondary:hover:not(:disabled) {
+  background: var(--surface-hover);
 }

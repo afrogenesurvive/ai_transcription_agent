@@ -26,8 +26,10 @@ import StoragePanel from "./components/StoragePanel";
 import AboutPanel from "./components/AboutPanel";
 import AppearancePanel from "./components/AppearancePanel";
 import ServerStatusBanner from "./components/ServerStatusBanner";
+import SpeakerLabelModal from "./components/SpeakerLabelModal";
 import { useApi } from "./hooks/useApi";
 import { useJobStatus } from "./hooks/useJobStatus";
+import type { PollingState } from "./hooks/useJobStatus";
 import { useServerStatus } from "./hooks/useServerStatus";
 import { loadAndApplyAppearance } from "./appearance";
 import type { JobStatus } from "./types";
@@ -73,6 +75,11 @@ export default function App() {
   const [showHistory, setShowHistory] = useState(false);
   const [storageRefreshTrigger, setStorageRefreshTrigger] = useState(0);
   const [showNewForm, setShowNewForm] = useState(false);
+
+  // ── Speaker labeling modal ──
+  const [speakerClips, setSpeakerClips] = useState<any>(null);
+  const [showSpeakerModal, setShowSpeakerModal] = useState(false);
+  const [labelingSubmitting, setLabelingSubmitting] = useState(false);
 
   // Whether a job is currently running (processing)
   const isJobRunning = view === "processing";
@@ -183,6 +190,31 @@ export default function App() {
     }
   }, [statusHook.data]);
 
+  // When pipeline pauses for labeling, fetch speaker clips and show the modal
+  React.useEffect(() => {
+    if (statusHook.state === "paused" && jobId && !showSpeakerModal && !speakerClips) {
+      console.log("[App] Pipeline paused for labeling — fetching speaker clips");
+      api
+        .getSpeakerClips(jobId)
+        .then((clips) => {
+          setSpeakerClips(clips);
+          setShowSpeakerModal(true);
+        })
+        .catch((err) => {
+          console.error("[App] Failed to fetch speaker clips:", err);
+          setNotification("Speaker identification paused but clips unavailable — check backend logs");
+        });
+    }
+  }, [statusHook.state, jobId]);
+
+  // When status changes away from paused, reset the speaker modal state
+  React.useEffect(() => {
+    if (statusHook.state !== "paused" && statusHook.state !== "polling") {
+      setShowSpeakerModal(false);
+      setSpeakerClips(null);
+    }
+  }, [statusHook.state]);
+
   // Stable refs for API calls so the effect below doesn't re-run on every render
   const getTranscriptRef = useRef<(id: string) => Promise<any>>();
   const getSummaryRef = useRef<(id: string) => Promise<any>>();
@@ -231,6 +263,37 @@ export default function App() {
       setView("results");
     }
   }, [statusHook.state, jobId]);
+
+  // Handle speaker label confirmation and pipeline resume
+  const handleLabelConfirm = useCallback(
+    async (labels: Array<{ speaker_id: string; name: string; email?: string }>) => {
+      if (!jobId) return;
+      setLabelingSubmitting(true);
+      try {
+        const result = await api.labelAndResume(jobId, labels);
+        console.log("Label & resume result", result);
+        setShowSpeakerModal(false);
+        setNotification(`Speaker labels applied — pipeline resuming`);
+      } catch (err: any) {
+        setNotification(`Failed to apply labels: ${err.message}`);
+      } finally {
+        setLabelingSubmitting(false);
+      }
+    },
+    [jobId, api],
+  );
+
+  const handleLabelCancel = useCallback(async () => {
+    if (!jobId) return;
+    try {
+      await api.cancelJob(jobId);
+      statusHook.stopPolling();
+      setShowSpeakerModal(false);
+      setNotification("Job cancelled");
+    } catch (err: any) {
+      setNotification(`Cancel failed: ${err.message}`);
+    }
+  }, [jobId, api, statusHook]);
 
   // Handle upload submit
   const handleUpload = async (file: File, title: string, attendees: string[], skipSteps: string[]) => {
@@ -328,6 +391,17 @@ export default function App() {
             ✕
           </button>
         </div>
+      )}
+
+      {/* Speaker labeling modal — shown when pipeline pauses after diarization */}
+      {showSpeakerModal && speakerClips && speakerClips.speakers && (
+        <SpeakerLabelModal
+          jobId={jobId!}
+          speakers={speakerClips.speakers}
+          onConfirm={handleLabelConfirm}
+          onCancel={handleLabelCancel}
+          submitting={labelingSubmitting}
+        />
       )}
 
       <div className="app-body">

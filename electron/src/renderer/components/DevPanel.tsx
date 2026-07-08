@@ -596,7 +596,6 @@ function DatabaseTab() {
 
   // ── Column resizing (drag the right edge of any header cell) ──
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
-  const [textWrapEnabled, setTextWrapEnabled] = useState(false);
   const resizingRef = useRef<{ columnKey: string; startX: number; startWidth: number } | null>(null);
 
   const handleThMouseDown = useCallback((columnKey: string, e: React.MouseEvent) => {
@@ -653,9 +652,10 @@ function DatabaseTab() {
     );
   };
 
-  // Render a cell with wrap/nowrap class
+  // Render a cell — always nowrap so collapsed rows determine column widths
+  // Expanded rows (detail cells) wrap instead, increasing row height
   const renderTd = (content: React.ReactNode, key: string) => (
-    <td key={key} className={textWrapEnabled ? "dev-panel-db-cell-wrap" : "dev-panel-db-cell-nowrap"}>
+    <td key={key} className="dev-panel-db-cell-nowrap">
       {content}
     </td>
   );
@@ -680,12 +680,11 @@ function DatabaseTab() {
           </div>
         </div>
         <div className="dev-panel-actions">
-          <button
-            className={`dev-panel-db-wrap-toggle ${textWrapEnabled ? "dev-panel-db-wrap-toggle--active" : ""}`}
-            onClick={() => setTextWrapEnabled((v) => !v)}
-            title={textWrapEnabled ? "Disable text wrapping" : "Enable text wrapping"}>
-            {textWrapEnabled ? "📄 Wrap ON" : "📄 Wrap"}
-          </button>
+          {expandedRows.size > 0 && (
+            <button className="dev-panel-db-collapse-btn" onClick={() => setExpandedRows(new Set())}>
+              ▲ Collapse all
+            </button>
+          )}
           <button className="dev-panel-btn" onClick={handleRefresh} title="Refresh database">
             ↻ Refresh
           </button>
@@ -727,13 +726,6 @@ function DatabaseTab() {
               {selectedTable && tableRows.length === 0 && <div className="dev-panel-empty">(empty table)</div>}
               {selectedTable && tableRows.length > 0 && (
                 <>
-                  {expandedRows.size > 0 && (
-                    <div className="dev-panel-db-collapse-bar">
-                      <button className="dev-panel-db-collapse-btn" onClick={() => setExpandedRows(new Set())}>
-                        ▲ Collapse all
-                      </button>
-                    </div>
-                  )}
                   <table className="dev-panel-db-table">
                     <thead>
                       <tr>
@@ -785,13 +777,6 @@ function DatabaseTab() {
 
             {meetings.length > 0 && (
               <>
-                {expandedRows.size > 0 && (
-                  <div className="dev-panel-db-collapse-bar">
-                    <button className="dev-panel-db-collapse-btn" onClick={() => setExpandedRows(new Set())}>
-                      ▲ Collapse all
-                    </button>
-                  </div>
-                )}
                 <table className="dev-panel-db-table">
                   <thead>
                     <tr>

@@ -61,8 +61,8 @@ const PIPELINE: StageDef[] = [
     key: "voiceprints",
     icon: "🧬",
     label: "Matching Voices",
-    description: "Matching voices to known attendees",
-    matches: ["matching_voiceprints"],
+    description: "Identifying and labeling each speaker",
+    matches: ["matching_voiceprints", "paused_for_labeling", "resuming"],
   },
   {
     key: "transcription",

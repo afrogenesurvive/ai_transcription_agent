@@ -11,7 +11,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 
-type PollingState = "idle" | "polling" | "complete" | "error";
+export type PollingState = "idle" | "polling" | "complete" | "error" | "paused";
 
 const FAILED_GRACE_PERIOD_MS = 2 * 60 * 1000; // 2 minutes
 
@@ -67,6 +67,16 @@ export function useJobStatus(jobId: string | null, fetcher: (id: string) => Prom
           return;
         }
 
+        // ── Paused for labeling — notify the UI to show the labeling modal ──
+        // This is NOT a terminal state. The pipeline is waiting for the user
+        // to manually label speakers. Keep polling so we detect when the
+        // user submits labels and the job resumes.
+        if (result.status === "paused_for_labeling") {
+          setState("paused");
+          // Keep polling — don't stop. The user may take a while to label.
+          return;
+        }
+
         // ── Graceful "failed" handling ──
         // The agent runner may retry a failed job (re-enqueues a "failed"
         // event which gets processed again). If the status was "failed"
@@ -91,6 +101,11 @@ export function useJobStatus(jobId: string | null, fetcher: (id: string) => Prom
         if (firstFailedAt.current !== null) {
           console.log(`[useJobStatus] ${jobId} recovered from failed → ${result.status}, resetting grace`);
           firstFailedAt.current = null;
+        }
+
+        // If we were paused and now the status changed, resume polling normally
+        if (state === "paused" && result.status !== "paused_for_labeling") {
+          setState("polling");
         }
 
         if (successStatuses.has(result.status)) {
