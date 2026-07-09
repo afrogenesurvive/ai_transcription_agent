@@ -220,7 +220,38 @@ export function readLogFile(filePath: string, maxLines = 0): string[] {
   }
 }
 
-/** List per-job pipeline.log files from the storage directory. */
+/** List per-job log files (pipeline.log + agent-trace/actions.jsonl) from the storage directory. */
+// export function listJobLogFiles(storageDir: string): LogFileInfo[] {
+//   const files: LogFileInfo[] = [];
+//   if (!storageDir || !fs.existsSync(storageDir)) return files;
+//   try {
+//     const entries = fs.readdirSync(storageDir, { withFileTypes: true });
+//     for (const entry of entries) {
+//       if (!entry.isDirectory()) continue;
+//       // Skip special directories
+//       if (["chroma", "logs", "uploads", ".model_cache"].includes(entry.name)) continue;
+//       const pipelineLogPath = path.join(storageDir, entry.name, "pipeline.log");
+//       if (!fs.existsSync(pipelineLogPath)) continue;
+//       try {
+//         const stat = fs.statSync(pipelineLogPath);
+//         files.push({
+//           path: pipelineLogPath,
+//           name: `${entry.name}/pipeline.log`,
+//           size: stat.size,
+//           mtime: stat.mtime,
+//           source: "job",
+//         });
+//       } catch {
+//         // skip unreadable
+//       }
+//     }
+//   } catch {
+//     // non-fatal
+//   }
+//   return files;
+// }
+
+/** List per-job log files (pipeline.log + agent-trace/actions.jsonl) from the storage directory. */
 export function listJobLogFiles(storageDir: string): LogFileInfo[] {
   const files: LogFileInfo[] = [];
   if (!storageDir || !fs.existsSync(storageDir)) return files;
@@ -230,19 +261,28 @@ export function listJobLogFiles(storageDir: string): LogFileInfo[] {
       if (!entry.isDirectory()) continue;
       // Skip special directories
       if (["chroma", "logs", "uploads", ".model_cache"].includes(entry.name)) continue;
-      const pipelineLogPath = path.join(storageDir, entry.name, "pipeline.log");
-      if (!fs.existsSync(pipelineLogPath)) continue;
+      // List all .log and .jsonl files from the job directory
+      const jobDir = path.join(storageDir, entry.name);
       try {
-        const stat = fs.statSync(pipelineLogPath);
-        files.push({
-          path: pipelineLogPath,
-          name: `${entry.name}/pipeline.log`,
-          size: stat.size,
-          mtime: stat.mtime,
-          source: "job",
-        });
+        const jobFiles = fs.readdirSync(jobDir);
+        for (const fname of jobFiles) {
+          if (!fname.endsWith(".log") && !fname.endsWith(".jsonl")) continue;
+          const fpath = path.join(jobDir, fname);
+          try {
+            const stat = fs.statSync(fpath);
+            files.push({
+              path: fpath,
+              name: `${entry.name}/${fname}`,
+              size: stat.size,
+              mtime: stat.mtime,
+              source: "job",
+            });
+          } catch {
+            // skip unreadable
+          }
+        }
       } catch {
-        // skip unreadable
+        // job directory not readable or doesn't exist
       }
     }
   } catch {
@@ -296,11 +336,17 @@ function writeToFile(message: string): void {
 export function addLog(source: LogEntry["source"], level: LogEntry["level"], message: string, subSource?: string): void {
   if (!message) return;
   const timestamp = Date.now();
-  console.log("Log labelling debug!!!!:", {
-    source,
-    subSource,
-    msg_substr: message.substring(0, 10),
-  });
+
+  if (!subSource) {
+    // Only match a simple word-only [tag] at the start — NOT bracketed content
+    // like timestamps.  This prevents the fallback from accidentally extracting
+    // something like "12:28.840 --> 12:33.500" as a sub-source tag when the
+    // caller didn't provide one (e.g. for lines that don't start with [tag]).
+    const match = message.match(/^\[(\w+)\]/);
+    if (match) {
+      subSource = match[1];
+    }
+  }
 
   const entry: LogEntry = { timestamp, source, subSource, level, message };
   buffer.push(entry);

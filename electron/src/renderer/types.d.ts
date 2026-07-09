@@ -142,7 +142,8 @@ export interface ElectronAPI {
     }>
   >;
   // ── Native Notifications ──
-  showNotification: (title: string, body: string) => Promise<void>;
+  showNotification: (title: string, body: string, clickPayload?: Record<string, unknown>) => Promise<void>;
+  onNotificationClick: (cb: (payload: Record<string, unknown>) => void) => () => void;
 
   // ── Ollama Model Management ──
   listOllamaModels: () => Promise<{

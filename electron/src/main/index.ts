@@ -202,15 +202,26 @@ function createTray() {
 
 // ── Notifications ──
 
-function sendNotification(title: string, body: string) {
+function sendNotification(title: string, body: string, clickPayload?: Record<string, unknown>) {
   // Show a top-level OS notification regardless of window focus
-  new Notification({ title, body }).show();
+  const notif = new Notification({ title, body });
+  if (clickPayload) {
+    notif.on("click", () => {
+      // When the user clicks the notification, forward the payload to the renderer
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.show(); // Bring window to front
+        mainWindow.focus();
+        mainWindow.webContents.send("notification-click", clickPayload);
+      }
+    });
+  }
+  notif.show();
 }
 
 // ── IPC Handlers ──
 
-ipcMain.handle("notification:show", (_event, title: string, body: string) => {
-  sendNotification(title, body);
+ipcMain.handle("notification:show", (_event, title: string, body: string, clickPayload?: Record<string, unknown>) => {
+  sendNotification(title, body, clickPayload);
 });
 
 ipcMain.handle("dialog:selectAudio", async () => {

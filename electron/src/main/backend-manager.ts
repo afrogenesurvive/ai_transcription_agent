@@ -169,20 +169,66 @@ export async function startPythonBackend(port = 5001): Promise<void> {
     return match ? match[1].toLowerCase() : undefined;
   }
 
+  // ── Line-buffered stdout handler ──
+  // The OS pipe buffer can split Python's stdout at arbitrary byte boundaries,
+  // so a single print() line may arrive across multiple `data` events.  We
+  // buffer chunks and split by actual newlines to guarantee each message is
+  // a complete line with the [tag] prefix intact.
+  let stdoutBuffer = "";
+
   pythonProcess.stdout?.on("data", (d: Buffer) => {
-    const msg = d.toString().trim();
-    const subSource = extractSubSource(msg);
-    const cleanMsg = subSource ? msg.replace(/^\[\w+\]\s*/, "") : msg;
-    console.log(`[python] ${msg}`);
-    addLog("python", "info", cleanMsg, subSource);
+    stdoutBuffer += d.toString();
+    const lines = stdoutBuffer.split("\n");
+    // Keep the last (potentially incomplete) fragment in the buffer
+    stdoutBuffer = lines.pop() || "";
+
+    for (const line of lines) {
+      const msg = line.trim();
+      if (!msg) continue;
+      const subSource = extractSubSource(msg);
+      const cleanMsg = subSource ? msg.replace(/^\[\w+\]\s*/, "") : msg;
+      console.log(`[python] ${msg}`);
+      addLog("python", "info", cleanMsg, subSource);
+    }
   });
 
+  pythonProcess.stdout?.on("end", () => {
+    // Flush any remaining data on stream end
+    const remaining = stdoutBuffer.trim();
+    if (remaining) {
+      const subSource = extractSubSource(remaining);
+      const cleanMsg = subSource ? remaining.replace(/^\[\w+\]\s*/, "") : remaining;
+      addLog("python", "info", cleanMsg, subSource);
+    }
+    stdoutBuffer = "";
+  });
+
+  // ── Line-buffered stderr handler (same approach) ──
+  let stderrBuffer = "";
+
   pythonProcess.stderr?.on("data", (d: Buffer) => {
-    const msg = d.toString().trim();
-    const subSource = extractSubSource(msg);
-    const cleanMsg = subSource ? msg.replace(/^\[\w+\]\s*/, "") : msg;
-    console.error(`[python:err] ${msg}`);
-    addLog("python", "error", cleanMsg, subSource);
+    stderrBuffer += d.toString();
+    const lines = stderrBuffer.split("\n");
+    stderrBuffer = lines.pop() || "";
+
+    for (const line of lines) {
+      const msg = line.trim();
+      if (!msg) continue;
+      const subSource = extractSubSource(msg);
+      const cleanMsg = subSource ? msg.replace(/^\[\w+\]\s*/, "") : msg;
+      console.error(`[python:err] ${msg}`);
+      addLog("python", "error", cleanMsg, subSource);
+    }
+  });
+
+  pythonProcess.stderr?.on("end", () => {
+    const remaining = stderrBuffer.trim();
+    if (remaining) {
+      const subSource = extractSubSource(remaining);
+      const cleanMsg = subSource ? remaining.replace(/^\[\w+\]\s*/, "") : remaining;
+      addLog("python", "error", cleanMsg, subSource);
+    }
+    stderrBuffer = "";
   });
 
   pythonProcess.on("exit", (code) => {

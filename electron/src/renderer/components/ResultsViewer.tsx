@@ -475,23 +475,51 @@ function LogsTab({ jobId }: { jobId: string }) {
     let cancelled = false;
     const fetchLogs = async () => {
       try {
-        const maxLines = noTruncate ? 0 : 300;
-        const res = await fetch(`${BRIDGE_URL}/tools/call`, {
+        // Primary source: per-job pipeline.log via dedicated endpoint (returns ALL lines)
+        const pipelineRes = await fetch(`${BRIDGE_URL}/tools/call`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tool: "transcribe_get_job_logs", args: { jobId, maxLines } }),
+          body: JSON.stringify({
+            tool: "transcribe_get_pipeline_log",
+            args: { jobId, maxLines: noTruncate ? 0 : 1000, includeGlobal: "true" },
+          }),
         });
-        const data = await res.json();
+        const pipelineData = await pipelineRes.json();
+        if (!cancelled && pipelineData?.lines) {
+          setRawLogs(pipelineData.lines);
+          setEntries(pipelineData.lines.map((l: string) => parseLogLine(l)));
+        }
+
+        // Secondary source: per-job file listing (pipeline.log, agent-trace.jsonl, etc.)
+        const jobLogsRes = await fetch(`${BRIDGE_URL}/tools/call`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tool: "transcribe_get_job_logs", args: { jobId, maxLines: 0 } }),
+        });
+        const jobLogsData = await jobLogsRes.json();
         if (!cancelled) {
-          const lines: string[] = data.logs || [];
-          setRawLogs(lines);
-          setEntries(lines.map((l: string) => parseLogLine(l)));
-          setJobLogFiles(data.job_logs || []);
+          setJobLogFiles(jobLogsData.job_logs || []);
           setLoading(false);
         }
       } catch (err: any) {
         if (!cancelled) {
-          setError(err.message);
+          // Fallback: try the old endpoint if pipeline_log fails
+          try {
+            const fallbackRes = await fetch(`${BRIDGE_URL}/tools/call`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ tool: "transcribe_get_job_logs", args: { jobId, maxLines: noTruncate ? 0 : 300 } }),
+            });
+            const fallbackData = await fallbackRes.json();
+            if (!cancelled) {
+              const lines: string[] = fallbackData.logs || [];
+              setRawLogs(lines);
+              setEntries(lines.map((l: string) => parseLogLine(l)));
+              setJobLogFiles(fallbackData.job_logs || []);
+            }
+          } catch {
+            if (!cancelled) setError(err.message);
+          }
           setLoading(false);
         }
       }

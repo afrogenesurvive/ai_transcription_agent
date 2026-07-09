@@ -181,6 +181,23 @@ export default function App() {
     return () => cleanup?.();
   }, [notify]);
 
+  // Listen for notification clicks — switch to results view when user clicks a completion notification
+  React.useEffect(() => {
+    const cleanup = window.electronAPI?.onNotificationClick((payload) => {
+      if (payload?.action === "view_results" && payload?.jobId) {
+        const clickJobId = payload.jobId as string;
+        // Only act if this matches the current job (or load from history if different)
+        if (jobId === clickJobId) {
+          setView("results");
+        } else {
+          // Load a different completed job
+          loadHistoryJob(clickJobId);
+        }
+      }
+    });
+    return () => cleanup?.();
+  }, [jobId]);
+
   // Cleanup notification timer on unmount
   React.useEffect(() => {
     return () => {
@@ -253,7 +270,8 @@ export default function App() {
       const jobTitle = jobMetadata?.title || "Untitled Meeting";
 
       // Show top-level OS notification (macOS / Windows)
-      window.electronAPI?.showNotification("Transcription Complete", `"${jobTitle}" — your transcript and summary are ready.`);
+      // If the user clicks the notification, they'll be taken to the results view
+      window.electronAPI?.showNotification("Transcription Complete", `"${jobTitle}" — click to view results`, { action: "view_results", jobId });
 
       Promise.all([
         getTranscriptRef.current?.(jobId) ?? Promise.reject(new Error("no fetcher")),
@@ -282,7 +300,7 @@ export default function App() {
       const errMsg = statusHook.data?.error || statusHook.error || "Processing failed — check the Logs tab for details";
       const jobTitle = jobMetadata?.title || "Untitled Meeting";
       notify(errMsg);
-      window.electronAPI?.showNotification("Transcription Failed", `"${jobTitle}" — ${errMsg}`);
+      window.electronAPI?.showNotification("Transcription Failed", `"${jobTitle}" — ${errMsg}`, { action: "view_results", jobId });
       // Transition to results view so the user can see the error + logs
       setView("results");
 

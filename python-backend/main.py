@@ -869,55 +869,124 @@ async def get_job_files(job_id: str):
 
 
 @app.get("/transcribe/pipeline_log/{job_id}")
-async def get_pipeline_log(job_id: str, max_lines: int = 0, include_global: str = "false"):
-    """Return the per-job pipeline log file (pipeline.log) contents.
+async def get_pipeline_log(job_id: str, max_lines: int = 0, include_global: str = "true"):
+    """Return ALL per-job log content merged into a single view.
 
-    Returns the last ``max_lines`` lines so large files don't overwhelm
-    the frontend. Pass ``max_lines=0`` (default) to return ALL lines.
-    Set ``include_global=true`` to also include matching lines from the
-    global daily log files (capturing agent-runner and bridge-server output).
+    Merges up to four sources:
+      1. pipeline.log — ML pipeline steps (diarization, ASR, alignment)
+      2. agent-trace.jsonl — LLM processing trace (refine, summarize, analyze, deliver)
+      3. actions.jsonl — per-action log entries from the agent runner
+      4. (optional) Global app logs filtered by job_id — stdout from all processes
+
+    JSONL entries are formatted as readable text lines prefixed with
+    ``[agent-trace]`` or ``[actions]`` so the frontend renders them uniformly.
+
+    Pass ``max_lines=0`` (default) to return ALL lines. Set ``include_global=false``
+    to skip the global log file search.
     """
-    log_path = os.path.join(config.STORAGE_PATH, job_id, "pipeline.log")
-    if not os.path.exists(log_path):
-        raise HTTPException(404, "No pipeline log found for this job")
-    try:
-        with open(log_path) as f:
-            all_lines = f.readlines()
-        pipeline_lines = [l.rstrip("\n") for l in all_lines]
+    job_dir = os.path.join(config.STORAGE_PATH, job_id)
+    all_lines = []
+    pipeline_count = trace_count = actions_count = global_count = 0
 
-        # Optionally merge global log lines filtered by job_id
-        extra_lines = []
-        if include_global and include_global.lower() in ("true", "1", "yes"):
-            logs_dir = os.path.join(config.STORAGE_PATH, "logs")
-            if os.path.exists(logs_dir):
-                for fname in sorted(os.listdir(logs_dir), reverse=True)[:3]:
-                    fpath = os.path.join(logs_dir, fname)
-                    if not fname.endswith(".log"):
+    # ── Source 1: pipeline.log (ML pipeline steps) ──
+    p = os.path.join(job_dir, "pipeline.log")
+    if os.path.exists(p):
+        try:
+            with open(p) as f:
+                for line in f:
+                    s = line.rstrip("\n")
+                    if s:
+                        all_lines.append(s)
+                        pipeline_count += 1
+        except Exception:
+            pass
+
+    # ── Source 2: agent-trace.jsonl (LLM processing trace) ──
+    p = os.path.join(job_dir, "agent-trace.jsonl")
+    if os.path.exists(p):
+        try:
+            with open(p) as f:
+                for line in f:
+                    s = line.strip()
+                    if not s:
                         continue
                     try:
-                        with open(fpath) as f:
-                            for line in f:
-                                if job_id in line:
-                                    stripped = line.strip()
-                                    if stripped not in pipeline_lines:
-                                        extra_lines.append(stripped)
-                    except Exception:
+                        entry = json.loads(s)
+                        ts = entry.get("timestamp", entry.get("ts", ""))
+                        tool = entry.get("tool", entry.get("event", ""))
+                        status = entry.get("status", entry.get("type", ""))
+                        msg = entry.get("summary", entry.get("message", ""))
+                        if isinstance(msg, dict):
+                            msg = json.dumps(msg)
+                        if len(str(msg)) > 300:
+                            msg = str(msg)[:300] + "..."
+                        all_lines.append(f"[agent-trace] [{ts}] [{tool}] [{status}] {msg}")
+                        trace_count += 1
+                    except json.JSONDecodeError:
+                        all_lines.append(f"[agent-trace] {s[:300]}")
+                        trace_count += 1
+        except Exception:
+            pass
+
+    # ── Source 3: actions.jsonl (per-action log) ──
+    p = os.path.join(job_dir, "actions.jsonl")
+    if os.path.exists(p):
+        try:
+            with open(p) as f:
+                for line in f:
+                    s = line.strip()
+                    if not s:
                         continue
+                    try:
+                        entry = json.loads(s)
+                        level = entry.get("level", "info")
+                        msg = entry.get("message", entry.get("text", ""))
+                        tool = entry.get("tool", "")
+                        if isinstance(msg, dict):
+                            msg = json.dumps(msg)
+                        if len(str(msg)) > 300:
+                            msg = str(msg)[:300] + "..."
+                        prefix = f"[actions] [{tool}]" if tool else "[actions]"
+                        all_lines.append(f"{prefix} [{level}] {msg}")
+                        actions_count += 1
+                    except json.JSONDecodeError:
+                        all_lines.append(f"[actions] {s[:300]}")
+                        actions_count += 1
+        except Exception:
+            pass
 
-        combined = pipeline_lines + extra_lines
-        if max_lines > 0:
-            combined = combined[-max_lines:]
+    # ── Source 4 (optional): Global app logs filtered by job_id ──
+    if include_global and include_global.lower() in ("true", "1", "yes"):
+        logs_dir = os.path.join(config.STORAGE_PATH, "logs")
+        if os.path.exists(logs_dir):
+            for fname in sorted(os.listdir(logs_dir), reverse=True)[:5]:
+                fp = os.path.join(logs_dir, fname)
+                if not fname.endswith(".log"):
+                    continue
+                try:
+                    with open(fp) as f:
+                        for line in f:
+                            if job_id in line:
+                                s = line.strip()
+                                if s and s not in all_lines:
+                                    all_lines.append(s)
+                                    global_count += 1
+                except Exception:
+                    continue
 
-        return {
-            "job_id": job_id,
-            "lines": combined,
-            "total_lines": len(pipeline_lines) + len(extra_lines),
-            "returned_lines": len(combined),
-            "from_pipeline_log": len(pipeline_lines),
-            "from_global_logs": len(extra_lines),
-        }
-    except Exception as e:
-        raise HTTPException(500, f"Failed to read pipeline log: {e}")
+    if max_lines > 0:
+        all_lines = all_lines[-max_lines:]
+
+    return {
+        "job_id": job_id,
+        "lines": all_lines,
+        "total_lines": pipeline_count + trace_count + actions_count + global_count,
+        "returned_lines": len(all_lines),
+        "from_pipeline_log": pipeline_count,
+        "from_agent_trace": trace_count,
+        "from_actions": actions_count,
+        "from_global_logs": global_count,
+    }
 
 
 # ── Speaker Labeling (pause & resume) ──
