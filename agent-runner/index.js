@@ -162,6 +162,8 @@ async function processEvent(event) {
 
   // Build initial context with job info + transcript preview
   let context = buildInitialContext(event, transcript, safeTitle, safeAttendees, eventId);
+  const initialContextLength = context.length;
+  console.log(`   📝 [RUNNER] Initial context built: ${context.length} chars`);
 
   // ── Agent Trace Logger (per-job) ──
   // Always-on: records every decision point, hint resolution, system prompt
@@ -247,7 +249,9 @@ async function processEvent(event) {
 
     memoryLines.push("── End Memory Context ──\n");
     context += "\n" + memoryLines.join("\n");
-    console.log(`   ✅ [RUNNER] Memory context injected (${memoryLines.length - 3} items)`);
+    const memoryContextLen = memoryLines.join("\n").length;
+    console.log(`   ✅ [RUNNER] Memory context injected (${memoryLines.length - 3} items, ${memoryContextLen} chars)`);
+    console.log(`   📝 [RUNNER] Context now: ${context.length} chars (was ${initialContextLength}, +${context.length - initialContextLength})`);
     agentTrace.recordMemoryContext({
       memorySources: {
         action_items: queryActions.status === "fulfilled" ? queryActions.value?.results?.length || 0 : "failed",
@@ -284,11 +288,15 @@ async function processEvent(event) {
   // so model-client.js doesn't need any stripping logic.
   let renderedPrompt = null;
   {
+    console.log(`   📝 [RUNNER] Compiling system prompt from template (${SYSTEM_PROMPT_TEMPLATE.length} chars)`);
+    console.log(`   📝 [RUNNER]   Injecting ${availableTools.length} tool definitions into {{TOOL_LIST}}`);
     const toolLines = availableTools.map((t) => `  - ${t.name}: ${t.description}`).join("\n");
     let rendered = SYSTEM_PROMPT_TEMPLATE.replace("{{TOOL_LIST}}", toolLines);
+    console.log(`   📝 [RUNNER]   System prompt after tool injection: ${rendered.length} chars`);
 
     // Strip numbered sections that reference skipped tools
     if (skippedTools.size > 0) {
+      console.log(`   📝 [RUNNER]   Stripping sections for ${skippedTools.size} skipped tool(s):`);
       for (const toolName of skippedTools) {
         const sectionRegex = new RegExp(
           `\\d+\\.\\s+\\*\\*[^*]+\\*\\*\\s+[—–-]\\s+[^\\n]*\\b${toolName}\\b[^\\n]*(?:\\n(?!\\d+\\.\\s+\\*\\*|##|$)[^\\n]*)*`,
@@ -297,19 +305,59 @@ async function processEvent(event) {
         rendered = rendered.replace(sectionRegex, "");
         const commentRegex = new RegExp(`<!--\\s*\\d+\\.\\s+\\*\\*[^*]+\\*\\*[^>]*\\b${toolName}\\b[^>]*-->`, "g");
         rendered = rendered.replace(commentRegex, "");
+        console.log(`   📝 [RUNNER]     - ${toolName}`);
       }
       rendered = rendered.replace(/\n{3,}/g, "\n\n").trim();
-      console.log(`   📝 [RUNNER] Stripped system prompt sections for ${skippedTools.size} skipped tool(s):`);
-      for (const toolName of skippedTools) {
-        console.log(`   📝 [RUNNER]   - ${toolName}`);
-      }
+      console.log(
+        `   📝 [RUNNER]   System prompt after stripping: ${rendered.length} chars (removed ${SYSTEM_PROMPT_TEMPLATE.length - rendered.length} chars)`,
+      );
     }
     renderedPrompt = rendered;
+
+    // Log the full instruction composition breakdown
+    const contextBeforeLLM = context;
+    const totalInstructionsLength = renderedPrompt.length + contextBeforeLLM.length;
+    console.log(`\n   📝 [RUNNER] ═══ Instructions Composition Breakdown ═══`);
+    console.log(
+      `   📝 [RUNNER]   System prompt          : ${renderedPrompt.length.toString().padStart(7)} chars (${((renderedPrompt.length / totalInstructionsLength) * 100).toFixed(1)}%)`,
+    );
+    console.log(`   📝 [RUNNER]     - Template base       : ${SYSTEM_PROMPT_TEMPLATE.length.toString().padStart(7)} chars`);
+    console.log(`   📝 [RUNNER]     - Tool definitions    : ${toolLines.length.toString().padStart(7)} chars (${availableTools.length} tools)`);
+    if (skippedTools.size > 0) {
+      console.log(
+        `   📝 [RUNNER]     - Stripped sections   : removed ${(SYSTEM_PROMPT_TEMPLATE.length - renderedPrompt.length).toString().padStart(4)} chars (${skippedTools.size} tools)`,
+      );
+    }
+    console.log(`   📝 [RUNNER]   User context           : ${String(contextBeforeLLM.length).padStart(7)} chars`);
+    console.log(`   📝 [RUNNER]     - Job metadata        : part of initial context`);
+    console.log(`   📝 [RUNNER]     - Event template      : from pipeline.json event_templates`);
+    console.log(`   📝 [RUNNER]     - Transcript preview  : included in event template`);
+    console.log(`   📝 [RUNNER]     - Memory context      : injected from ephemeral + semantic memory`);
+    console.log(`   📝 [RUNNER]   Total instructions      : ${totalInstructionsLength.toString().padStart(7)} chars`);
+    console.log(`   📝 [RUNNER] ═══════════════════════════════════════════\n`);
 
     agentTrace.recordSystemPrompt({
       renderedPrompt,
       strippedSections: [...skippedTools],
       availableTools,
+    });
+
+    // Record the initial context composition in the agent trace
+    const contextSections = [
+      { name: "job_metadata", length: initialContextLength, source: "buildInitialContext()" },
+      { name: "memory_context", length: context.length - initialContextLength, source: "ephemeral + semantic memory queries" },
+    ];
+    agentTrace.recordContextComposition({
+      eventType: event.type,
+      templateName: `event_templates["${event.type}"]`,
+      variableSubstitutions: {
+        segment_count: transcript.length,
+        error: jobData.error || null,
+        error_message: jobData.error || null,
+        has_transcript_preview: event.type === "ready_for_processing",
+        has_speaker_details: event.type === "labeling_needed",
+      },
+      contextSections,
     });
   }
 
@@ -496,7 +544,7 @@ async function processEvent(event) {
   let totalTokens = existingSteps.reduce((sum, s) => sum + (s.total_tokens || 0), 0);
 
   for (let step = 1; step <= MAX_PIPELINE_STEPS && !pipelineComplete; step++) {
-    console.log(`   🤖 [RUNNER] Asking LLM (step ${step})...`);
+    console.log(`   🤖 [RUNNER] Asking LLM (step ${step}) — context: ${context.length} chars, ${availableTools.length} tools available`);
     let decision;
     logLlmData("step_input", {
       step,
@@ -737,16 +785,40 @@ async function processEvent(event) {
     } else {
       resultBlock = JSON.stringify(result || "ok").slice(0, 500);
     }
+    const contextBeforeUpdate = context.length;
     context += `\n\n[Step ${step} Complete] Tool: ${decision.name}\nResult: ${resultBlock}`;
+    const resultBlockLen = context.length - contextBeforeUpdate;
 
     // Add a hint about the next logical pipeline step, skipping over any
     // tools that are in the skip list.
+    let hintAppended = false;
     const hint = resolveNextHint(decision.name, PIPELINE_HINTS);
     if (hint) {
       console.log(`   🧭 [RUNNER] Pipeline hint appended for next step: "${hint.slice(0, 100)}..."`);
+      const hintStart = context.length;
       context += `\n${hint}`;
+      const hintLen = context.length - hintStart;
+      hintAppended = true;
+      const contextLengthDelta = context.length - contextBeforeUpdate;
+      console.log(`   📝 [RUNNER] Context growth at step ${step}: +${contextLengthDelta} chars (result: +${resultBlockLen}, hint: +${hintLen})`);
+      agentTrace.recordContextUpdate({
+        step,
+        toolName: decision.name,
+        hintAppended: true,
+        contextLengthDelta,
+        contextLengthTotal: context.length,
+      });
     } else {
+      const contextLengthDelta = context.length - contextBeforeUpdate;
       console.log(`   🧭 [RUNNER] No pipeline hint for "${decision.name}" — LLM will decide next step autonomously`);
+      console.log(`   📝 [RUNNER] Context growth at step ${step}: +${contextLengthDelta} chars (result only, no hint)`);
+      agentTrace.recordContextUpdate({
+        step,
+        toolName: decision.name,
+        hintAppended: false,
+        contextLengthDelta,
+        contextLengthTotal: context.length,
+      });
     }
   }
 
@@ -831,11 +903,28 @@ async function processEvent(event) {
     }
   }
 
+  // ── Log instruction building summary at pipeline end ──
+  const finalContextLength = context.length;
+  const contextGrowth = finalContextLength - initialContextLength;
+  console.log(`\n   📝 [RUNNER] ═══ Pipeline Instructions Summary ═══`);
+  console.log(`   📝 [RUNNER]   Initial context            : ${String(initialContextLength).padStart(7)} chars`);
+  console.log(`   📝 [RUNNER]   Final context              : ${String(finalContextLength).padStart(7)} chars`);
+  console.log(
+    `   📝 [RUNNER]   Total context growth       : ${String(contextGrowth).padStart(7)} chars (+${contextGrowth > 0 ? ((contextGrowth / initialContextLength) * 100).toFixed(1) : 0}%)`,
+  );
+  console.log(`   📝 [RUNNER]   Pipeline steps             : ${String(tokenUsage.length).padStart(7)}`);
+  console.log(`   📝 [RUNNER]   Tokens consumed            : ${String(totalTokens).padStart(7)}`);
+  const charsPerToken = finalContextLength / Math.max(totalTokens || 1, 1);
+  console.log(`   📝 [RUNNER]   Avg chars per token        : ${charsPerToken.toFixed(2)}`);
+  console.log(`   📝 [RUNNER] ════════════════════════════════════════════\n`);
+
   agentTrace.recordPipelineEnd({
     status: pipelineError ? "failed" : "complete",
     error: pipelineError,
     totalSteps: tokenUsage.length,
     tokensUsed: totalTokens,
+    finalContextLength,
+    contextGrowth,
   });
 
   // Only update job status here if a delivery tool did not already handle it inline.
@@ -911,9 +1000,27 @@ function buildInitialContext(event, transcript, safeTitle, safeAttendees, eventI
     ``,
   ].filter(Boolean);
 
+  console.log(`   📝 [BUILD-CONTEXT] Building initial context for event type "${event.type}"`);
+  console.log(`   📝 [BUILD-CONTEXT]   Metadata section: job title, ${safeAttendees.length} attendee(s), delivery config`);
+
   // Use event templates from agent-config/pipeline.json, with variable substitution
   const template = EVENT_TEMPLATES[event.type] || "";
+  const templateName = template ? `event_templates["${event.type}"]` : "none (using fallback)";
+  console.log(`   📝 [BUILD-CONTEXT]   Template: ${templateName}`);
   if (template) {
+    console.log(`   📝 [BUILD-CONTEXT]   Template raw length: ${template.length} chars`);
+    // Log variable substitutions that will be applied
+    const substitutions = [
+      { var: "{{segment_count}}", value: String(transcript.length) },
+      { var: "{{error}}", value: jobData.error || "unknown" },
+      { var: "{{error_message}}", value: jobData.error || "unknown" },
+    ];
+    if (event.type === "ready_for_processing")
+      substitutions.push({ var: "{{transcript_preview}}", value: `${Math.min(transcript.length, 10)} segments preview` });
+    if (event.type === "labeling_needed")
+      substitutions.push({ var: "{{speaker_details}}", value: `${(jobData.unknownSpeakers || []).length} unknown speakers` });
+    console.log(`   📝 [BUILD-CONTEXT]   Variable substitutions: ${substitutions.map((s) => `${s.var} → ${s.value}`).join(", ")}`);
+
     const rendered = template
       .replace("{{segment_count}}", String(transcript.length))
       .replace("{{error}}", jobData.error || "unknown")
@@ -926,35 +1033,47 @@ function buildInitialContext(event, transcript, safeTitle, safeAttendees, eventI
         previewLines.push(`  [${seg.start?.toFixed(1)}s] ${seg.speaker}: ${(seg.text || "").slice(0, 100)}`);
       }
       if (transcript.length > 10) previewLines.push(`  ... (${transcript.length - 10} more)`);
-      lines.push(rendered.replace("{{transcript_preview}}", previewLines.join("\n")));
+      const transcriptPreview = previewLines.join("\n");
+      console.log(
+        `   📝 [BUILD-CONTEXT]   Transcript preview: ${Math.min(transcript.length, 10)} segments shown${transcript.length > 10 ? ` (${transcript.length - 10} more omitted)` : ""}`,
+      );
+      lines.push(rendered.replace("{{transcript_preview}}", transcriptPreview));
     } else if (event.type === "labeling_needed") {
       const speakerLines = [];
       for (const uk of jobData.unknownSpeakers || []) {
         speakerLines.push(`  - ${uk.speaker_id}: "${(uk.sample_text || "").slice(0, 80)}"`);
       }
+      console.log(`   📝 [BUILD-CONTEXT]   Unknown speakers: ${(jobData.unknownSpeakers || []).length} speaker(s) in preview`);
       lines.push(rendered.replace("{{speaker_details}}", speakerLines.join("\n")));
     } else {
       lines.push(rendered);
     }
   } else {
+    console.log(`   📝 [BUILD-CONTEXT]   No template found for event type "${event.type}" — using hard-coded fallback`);
     // Fallback if no template is defined for this event type
     if (event.type === "ready_for_processing") {
+      console.log(`   📝 [BUILD-CONTEXT]   Fallback: inline transcript preview (${transcript.length} segments)`);
       lines.push(`Transcript (${transcript.length} segments):`);
       for (const seg of transcript.slice(0, 10)) {
         lines.push(`  [${seg.start?.toFixed(1)}s] ${seg.speaker}: ${(seg.text || "").slice(0, 100)}`);
       }
       if (transcript.length > 10) lines.push(`  ... (${transcript.length - 10} more)`);
     } else if (event.type === "labeling_needed") {
+      console.log(`   📝 [BUILD-CONTEXT]   Fallback: inline unknown speakers (${(jobData.unknownSpeakers || []).length})`);
       lines.push(`Unknown speakers detected:`);
       for (const uk of jobData.unknownSpeakers || []) {
         lines.push(`  - ${uk.speaker_id}: "${(uk.sample_text || "").slice(0, 80)}"`);
       }
     } else if (event.type === "failed") {
+      console.log(`   📝 [BUILD-CONTEXT]   Fallback: inline error message`);
       lines.push(`Processing failed. Error: ${jobData.error || "unknown"}`);
     }
   }
 
-  return lines.join("\n");
+  const result = lines.join("\n");
+  const sectionCount = lines.filter(Boolean).length;
+  console.log(`   📝 [BUILD-CONTEXT]   Total sections in context: ${sectionCount}, total length: ${result.length} chars`);
+  return result;
 }
 
 // ── Main loop ──

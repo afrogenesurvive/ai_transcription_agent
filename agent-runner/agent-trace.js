@@ -70,6 +70,19 @@ export class AgentTracer {
   }
 
   /**
+   * Record the breakdown of how the LLM context (instructions) was assembled.
+   * Captures each section that composes the final context sent to the model.
+   */
+  recordContextComposition({ eventType, templateName, variableSubstitutions, contextSections }) {
+    this._write("context_composition", {
+      event_type: eventType,
+      template_name: templateName,
+      variable_substitutions: variableSubstitutions,
+      context_sections: contextSections,
+    });
+  }
+
+  /**
    * Record the memory context that was injected into the LLM context.
    */
   recordMemoryContext({ memorySources, totalItems, semanticResults }) {
@@ -149,12 +162,14 @@ export class AgentTracer {
   /**
    * Record pipeline completion or failure.
    */
-  recordPipelineEnd({ status, error, totalSteps, tokensUsed }) {
+  recordPipelineEnd({ status, error, totalSteps, tokensUsed, finalContextLength, contextGrowth }) {
     this._write("pipeline_end", {
       status,
       error: error || null,
       total_steps: totalSteps,
       total_tokens: tokensUsed,
+      final_context_length: finalContextLength,
+      context_growth: contextGrowth,
     });
   }
 
@@ -165,6 +180,20 @@ export class AgentTracer {
     this._write("skip_config", {
       skipped_tools: [...skippedTools],
       source: skipSource,
+    });
+  }
+
+  /**
+   * Record a context update — when the LLM context grows due to step results
+   * or pipeline hints being appended.
+   */
+  recordContextUpdate({ step, toolName, hintAppended, contextLengthDelta, contextLengthTotal }) {
+    this._write("context_update", {
+      step,
+      tool: toolName,
+      hint_appended: hintAppended,
+      context_length_delta: contextLengthDelta,
+      context_length_total: contextLengthTotal,
     });
   }
 

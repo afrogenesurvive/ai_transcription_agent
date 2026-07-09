@@ -139,25 +139,28 @@ export default function HistoryPanel({ onSelectJob, currentJobId, onNotify, onSt
     [onNotify, onStorageChanged],
   );
 
-  const handleViewLogs = useCallback(async (jobId: string) => {
-    setLogJobId(jobId);
-    setLogLoading(true);
-    setLogError(null);
-    try {
-      const maxLines = logNoTruncate ? 0 : 500;
-      const data = await callBridge("transcribe_get_pipeline_log", {
-        jobId,
-        maxLines,
-        includeGlobal: logIncludeGlobal,
-      });
-      setLogLines(data.lines || []);
-    } catch (err: any) {
-      setLogError(err.message);
-      setLogLines([]);
-    } finally {
-      setLogLoading(false);
-    }
-  }, [logNoTruncate, logIncludeGlobal]);
+  const handleViewLogs = useCallback(
+    async (jobId: string) => {
+      setLogJobId(jobId);
+      setLogLoading(true);
+      setLogError(null);
+      try {
+        const maxLines = logNoTruncate ? 0 : 500;
+        const data = await callBridge("transcribe_get_pipeline_log", {
+          jobId,
+          maxLines,
+          includeGlobal: logIncludeGlobal,
+        });
+        setLogLines(data.lines || []);
+      } catch (err: any) {
+        setLogError(err.message);
+        setLogLines([]);
+      } finally {
+        setLogLoading(false);
+      }
+    },
+    [logNoTruncate, logIncludeGlobal],
+  );
 
   const handleSelectLogJob = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
