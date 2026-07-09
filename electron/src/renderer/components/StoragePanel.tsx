@@ -232,7 +232,7 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
                         </>
                       )}
                     </div>
-                    {/* File path display */}
+                    {/* File path display — click to open in native file manager */}
                     {data[c.key]?.path && (
                       <div
                         style={{
@@ -244,8 +244,12 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
                           overflow: "hidden",
                           textOverflow: "ellipsis",
                           whiteSpace: "nowrap",
+                          cursor: "pointer",
                         }}
-                        title={data[c.key].path ?? undefined}>
+                        title={`Click to open in ${window.electronAPI?.platform === "darwin" ? "Finder" : "File Explorer"}`}
+                        onClick={() => {
+                          window.electronAPI?.openPath(data[c.key]!.path!).catch((err) => console.error("Failed to open path:", err));
+                        }}>
                         <Icon name="folder" size="12" color="muted" /> {data[c.key].path}
                       </div>
                     )}

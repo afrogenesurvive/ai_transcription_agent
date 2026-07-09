@@ -85,10 +85,21 @@ export default function App() {
   const [showSpeakerModal, setShowSpeakerModal] = useState(false);
   const [labelingSubmitting, setLabelingSubmitting] = useState(false);
 
+  // Ref to manage notification auto-dismiss timeout — prevents stale timeouts
+  // from prematurely dismissing newer notifications.
+  const notificationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Notification helper — shows a toast at the top-right, auto-dismissed after 10s
   const notify = useCallback((message: string) => {
+    // Clear any existing timeout so a new notification isn't prematurely dismissed
+    if (notificationTimerRef.current) {
+      clearTimeout(notificationTimerRef.current);
+    }
     setNotification(message);
-    setTimeout(() => setNotification(null), 10000);
+    notificationTimerRef.current = setTimeout(() => {
+      setNotification(null);
+      notificationTimerRef.current = null;
+    }, 10000);
   }, []);
 
   // Callback for panels to signal that storage data changed (job/log deletion)
@@ -154,8 +165,7 @@ export default function App() {
       setConfigOk(result.ok);
       if (!result.ok) {
         const items = result.missing?.length ? result.missing.join(", ") : "DEEPSEEK_API_KEY or Ollama";
-        setNotification(`Config incomplete: missing ${items}`);
-        setTimeout(() => setNotification(null), 10000);
+        notify(`Config incomplete: missing ${items}`);
       }
     });
     window.electronAPI?.getConfig().then((cfg) => {
@@ -166,10 +176,18 @@ export default function App() {
   // Listen for Electron notifications
   React.useEffect(() => {
     const cleanup = window.electronAPI?.onNotification((msg) => {
-      setNotification(msg);
-      setTimeout(() => setNotification(null), 10000);
+      notify(msg);
     });
     return () => cleanup?.();
+  }, [notify]);
+
+  // Cleanup notification timer on unmount
+  React.useEffect(() => {
+    return () => {
+      if (notificationTimerRef.current) {
+        clearTimeout(notificationTimerRef.current);
+      }
+    };
   }, []);
 
   // Poll job status — stabilize the fetcher ref to avoid restarting polling on re-render
@@ -178,15 +196,13 @@ export default function App() {
   const statusHook = useJobStatus(
     jobId,
     useCallback((id: string) => fetcherRef.current?.(id) ?? Promise.reject(new Error("no fetcher")), []),
+    serverStatus.allReady,
   );
 
   // Whether a job is currently running (processing).
-  // Uses statusHook.state (polling/paused) as the primary signal because the
-  // React view state ("processing") can become stale — e.g. the 10-minute
-  // polling timeout fires and view transitions to "results" while the backend
-  // pipeline is still actively running. The hook's state accurately reflects
-  // whether we're actively polling for a running job.
-  const isJobRunning = statusHook.state === "polling" || statusHook.state === "paused" || view === "processing";
+  // Includes backend_down so the cancel button stays available when backend is unreachable.
+  const isJobRunning =
+    statusHook.state === "polling" || statusHook.state === "paused" || statusHook.state === "backend_down" || view === "processing";
 
   // Track status data for progress display
   React.useEffect(() => {
@@ -211,7 +227,7 @@ export default function App() {
         })
         .catch((err) => {
           console.error("[App] Failed to fetch speaker clips:", err);
-          setNotification("Speaker identification paused but clips unavailable — check backend logs");
+          notify("Speaker identification paused but clips unavailable — check backend logs");
         });
     }
   }, [statusHook.state, jobId]);
@@ -250,12 +266,12 @@ export default function App() {
             setTranscript({ ...transcriptData, summary: summaryData });
             setView("results");
           } else {
-            setNotification("Transcription completed but transcript data unavailable");
+            notify("Transcription completed but transcript data unavailable");
             setView("results");
           }
         })
         .catch((err) => {
-          setNotification(`Failed to load transcript: ${err.message}`);
+          notify(`Failed to load transcript: ${err.message}`);
           setView("results");
         });
     }
@@ -265,20 +281,17 @@ export default function App() {
       // Use the backend's error message if available, otherwise the network/hook error
       const errMsg = statusHook.data?.error || statusHook.error || "Processing failed — check the Logs tab for details";
       const jobTitle = jobMetadata?.title || "Untitled Meeting";
-      setNotification(errMsg);
+      notify(errMsg);
       window.electronAPI?.showNotification("Transcription Failed", `"${jobTitle}" — ${errMsg}`);
-      setTimeout(() => setNotification(null), 10000);
       // Transition to results view so the user can see the error + logs
       setView("results");
 
       // If the backend status doesn't already reflect failure (e.g. a timeout
       // or network error where the backend status is still a non-terminal state
-      // like "analyzed"), update statusData so PipelineProgress shows the error
-      // state instead of misleadingly showing the pipeline as still running.
+      // like "analyzed"), update statusData to show the error while preserving
+      // the actual backend status so the cancel button remains available.
       if (statusData && statusData.status !== "failed") {
-        setStatusData((prev: any) =>
-          prev ? { ...prev, status: "failed", error: errMsg, progress: prev.progress ?? 0.0 } : prev,
-        );
+        setStatusData((prev: any) => (prev ? { ...prev, titleError: errMsg, progress: prev.progress ?? 0.0 } : prev));
       }
     }
   }, [statusHook.state, jobId]);
@@ -292,9 +305,9 @@ export default function App() {
         const result = await api.labelAndResume(jobId, labels);
         console.log("Label & resume result", result);
         setShowSpeakerModal(false);
-        setNotification(`Speaker labels applied — pipeline resuming`);
+        notify(`Speaker labels applied — pipeline resuming`);
       } catch (err: any) {
-        setNotification(`Failed to apply labels: ${err.message}`);
+        notify(`Failed to apply labels: ${err.message}`);
       } finally {
         setLabelingSubmitting(false);
       }
@@ -308,9 +321,9 @@ export default function App() {
       await api.cancelJob(jobId);
       statusHook.stopPolling();
       setShowSpeakerModal(false);
-      setNotification("Job cancelled");
+      notify("Job cancelled");
     } catch (err: any) {
-      setNotification(`Cancel failed: ${err.message}`);
+      notify(`Cancel failed: ${err.message}`);
     }
   }, [jobId, api, statusHook]);
 
@@ -327,7 +340,7 @@ export default function App() {
       setShowNewForm(false);
       // Polling starts automatically via useJobStatus when jobId changes
     } catch (err: any) {
-      setNotification(`Upload failed: ${err.message}`);
+      notify(`Upload failed: ${err.message}`);
     } finally {
       setUploading(false);
     }
@@ -340,9 +353,9 @@ export default function App() {
     try {
       await api.cancelJob(jobId);
       statusHook.stopPolling();
-      setNotification("Processing cancelled");
+      notify("Processing cancelled");
     } catch (err: any) {
-      setNotification(`Cancel failed: ${err.message}`);
+      notify(`Cancel failed: ${err.message}`);
     } finally {
       setCancelling(false);
     }
@@ -369,11 +382,11 @@ export default function App() {
           setHistoryJobStatus(statusData ? { status: statusData.status, progress: statusData.progress, error: statusData.error } : null);
           setView("results");
         } else {
-          setNotification("Transcript data unavailable for this job");
+          notify("Transcript data unavailable for this job");
           setView("results");
         }
       } catch (err: any) {
-        setNotification(`Failed to load job: ${err.message}`);
+        notify(`Failed to load job: ${err.message}`);
         setView("results");
       }
     },
@@ -612,7 +625,8 @@ export default function App() {
                                 status={statusData.status}
                                 progress={statusData.progress}
                                 error={statusData.error}
-                                onCancel={view === "processing" ? handleCancel : undefined}
+                                titleError={statusData.titleError}
+                                onCancel={handleCancel}
                                 cancelling={cancelling}
                                 diarizationAvailable={diarizationAvailable}
                                 skippedSteps={computeSkippedStages(statusData)}

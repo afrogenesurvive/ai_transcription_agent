@@ -161,6 +161,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     error?: string;
   }> => ipcRenderer.invoke("api:getAggregateUsage"),
 
+  // ── Shell (open folders in native file manager) ──
+  openPath: (filePath: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke("shell:openPath", filePath),
+
   // ── Platform ──
   platform: process.platform,
 });

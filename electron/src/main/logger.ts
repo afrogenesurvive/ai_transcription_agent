@@ -17,6 +17,8 @@ import path from "path";
 export interface LogEntry {
   timestamp: number;
   source: "python" | "bridge" | "agent" | "main";
+  /** Optional sub-source extracted from [tag] prefix in the message, e.g. "transcription", "pipeline", "voiceprint" */
+  subSource?: string;
   level: "debug" | "info" | "warn" | "error";
   message: string;
 }
@@ -206,8 +208,8 @@ export function listLogFiles(): LogFileInfo[] {
   return files;
 }
 
-/** Read the last N lines from a log file. Pass 0 to return all lines. */
-export function readLogFile(filePath: string, maxLines = 500): string[] {
+/** Read the last N lines from a log file. Pass 0 (default) to return all lines. */
+export function readLogFile(filePath: string, maxLines = 0): string[] {
   try {
     const content = fs.readFileSync(filePath, "utf8");
     const lines = content.split("\n");
@@ -291,17 +293,24 @@ function writeToFile(message: string): void {
   }
 }
 
-export function addLog(source: LogEntry["source"], level: LogEntry["level"], message: string): void {
+export function addLog(source: LogEntry["source"], level: LogEntry["level"], message: string, subSource?: string): void {
   if (!message) return;
   const timestamp = Date.now();
-  const entry: LogEntry = { timestamp, source, level, message };
+  console.log("Log labelling debug!!!!:", {
+    source,
+    subSource,
+    msg_substr: message.substring(0, 10),
+  });
+
+  const entry: LogEntry = { timestamp, source, subSource, level, message };
   buffer.push(entry);
   if (buffer.length > MAX_ENTRIES) buffer.shift();
 
   // Write to log file (filtered by config — in-memory buffer is NEVER filtered)
   if (shouldWriteToDisk(source, level)) {
     const timeStr = new Date(timestamp).toISOString();
-    writeToFile(`[${timeStr}] [${source}] [${level}] ${message}`);
+    const subTag = subSource ? `[${subSource}] ` : "";
+    writeToFile(`[${timeStr}] [${source}] [${level}] ${subTag}${message}`);
   }
 
   // Notify subscribers synchronously

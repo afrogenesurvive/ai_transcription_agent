@@ -461,8 +461,9 @@ function LogsTab({ jobId }: { jobId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [levelFilter, setLevelFilter] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState<string>("");
   const [autoScroll, setAutoScroll] = useState(true);
-  const [noTruncate, setNoTruncate] = useState(false);
+  const [noTruncate, setNoTruncate] = useState(true);
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
@@ -552,13 +553,42 @@ function LogsTab({ jobId }: { jobId: string }) {
     return content;
   }, []);
 
-  // Filter entries by source and level
-  const filteredEntries = entries.filter((entry) => {
-    if (!entry) return false;
+  // Filter entries by source, level, and search query
+  // Strip nulls first to keep TS happy
+  const nonNullEntries = entries.filter((e): e is NonNullable<typeof e> => e !== null);
+  const searchMatchTotal = searchQuery.trim() ? nonNullEntries.filter((e) => e.message.toLowerCase().includes(searchQuery.toLowerCase())).length : 0;
+  const filteredEntries = nonNullEntries.filter((entry) => {
     if (sourceFilter !== "all" && entry.source !== sourceFilter) return false;
     if (levelFilter !== "all" && entry.level !== levelFilter) return false;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const inMessage = entry.message.toLowerCase().includes(q);
+      const inSource = entry.source.toLowerCase().includes(q);
+      const inLevel = entry.level.toLowerCase().includes(q);
+      if (!inMessage && !inSource && !inLevel) return false;
+    }
     return true;
   });
+
+  /** Highlight search matches in text */
+  const highlightText = useCallback(
+    (text: string): React.ReactNode => {
+      if (!searchQuery.trim()) return text;
+      const escaped = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const parts = text.split(new RegExp(`(${escaped})`, "gi"));
+      if (parts.length === 1) return text;
+      return parts.map((part, i) =>
+        part.toLowerCase() === searchQuery.toLowerCase() ? (
+          <em key={i} className="rv-search-highlight">
+            {part}
+          </em>
+        ) : (
+          part
+        ),
+      );
+    },
+    [searchQuery],
+  );
 
   if (loading) {
     return (
@@ -595,9 +625,13 @@ function LogsTab({ jobId }: { jobId: string }) {
             {jobLogFiles.map((jf) => (
               <button
                 key={jf.file}
-                className={`rv-logs-file-btn ${activeFile === jf.file ? "rv-logs-file-btn--active" : ""}`}
+                className={`rv-logs-file-btn ${activeFile === jf.file ? "rv-logs-file-btn--active" : ""} ${
+                  searchQuery.trim() && jf.content.toLowerCase().includes(searchQuery.toLowerCase()) ? "rv-logs-file-btn--match" : ""
+                }`}
                 onClick={() => selectFile(jf.file)}
-                title={`View ${jf.file} (${(jf.content.length / 1024).toFixed(1)} KB)`}>
+                title={`View ${jf.file} (${(jf.content.length / 1024).toFixed(1)} KB)${
+                  searchQuery.trim() && jf.content.toLowerCase().includes(searchQuery.toLowerCase()) ? " — contains search match" : ""
+                }`}>
                 <span className="rv-logs-file-btn-name">{jf.file}</span>
                 <span className="rv-logs-file-btn-meta">{(jf.content.length / 1024).toFixed(1)} KB</span>
               </button>
@@ -638,6 +672,31 @@ function LogsTab({ jobId }: { jobId: string }) {
             <Icon name="terminal" size="14" color="accent" /> Pipeline Logs
           </span>
           <div className="rv-logs-toolbar-filters">
+            {/* 🔍 Text search filter */}
+            <div className="rv-logs-search-wrap">
+              <span className="rv-logs-search-icon">🔍</span>
+              <input
+                className="rv-logs-search-input"
+                type="text"
+                placeholder="Search logs…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                title={
+                  searchQuery.trim()
+                    ? `${searchMatchTotal} match${searchMatchTotal !== 1 ? "es" : ""} in unfiltered logs`
+                    : "Search log entries by text"
+                }
+              />
+              {searchQuery && (
+                <button
+                  className="rv-logs-search-clear"
+                  onClick={() => setSearchQuery("")}
+                  title="Clear search"
+                  data-tooltip="Clear the log search query">
+                  <Icon name="close" size="12" />
+                </button>
+              )}
+            </div>
             <select className="rv-logs-filter-select" value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
               <option value="all">All sources</option>
               <option value="python">Python</option>
@@ -665,6 +724,7 @@ function LogsTab({ jobId }: { jobId: string }) {
             </label>
             <span className="rv-logs-filter-count">
               {filteredEntries.length} / {rawLogs.length} entries
+              {searchQuery.trim() && ` (${searchMatchTotal} matches)`}
             </span>
           </div>
         </div>
@@ -684,7 +744,7 @@ function LogsTab({ jobId }: { jobId: string }) {
                   <span className={`rv-log-line-level rv-log-line-level--${entry.level}`}>
                     {entry.level === "error" ? "!" : entry.level === "warn" ? "▲" : ""}
                   </span>
-                  <span className="rv-log-line-text">{entry.message}</span>
+                  <span className="rv-log-line-text">{highlightText(entry.message)}</span>
                 </div>
               ))}
             </div>

@@ -19,6 +19,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PYTHON_API = process.env.PYTHON_API_URL || "http://127.0.0.1:5001";
 const BRIDGE_PORT = parseInt(process.env.BRIDGE_PORT || "5010", 10);
 const ELECTRON_LOGS_DIR = process.env.ELECTRON_LOGS_DIR || null;
+const TRANSCRIPTION_STORAGE = process.env.TRANSCRIPTION_STORAGE || null;
 
 // Resolve agent-config directory (same logic as agent-runner/agent-config.js)
 const CONFIG_DIR_CANDIDATES = [
@@ -179,8 +180,26 @@ async function dispatch(tool, args) {
         labels: [{ speaker_id: args.speakerId, name: args.name, email: args.email || "" }],
       });
 
-    case "transcribe_list_voiceprints":
-      return await callPython("GET", "/agent/voiceprints");
+    case "transcribe_list_voiceprints": {
+      const vpResult = await callPython("GET", "/agent/voiceprints");
+      const vps = vpResult?.voiceprints || [];
+      if (vps.length > 0) {
+        console.log(`   🗣️ [BRIDGE] Voiceprints enrolled (${vps.length} total):`);
+        for (const vp of vps) {
+          console.log(`   🗣️ [BRIDGE]   - ${vp.name} (${vp.email || "no email"}) — enrolled ${vp.created_at || "?"}`);
+        }
+      } else {
+        console.log(`   🗣️ [BRIDGE] No voiceprints enrolled`);
+      }
+      return vpResult;
+    }
+
+    case "transcribe_delete_voiceprint":
+      return await callPython("DELETE", `/agent/voiceprints/${encodeURIComponent(args.email)}`);
+
+    case "transcribe_get_voiceprint_sample":
+      // Returns a URL to the sample audio endpoint (can't proxy binary through JSON)
+      return { url: `http://127.0.0.1:${BRIDGE_PORT}/agent/voiceprints/sample/${encodeURIComponent(args.email)}` };
 
     case "transcribe_prepare_delivery":
       return await callPython("POST", "/agent/deliver", {
@@ -289,7 +308,26 @@ async function dispatch(tool, args) {
     }
 
     case "transcribe_cancel":
-      return await callPython("POST", `/transcribe/cancel/${args.jobId}`);
+      try {
+        return await callPython("POST", `/transcribe/cancel/${args.jobId}`);
+      } catch (pyErr) {
+        // Python backend may be down — fall back to writing status.json directly
+        console.error(`[bridge] Python cancel failed (${pyErr.message}), trying direct write...`);
+        if (TRANSCRIPTION_STORAGE) {
+          const statusPath = path.join(TRANSCRIPTION_STORAGE, args.jobId, "status.json");
+          if (fs.existsSync(statusPath)) {
+            const status = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+            status.status = "failed";
+            status.error = `Cancelled by user (Python was unreachable: ${pyErr.message})`;
+            status.progress = 0.0;
+            fs.writeFileSync(statusPath, JSON.stringify(status, null, 2));
+            console.log(`[bridge] ✅ Direct cancel write succeeded for ${args.jobId}`);
+            return { job_id: args.jobId, status: "failed", cancelled: true, direct_write: true };
+          }
+        }
+        // Re-throw if we can't fall back
+        throw pyErr;
+      }
 
     case "transcribe_fail_job":
       return await callPython("POST", `/transcribe/fail/${args.jobId}?error=${encodeURIComponent(args.error || "Processing failed")}`);
@@ -395,6 +433,38 @@ const server = http.createServer(async (req, res) => {
       console.log(`[bridge] ← ${tool} OK (${elapsed}ms)`);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(result));
+    } else if (req.method === "GET" && url.pathname.startsWith("/agent/voiceprints/sample/")) {
+      // Proxy voiceprint sample audio — pipe through for streaming
+      const email = decodeURIComponent(url.pathname.split("/").pop() || "");
+      console.log(`[bridge] → GET /agent/voiceprints/sample/${email} (proxying voiceprint audio)`);
+      const audioUrl = `${PYTHON_API}/agent/voiceprints/sample/${encodeURIComponent(email)}`;
+      const audioResp = await fetch(audioUrl);
+      if (!audioResp.ok) {
+        const errBody = await audioResp.text().catch(() => "");
+        console.error(`[bridge] ← GET /agent/voiceprints/sample → ${audioResp.status}: ${errBody.slice(0, 200)}`);
+        res.writeHead(audioResp.status, { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Voiceprint sample not found" }));
+        return;
+      }
+      const contentType = audioResp.headers.get("content-type") || "audio/wav";
+      res.writeHead(200, {
+        "Content-Type": contentType,
+        "Access-Control-Allow-Origin": "*",
+        "Cache-Control": "no-cache",
+      });
+      const reader = audioResp.body.getReader();
+      const pump = async () => {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          res.write(value);
+        }
+        res.end();
+      };
+      pump().catch((err) => {
+        console.error(`[bridge] Voiceprint audio stream error: ${err.message}`);
+        res.end();
+      });
     } else if (req.method === "GET" && url.pathname.startsWith("/transcribe/audio/")) {
       // Proxy audio file serving — pipe through for streaming
       const jobId = url.pathname.split("/").pop();

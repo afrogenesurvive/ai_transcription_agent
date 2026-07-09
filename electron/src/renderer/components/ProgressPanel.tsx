@@ -15,6 +15,8 @@ interface Props {
   status: string;
   progress: number;
   error?: string;
+  /** Non-fatal error/titleError — shown as a warning banner while preserving the actual status for cancel button visibility */
+  titleError?: string;
   /** Called when the user clicks "Stop Processing" */
   onCancel?: () => void;
   /** Whether a cancel is currently in progress */
@@ -125,7 +127,7 @@ function getStageState(
   return "pending";
 }
 
-export default function PipelineProgress({ status, progress, error, onCancel, cancelling, diarizationAvailable, skippedSteps }: Props) {
+export default function PipelineProgress({ status, progress, error, titleError, onCancel, cancelling, diarizationAvailable, skippedSteps }: Props) {
   const [showConfirmCancel, setShowConfirmCancel] = useState(false);
   const pct = Math.round(progress * 100);
   const isFailed = status === "failed";
@@ -221,6 +223,22 @@ export default function PipelineProgress({ status, progress, error, onCancel, ca
             <p>
               Speech-to-text will still work, but the transcript won't have speaker names or labels. Set a <strong>Hugging Face Token</strong> in
               Config to enable speaker diarization.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Non-fatal error banner (e.g. network timeout — backend may be down) ── */}
+      {titleError && !isFailed && (
+        <div className="pp-warning-box" style={{ borderColor: "var(--red)", marginBottom: 8 }}>
+          <span className="pp-warning-icon">
+            <Icon name="warning" color="red" size="16" />
+          </span>
+          <div className="pp-warning-content">
+            <strong>Connection issue detected</strong>
+            <p>{titleError}</p>
+            <p style={{ fontSize: 12, marginTop: 4, color: "var(--text-muted)" }}>
+              The backend may have gone down. You can try stopping this job and restarting services, or wait for automatic recovery.
             </p>
           </div>
         </div>

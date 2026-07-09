@@ -526,6 +526,72 @@ async def agent_list_voiceprints():
     return {"voiceprints": vps}
 
 
+@app.delete("/agent/voiceprints/{email}")
+async def agent_delete_voiceprint(email: str):
+    """Delete a voiceprint by email. Returns success even if not found."""
+    print(f"[api] DELETE /agent/voiceprints/{email}")
+    vp_manager.delete_voiceprint(email)
+    return {"success": True, "email": email}
+
+
+@app.get("/agent/voiceprints/sample/{email}")
+async def agent_voiceprint_sample(email: str):
+    """Serve a sample audio clip for a voiceprint.
+
+    Looks up the voiceprint's stored sample_job_id + sample_start/end,
+    extracts the clip from that job's audio file using ffmpeg, and returns
+    it as a WAV for in-browser playback.
+    """
+    from fastapi.responses import Response
+    import subprocess as _sp
+    import tempfile as _tf
+
+    vps = vp_manager.list_voiceprints()
+    vp = next((v for v in vps if v["email"] == email), None)
+    if not vp or not vp.get("sample_job_id"):
+        raise HTTPException(404, "No sample audio available for this voiceprint")
+
+    job_id = vp["sample_job_id"]
+    seg_start = vp["sample_start"]
+    seg_end = vp["sample_end"]
+
+    audio_path = uploader.get_audio_path(job_id)
+    if not os.path.exists(audio_path):
+        raise HTTPException(404, "Source audio file not found")
+
+    clip_duration = min(3.0, seg_end - seg_start)
+    clip_start = seg_start
+
+    with _tf.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        tmp_path = tmp.name
+
+    try:
+        _sp.run([
+            "ffmpeg", "-y",
+            "-ss", str(clip_start),
+            "-t", str(clip_duration),
+            "-i", audio_path,
+            "-acodec", "pcm_s16le",
+            "-ar", "16000",
+            "-ac", "1",
+            tmp_path,
+        ], capture_output=True, timeout=30, check=True)
+
+        with open(tmp_path, "rb") as f:
+            wav_data = f.read()
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+    return Response(
+        content=wav_data,
+        media_type="audio/wav",
+        headers={"Content-Disposition": f"inline; filename=\"{email}_sample.wav\""},
+    )
+
+
 @app.post("/agent/deliver")
 async def agent_deliver(req: Deliverable):
     print(f"[api] POST /agent/deliver job_id={req.job_id} destinations={req.destinations} emails={req.email_recipients}")
@@ -719,15 +785,34 @@ async def get_audio(job_id: str):
 
 
 @app.get("/transcribe/job_logs/{job_id}")
-async def get_job_logs(job_id: str, max_lines: int = 200):
-    """Return job-specific log lines from the global log files filtered by job_id.
+async def get_job_logs(job_id: str, max_lines: int = 0):
+    """Return job-specific log lines filtered by job_id.
 
-    Pass ``max_lines=0`` to return ALL matching lines (no truncation).
+    Searches TWO sources:
+      1. ELECTRON_LOGS_DIR (<userData>/logs/) — combined stdout from
+         Python, Bridge, and Agent processes (app-YYYY-MM-DD.log)
+      2. storage/{job_id}/ — per-job files (agent-trace.jsonl, actions.jsonl, etc.)
+
+    All logs are stored in user storage (not the repo), organized by job ID.
+    Pass ``max_lines=0`` (default) to return ALL matching lines (no truncation).
+    Pass a positive number to limit to the last N lines.
     """
-    logs_dir = os.path.join(config.STORAGE_PATH, "logs")
     matched_lines = []
-    if os.path.exists(logs_dir):
-        for fname in sorted(os.listdir(logs_dir), reverse=True)[:5]:
+
+    # ── Source 1: Electron combined logs (<userData>/logs/app-*.log) ──
+    # These contain all stdout from Python, Bridge, and Agent processes,
+    # captured and written by Electron's logger.ts. Each line is filtered
+    # by job_id so only relevant entries are returned.
+    logs_dirs = []
+    if config.ELECTRON_LOGS_DIR:
+        logs_dirs.append(config.ELECTRON_LOGS_DIR)
+    # Fallback for standalone (no Electron): search storage/logs/
+    fallback_dir = os.path.join(config.STORAGE_PATH, "logs")
+    if os.path.exists(fallback_dir):
+        logs_dirs.append(fallback_dir)
+
+    for logs_dir in logs_dirs:
+        for fname in sorted(os.listdir(logs_dir), reverse=True)[:10]:
             fpath = os.path.join(logs_dir, fname)
             if not fname.endswith(".log"):
                 continue
@@ -738,7 +823,8 @@ async def get_job_logs(job_id: str, max_lines: int = 200):
                             matched_lines.append(line.strip())
             except Exception:
                 continue
-    # Also check the job directory itself for any logs
+
+    # ── Source 2: Per-job files (storage/{job_id}/) ──
     job_dir = os.path.join(config.STORAGE_PATH, job_id)
     job_logs = []
     if os.path.exists(job_dir):
@@ -783,11 +869,11 @@ async def get_job_files(job_id: str):
 
 
 @app.get("/transcribe/pipeline_log/{job_id}")
-async def get_pipeline_log(job_id: str, max_lines: int = 500, include_global: str = "false"):
+async def get_pipeline_log(job_id: str, max_lines: int = 0, include_global: str = "false"):
     """Return the per-job pipeline log file (pipeline.log) contents.
 
     Returns the last ``max_lines`` lines so large files don't overwhelm
-    the frontend. Pass ``max_lines=0`` to return ALL lines.
+    the frontend. Pass ``max_lines=0`` (default) to return ALL lines.
     Set ``include_global=true`` to also include matching lines from the
     global daily log files (capturing agent-runner and bridge-server output).
     """
@@ -976,7 +1062,15 @@ async def label_and_resume(job_id: str, labels: list = Body(...)):
                     audio_path,
                     segment=(longest["start"], longest["end"]),
                 )
-                vp_manager.save_voiceprint(name, email, emb)
+                # Calculate a short sample clip (up to 3s) for playback
+                sample_start = longest["start"]
+                sample_end = min(longest["end"], sample_start + 3.0)
+                vp_manager.save_voiceprint(
+                    name, email, emb,
+                    sample_job_id=job_id,
+                    sample_start=sample_start,
+                    sample_end=sample_end,
+                )
                 print(f"[api]   ✅ Saved voiceprint for '{name}' ({spk})")
             except Exception as e:
                 print(f"[api]   ⚠️  Could not extract embedding for '{name}': {e}")
@@ -2009,8 +2103,37 @@ def _run_pipeline_sync(job_id: str):
         vp_elapsed = time.time() - t_vp
         jlog.log(f"   ✅ [pipeline] Voiceprint matching in {vp_elapsed:.1f}s: "
               f"{len(match_result['known'])} known, {len(match_result.get('unknown', []))} unknown")
-        if match_result['known']:
+
+        # ── Log detailed voiceprint identification results ──
+        scores = match_result.get("scores", {})
+        if match_result.get("known"):
+            jlog.log(f"[voiceprint] ── Speaker Identifications ──")
+            for matched_name in match_result["known"]:
+                score = scores.get(matched_name, 0)
+                segment_count = len(match_result["known"][matched_name])
+                # Find the original speaker_id(s) that matched this name
+                # (reverse-lookup from the speaker_segments dict)
+                source_spk = "?"
+                for spk_id, segs in speaker_segments.items():
+                    for s in segs:
+                        for ks in match_result["known"][matched_name]:
+                            if abs(s.get("start", 0) - ks.get("start", 0)) < 0.5:
+                                source_spk = spk_id
+                                break
+                        if source_spk != "?":
+                            break
+                    if source_spk != "?":
+                        break
+                jlog.log(f"[voiceprint]   ✅ Speaker {source_spk} → {matched_name} "
+                      f"(confidence: {score:.3f}, {segment_count} segment(s))")
+            jlog.log(f"[voiceprint] ──────────────────────────────")
             jlog.log(f"[pipeline]   Matched: {list(match_result['known'].keys())}")
+        if match_result.get("unknown"):
+            jlog.log(f"[voiceprint] ── Unidentified Speakers ──")
+            for u in match_result["unknown"]:
+                jlog.log(f"[voiceprint]   ❓ {u['speaker_id']}: not identified "
+                      f"({len(u['segments'])} segment(s), sample at {u['sample_segment']['start']:.1f}s)")
+            jlog.log(f"[voiceprint] ────────────────────────────")
 
         # ── Step 3: ASR Transcription ──
         jlog.log(f"\n   🎤 [PIPELINE] Step 3/5: ASR transcription (Whisper)...")

@@ -63,6 +63,8 @@ class VoiceprintManager:
           speaker_name — human-readable label (e.g. "Alice Johnson")
           email        — unique identifier for upsert
           embedding    — pickle-dumped numpy array of ~512 floats
+          sample_job_id, sample_start, sample_end — reference to a sample audio
+            clip for playback, captured when the voiceprint is enrolled.
         """
         conn = sqlite3.connect(self.db_path)
         conn.execute("""
@@ -71,10 +73,26 @@ class VoiceprintManager:
                 speaker_name TEXT UNIQUE,
                 email TEXT UNIQUE,
                 embedding BLOB,
+                sample_job_id TEXT,
+                sample_start REAL,
+                sample_end REAL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # Add sample columns if missing (migration for existing DBs)
+        try:
+            conn.execute("ALTER TABLE voiceprints ADD COLUMN sample_job_id TEXT")
+        except Exception:
+            pass
+        try:
+            conn.execute("ALTER TABLE voiceprints ADD COLUMN sample_start REAL")
+        except Exception:
+            pass
+        try:
+            conn.execute("ALTER TABLE voiceprints ADD COLUMN sample_end REAL")
+        except Exception:
+            pass
         conn.commit()
         conn.close()
 
@@ -234,24 +252,44 @@ class VoiceprintManager:
                 known[name] = pickle.loads(blob)
         return known
 
-    def save_voiceprint(self, name: str, email: str, embedding: np.ndarray):
-        """Store or update a voiceprint. Uses email as the unique key (upsert)."""
+    def save_voiceprint(self, name: str, email: str, embedding: np.ndarray,
+                        sample_job_id: str = None,
+                        sample_start: float = None,
+                        sample_end: float = None):
+        """Store or update a voiceprint. Uses email as the unique key (upsert).
+
+        Args:
+            sample_job_id: Job ID where the sample clip is located.
+            sample_start: Start time in seconds of the sample clip.
+            sample_end: End time in seconds of the sample clip.
+        """
         conn = self._get_conn()
         conn.execute("""
-            INSERT INTO voiceprints (speaker_name, email, embedding)
-            VALUES (?, ?, ?)
+            INSERT INTO voiceprints (speaker_name, email, embedding,
+                                     sample_job_id, sample_start, sample_end)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(email) DO UPDATE SET
                 speaker_name=excluded.speaker_name, embedding=excluded.embedding,
+                sample_job_id=excluded.sample_job_id,
+                sample_start=excluded.sample_start,
+                sample_end=excluded.sample_end,
                 updated_at=CURRENT_TIMESTAMP
-        """, (name, email, pickle.dumps(embedding)))
+        """, (name, email, pickle.dumps(embedding),
+              sample_job_id, sample_start, sample_end))
         conn.commit()
 
     def list_voiceprints(self) -> List[dict]:
         conn = self._get_conn()
         rows = conn.execute(
-            "SELECT speaker_name, email, created_at, updated_at FROM voiceprints ORDER BY speaker_name"
+            "SELECT speaker_name, email, created_at, updated_at, "
+            "sample_job_id, sample_start, sample_end "
+            "FROM voiceprints ORDER BY speaker_name"
         ).fetchall()
-        return [{"name": r[0], "email": r[1], "created_at": r[2], "updated_at": r[3]} for r in rows]
+        return [{
+            "name": r[0], "email": r[1],
+            "created_at": r[2], "updated_at": r[3],
+            "sample_job_id": r[4], "sample_start": r[5], "sample_end": r[6],
+        } for r in rows]
 
     def delete_voiceprint(self, email: str):
         conn = self._get_conn()

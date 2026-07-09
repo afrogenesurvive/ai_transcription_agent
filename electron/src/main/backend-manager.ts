@@ -163,16 +163,26 @@ export async function startPythonBackend(port = 5001): Promise<void> {
     stdio: ["ignore", "pipe", "pipe"],
   });
 
+  /** Extract a [tag] prefix from the start of a message, e.g. "[transcription] ..." → "transcription" */
+  function extractSubSource(msg: string): string | undefined {
+    const match = msg.match(/^\[(\w+)\]/);
+    return match ? match[1].toLowerCase() : undefined;
+  }
+
   pythonProcess.stdout?.on("data", (d: Buffer) => {
     const msg = d.toString().trim();
+    const subSource = extractSubSource(msg);
+    const cleanMsg = subSource ? msg.replace(/^\[\w+\]\s*/, "") : msg;
     console.log(`[python] ${msg}`);
-    addLog("python", "info", msg);
+    addLog("python", "info", cleanMsg, subSource);
   });
 
   pythonProcess.stderr?.on("data", (d: Buffer) => {
     const msg = d.toString().trim();
+    const subSource = extractSubSource(msg);
+    const cleanMsg = subSource ? msg.replace(/^\[\w+\]\s*/, "") : msg;
     console.error(`[python:err] ${msg}`);
-    addLog("python", "error", msg);
+    addLog("python", "error", cleanMsg, subSource);
   });
 
   pythonProcess.on("exit", (code) => {

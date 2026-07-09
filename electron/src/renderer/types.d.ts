@@ -42,6 +42,7 @@ export interface JobStatus {
 export interface LogEntry {
   timestamp: number;
   source: "python" | "bridge" | "agent" | "main";
+  subSource?: string;
   level: "debug" | "info" | "warn" | "error";
   message: string;
 }
@@ -192,6 +193,9 @@ export interface ElectronAPI {
     job_count: number;
     error?: string;
   }>;
+
+  // ── Shell (open folders in native file manager) ──
+  openPath: (filePath: string) => Promise<{ success: boolean; error?: string }>;
 
   platform: string;
 }

@@ -31,8 +31,15 @@ const SOURCE_COLORS: Record<string, string> = {
   agent: "#d29922",
   main: "#8b949e",
   transcription: "#f0883e",
+  pipeline: "#79c0ff",
   usage: "#db61a2",
   ollama: "#7ee787",
+  startup: "#8b949e",
+  voiceprint: "#bc8cff",
+  memory: "#f85149",
+  agent_bridge: "#d29922",
+  upload: "#2ea043",
+  config: "#8b949e",
 };
 
 const LEVEL_PREFIX: Record<string, string> = {
@@ -75,10 +82,17 @@ function savePersisted(key: string, value: string): void {
 /** Extra "source" values that are really message tags, checked against entry.message. */
 const TAG_SOURCES = new Set(["transcription", "usage", "ollama"]);
 
+/** Extract a [tag] prefix from the start of a log message, e.g. "[transcription] hello" → "transcription" */
+function extractMessageTag(message: string): string | null {
+  const match = message.match(/^\[(\w+)\]/);
+  return match ? match[1].toLowerCase() : null;
+}
+
 function LiveLogsTab() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>(loadPersisted(LS_KEY_SOURCE, "all") as SourceFilter);
   const [levelFilter, setLevelFilter] = useState<LevelFilter>(loadPersisted(LS_KEY_LEVEL, "all") as LevelFilter);
+  const [searchQuery, setSearchQuery] = useState("");
   const [autoScroll, setAutoScroll] = useState(loadPersisted(LS_KEY_SCROLL, "true") === "true");
   const listRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
@@ -146,6 +160,26 @@ function LiveLogsTab() {
     return false;
   }
 
+  /** Highlight search matches in text — returns React nodes with <em> wrappers. */
+  const highlightText = useCallback(
+    (text: string): React.ReactNode => {
+      if (!searchQuery.trim()) return text;
+      const escaped = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const parts = text.split(new RegExp(`(${escaped})`, "gi"));
+      if (parts.length === 1) return text;
+      return parts.map((part, i) =>
+        part.toLowerCase() === searchQuery.toLowerCase() ? (
+          <em key={i} className="dev-panel-search-highlight">
+            {part}
+          </em>
+        ) : (
+          part
+        ),
+      );
+    },
+    [searchQuery],
+  );
+
   const filtered = logs.filter((entry) => {
     if (sourceFilter !== "all") {
       // Tag-based "sources" (transcription, usage, ollama) are checked against message content
@@ -156,6 +190,12 @@ function LiveLogsTab() {
       }
     }
     if (levelFilter !== "all" && entry.level !== levelFilter) return false;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      if (!entry.message.toLowerCase().includes(q) && !entry.source.toLowerCase().includes(q) && !entry.level.toLowerCase().includes(q)) {
+        return false;
+      }
+    }
     return true;
   });
 
@@ -168,6 +208,26 @@ function LiveLogsTab() {
         </span>
 
         <div className="dev-panel-filters">
+          {/* 🔍 Text search */}
+          <div className="dev-panel-search-wrap">
+            <span className="dev-panel-search-icon">🔍</span>
+            <input
+              className="dev-panel-search-input"
+              type="text"
+              placeholder="Search logs…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            {searchQuery && (
+              <button
+                className="dev-panel-search-clear"
+                onClick={() => setSearchQuery("")}
+                title="Clear search"
+                data-tooltip="Clear the log search query">
+                <Icon name="close" size="12" />
+              </button>
+            )}
+          </div>
           <select
             className="dev-panel-select"
             value={sourceFilter}
@@ -217,16 +277,29 @@ function LiveLogsTab() {
       {/* Log list */}
       <div className="dev-panel-list" ref={listRef}>
         {filtered.length === 0 && <div className="dev-panel-empty">No logs match the current filters.</div>}
-        {filtered.map((entry, i) => (
-          <div key={i} className="dev-panel-entry">
-            <span className="dev-panel-time">{new Date(entry.timestamp).toLocaleTimeString()}</span>
-            <span className="dev-panel-source" style={{ color: SOURCE_COLORS[entry.source] || "#8b949e" }}>
-              [{entry.source}]
-            </span>
-            <span className={`dev-panel-level dev-panel-level--${entry.level}`}>{LEVEL_PREFIX[entry.level]}</span>
-            <span className="dev-panel-message">{entry.message}</span>
-          </div>
-        ))}
+        {filtered.map((entry, i) => {
+          // Determine which sub-source tag to show: prefer entry.subSource, fall back to message tag
+          const displaySubSource = entry.subSource ?? extractMessageTag(entry.message);
+          // Strip [tag] prefix from message if we're showing it as a badge
+          const displayMessage = displaySubSource && !entry.subSource ? entry.message.replace(/^\[\w+\]\s*/, "") : entry.message;
+          return (
+            <div key={i} className="dev-panel-entry">
+              <span className="dev-panel-time">{new Date(entry.timestamp).toLocaleTimeString()}</span>
+              <span className="dev-panel-source-badge">
+                <span className="dev-panel-source" style={{ color: SOURCE_COLORS[entry.source] || "#8b949e" }}>
+                  [{entry.source}]
+                </span>
+                {displaySubSource && displaySubSource !== entry.source && (
+                  <span className="dev-panel-sub-source" style={{ color: SOURCE_COLORS[displaySubSource] || "#f0883e" }}>
+                    [{displaySubSource}]
+                  </span>
+                )}
+              </span>
+              <span className={`dev-panel-level dev-panel-level--${entry.level}`}>{LEVEL_PREFIX[entry.level]}</span>
+              <span className="dev-panel-message">{highlightText(displayMessage)}</span>
+            </div>
+          );
+        })}
       </div>
 
       {/* Footer with stats */}
@@ -267,7 +340,8 @@ function LogFilesTab() {
   const [logPaths, setLogPaths] = useState<{ primary: string | null; mirror: string | null }>({ primary: null, mirror: null });
   const [logSourceFilter, setLogSourceFilter] = useState<string>("all");
   const [logLevelFilter, setLogLevelFilter] = useState<string>("all");
-  const [noTruncate, setNoTruncate] = useState(false);
+  const [logSearchQuery, setLogSearchQuery] = useState("");
+  const [noTruncate, setNoTruncate] = useState(true);
   const contentRef = useRef<HTMLDivElement>(null);
   const fileListRef = useRef<HTMLDivElement>(null);
   const [fileListWidth, setFileListWidth] = useState(240);
@@ -312,12 +386,14 @@ function LogFilesTab() {
       .catch(() => {});
   }, [loadAllLogFiles]);
 
-  const handleSelectFile = useCallback(async (filePath: string) => {
-    setSelectedFile(filePath);
-    const maxLines = noTruncate ? 0 : 1000;
-    const lines = (await window.electronAPI?.readLogFile(filePath, maxLines)) || [];
-    setFileContent(lines);
-  }, [noTruncate]);
+  const handleSelectFile = useCallback(
+    async (filePath: string) => {
+      setSelectedFile(filePath);
+      const lines = (await window.electronAPI?.readLogFile(filePath, noTruncate ? 0 : 1000)) || [];
+      setFileContent(lines);
+    },
+    [noTruncate],
+  );
 
   // Auto-scroll to bottom when file content loads
   useEffect(() => {
@@ -329,8 +405,7 @@ function LogFilesTab() {
   // Re-read file when noTruncate toggles
   useEffect(() => {
     if (!selectedFile) return;
-    const maxLines = noTruncate ? 0 : 1000;
-    window.electronAPI?.readLogFile(selectedFile, maxLines).then((lines) => {
+    window.electronAPI?.readLogFile(selectedFile, noTruncate ? 0 : 1000).then((lines) => {
       if (lines) setFileContent(lines);
     });
   }, [noTruncate, selectedFile]);
@@ -339,13 +414,32 @@ function LogFilesTab() {
     await loadAllLogFiles();
     if (selectedFile) {
       // Re-read currently selected file
-      const maxLines = noTruncate ? 0 : 1000;
-      const lines = (await window.electronAPI?.readLogFile(selectedFile, maxLines)) || [];
+      const lines = (await window.electronAPI?.readLogFile(selectedFile, noTruncate ? 0 : 1000)) || [];
       setFileContent(lines);
     }
   }, [selectedFile, loadAllLogFiles, noTruncate]);
 
-  // Filter file content by source and level
+  /** Highlight search matches in plain text lines. */
+  const highlightFileLine = useCallback(
+    (text: string): React.ReactNode => {
+      if (!logSearchQuery.trim()) return text;
+      const escaped = logSearchQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const parts = text.split(new RegExp(`(${escaped})`, "gi"));
+      if (parts.length === 1) return text;
+      return parts.map((part, i) =>
+        part.toLowerCase() === logSearchQuery.toLowerCase() ? (
+          <em key={i} className="dev-panel-search-highlight">
+            {part}
+          </em>
+        ) : (
+          part
+        ),
+      );
+    },
+    [logSearchQuery],
+  );
+
+  // Filter file content by source, level, and search query
   const filteredContent = fileContent.filter((line) => {
     if (logSourceFilter !== "all") {
       const detected = detectLogSource(line);
@@ -354,6 +448,10 @@ function LogFilesTab() {
     if (logLevelFilter !== "all") {
       const detected = detectLogLevel(line);
       if (detected !== logLevelFilter) return false;
+    }
+    if (logSearchQuery.trim()) {
+      const q = logSearchQuery.toLowerCase();
+      if (!line.toLowerCase().includes(q)) return false;
     }
     return true;
   });
@@ -413,6 +511,26 @@ function LogFilesTab() {
           {/* Filter toolbar — shown when a file is selected */}
           {selectedFile && fileContent.length > 0 && (
             <div className="dev-panel-file-filter-bar">
+              {/* 🔍 Text search */}
+              <div className="dev-panel-search-wrap">
+                <span className="dev-panel-search-icon">🔍</span>
+                <input
+                  className="dev-panel-search-input dev-panel-search-input--compact"
+                  type="text"
+                  placeholder="Search in file…"
+                  value={logSearchQuery}
+                  onChange={(e) => setLogSearchQuery(e.target.value)}
+                />
+                {logSearchQuery && (
+                  <button
+                    className="dev-panel-search-clear"
+                    onClick={() => setLogSearchQuery("")}
+                    title="Clear search"
+                    data-tooltip="Clear the file search query">
+                    <Icon name="close" size="12" />
+                  </button>
+                )}
+              </div>
               <select className="dev-panel-file-filter-select" value={logSourceFilter} onChange={(e) => setLogSourceFilter(e.target.value)}>
                 <option value="all">All sources</option>
                 <option value="python">Python</option>
@@ -436,6 +554,7 @@ function LogFilesTab() {
               </label>
               <span className="dev-panel-file-filter-count">
                 {filteredContent.length} / {fileContent.length} lines
+                {logSearchQuery.trim() && ` (${fileContent.filter((l) => l.toLowerCase().includes(logSearchQuery.toLowerCase())).length} matches)`}
               </span>
             </div>
           )}
@@ -444,11 +563,21 @@ function LogFilesTab() {
             <div className="dev-panel-empty">No lines match the current filters.</div>
           )}
           {selectedFile &&
-            filteredContent.map((line, i) => (
-              <div key={i} className="dev-panel-file-line">
-                {line}
-              </div>
-            ))}
+            filteredContent.map((line, i) => {
+              const detectedSource = detectLogSource(line);
+              // Strip the exact [tag] prefix from the line for display
+              const lineDisplay = detectedSource ? line.replace(new RegExp(`^\\[${detectedSource}\\]\\s*`, "i"), "") : line;
+              return (
+                <div key={i} className="dev-panel-file-line">
+                  {detectedSource && (
+                    <span className="dev-panel-file-line-source" style={{ color: SOURCE_COLORS[detectedSource] || "#8b949e", marginRight: 6 }}>
+                      [{detectedSource}]
+                    </span>
+                  )}
+                  <span>{highlightFileLine(lineDisplay)}</span>
+                </div>
+              );
+            })}
         </div>
       </div>
 
@@ -458,6 +587,7 @@ function LogFilesTab() {
         {selectedFile && (
           <span>
             {filteredContent.length} / {fileContent.length} lines
+            {logSearchQuery.trim() && ` (${fileContent.filter((l) => l.toLowerCase().includes(logSearchQuery.toLowerCase())).length} matches)`}
           </span>
         )}
       </div>
@@ -529,7 +659,7 @@ function DatabaseTab() {
   const [meetings, setMeetings] = useState<MeetingInfo[]>([]);
   const [semanticStats, setSemanticStats] = useState<SemanticStats | null>(null);
   const [semanticOverlap, setSemanticOverlap] = useState<SemanticOverlap | null>(null);
-  const [activeView, setActiveView] = useState<"ephemeral" | "semantic">("ephemeral");
+  const [activeView, setActiveView] = useState<"ephemeral" | "semantic" | "voiceprints">("ephemeral");
   const [loading, setLoading] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -558,6 +688,15 @@ function DatabaseTab() {
   }, []);
 
   // ── Search relevance state ──
+  // ── Voiceprint state ──
+  const [voiceprints, setVoiceprints] = useState<any[]>([]);
+  const [vpLoading, setVpLoading] = useState(false);
+  const [vpError, setVpError] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null); // email to delete
+  const [deletingVp, setDeletingVp] = useState(false);
+  const [playingVp, setPlayingVp] = useState<string | null>(null); // email of currently playing
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<any[] | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -622,10 +761,63 @@ function DatabaseTab() {
     setLoading(false);
   }, []);
 
+  const loadVoiceprints = useCallback(async () => {
+    setVpLoading(true);
+    setVpError(null);
+    try {
+      const result = await callBridge("transcribe_list_voiceprints");
+      setVoiceprints(result?.voiceprints || []);
+    } catch (err: any) {
+      setVpError(err.message || "Failed to load voiceprints");
+      setVoiceprints([]);
+    }
+    setVpLoading(false);
+  }, []);
+
+  const handleDeleteVoiceprint = useCallback(async (email: string) => {
+    setDeleteConfirm(null);
+    setDeletingVp(true);
+    try {
+      await callBridge("transcribe_delete_voiceprint", { email });
+      setVoiceprints((prev) => prev.filter((vp: any) => vp.email !== email));
+    } catch (err: any) {
+      console.error("Failed to delete voiceprint:", err);
+    }
+    setDeletingVp(false);
+  }, []);
+
+  const handlePlayVoiceprint = useCallback(
+    (email: string) => {
+      if (playingVp === email) {
+        audioRef.current?.pause();
+        setPlayingVp(null);
+        return;
+      }
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      const audio = new Audio(`http://127.0.0.1:5010/agent/voiceprints/sample/${encodeURIComponent(email)}`);
+      audio.onended = () => setPlayingVp(null);
+      audio.onerror = () => setPlayingVp(null);
+      audio.play().catch(() => setPlayingVp(null));
+      audioRef.current = audio;
+      setPlayingVp(email);
+    },
+    [playingVp],
+  );
+
   useEffect(() => {
     loadTables();
     loadMeetings();
-  }, [loadTables, loadMeetings]);
+    loadVoiceprints();
+  }, [loadTables, loadMeetings, loadVoiceprints]);
+
+  // Cleanup audio on unmount
+  useEffect(() => {
+    return () => {
+      audioRef.current?.pause();
+    };
+  }, []);
 
   const handleSelectTable = useCallback(async (tableName: string) => {
     setSelectedTable(tableName);
@@ -643,8 +835,9 @@ function DatabaseTab() {
   const handleRefresh = useCallback(() => {
     loadTables();
     loadMeetings();
+    loadVoiceprints();
     if (selectedTable) handleSelectTable(selectedTable);
-  }, [loadTables, loadMeetings, handleSelectTable, selectedTable]);
+  }, [loadTables, loadMeetings, loadVoiceprints, handleSelectTable, selectedTable]);
 
   // Render a cell value safely (truncated for table display)
   const renderCell = (val: any): string => {
@@ -758,6 +951,11 @@ function DatabaseTab() {
               onClick={() => setActiveView("semantic")}>
               <Icon name="memory" size="14" /> Semantic
             </button>
+            <button
+              className={`dev-panel-view-btn ${activeView === "voiceprints" ? "dev-panel-view-btn--active" : ""}`}
+              onClick={() => setActiveView("voiceprints")}>
+              <Icon name="badge" size="14" /> Voiceprints
+            </button>
           </div>
         </div>
         <div className="dev-panel-actions">
@@ -841,6 +1039,76 @@ function DatabaseTab() {
               )}
             </div>
           </>
+        )}
+
+        {activeView === "voiceprints" && (
+          <div className="dev-panel-db-content" ref={contentRef}>
+            {vpLoading && <div className="dev-panel-empty">Loading voiceprints...</div>}
+            {vpError && (
+              <div className="dev-panel-empty" style={{ color: "var(--red)" }}>
+                Error: {vpError}
+              </div>
+            )}
+            {!vpLoading && !vpError && voiceprints.length === 0 && (
+              <div className="dev-panel-empty">No voiceprints enrolled yet. Voiceprints are created when you label speakers during processing.</div>
+            )}
+
+            {voiceprints.length > 0 && (
+              <>
+                <div className="dev-panel-db-stats">
+                  <span>{voiceprints.length} voiceprint(s) enrolled</span>
+                  <span className="dev-panel-db-stats-hint">
+                    Click <Icon name="play_arrow" size="12" /> to hear a sample, or <Icon name="delete" size="12" /> to remove
+                  </span>
+                </div>
+                <table className="dev-panel-db-table">
+                  <thead>
+                    <tr>
+                      {renderTh("Name", "vp-name")}
+                      {renderTh("Email", "vp-email")}
+                      {renderTh("Enrolled", "vp-created")}
+                      {renderTh("Audio", "vp-audio")}
+                      {renderTh("Action", "vp-action")}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {voiceprints.map((vp: any) => (
+                      <tr key={vp.email} className="dev-panel-db-row">
+                        <td className="dev-panel-db-cell-nowrap">{vp.name || "—"}</td>
+                        <td className="dev-panel-db-cell-nowrap">{vp.email || "—"}</td>
+                        <td className="dev-panel-db-cell-nowrap">{vp.created_at ? new Date(vp.created_at).toLocaleDateString() : "—"}</td>
+                        <td className="dev-panel-db-cell-nowrap">
+                          {vp.sample_job_id ? (
+                            <button
+                              className="dev-panel-btn"
+                              style={{ padding: "2px 8px", fontSize: 12 }}
+                              onClick={() => handlePlayVoiceprint(vp.email)}
+                              title={playingVp === vp.email ? "Stop playback" : "Play sample audio"}
+                              data-tooltip={playingVp === vp.email ? "Stop playback" : "Hear a 3-second sample of this speaker's voice"}>
+                              <Icon name={playingVp === vp.email ? "stop" : "play_arrow"} size="14" color="accent" />
+                            </button>
+                          ) : (
+                            <span style={{ color: "var(--text-muted)", fontSize: 11 }}>No sample</span>
+                          )}
+                        </td>
+                        <td className="dev-panel-db-cell-nowrap">
+                          <button
+                            className="dev-panel-btn"
+                            style={{ padding: "2px 8px", fontSize: 12, color: "var(--red)" }}
+                            onClick={() => setDeleteConfirm(vp.email)}
+                            disabled={deletingVp}
+                            title="Delete this voiceprint"
+                            data-tooltip="Permanently remove this speaker's voiceprint — they will no longer be automatically identified">
+                            <Icon name="delete" size="14" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            )}
+          </div>
         )}
 
         {activeView === "semantic" && (
@@ -1097,8 +1365,33 @@ function DatabaseTab() {
           </span>
         )}
         {activeView === "semantic" && <span>{meetings.length} meeting(s)</span>}
+        {activeView === "voiceprints" && <span>{voiceprints.length} voiceprint(s)</span>}
         {selectedTable && <span>{tableTotal} row(s) in table</span>}
       </div>
+
+      {/* ── Confirm Delete Voiceprint Dialog ── */}
+      {deleteConfirm && (
+        <div className="confirm-overlay" onClick={() => setDeleteConfirm(null)}>
+          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3 className="confirm-dialog-title">
+              <Icon name="warning" size="16" color="red" /> Delete Voiceprint
+            </h3>
+            <p className="confirm-dialog-text">
+              This will permanently remove the voiceprint for{" "}
+              <strong>{voiceprints.find((vp: any) => vp.email === deleteConfirm)?.name || deleteConfirm}</strong> with email{" "}
+              <code>{deleteConfirm}</code>. Future meetings will no longer automatically recognize this speaker unless a new voiceprint is enrolled.
+            </p>
+            <div className="confirm-dialog-actions">
+              <button className="btn-secondary" onClick={() => setDeleteConfirm(null)} disabled={deletingVp}>
+                Cancel
+              </button>
+              <button className="btn-danger" onClick={() => handleDeleteVoiceprint(deleteConfirm)} disabled={deletingVp}>
+                {deletingVp ? "Deleting..." : "Delete Voiceprint"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

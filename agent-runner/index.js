@@ -336,6 +336,19 @@ async function processEvent(event) {
     console.log(`   📝 [RUNNER]   Total instructions      : ${totalInstructionsLength.toString().padStart(7)} chars`);
     console.log(`   📝 [RUNNER] ═══════════════════════════════════════════\n`);
 
+    // Log the actual built system prompt for debugging
+    const promptLine = `   📝 [RUNNER] ═══ Built System Prompt ═══`;
+    const promptDivider = `   📝 [RUNNER] ${"=".repeat(50)}`;
+    console.log(`\n${promptDivider}`);
+    console.log(promptLine);
+    console.log(promptDivider);
+    // Split into lines and log each with the prefix for readability
+    const promptLines = renderedPrompt.split("\n");
+    for (const line of promptLines) {
+      console.log(`   📝 [RUNNER] | ${line}`);
+    }
+    console.log(`${promptDivider}\n`);
+
     agentTrace.recordSystemPrompt({
       renderedPrompt,
       strippedSections: [...skippedTools],
@@ -377,7 +390,7 @@ async function processEvent(event) {
       });
       return null;
     }
-    console.log(`   🔍 [RUNNER] resolveNextHint("${currentTool}"): hint found — "${hint.slice(0, 100)}..."`);
+    console.log(`   🔍 [RUNNER] resolveNextHint("${currentTool}"): hint found — "${hint}"`);
     // Extract the first referenced tool name from the hint prose
     const match = hint.match(/\b(transcribe_\w+)\b/);
     if (!match) {
@@ -689,6 +702,23 @@ async function processEvent(event) {
 
     console.log(`   ✅ [RUNNER] ${decision.name} succeeded`);
 
+    // ── Log voiceprint identification results ──
+    if (decision.name === "transcribe_list_voiceprints") {
+      const vps = result?.voiceprints || [];
+      if (vps.length > 0) {
+        console.log(`   🗣️ [RUNNER] Enrolled voiceprints (${vps.length}):`);
+        for (const vp of vps) {
+          console.log(`   🗣️ [RUNNER]   - ${vp.name}${vp.email ? ` (${vp.email})` : ""}`);
+        }
+      } else {
+        console.log(`   🗣️ [RUNNER] No enrolled voiceprints`);
+      }
+    }
+    if (decision.name === "transcribe_label_speaker" && result) {
+      const labelArgs = decision.arguments || {};
+      console.log(`   🏷️  [RUNNER] Speaker labeled: ${labelArgs.name || "?"} (speaker_id=${labelArgs.speakerId || "?"})`);
+    }
+
     // ── Record delivery tool results ──
     const DELIVERY_TOOLS = new Set(["send_delivery_email", "save_to_drive", "create_trello_action_items"]);
     if (DELIVERY_TOOLS.has(decision.name)) {
@@ -789,12 +819,17 @@ async function processEvent(event) {
     context += `\n\n[Step ${step} Complete] Tool: ${decision.name}\nResult: ${resultBlock}`;
     const resultBlockLen = context.length - contextBeforeUpdate;
 
+    // ── Full context snapshot (opt-in via AGENT_TRACE_FULL_CONTEXT=true) ──
+    // Records the complete LLM context after every step for post-hoc analysis.
+    // Off by default because it produces very large trace files.
+    agentTrace.recordContextSnapshot({ step, context });
+
     // Add a hint about the next logical pipeline step, skipping over any
     // tools that are in the skip list.
     let hintAppended = false;
     const hint = resolveNextHint(decision.name, PIPELINE_HINTS);
     if (hint) {
-      console.log(`   🧭 [RUNNER] Pipeline hint appended for next step: "${hint.slice(0, 100)}..."`);
+      console.log(`   🧭 [RUNNER] Pipeline hint appended for next step: "${hint}"`);
       const hintStart = context.length;
       context += `\n${hint}`;
       const hintLen = context.length - hintStart;
@@ -925,6 +960,7 @@ async function processEvent(event) {
     tokensUsed: totalTokens,
     finalContextLength,
     contextGrowth,
+    llmDataLogged: LOG_LLM_DATA,
   });
 
   // Only update job status here if a delivery tool did not already handle it inline.

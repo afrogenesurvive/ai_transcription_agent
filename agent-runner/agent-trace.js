@@ -65,7 +65,7 @@ export class AgentTracer {
       available_tools: availableTools.map((t) => t.name),
       stripped_sections: strippedSections,
       prompt_length: renderedPrompt?.length || 0,
-      prompt_preview: renderedPrompt ? renderedPrompt.slice(0, 500) : null,
+      prompt_preview: renderedPrompt, // full prompt text — removed 500-char truncation
     });
   }
 
@@ -100,7 +100,7 @@ export class AgentTracer {
   recordHintResolution({ fromTool, hintText, resolvedTo, wasSkipped, skipChain }) {
     this._write("hint_resolution", {
       from_tool: fromTool,
-      hint_preview: hintText ? hintText.slice(0, 200) : null,
+      hint_preview: hintText, // full hint text — removed 200-char truncation
       resolved_to: resolvedTo,
       was_skipped: wasSkipped,
       skip_chain: skipChain,
@@ -141,10 +141,26 @@ export class AgentTracer {
       success,
       result_preview: resultPreview
         ? typeof resultPreview === "string"
-          ? resultPreview.slice(0, 300)
-          : JSON.stringify(resultPreview).slice(0, 300)
+          ? resultPreview.slice(0, 10000)
+          : JSON.stringify(resultPreview).slice(0, 10000)
         : null,
       error: error || null,
+    });
+  }
+
+  /**
+   * Record a full snapshot of the LLM context at a given pipeline step.
+   * This is the "everything" mode — it captures the entire context string
+   * as sent to the LLM, enabling full post-hoc analysis.
+   * Only written when AGENT_TRACE_FULL_CONTEXT=true env var is set, since
+   * it can produce very large trace files.
+   */
+  recordContextSnapshot({ step, context }) {
+    if (process.env.AGENT_TRACE_FULL_CONTEXT !== "true") return;
+    this._write("context_snapshot", {
+      step,
+      context_length: context?.length || 0,
+      context, // full context text
     });
   }
 
@@ -162,7 +178,7 @@ export class AgentTracer {
   /**
    * Record pipeline completion or failure.
    */
-  recordPipelineEnd({ status, error, totalSteps, tokensUsed, finalContextLength, contextGrowth }) {
+  recordPipelineEnd({ status, error, totalSteps, tokensUsed, finalContextLength, contextGrowth, llmDataLogged }) {
     this._write("pipeline_end", {
       status,
       error: error || null,
@@ -170,6 +186,8 @@ export class AgentTracer {
       total_tokens: tokensUsed,
       final_context_length: finalContextLength,
       context_growth: contextGrowth,
+      llm_data_logged: llmDataLogged || false,
+      full_context_available: process.env.AGENT_TRACE_FULL_CONTEXT === "true",
     });
   }
 

@@ -11,7 +11,7 @@
 
 import fs from "fs";
 import { spawn, execSync } from "child_process";
-import { app, BrowserWindow, Tray, Menu, nativeImage, Notification, ipcMain, dialog } from "electron";
+import { app, BrowserWindow, Tray, Menu, nativeImage, Notification, ipcMain, dialog, shell } from "electron";
 import path from "path";
 import pidusage from "pidusage";
 
@@ -1019,7 +1019,19 @@ ipcMain.handle("logs:readJobLogFile", async (_event, jobId: string, maxLines?: n
   const storageDir = process.env.TRANSCRIPTION_STORAGE || path.join(app.getPath("userData"), "storage");
   const logPath = path.join(storageDir, jobId, "pipeline.log");
   if (!fs.existsSync(logPath)) return [];
-  return readLogFile(logPath, maxLines ?? 500);
+  return readLogFile(logPath, maxLines ?? 0);
+});
+
+// ── Shell (open folder in file manager) ──
+
+ipcMain.handle("shell:openPath", async (_event, filePath: string) => {
+  addLog("main", "info", `[shell] Opening path in file manager: ${filePath}`);
+  const error = await shell.openPath(filePath);
+  if (error) {
+    addLog("main", "error", `[shell] Failed to open path: ${error}`);
+    return { success: false, error };
+  }
+  return { success: true };
 });
 
 // ── Uninstall / Cleanup IPC ──
