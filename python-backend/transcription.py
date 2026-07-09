@@ -214,13 +214,22 @@ class TranscriptionEngine:
         diarization = self._diarization(audio_path)
         infer_elapsed = time.time() - t0
 
-        # Collect segments and compute per-speaker stats
+        # Collect segments and compute per-speaker stats, logging progress
         segments = []
         speaker_duration = {}
-        for t, _, s in diarization.itertracks(yield_label=True):
+        # Convert to list so we know total count for progress reporting
+        diar_tracks = list(diarization.itertracks(yield_label=True))
+        total_diar_segments = len(diar_tracks)
+        log_interval = max(1, total_diar_segments // 5)  # 5 progress updates
+        for i, (t, _, s) in enumerate(diar_tracks):
             dur = t.end - t.start
             segments.append({"speaker": s, "start": t.start, "end": t.end, "duration": dur})
             speaker_duration[s] = speaker_duration.get(s, 0.0) + dur
+            if (i + 1) % log_interval == 0 or i == total_diar_segments - 1:
+                pct = (i + 1) / total_diar_segments * 100
+                speaker_count = len(set(sp["speaker"] for sp in segments))
+                print(f"[transcription]   📊 Diarization progress: {i+1}/{total_diar_segments} segments "
+                      f"({pct:.0f}%), {speaker_count} speaker(s) identified so far")
 
         # Log detailed results
         total_speech = sum(speaker_duration.values())
@@ -284,8 +293,8 @@ class TranscriptionEngine:
             self._whisper = whisper.load_model(self.model_size, device=self.device)
             print(f"[transcription]   ✅ Model loaded in {time.time()-t_load:.1f}s")
         t_infer = time.time()
-        print(f"[transcription]   ⏳ Transcribing (openai-whisper)...")
-        result = self._whisper.transcribe(audio_path, word_timestamps=True)
+        print(f"[transcription]   ⏳ Transcribing (openai-whisper, verbose)...")
+        result = self._whisper.transcribe(audio_path, word_timestamps=True, verbose=True)
         print(f"[transcription]   ⏱️  Inference done in {time.time()-t_infer:.1f}s")
         return self._extract_words(result)
 
@@ -298,6 +307,7 @@ class TranscriptionEngine:
             audio_path,
             path_or_hf_repo=f"mlx-community/whisper-{self.model_size}",
             word_timestamps=True,
+            verbose=True,
         )
         elapsed = time.time() - t_infer
         print(f"[transcription]   ⏱️  mlx-whisper done in {elapsed:.1f}s")
@@ -322,10 +332,18 @@ class TranscriptionEngine:
 
         words = []
         seg_count = 0
+        last_log_time = time.time()
         for s in segs:
             seg_count += 1
             for w in s.words:
                 words.append({"text": w.word, "start": w.start, "end": w.end})
+            # Log progress every ~5 seconds of wall-clock time
+            now = time.time()
+            if now - last_log_time >= 5:
+                pct = (s.end / info.duration * 100) if info.duration else 0
+                print(f"[transcription]   📊 ASR progress: {seg_count} segments, "
+                      f"{len(words)} words ({pct:.0f}% through audio)")
+                last_log_time = now
 
         print(f"[transcription]   ⏱️  faster-whisper done in {elapsed:.1f}s — "
               f"lang={info.language} ({info.language_probability*100:.0f}%), "

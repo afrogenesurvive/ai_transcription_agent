@@ -77,6 +77,7 @@ import {
   initFileLogging,
   configureLogFilter,
   listLogFiles,
+  listJobLogFiles,
   readLogFile,
   getLogDir,
   getMirrorDir,
@@ -1007,6 +1008,18 @@ ipcMain.handle("logs:readFile", async (_event, filePath: string, maxLines?: numb
 
 ipcMain.handle("logs:getPaths", () => {
   return { primary: getLogDir(), mirror: getMirrorDir() };
+});
+
+ipcMain.handle("logs:listJobLogFiles", () => {
+  const storageDir = process.env.TRANSCRIPTION_STORAGE || path.join(app.getPath("userData"), "storage");
+  return listJobLogFiles(storageDir);
+});
+
+ipcMain.handle("logs:readJobLogFile", async (_event, jobId: string, maxLines?: number) => {
+  const storageDir = process.env.TRANSCRIPTION_STORAGE || path.join(app.getPath("userData"), "storage");
+  const logPath = path.join(storageDir, jobId, "pipeline.log");
+  if (!fs.existsSync(logPath)) return [];
+  return readLogFile(logPath, maxLines ?? 500);
 });
 
 // ── Uninstall / Cleanup IPC ──

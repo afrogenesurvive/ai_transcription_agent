@@ -720,11 +720,14 @@ async def get_audio(job_id: str):
 
 @app.get("/transcribe/job_logs/{job_id}")
 async def get_job_logs(job_id: str, max_lines: int = 200):
-    """Return job-specific log lines from the global log files filtered by job_id."""
+    """Return job-specific log lines from the global log files filtered by job_id.
+
+    Pass ``max_lines=0`` to return ALL matching lines (no truncation).
+    """
     logs_dir = os.path.join(config.STORAGE_PATH, "logs")
     matched_lines = []
     if os.path.exists(logs_dir):
-        for fname in sorted(os.listdir(logs_dir), reverse=True)[:3]:
+        for fname in sorted(os.listdir(logs_dir), reverse=True)[:5]:
             fpath = os.path.join(logs_dir, fname)
             if not fname.endswith(".log"):
                 continue
@@ -749,6 +752,8 @@ async def get_job_logs(job_id: str, max_lines: int = 200):
                     job_logs.append({"file": fname, "content": content})
                 except Exception:
                     continue
+    if max_lines <= 0:
+        return {"logs": matched_lines, "job_logs": job_logs}
     return {"logs": matched_lines[-max_lines:], "job_logs": job_logs}
 
 
@@ -775,6 +780,58 @@ async def get_job_files(job_id: str):
             continue
     files.sort(key=lambda f: f["name"])
     return {"job_id": job_id, "files": files}
+
+
+@app.get("/transcribe/pipeline_log/{job_id}")
+async def get_pipeline_log(job_id: str, max_lines: int = 500, include_global: str = "false"):
+    """Return the per-job pipeline log file (pipeline.log) contents.
+
+    Returns the last ``max_lines`` lines so large files don't overwhelm
+    the frontend. Pass ``max_lines=0`` to return ALL lines.
+    Set ``include_global=true`` to also include matching lines from the
+    global daily log files (capturing agent-runner and bridge-server output).
+    """
+    log_path = os.path.join(config.STORAGE_PATH, job_id, "pipeline.log")
+    if not os.path.exists(log_path):
+        raise HTTPException(404, "No pipeline log found for this job")
+    try:
+        with open(log_path) as f:
+            all_lines = f.readlines()
+        pipeline_lines = [l.rstrip("\n") for l in all_lines]
+
+        # Optionally merge global log lines filtered by job_id
+        extra_lines = []
+        if include_global and include_global.lower() in ("true", "1", "yes"):
+            logs_dir = os.path.join(config.STORAGE_PATH, "logs")
+            if os.path.exists(logs_dir):
+                for fname in sorted(os.listdir(logs_dir), reverse=True)[:3]:
+                    fpath = os.path.join(logs_dir, fname)
+                    if not fname.endswith(".log"):
+                        continue
+                    try:
+                        with open(fpath) as f:
+                            for line in f:
+                                if job_id in line:
+                                    stripped = line.strip()
+                                    if stripped not in pipeline_lines:
+                                        extra_lines.append(stripped)
+                    except Exception:
+                        continue
+
+        combined = pipeline_lines + extra_lines
+        if max_lines > 0:
+            combined = combined[-max_lines:]
+
+        return {
+            "job_id": job_id,
+            "lines": combined,
+            "total_lines": len(pipeline_lines) + len(extra_lines),
+            "returned_lines": len(combined),
+            "from_pipeline_log": len(pipeline_lines),
+            "from_global_logs": len(extra_lines),
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Failed to read pipeline log: {e}")
 
 
 # ── Speaker Labeling (pause & resume) ──
@@ -975,7 +1032,10 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
 
     The diarization was already done and saved. We load it, apply the
     user-provided label map, then run ASR, alignment, and enqueue for agent.
+
+    All progress is also written to the per-job pipeline.log file.
     """
+    jlog = _setup_job_logger(job_id)
     try:
         _update_active(job_id, "resuming", 0.35)
         engine = TranscriptionEngine()
@@ -988,7 +1048,7 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
             raise RuntimeError("Diarization data not found — cannot resume pipeline")
         diarization = diar_data["diarization"]
         speaker_segments = diar_data["speaker_segments"]
-        print(f"[pipeline] Loaded saved diarization ({len(diarization)} segments, "
+        jlog.log(f"[pipeline] Loaded saved diarization ({len(diarization)} segments, "
               f"{len(speaker_segments)} speakers)")
 
         # Build match_result from user labels
@@ -1005,10 +1065,10 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
                     "sample_segment": {"start": segs[0]["start"], "end": segs[0]["end"]},
                 })
         match_result = {"known": known, "unknown": unknown}
-        print(f"[pipeline] User labels applied: {len(known)} known, {len(unknown)} unknown")
+        jlog.log(f"[pipeline] User labels applied: {len(known)} known, {len(unknown)} unknown")
 
         # ── Step 3: ASR Transcription ──
-        print(f"\n   🎤 [PIPELINE] Step 3/5: ASR transcription (Whisper)...")
+        jlog.log(f"\n   🎤 [PIPELINE] Step 3/5: ASR transcription (Whisper)...")
         _update_active(job_id, "processing_transcription", 0.5)
         if _check_cancelled(job_id): return
         t_asr = time.time()
@@ -1016,39 +1076,49 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
         asr_elapsed = time.time() - t_asr
 
         # ── Step 4: Alignment ──
-        print(f"\n   🔗 [PIPELINE] Step 4/5: Aligning diarization with transcript...")
+        jlog.log(f"\n   🔗 [PIPELINE] Step 4/5: Aligning diarization with transcript...")
         _update_active(job_id, "aligning", 0.7)
         if _check_cancelled(job_id): return
         t_align = time.time()
         aligned = engine.align_transcript(transcription, diarization)
         align_elapsed = time.time() - t_align
 
-        # Apply user-provided speaker labels
+        # Apply user-provided speaker labels with ASV feedback
         label_count = 0
+        asv_logged = 0
         for seg in aligned:
             for name, segs in known.items():
                 for s in segs:
                     if abs(seg["start"] - s["start"]) < 0.5:
                         seg["speaker"] = name
                         label_count += 1
+                        # Log ASV feedback for the first N segments
+                        if asv_logged < 50 and seg.get("text", "").strip():
+                            asv_logged += 1
+                            ts_start = seg.get("start", 0)
+                            ts_end = seg.get("end", 0)
+                            text = seg.get("text", "").strip()
+                            jlog.log(f"[transcription] [{ts_start:>8.3f} --> {ts_end:>8.3f}] "
+                                  f"{name}: {text[:200]}")
                         break
         if label_count:
-            print(f"[pipeline] Applied {label_count} speaker label(s) from user")
+            jlog.log(f"[pipeline] Applied {label_count} speaker label(s) from user"
+                  f" — logged {asv_logged} ASV match(es)")
 
         uploader.save_transcript(job_id, aligned)
         uploader.save_transcript_text(job_id, aligned)
         _update_active(job_id, "transcribed", 0.85)
 
         # Timing summary
-        print(f"\n{'='*50}")
-        print(f"   ⏱️  RESUMED PIPELINE TIMING")
-        print(f"{'='*50}")
-        print(f"      ASR:             {asr_elapsed:>7.1f}s")
-        print(f"      Alignment:       {align_elapsed*1000:>7.0f}ms")
-        print(f"{'='*50}\n")
+        jlog.log(f"\n{'='*50}")
+        jlog.log(f"   ⏱️  RESUMED PIPELINE TIMING")
+        jlog.log(f"{'='*50}")
+        jlog.log(f"      ASR:             {asr_elapsed:>7.1f}s")
+        jlog.log(f"      Alignment:       {align_elapsed*1000:>7.0f}ms")
+        jlog.log(f"{'='*50}\n")
 
         # ── Step 5: Enqueue for agent ──
-        print(f"\n   📨 [PIPELINE] Step 5/5: Enqueueing for agent runner...")
+        jlog.log(f"\n   📨 [PIPELINE] Step 5/5: Enqueueing for agent runner...")
         if _check_cancelled(job_id): return
         if unknown:
             for u in unknown:
@@ -1057,21 +1127,22 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
                         u["sample_text"] = seg["text"][:200]
                         break
             _update_active(job_id, "labeling_needed", 0.9, unknown_speakers=unknown)
-            print(f"[pipeline] {len(unknown)} unknown speaker(s) — enqueueing labeling_needed")
+            jlog.log(f"[pipeline] {len(unknown)} unknown speaker(s) — enqueueing labeling_needed")
             agent_bridge.enqueue_labeling_needed(job_id, unknown, aligned, metadata)
         else:
             _update_active(job_id, "ready_for_agent", 0.95)
             skip = metadata.get("skip_steps")
-            print(f"[pipeline] All speakers known — enqueueing ready_for_processing")
+            jlog.log(f"[pipeline] All speakers known — enqueueing ready_for_processing")
             agent_bridge.enqueue_ready(job_id, aligned, metadata, skip_steps=skip)
 
     except Exception as e:
-        print(f"\n   ❌ [pipeline] ERROR in resumed job {job_id}: {e}")
+        jlog.log(f"\n   ❌ [pipeline] ERROR in resumed job {job_id}: {e}")
         import traceback
         traceback.print_exc()
         uploader.update_status(job_id, {"status": "failed", "error": str(e)})
         agent_bridge.enqueue_failed(job_id, str(e), {})
     finally:
+        jlog.close()
         _pipeline_cancel.discard(job_id)
 
 
@@ -1707,6 +1778,66 @@ _STOP_WORDS = {
 }
 
 
+# ── Per-job logger ──
+
+class JobLogger:
+    """Writes pipeline logs to a per-job file in addition to stdout.
+
+    Opens a log file at ``<job_dir>/pipeline.log``. Provides a ``.log()``
+    method that writes to both stdout (with the same format as existing
+    ``print()`` calls) and the job-specific log file on disk.
+    """
+
+    def __init__(self, job_id: str):
+        self.job_id = job_id
+        job_dir = os.path.join(config.STORAGE_PATH, job_id)
+        os.makedirs(job_dir, exist_ok=True)
+        self.log_path = os.path.join(job_dir, "pipeline.log")
+        # Append mode so resumed pipeline steps don't overwrite previous entries
+        self._file = open(self.log_path, "a")
+        # Only write the header if the file is empty (first run, not a resume)
+        if os.path.getsize(self.log_path) < 10:
+            self._file.write(f"# Pipeline log for job {job_id}\n")
+            self._file.write(f"# Started: {datetime.utcnow().isoformat()}\n")
+            self._file.write("#\n")
+        else:
+            self._file.write(f"\n# Resumed: {datetime.utcnow().isoformat()}\n")
+            self._file.write("#\n")
+        self._file.flush()
+
+    def log(self, message: str):
+        """Write a message to both stdout and the job log file."""
+        print(message)
+        self._file.write(message + "\n")
+        self._file.flush()
+
+    def close(self):
+        """Close the log file."""
+        if self._file and not self._file.closed:
+            self._file.write(f"# Ended: {datetime.utcnow().isoformat()}\n")
+            self._file.close()
+
+    def __del__(self):
+        self.close()
+
+
+class _NullLogger:
+    """Fallback logger that only prints to stdout."""
+    def log(self, message: str):
+        print(message)
+    def close(self):
+        pass
+
+
+def _setup_job_logger(job_id: str):
+    """Create a JobLogger for the given job, or a null fallback."""
+    try:
+        return JobLogger(job_id)
+    except Exception as e:
+        print(f"[pipeline] ⚠️  Could not create job logger for {job_id}: {e}")
+        return _NullLogger()
+
+
 # ── Pipeline management ──
 
 def _start_pipeline_async(job_id: str):
@@ -1785,24 +1916,27 @@ def _run_pipeline_sync(job_id: str):
 
     Each step updates the in-memory ``_active_jobs`` dict (via ``_update_active``)
     and checks ``_pipeline_cancel`` for cooperative cancellation.
+
+    All progress is also written to a per-job log file at ``<storage>/<job_id>/pipeline.log``.
     """
+    jlog = _setup_job_logger(job_id)
     try:
         _update_active(job_id, "initializing", 0.05)
         engine = TranscriptionEngine()
         metadata = uploader.get_metadata(job_id)
         audio_path = uploader.get_audio_path(job_id)
-        print(f"[pipeline] Audio path: {audio_path}")
-        print(f"[pipeline] Metadata: title='{metadata.get('title')}', attendees={metadata.get('attendees')}")
+        jlog.log(f"[pipeline] Audio path: {audio_path}")
+        jlog.log(f"[pipeline] Metadata: title='{metadata.get('title')}', attendees={metadata.get('attendees')}")
 
         # ── Step 1: Diarization ──
-        print(f"\n   🔬 [PIPELINE] Step 1/5: Diarization (identifying speakers)...")
+        jlog.log(f"\n   🔬 [PIPELINE] Step 1/5: Diarization (identifying speakers)...")
         _update_active(job_id, "processing_diarization", 0.2)
         if _check_cancelled(job_id): return
         t_diar = time.time()
         diarization = engine.run_diarization(audio_path)
         diar_elapsed = time.time() - t_diar
         speakers_found = set(s["speaker"] for s in diarization)
-        print(f"   ✅ [pipeline] Diarization: {len(diarization)} segments, {len(speakers_found)} speakers "
+        jlog.log(f"   ✅ [pipeline] Diarization: {len(diarization)} segments, {len(speakers_found)} speakers "
               f"({', '.join(sorted(speakers_found))}) in {diar_elapsed:.1f}s")
 
         # Group by speaker (use dicts consistently — no SimpleNamespace)
@@ -1829,7 +1963,7 @@ def _run_pipeline_sync(job_id: str):
             )
         )
         if should_pause:
-            print(f"\n   ⏸️  [PIPELINE] Speaker count ({speaker_count}) != attendee count ({attendee_count}) — pausing for labeling")
+            jlog.log(f"\n   ⏸️  [PIPELINE] Speaker count ({speaker_count}) != attendee count ({attendee_count}) — pausing for labeling")
             uploader.save_diarization(job_id, {
                 "speaker_segments": speaker_segments,
                 "diarization": diarization,
@@ -1847,23 +1981,23 @@ def _run_pipeline_sync(job_id: str):
                     "sample_end": longest["end"],
                 })
             _update_active(job_id, "paused_for_labeling", 0.3, speakers=speaker_info)
-            print(f"[pipeline] ⏸️  Pipeline paused — waiting for speaker labels from user")
-            print(f"[pipeline]   Detected speakers: {', '.join(sorted(speaker_segments.keys()))}")
+            jlog.log(f"[pipeline] ⏸️  Pipeline paused — waiting for speaker labels from user")
+            jlog.log(f"[pipeline]   Detected speakers: {', '.join(sorted(speaker_segments.keys()))}")
             return  # Exit pipeline — resume via POST /transcribe/label_and_resume
 
         # ── Step 2: Voiceprint matching ──
-        print(f"\n   🧬 [PIPELINE] Step 2/5: Voiceprint matching...")
+        jlog.log(f"\n   🧬 [PIPELINE] Step 2/5: Voiceprint matching...")
         _update_active(job_id, "matching_voiceprints", 0.35)
         if _check_cancelled(job_id): return
         t_vp = time.time()
         attendees = metadata.get("attendees", [])
         if attendees:
-            print(f"[pipeline] Matching against {len(attendees)} known attendees: {attendees}")
+            jlog.log(f"[pipeline] Matching against {len(attendees)} known attendees: {attendees}")
             match_result = vp_manager.match_against_attendees(
                 audio_path, speaker_segments, attendees
             )
         else:
-            print(f"[pipeline] No known attendees — all speakers will be unknown")
+            jlog.log(f"[pipeline] No known attendees — all speakers will be unknown")
             match_result = {"known": {}, "unknown": [
                 {
                     "speaker_id": spk,
@@ -1873,41 +2007,53 @@ def _run_pipeline_sync(job_id: str):
                 for spk, segs in speaker_segments.items()
             ]}
         vp_elapsed = time.time() - t_vp
-        print(f"   ✅ [pipeline] Voiceprint matching in {vp_elapsed:.1f}s: "
+        jlog.log(f"   ✅ [pipeline] Voiceprint matching in {vp_elapsed:.1f}s: "
               f"{len(match_result['known'])} known, {len(match_result.get('unknown', []))} unknown")
         if match_result['known']:
-            print(f"[pipeline]   Matched: {list(match_result['known'].keys())}")
+            jlog.log(f"[pipeline]   Matched: {list(match_result['known'].keys())}")
 
         # ── Step 3: ASR Transcription ──
-        print(f"\n   🎤 [PIPELINE] Step 3/5: ASR transcription (Whisper)...")
+        jlog.log(f"\n   🎤 [PIPELINE] Step 3/5: ASR transcription (Whisper)...")
         _update_active(job_id, "processing_transcription", 0.5)
         if _check_cancelled(job_id): return
         t_asr = time.time()
         transcription = engine.run_transcription(audio_path)
         asr_elapsed = time.time() - t_asr
-        print(f"   ✅ [pipeline] ASR: {len(transcription.get('words', []))} words, "
+        jlog.log(f"   ✅ [pipeline] ASR: {len(transcription.get('words', []))} words, "
               f"{len(transcription.get('segments', []))} segments in {asr_elapsed:.1f}s")
 
         # ── Step 4: Alignment ──
-        print(f"\n   🔗 [PIPELINE] Step 4/5: Aligning diarization with transcript...")
+        jlog.log(f"\n   🔗 [PIPELINE] Step 4/5: Aligning diarization with transcript...")
         _update_active(job_id, "aligning", 0.7)
         if _check_cancelled(job_id): return
         t_align = time.time()
         aligned = engine.align_transcript(transcription, diarization)
         align_elapsed = time.time() - t_align
-        print(f"   ✅ [pipeline] Alignment: {len(aligned)} transcript segments in {align_elapsed*1000:.0f}ms")
+        jlog.log(f"   ✅ [pipeline] Alignment: {len(aligned)} transcript segments in {align_elapsed*1000:.0f}ms")
 
-        # Apply known speaker labels
+        # Apply known speaker labels with ASV feedback
         label_count = 0
+        asv_logged = 0
+        match_scores = match_result.get("scores", {})
         for seg in aligned:
             for name, segs in match_result["known"].items():
                 for s in segs:
                     if abs(seg["start"] - s["start"]) < 0.5:
                         seg["speaker"] = name
                         label_count += 1
+                        # Log ASV feedback for the first N segments
+                        if asv_logged < 50 and seg.get("text", "").strip():
+                            asv_logged += 1
+                            ts_start = seg.get("start", 0)
+                            ts_end = seg.get("end", 0)
+                            text = seg.get("text", "").strip()
+                            score = match_scores.get(name, 0)
+                            jlog.log(f"[transcription] [{ts_start:>8.3f} --> {ts_end:>8.3f}] "
+                                  f"{name} (score={score:.3f}): {text[:200]}")
                         break
         if label_count:
-            print(f"[pipeline] Applied {label_count} speaker label(s) from voiceprint matching")
+            jlog.log(f"[pipeline] Applied {label_count} speaker label(s) from voiceprint matching"
+                  f" — logged {asv_logged} ASV match(es)")
 
         uploader.save_transcript(job_id, aligned)
         uploader.save_transcript_text(job_id, aligned)
@@ -1915,19 +2061,19 @@ def _run_pipeline_sync(job_id: str):
 
         # ── Pipeline timing summary ──
         pipeline_total = time.time() - (t_diar - diar_elapsed)
-        print(f"\n{'='*50}")
-        print(f"   ⏱️  PIPELINE TIMING SUMMARY")
-        print(f"{'='*50}")
-        print(f"      Diarization:     {diar_elapsed:>7.1f}s")
-        print(f"      Voiceprint:      {vp_elapsed:>7.1f}s")
-        print(f"      ASR:             {asr_elapsed:>7.1f}s")
-        print(f"      Alignment:       {align_elapsed*1000:>7.0f}ms")
-        print(f"      ─────────────────────")
-        print(f"      Total (ML):      {pipeline_total:>7.1f}s")
-        print(f"{'='*50}\n")
+        jlog.log(f"\n{'='*50}")
+        jlog.log(f"   ⏱️  PIPELINE TIMING SUMMARY")
+        jlog.log(f"{'='*50}")
+        jlog.log(f"      Diarization:     {diar_elapsed:>7.1f}s")
+        jlog.log(f"      Voiceprint:      {vp_elapsed:>7.1f}s")
+        jlog.log(f"      ASR:             {asr_elapsed:>7.1f}s")
+        jlog.log(f"      Alignment:       {align_elapsed*1000:>7.0f}ms")
+        jlog.log(f"      ─────────────────────")
+        jlog.log(f"      Total (ML):      {pipeline_total:>7.1f}s")
+        jlog.log(f"{'='*50}\n")
 
         # ── Step 5: Enqueue for agent ──
-        print(f"\n   📨 [PIPELINE] Step 5/5: Enqueueing for agent runner...")
+        jlog.log(f"\n   📨 [PIPELINE] Step 5/5: Enqueueing for agent runner...")
         if _check_cancelled(job_id): return
         unknown = match_result.get("unknown", [])
         if unknown:
@@ -1937,21 +2083,22 @@ def _run_pipeline_sync(job_id: str):
                         u["sample_text"] = seg["text"][:200]
                         break
             _update_active(job_id, "labeling_needed", 0.9, unknown_speakers=unknown)
-            print(f"[pipeline] {len(unknown)} unknown speaker(s) — enqueueing labeling_needed")
+            jlog.log(f"[pipeline] {len(unknown)} unknown speaker(s) — enqueueing labeling_needed")
             agent_bridge.enqueue_labeling_needed(job_id, unknown, aligned, metadata)
         else:
             _update_active(job_id, "ready_for_agent", 0.95)
             skip = metadata.get("skip_steps")
-            print(f"[pipeline] All speakers known — enqueueing ready_for_processing (skip_steps={skip})")
+            jlog.log(f"[pipeline] All speakers known — enqueueing ready_for_processing (skip_steps={skip})")
             agent_bridge.enqueue_ready(job_id, aligned, metadata, skip_steps=skip)
 
     except Exception as e:
-        print(f"\n   ❌ [pipeline] ERROR in job {job_id}: {e}")
+        jlog.log(f"\n   ❌ [pipeline] ERROR in job {job_id}: {e}")
         import traceback
         traceback.print_exc()
         uploader.update_status(job_id, {"status": "failed", "error": str(e)})
         agent_bridge.enqueue_failed(job_id, str(e), {})
     finally:
+        jlog.close()
         _pipeline_cancel.discard(job_id)
 
 

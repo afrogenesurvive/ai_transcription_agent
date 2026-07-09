@@ -189,14 +189,16 @@ class VoiceprintManager:
             if best_match:
                 # Known speaker — assign all their segments
                 results["known"][best_match] = segments
+                # Store score alongside name for ASV feedback logging
+                results.setdefault("scores", {})[best_match] = best_score
                 print(f"[voiceprint] ✅ {speaker_id} → matched '{best_match}' (score={best_score:.3f}, "
                       f"averaged over {len(sampled_embs)} segment(s))")
             else:
                 # Unknown speaker — record metadata for agent labeling
                 results["unknown"].append({
                     "speaker_id": speaker_id,
-                    "segments": [{"start": s.start, "end": s.end} for s in segments],
-                    "sample_segment": {"start": first.start, "end": first.end},
+                    "segments": [{"start": s["start"], "end": s["end"]} for s in segments],
+                    "sample_segment": {"start": first["start"], "end": first["end"]},
                 })
                 print(f"[voiceprint] ❓ {speaker_id} → unknown (best score={best_score:.3f}, "
                       f"threshold={threshold}, {len(sampled_embs)} segment(s) averaged)")

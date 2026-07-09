@@ -179,7 +179,7 @@ export interface LogFileInfo {
   name: string;
   size: number;
   mtime: Date;
-  source: "primary" | "mirror";
+  source: "primary" | "mirror" | "job";
 }
 
 export function listLogFiles(): LogFileInfo[] {
@@ -206,15 +206,47 @@ export function listLogFiles(): LogFileInfo[] {
   return files;
 }
 
-/** Read the last N lines from a log file. */
+/** Read the last N lines from a log file. Pass 0 to return all lines. */
 export function readLogFile(filePath: string, maxLines = 500): string[] {
   try {
     const content = fs.readFileSync(filePath, "utf8");
     const lines = content.split("\n");
+    if (maxLines <= 0) return lines;
     return lines.slice(-maxLines);
   } catch {
     return [];
   }
+}
+
+/** List per-job pipeline.log files from the storage directory. */
+export function listJobLogFiles(storageDir: string): LogFileInfo[] {
+  const files: LogFileInfo[] = [];
+  if (!storageDir || !fs.existsSync(storageDir)) return files;
+  try {
+    const entries = fs.readdirSync(storageDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      // Skip special directories
+      if (["chroma", "logs", "uploads", ".model_cache"].includes(entry.name)) continue;
+      const pipelineLogPath = path.join(storageDir, entry.name, "pipeline.log");
+      if (!fs.existsSync(pipelineLogPath)) continue;
+      try {
+        const stat = fs.statSync(pipelineLogPath);
+        files.push({
+          path: pipelineLogPath,
+          name: `${entry.name}/pipeline.log`,
+          size: stat.size,
+          mtime: stat.mtime,
+          source: "job",
+        });
+      } catch {
+        // skip unreadable
+      }
+    }
+  } catch {
+    // non-fatal
+  }
+  return files;
 }
 
 export function initFileLogging(primaryDir: string, mirrorDir?: string): void {

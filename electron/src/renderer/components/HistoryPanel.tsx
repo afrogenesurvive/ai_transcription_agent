@@ -88,11 +88,20 @@ async function callBridge(tool: string, args: any = {}): Promise<any> {
 }
 
 export default function HistoryPanel({ onSelectJob, currentJobId, onNotify, onStorageChanged }: Props) {
+  const [activeTab, setActiveTab] = useState<"jobs" | "logs">("jobs");
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
+  // ── Pipeline log viewer state ──
+  const [logJobId, setLogJobId] = useState<string | null>(null);
+  const [logLines, setLogLines] = useState<string[]>([]);
+  const [logLoading, setLogLoading] = useState(false);
+  const [logError, setLogError] = useState<string | null>(null);
+  const [logNoTruncate, setLogNoTruncate] = useState(false);
+  const [logIncludeGlobal, setLogIncludeGlobal] = useState(false);
 
   const loadHistory = useCallback(async () => {
     setLoading(true);
@@ -130,12 +139,54 @@ export default function HistoryPanel({ onSelectJob, currentJobId, onNotify, onSt
     [onNotify, onStorageChanged],
   );
 
+  const handleViewLogs = useCallback(async (jobId: string) => {
+    setLogJobId(jobId);
+    setLogLoading(true);
+    setLogError(null);
+    try {
+      const maxLines = logNoTruncate ? 0 : 500;
+      const data = await callBridge("transcribe_get_pipeline_log", {
+        jobId,
+        maxLines,
+        includeGlobal: logIncludeGlobal,
+      });
+      setLogLines(data.lines || []);
+    } catch (err: any) {
+      setLogError(err.message);
+      setLogLines([]);
+    } finally {
+      setLogLoading(false);
+    }
+  }, [logNoTruncate, logIncludeGlobal]);
+
+  const handleSelectLogJob = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const jid = e.target.value;
+      if (jid) handleViewLogs(jid);
+    },
+    [handleViewLogs],
+  );
+
   return (
     <div className="history-panel">
       <div className="history-panel-header">
         <h2 className="history-panel-title">
           <Icon name="history" size="16" color="accent" /> History
         </h2>
+        <div className="history-panel-tabs">
+          <button
+            className={`history-panel-tab ${activeTab === "jobs" ? "history-panel-tab--active" : ""}`}
+            onClick={() => setActiveTab("jobs")}
+            title="View job history list">
+            Jobs
+          </button>
+          <button
+            className={`history-panel-tab ${activeTab === "logs" ? "history-panel-tab--active" : ""}`}
+            onClick={() => setActiveTab("logs")}
+            title="View per-job pipeline logs">
+            Logs
+          </button>
+        </div>
         <button
           className="history-panel-refresh"
           onClick={loadHistory}
@@ -145,79 +196,134 @@ export default function HistoryPanel({ onSelectJob, currentJobId, onNotify, onSt
         </button>
       </div>
 
-      {loading && <div className="history-panel-status">Loading...</div>}
-      {error && <div className="history-panel-status history-panel-status--error">Error: {error}</div>}
+      {activeTab === "jobs" && (
+        <>
+          {loading && <div className="history-panel-status">Loading...</div>}
+          {error && <div className="history-panel-status history-panel-status--error">Error: {error}</div>}
 
-      {!loading && !error && jobs.length === 0 && <div className="history-panel-status">No jobs yet. Upload an audio file to get started.</div>}
+          {!loading && !error && jobs.length === 0 && <div className="history-panel-status">No jobs yet. Upload an audio file to get started.</div>}
 
-      <div className="history-panel-list">
-        {jobs.map((job) => {
-          return (
-            <div key={job.job_id} className="history-panel-item-wrapper">
-              <div
-                className={`history-panel-item ${currentJobId === job.job_id ? "history-panel-item--active" : ""}`}
-                onClick={() => {
-                  onSelectJob(job.job_id);
-                }}>
-                <div className="history-panel-item-top">
-                  <span className="history-panel-item-icon">
-                    <Icon name={STATUS_ICON[job.status] || "description"} size="14" />
-                  </span>
-                  <span className="history-panel-item-title">{job.title}</span>
-                </div>
-                <div className="history-panel-item-meta">
-                  <span className="history-panel-item-status">{STATUS_LABEL[job.status] || job.status}</span>
-                  <span className="history-panel-item-date">{formatDate(job.mtime)}</span>
-                </div>
-                {job.attendees && job.attendees.length > 0 && <div className="history-panel-item-attendees">{job.attendees.join(", ")}</div>}
-                {!job.has_transcript && job.status !== "failed" && <div className="history-panel-item-warning">No transcript data</div>}
-              </div>
-              <button
-                className="history-panel-delete-btn"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setConfirmDelete(job.job_id);
-                }}
-                disabled={deleting === job.job_id}
-                title="Permanently delete this job and all its data"
-                data-tooltip="Permanently delete this job — transcript, summary, audio, and all associated data">
-                {deleting === job.job_id ? <Icon name="hourglass_top" size="14" color="accent" /> : <Icon name="delete" size="14" color="red" />}
-              </button>
-
-              {/* Confirmation dialog */}
-              {confirmDelete === job.job_id && (
-                <div className="confirm-overlay" onClick={() => setConfirmDelete(null)}>
-                  <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
-                    <h3 className="confirm-dialog-title">Delete Job</h3>
-                    <p className="confirm-dialog-text">
-                      Are you sure you want to delete "<strong>{job.title}</strong>"?
-                      <br />
-                      This will permanently remove all associated data including transcript, summary, and audio.
-                    </p>
-                    <div className="confirm-dialog-actions">
-                      <button
-                        className="btn-secondary"
-                        onClick={() => setConfirmDelete(null)}
-                        title="Keep this job — do not delete"
-                        data-tooltip="Cancel deletion and keep the job">
-                        Cancel
-                      </button>
-                      <button
-                        className="btn-danger"
-                        onClick={() => handleDelete(job.job_id)}
-                        disabled={deleting === job.job_id}
-                        title="Confirm permanent deletion"
-                        data-tooltip="Permanently delete this job — this cannot be undone">
-                        {deleting === job.job_id ? "Deleting..." : "Delete"}
-                      </button>
+          <div className="history-panel-list">
+            {jobs.map((job) => {
+              return (
+                <div key={job.job_id} className="history-panel-item-wrapper">
+                  <div
+                    className={`history-panel-item ${currentJobId === job.job_id ? "history-panel-item--active" : ""}`}
+                    onClick={() => {
+                      onSelectJob(job.job_id);
+                    }}>
+                    <div className="history-panel-item-top">
+                      <span className="history-panel-item-icon">
+                        <Icon name={STATUS_ICON[job.status] || "description"} size="14" />
+                      </span>
+                      <span className="history-panel-item-title">{job.title}</span>
                     </div>
+                    <div className="history-panel-item-meta">
+                      <span className="history-panel-item-status">{STATUS_LABEL[job.status] || job.status}</span>
+                      <span className="history-panel-item-date">{formatDate(job.mtime)}</span>
+                    </div>
+                    {job.attendees && job.attendees.length > 0 && <div className="history-panel-item-attendees">{job.attendees.join(", ")}</div>}
+                    {!job.has_transcript && job.status !== "failed" && <div className="history-panel-item-warning">No transcript data</div>}
                   </div>
+                  <button
+                    className="history-panel-delete-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setConfirmDelete(job.job_id);
+                    }}
+                    disabled={deleting === job.job_id}
+                    title="Permanently delete this job and all its data"
+                    data-tooltip="Permanently delete this job — transcript, summary, audio, and all associated data">
+                    {deleting === job.job_id ? <Icon name="hourglass_top" size="14" color="accent" /> : <Icon name="delete" size="14" color="red" />}
+                  </button>
+
+                  {/* Confirmation dialog */}
+                  {confirmDelete === job.job_id && (
+                    <div className="confirm-overlay" onClick={() => setConfirmDelete(null)}>
+                      <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+                        <h3 className="confirm-dialog-title">Delete Job</h3>
+                        <p className="confirm-dialog-text">
+                          Are you sure you want to delete "<strong>{job.title}</strong>"?
+                          <br />
+                          This will permanently remove all associated data including transcript, summary, and audio.
+                        </p>
+                        <div className="confirm-dialog-actions">
+                          <button
+                            className="btn-secondary"
+                            onClick={() => setConfirmDelete(null)}
+                            title="Keep this job — do not delete"
+                            data-tooltip="Cancel deletion and keep the job">
+                            Cancel
+                          </button>
+                          <button
+                            className="btn-danger"
+                            onClick={() => handleDelete(job.job_id)}
+                            disabled={deleting === job.job_id}
+                            title="Confirm permanent deletion"
+                            data-tooltip="Permanently delete this job — this cannot be undone">
+                            {deleting === job.job_id ? "Deleting..." : "Delete"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {activeTab === "logs" && (
+        <div className="history-panel-logs-tab">
+          <div className="history-panel-log-controls">
+            <select
+              className="history-panel-log-select"
+              value={logJobId || ""}
+              onChange={handleSelectLogJob}
+              title="Select a job to view its pipeline log">
+              <option value="">— Select a job —</option>
+              {jobs.map((job) => (
+                <option key={job.job_id} value={job.job_id}>
+                  {job.title?.slice(0, 60) || job.job_id?.slice(0, 8)}
+                </option>
+              ))}
+            </select>
+            <label className="dev-panel-checkbox" data-tooltip="Show all log lines without truncation">
+              <input type="checkbox" checked={logNoTruncate} onChange={(e) => setLogNoTruncate(e.target.checked)} />
+              No truncate
+            </label>
+            <label className="dev-panel-checkbox" data-tooltip="Include agent-runner and bridge-server logs alongside pipeline logs">
+              <input type="checkbox" checked={logIncludeGlobal} onChange={(e) => setLogIncludeGlobal(e.target.checked)} />
+              All sources
+            </label>
+            {logJobId && (
+              <button className="history-panel-log-refresh" onClick={() => handleViewLogs(logJobId!)} title="Reload pipeline log content">
+                <Icon name="refresh" size="14" />
+              </button>
+            )}
+          </div>
+
+          {logLoading && <div className="history-panel-status">Loading pipeline log...</div>}
+          {logError && <div className="history-panel-status history-panel-status--error">Error: {logError}</div>}
+
+          {!logLoading && !logError && logJobId && logLines.length === 0 && (
+            <div className="history-panel-status">No pipeline log found for this job.</div>
+          )}
+
+          {!logLoading && !logError && logLines.length > 0 && (
+            <div className="history-panel-log-content">
+              {logLines.map((line, i) => (
+                <div key={i} className="history-panel-log-line">
+                  {line}
+                </div>
+              ))}
             </div>
-          );
-        })}
-      </div>
+          )}
+
+          {!logLoading && !logError && !logJobId && <div className="history-panel-status">Select a job above to view its pipeline log.</div>}
+        </div>
+      )}
     </div>
   );
 }

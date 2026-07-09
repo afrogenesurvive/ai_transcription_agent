@@ -4253,6 +4253,106 @@ body {
   margin-top: 4px;
 }
 
+/* ── History Panel Tabs ── */
+
+.history-panel-tabs {
+  display: flex;
+  gap: 0;
+  margin-left: auto;
+  margin-right: 8px;
+}
+
+.history-panel-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  padding: 4px 12px;
+  font-size: var(--fs-12);
+  font-family: var(--font);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.history-panel-tab:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.history-panel-tab--active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* ── History Panel Logs Tab ── */
+
+.history-panel-logs-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.history-panel-log-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.history-panel-log-select {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  font-size: var(--fs-12);
+  font-family: var(--font);
+}
+
+.history-panel-log-refresh {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: var(--fs-14);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.history-panel-log-refresh:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.history-panel-log-content {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+  font-family: var(--font-mono, monospace);
+  font-size: var(--fs-11);
+  line-height: 1.5;
+}
+
+.history-panel-log-line {
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text);
+}
+
+.history-panel-log-line:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
 /* ═══════════════════════════════════════════════════════
    ResultsViewer — tabbed process & results viewer
    ═══════════════════════════════════════════════════════ */
@@ -5015,6 +5115,49 @@ body {
   white-space: pre-wrap;
   word-break: break-all;
   flex: 1;
+}
+
+/* Parsed log line (matching DevPanel live logs style) */
+.rv-log-line--parsed {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 2px 18px;
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: var(--fs-11);
+  line-height: 1.5;
+}
+
+.rv-log-line--parsed:hover {
+  background: var(--surface);
+}
+
+.rv-log-line-time {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  min-width: 82px;
+  opacity: 0.6;
+  padding-right: 4px;
+}
+
+.rv-log-line-source {
+  flex-shrink: 0;
+  font-weight: 600;
+  min-width: 68px;
+  padding-right: 4px;
+}
+
+.rv-log-line-level {
+  flex-shrink: 0;
+  min-width: 20px;
+}
+
+.rv-log-line-level--error {
+  color: var(--red);
+}
+
+.rv-log-line-level--warn {
+  color: var(--orange);
 }
 
 .rv-logs-file-browser {

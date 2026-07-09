@@ -12,7 +12,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import Icon from "./Icon";
-import type { TranscriptionSegment, AnalysisData } from "../types";
+import type { TranscriptionSegment, AnalysisData, LogEntry } from "../types";
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
@@ -417,33 +417,52 @@ function AnalysisTab({ analysis }: { analysis: AnalysisData | null }) {
 
 /* ── Tab: Logs ── */
 
-/** Try to detect a source tag like [python], [bridge], [agent], [main],
- *  [transcription], [usage], [ollama] in a log line. */
-function detectSource(line: string): string | null {
-  const match = line.match(/\[(python|bridge|agent|main|transcription|usage|ollama)\]/i);
-  if (match) return match[1].toLowerCase();
-  // Also match the 💰 [USAGE] pattern
-  if (/💰\s*\[usage\]/i.test(line)) return "usage";
-  return null;
-}
+/** Source colour palette, matching DevPanel. */
+const RV_SOURCE_COLORS: Record<string, string> = {
+  python: "#58a6ff",
+  bridge: "#3fb950",
+  agent: "#d29922",
+  main: "#8b949e",
+  transcription: "#f0883e",
+  usage: "#db61a2",
+  ollama: "#7ee787",
+};
 
-/** Try to detect a log level like error, warn, info, debug in a log line. */
-function detectLevel(line: string): string | null {
-  const lower = line.toLowerCase();
-  if (/\berror\b/.test(lower)) return "error";
-  if (/\bwarn(ing)?\b/.test(lower)) return "warn";
-  if (/\bdebug\b/.test(lower)) return "debug";
-  if (/\binfo\b/.test(lower)) return "info";
-  return null;
+/** Try to parse a raw log line into a structured LogEntry-like object. */
+function parseLogLine(raw: string): { timestamp: number; source: string; level: string; message: string } | null {
+  // Attempt to extract a leading ISO‑ish timestamp
+  const tsMatch = raw.match(/^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2})/);
+  const timestamp = tsMatch ? new Date(tsMatch[1]).getTime() : Date.now();
+
+  // Detect source
+  const srcMatch = raw.match(/\[(python|bridge|agent|main|transcription|usage|ollama)\]/i);
+  let source = srcMatch ? srcMatch[1].toLowerCase() : "main";
+  // Also match the 💰 [USAGE] pattern
+  if (/💰\s*\[usage\]/i.test(raw)) source = "usage";
+
+  // Detect level
+  const lower = raw.toLowerCase();
+  let level = "info";
+  if (/\berror\b/.test(lower)) level = "error";
+  else if (/\bwarn(ing)?\b/.test(lower)) level = "warn";
+  else if (/\bdebug\b/.test(lower)) level = "debug";
+
+  // Build a cleaned message (strip the leading timestamp if present)
+  const message = tsMatch ? raw.slice(tsMatch[0].length).trim() : raw;
+
+  return { timestamp, source, level, message };
 }
 
 function LogsTab({ jobId }: { jobId: string }) {
-  const [logs, setLogs] = useState<string[]>([]);
+  const [rawLogs, setRawLogs] = useState<string[]>([]);
+  const [entries, setEntries] = useState<ReturnType<typeof parseLogLine>[]>([]);
   const [jobLogFiles, setJobLogFiles] = useState<{ file: string; content: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [levelFilter, setLevelFilter] = useState<string>("all");
+  const [autoScroll, setAutoScroll] = useState(true);
+  const [noTruncate, setNoTruncate] = useState(false);
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
@@ -455,14 +474,17 @@ function LogsTab({ jobId }: { jobId: string }) {
     let cancelled = false;
     const fetchLogs = async () => {
       try {
+        const maxLines = noTruncate ? 0 : 300;
         const res = await fetch(`${BRIDGE_URL}/tools/call`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tool: "transcribe_get_job_logs", args: { jobId, maxLines: 300 } }),
+          body: JSON.stringify({ tool: "transcribe_get_job_logs", args: { jobId, maxLines } }),
         });
         const data = await res.json();
         if (!cancelled) {
-          setLogs(data.logs || []);
+          const lines: string[] = data.logs || [];
+          setRawLogs(lines);
+          setEntries(lines.map((l: string) => parseLogLine(l)));
           setJobLogFiles(data.job_logs || []);
           setLoading(false);
         }
@@ -477,7 +499,14 @@ function LogsTab({ jobId }: { jobId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [jobId]);
+  }, [jobId, noTruncate]);
+
+  // Auto-scroll when entries change
+  useEffect(() => {
+    if (autoScroll && logRef.current) {
+      logRef.current.scrollTop = logRef.current.scrollHeight;
+    }
+  }, [entries, autoScroll]);
 
   // Toggle file expand/collapse
   const toggleFile = useCallback((fileName: string) => {
@@ -500,7 +529,6 @@ function LogsTab({ jobId }: { jobId: string }) {
   // Format content for display: try to pretty-print JSON
   const formatContent = useCallback((content: string, fileName: string): string => {
     if (!content) return "";
-    // Try JSON pretty-print for .json files
     if (fileName.endsWith(".json")) {
       try {
         const parsed = JSON.parse(content);
@@ -509,7 +537,6 @@ function LogsTab({ jobId }: { jobId: string }) {
         return content;
       }
     }
-    // For .jsonl files, try to pretty-print each line
     if (fileName.endsWith(".jsonl")) {
       const lines = content.split("\n").filter(Boolean);
       const formatted = lines.map((line) => {
@@ -525,16 +552,11 @@ function LogsTab({ jobId }: { jobId: string }) {
     return content;
   }, []);
 
-  // Filter logs by source and level
-  const filteredLogs = logs.filter((line) => {
-    if (sourceFilter !== "all") {
-      const detectedSource = detectSource(line);
-      if (detectedSource !== sourceFilter) return false;
-    }
-    if (levelFilter !== "all") {
-      const detectedLevel = detectLevel(line);
-      if (detectedLevel !== levelFilter) return false;
-    }
+  // Filter entries by source and level
+  const filteredEntries = entries.filter((entry) => {
+    if (!entry) return false;
+    if (sourceFilter !== "all" && entry.source !== sourceFilter) return false;
+    if (levelFilter !== "all" && entry.level !== levelFilter) return false;
     return true;
   });
 
@@ -569,7 +591,6 @@ function LogsTab({ jobId }: { jobId: string }) {
           <h4 className="rv-logs-section-title">
             <Icon name="folder" size="14" /> Job-Specific Files
           </h4>
-          {/* File browser buttons */}
           <div className="rv-logs-file-browser">
             {jobLogFiles.map((jf) => (
               <button
@@ -582,7 +603,6 @@ function LogsTab({ jobId }: { jobId: string }) {
               </button>
             ))}
           </div>
-          {/* Active file content */}
           {activeFile &&
             (() => {
               const jf = jobLogFiles.find((f) => f.file === activeFile);
@@ -612,7 +632,7 @@ function LogsTab({ jobId }: { jobId: string }) {
       )}
 
       {/* Filter toolbar */}
-      {logs.length > 0 && (
+      {rawLogs.length > 0 && (
         <div className="rv-logs-toolbar">
           <span className="rv-logs-toolbar-title">
             <Icon name="terminal" size="14" color="accent" /> Pipeline Logs
@@ -635,22 +655,36 @@ function LogsTab({ jobId }: { jobId: string }) {
               <option value="error">Errors</option>
               <option value="debug">Debug</option>
             </select>
+            <label className="dev-panel-checkbox" data-tooltip="Automatically scroll to the bottom when entries are loaded">
+              <input type="checkbox" checked={autoScroll} onChange={(e) => setAutoScroll(e.target.checked)} />
+              Auto-scroll
+            </label>
+            <label className="dev-panel-checkbox" data-tooltip="Show all available log entries without truncation">
+              <input type="checkbox" checked={noTruncate} onChange={(e) => setNoTruncate(e.target.checked)} />
+              No truncate
+            </label>
             <span className="rv-logs-filter-count">
-              {filteredLogs.length} / {logs.length} entries
+              {filteredEntries.length} / {rawLogs.length} entries
             </span>
           </div>
         </div>
       )}
 
       {/* Filtered pipeline logs */}
-      {logs.length > 0 && (
-        <div className="rv-logs-section">
-          {filteredLogs.length > 0 ? (
+      {rawLogs.length > 0 && (
+        <div className="rv-logs-section" style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+          {filteredEntries.length > 0 ? (
             <div className="rv-logs-list" ref={logRef}>
-              {filteredLogs.map((line, i) => (
-                <div key={i} className="rv-log-line">
-                  <span className="rv-log-line-num">{i + 1}</span>
-                  <span className="rv-log-line-text">{line}</span>
+              {filteredEntries.map((entry, i) => (
+                <div key={i} className="rv-log-line rv-log-line--parsed">
+                  <span className="rv-log-line-time">{new Date(entry.timestamp).toLocaleTimeString()}</span>
+                  <span className="rv-log-line-source" style={{ color: RV_SOURCE_COLORS[entry.source] || "#8b949e" }}>
+                    [{entry.source}]
+                  </span>
+                  <span className={`rv-log-line-level rv-log-line-level--${entry.level}`}>
+                    {entry.level === "error" ? "!" : entry.level === "warn" ? "▲" : ""}
+                  </span>
+                  <span className="rv-log-line-text">{entry.message}</span>
                 </div>
               ))}
             </div>
@@ -662,10 +696,15 @@ function LogsTab({ jobId }: { jobId: string }) {
               <span>No logs match the current filters.</span>
             </div>
           )}
+          {/* Footer */}
+          <div className="dev-panel-footer">
+            <span>{filteredEntries.length} entries</span>
+            <span>{rawLogs.length} total</span>
+          </div>
         </div>
       )}
 
-      {logs.length === 0 && jobLogFiles.length === 0 && (
+      {rawLogs.length === 0 && jobLogFiles.length === 0 && (
         <div className="rv-empty-state">
           <span className="rv-empty-icon">
             <Icon name="terminal" size="32" color="muted" />

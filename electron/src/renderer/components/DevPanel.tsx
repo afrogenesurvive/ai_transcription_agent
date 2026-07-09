@@ -22,7 +22,7 @@ type Tab = "live" | "files" | "database" | "performance" | "usage" | "updates";
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
-type SourceFilter = "all" | LogEntry["source"];
+type SourceFilter = "all" | LogEntry["source"] | "transcription" | "usage" | "ollama";
 type LevelFilter = "all" | LogEntry["level"];
 
 const SOURCE_COLORS: Record<string, string> = {
@@ -39,6 +39,7 @@ const LEVEL_PREFIX: Record<string, string> = {
   info: "",
   warn: "",
   error: "",
+  debug: "",
 };
 
 function formatSize(bytes: number): string {
@@ -51,7 +52,6 @@ function formatSize(bytes: number): string {
 
 const LS_KEY_SOURCE = "devpanel:sourceFilter";
 const LS_KEY_LEVEL = "devpanel:levelFilter";
-const LS_KEY_TAG = "devpanel:tagFilter";
 const LS_KEY_SCROLL = "devpanel:autoScroll";
 
 function loadPersisted(key: string, fallback: string): string {
@@ -72,13 +72,13 @@ function savePersisted(key: string, value: string): void {
 
 /* ── Live Logs Tab ── */
 
-type TagFilter = "all" | "transcription" | "usage" | "ollama";
+/** Extra "source" values that are really message tags, checked against entry.message. */
+const TAG_SOURCES = new Set(["transcription", "usage", "ollama"]);
 
 function LiveLogsTab() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>(loadPersisted(LS_KEY_SOURCE, "all") as SourceFilter);
   const [levelFilter, setLevelFilter] = useState<LevelFilter>(loadPersisted(LS_KEY_LEVEL, "all") as LevelFilter);
-  const [tagFilter, setTagFilter] = useState<TagFilter>(loadPersisted(LS_KEY_TAG, "all") as TagFilter);
   const [autoScroll, setAutoScroll] = useState(loadPersisted(LS_KEY_SCROLL, "true") === "true");
   const listRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
@@ -100,11 +100,6 @@ function LiveLogsTab() {
   const handleLevelFilterChange = useCallback((value: LevelFilter) => {
     setLevelFilter(value);
     savePersisted(LS_KEY_LEVEL, value);
-  }, []);
-
-  const handleTagFilterChange = useCallback((value: TagFilter) => {
-    setTagFilter(value);
-    savePersisted(LS_KEY_TAG, value);
   }, []);
 
   // Sync autoScrollRef on mount and whenever autoScroll changes
@@ -143,7 +138,7 @@ function LiveLogsTab() {
   }, []);
 
   /** Check if a log entry's message contains a given tag like [transcription], [usage], [ollama]. */
-  function entryHasTag(entry: LogEntry, tag: TagFilter): boolean {
+  function entryHasTag(entry: LogEntry, tag: string): boolean {
     if (tag === "all") return true;
     if (entry.message.includes(`[${tag}]`) || entry.message.includes(`[${tag.toUpperCase()}]`)) return true;
     // Also match the 💰 [USAGE] format
@@ -152,9 +147,15 @@ function LiveLogsTab() {
   }
 
   const filtered = logs.filter((entry) => {
-    if (sourceFilter !== "all" && entry.source !== sourceFilter) return false;
+    if (sourceFilter !== "all") {
+      // Tag-based "sources" (transcription, usage, ollama) are checked against message content
+      if (TAG_SOURCES.has(sourceFilter)) {
+        if (!entryHasTag(entry, sourceFilter)) return false;
+      } else if (entry.source !== sourceFilter) {
+        return false;
+      }
+    }
     if (levelFilter !== "all" && entry.level !== levelFilter) return false;
-    if (tagFilter !== "all" && !entryHasTag(entry, tagFilter)) return false;
     return true;
   });
 
@@ -171,13 +172,16 @@ function LiveLogsTab() {
             className="dev-panel-select"
             value={sourceFilter}
             onChange={(e) => handleSourceFilterChange(e.target.value as SourceFilter)}
-            title="Filter logs by source service"
-            data-tooltip="Filter logs by source — Python, Bridge, Agent, or Main process">
+            title="Filter logs by source service or message tag"
+            data-tooltip="Filter logs by source — Python, Bridge, Agent, Main, or by message tag">
             <option value="all">All sources</option>
             <option value="python">Python</option>
             <option value="bridge">Bridge</option>
             <option value="agent">Agent</option>
             <option value="main">Main</option>
+            <option value="transcription">Transcription</option>
+            <option value="usage">Usage</option>
+            <option value="ollama">Ollama</option>
           </select>
 
           <select
@@ -185,23 +189,12 @@ function LiveLogsTab() {
             value={levelFilter}
             onChange={(e) => handleLevelFilterChange(e.target.value as LevelFilter)}
             title="Filter logs by severity level"
-            data-tooltip="Filter logs by severity — Info, Warnings, or Errors only">
+            data-tooltip="Filter logs by severity — Info, Warnings, Errors, or Debug">
             <option value="all">All levels</option>
             <option value="info">Info</option>
             <option value="warn">Warnings</option>
             <option value="error">Errors</option>
-          </select>
-
-          <select
-            className="dev-panel-select"
-            value={tagFilter}
-            onChange={(e) => handleTagFilterChange(e.target.value as TagFilter)}
-            title="Filter logs by message tag"
-            data-tooltip="Filter logs by embedded tag — Transcription, Usage, or Ollama">
-            <option value="all">All tags</option>
-            <option value="transcription">Transcription</option>
-            <option value="usage">Usage</option>
-            <option value="ollama">Ollama</option>
+            <option value="debug">Debug</option>
           </select>
 
           <label className="dev-panel-checkbox" data-tooltip="Automatically scroll to the bottom when new logs arrive">
@@ -247,10 +240,14 @@ function LiveLogsTab() {
 
 /* ── Log Files Tab ── */
 
-/** Try to detect a source tag like [python], [bridge], [agent], [main] in a log line. */
+/** Try to detect a source tag like [python], [bridge], [agent], [main],
+ *  [transcription], [usage], [ollama] in a log line. */
 function detectLogSource(line: string): string | null {
-  const match = line.match(/\[(python|bridge|agent|main)\]/i);
-  return match ? match[1].toLowerCase() : null;
+  const match = line.match(/\[(python|bridge|agent|main|transcription|usage|ollama)\]/i);
+  if (match) return match[1].toLowerCase();
+  // Also match the 💰 [USAGE] pattern
+  if (/💰\s*\[usage\]/i.test(line)) return "usage";
+  return null;
 }
 
 /** Try to detect a log level like error, warn, info, debug in a log line. */
@@ -270,6 +267,7 @@ function LogFilesTab() {
   const [logPaths, setLogPaths] = useState<{ primary: string | null; mirror: string | null }>({ primary: null, mirror: null });
   const [logSourceFilter, setLogSourceFilter] = useState<string>("all");
   const [logLevelFilter, setLogLevelFilter] = useState<string>("all");
+  const [noTruncate, setNoTruncate] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const fileListRef = useRef<HTMLDivElement>(null);
   const [fileListWidth, setFileListWidth] = useState(240);
@@ -296,22 +294,30 @@ function LogFilesTab() {
     document.body.classList.add("dev-panel-sidebar-resizing");
   }, []);
 
+  /** Load all log files (global + per-job). */
+  const loadAllLogFiles = useCallback(async () => {
+    const [globalFiles, jobFiles] = await Promise.all([
+      window.electronAPI?.listLogFiles() || Promise.resolve([]),
+      window.electronAPI?.listJobLogFiles() || Promise.resolve([]),
+    ]);
+    // Merge: global files first, then job pipeline logs below
+    setFiles([...globalFiles, ...jobFiles]);
+  }, []);
+
   useEffect(() => {
-    window.electronAPI
-      ?.listLogFiles()
-      .then(setFiles)
-      .catch(() => {});
+    loadAllLogFiles();
     window.electronAPI
       ?.getLogPaths()
       .then(setLogPaths)
       .catch(() => {});
-  }, []);
+  }, [loadAllLogFiles]);
 
   const handleSelectFile = useCallback(async (filePath: string) => {
     setSelectedFile(filePath);
-    const lines = (await window.electronAPI?.readLogFile(filePath, 1000)) || [];
+    const maxLines = noTruncate ? 0 : 1000;
+    const lines = (await window.electronAPI?.readLogFile(filePath, maxLines)) || [];
     setFileContent(lines);
-  }, []);
+  }, [noTruncate]);
 
   // Auto-scroll to bottom when file content loads
   useEffect(() => {
@@ -320,15 +326,24 @@ function LogFilesTab() {
     }
   }, [fileContent]);
 
+  // Re-read file when noTruncate toggles
+  useEffect(() => {
+    if (!selectedFile) return;
+    const maxLines = noTruncate ? 0 : 1000;
+    window.electronAPI?.readLogFile(selectedFile, maxLines).then((lines) => {
+      if (lines) setFileContent(lines);
+    });
+  }, [noTruncate, selectedFile]);
+
   const handleRefresh = useCallback(async () => {
-    const updatedFiles = (await window.electronAPI?.listLogFiles()) || [];
-    setFiles(updatedFiles);
+    await loadAllLogFiles();
     if (selectedFile) {
       // Re-read currently selected file
-      const lines = (await window.electronAPI?.readLogFile(selectedFile, 1000)) || [];
+      const maxLines = noTruncate ? 0 : 1000;
+      const lines = (await window.electronAPI?.readLogFile(selectedFile, maxLines)) || [];
       setFileContent(lines);
     }
-  }, [selectedFile]);
+  }, [selectedFile, loadAllLogFiles, noTruncate]);
 
   // Filter file content by source and level
   const filteredContent = fileContent.filter((line) => {
@@ -374,9 +389,13 @@ function LogFilesTab() {
               key={f.path}
               className={`dev-panel-file-item ${selectedFile === f.path ? "dev-panel-file-item--active" : ""}`}
               onClick={() => handleSelectFile(f.path)}>
-              <span className="dev-panel-file-name">{f.name}</span>
+              <span className="dev-panel-file-name" title={f.name}>
+                {f.name}
+              </span>
               <span className="dev-panel-file-meta">
-                {formatSize(f.size)} · <Icon name={f.source === "primary" ? "folder" : "folder_open"} size="12" color="muted" /> {f.source}
+                {formatSize(f.size)} ·{" "}
+                <Icon name={f.source === "primary" ? "folder" : f.source === "job" ? "description" : "folder_open"} size="12" color="muted" />{" "}
+                {f.source === "job" ? "job log" : f.source}
               </span>
               <span className="dev-panel-file-date">{new Date(f.mtime).toLocaleDateString()}</span>
             </div>
@@ -411,6 +430,10 @@ function LogFilesTab() {
                 <option value="error">Errors</option>
                 <option value="debug">Debug</option>
               </select>
+              <label className="dev-panel-checkbox" data-tooltip="Show all lines without truncation">
+                <input type="checkbox" checked={noTruncate} onChange={(e) => setNoTruncate(e.target.checked)} />
+                No truncate
+              </label>
               <span className="dev-panel-file-filter-count">
                 {filteredContent.length} / {fileContent.length} lines
               </span>

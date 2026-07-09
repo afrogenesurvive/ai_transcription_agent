@@ -85,10 +85,10 @@ export default function App() {
   const [showSpeakerModal, setShowSpeakerModal] = useState(false);
   const [labelingSubmitting, setLabelingSubmitting] = useState(false);
 
-  // Notification helper — shows a toast at the top-right, auto-dismissed after 4s
+  // Notification helper — shows a toast at the top-right, auto-dismissed after 10s
   const notify = useCallback((message: string) => {
     setNotification(message);
-    setTimeout(() => setNotification(null), 4000);
+    setTimeout(() => setNotification(null), 10000);
   }, []);
 
   // Callback for panels to signal that storage data changed (job/log deletion)
@@ -155,7 +155,7 @@ export default function App() {
       if (!result.ok) {
         const items = result.missing?.length ? result.missing.join(", ") : "DEEPSEEK_API_KEY or Ollama";
         setNotification(`Config incomplete: missing ${items}`);
-        setTimeout(() => setNotification(null), 8000);
+        setTimeout(() => setNotification(null), 10000);
       }
     });
     window.electronAPI?.getConfig().then((cfg) => {
@@ -167,7 +167,7 @@ export default function App() {
   React.useEffect(() => {
     const cleanup = window.electronAPI?.onNotification((msg) => {
       setNotification(msg);
-      setTimeout(() => setNotification(null), 5000);
+      setTimeout(() => setNotification(null), 10000);
     });
     return () => cleanup?.();
   }, []);

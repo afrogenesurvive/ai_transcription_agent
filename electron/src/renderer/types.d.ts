@@ -66,7 +66,7 @@ export interface LogFileInfo {
   name: string;
   size: number;
   mtime: string;
-  source: "primary" | "mirror";
+  source: "primary" | "mirror" | "job";
 }
 
 export interface ConfigValueSource {
@@ -122,6 +122,8 @@ export interface ElectronAPI {
   listLogFiles: () => Promise<LogFileInfo[]>;
   readLogFile: (filePath: string, maxLines?: number) => Promise<string[]>;
   getLogPaths: () => Promise<{ primary: string | null; mirror: string | null }>;
+  listJobLogFiles: () => Promise<LogFileInfo[]>;
+  readJobLogFile: (jobId: string, maxLines?: number) => Promise<string[]>;
   getStorageUsage: () => Promise<StorageUsage>;
   getPerformanceMetrics: () => Promise<{
     electron: Array<{ type: string; pid: number; cpu: number | null; memory: number | null; peakMemory: number | null }>;

@@ -31,9 +31,12 @@ export function useJobStatus(jobId: string | null, fetcher: (id: string) => Prom
   // "failed" is terminal ONLY after a grace period allows the agent runner
   // to retry and potentially succeed.
   const successStatuses = useRef(new Set(["complete", "delivered"])).current;
-  // Safety timeout: if the job hasn't reached a terminal state within 10 minutes,
+  // Safety timeout: if the job hasn't reached a terminal state within 30 minutes,
   // force-complete to prevent infinite polling (e.g. if the agent runner crashed).
-  const POLLING_TIMEOUT_MS = 10 * 60 * 1000;
+  // Increased from 10 min to 30 min to accommodate longer meetings — a 21-minute
+  // meeting produces a large transcript that can take >10 min to process through
+  // the full LLM pipeline (refine, summarize, analyze, save context, deliver).
+  const POLLING_TIMEOUT_MS = 30 * 60 * 1000;
 
   const stopPolling = useCallback(() => {
     if (intervalRef.current) {

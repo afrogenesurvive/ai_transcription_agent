@@ -277,10 +277,16 @@ async function dispatch(tool, args) {
     }
 
     case "transcribe_get_job_logs":
-      return await callPython("GET", `/transcribe/job_logs/${args.jobId}?max_lines=${args.maxLines || 200}`);
+      return await callPython("GET", `/transcribe/job_logs/${args.jobId}?max_lines=${args.maxLines ?? 200}`);
 
     case "transcribe_get_job_files":
       return await callPython("GET", `/transcribe/job_files/${args.jobId}`);
+
+    case "transcribe_get_pipeline_log": {
+      const maxLines = args.maxLines ?? 500;
+      const includeGlobal = args.includeGlobal === true ? "true" : "false";
+      return await callPython("GET", `/transcribe/pipeline_log/${args.jobId}?max_lines=${maxLines}&include_global=${includeGlobal}`);
+    }
 
     case "transcribe_cancel":
       return await callPython("POST", `/transcribe/cancel/${args.jobId}`);
