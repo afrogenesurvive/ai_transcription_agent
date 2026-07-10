@@ -69,7 +69,9 @@ snapshotDefaults();
 
 // ── Sanitize (Tier 1 — mandatory for all proxied responses) ──
 
-const MAX_STRING_LENGTH = 2000;
+const MAX_STRING_LENGTH = 10000;
+const MAX_ARRAY_ITEMS = 5000;
+const MAX_OBJECT_KEYS = 500;
 const MAX_NESTING_DEPTH = 5;
 const SENSITIVE_PATTERNS = [
   /\b(?:sk-[A-Za-z0-9]{20,})\b/g,
@@ -85,10 +87,10 @@ function sanitizeValue(data, depth = 0) {
     return s;
   }
   if (typeof data === "number" || typeof data === "boolean" || data === null || data === undefined) return data;
-  if (Array.isArray(data)) return data.slice(0, 100).map((v) => sanitizeValue(v, depth + 1));
+  if (Array.isArray(data)) return data.slice(0, MAX_ARRAY_ITEMS).map((v) => sanitizeValue(v, depth + 1));
   if (typeof data === "object") {
     const result = {};
-    for (const [k, v] of Object.entries(data).slice(0, 200)) {
+    for (const [k, v] of Object.entries(data).slice(0, MAX_OBJECT_KEYS)) {
       result[k] = sanitizeValue(v, depth + 1);
     }
     return result;

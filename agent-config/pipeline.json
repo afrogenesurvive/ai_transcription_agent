@@ -67,7 +67,7 @@
       "description": "Package results for delivery destinations",
       "systemPromptTemplate": "",
       "hintTemplate": "",
-      "enabled": true,
+      "enabled": false,
       "isTerminal": false
     },
     {
@@ -77,7 +77,7 @@
       "description": "Send results via email",
       "systemPromptTemplate": "",
       "hintTemplate": "",
-      "enabled": true,
+      "enabled": false,
       "isTerminal": true
     },
     {
@@ -87,7 +87,7 @@
       "description": "Save results to Google Drive",
       "systemPromptTemplate": "",
       "hintTemplate": "",
-      "enabled": true,
+      "enabled": false,
       "isTerminal": true
     },
     {
@@ -97,7 +97,7 @@
       "description": "Create action items as Trello cards",
       "systemPromptTemplate": "",
       "hintTemplate": "",
-      "enabled": true,
+      "enabled": false,
       "isTerminal": true
     }
   ],
@@ -105,11 +105,7 @@
     "transcribe_get_transcript": "Next: Call `transcribe_summarize` to generate and store a structured meeting summary.",
     "transcribe_summarize": "Next: Call `transcribe_analyze` to analyze topics, sentiment, entities, and follow-ups.",
     "transcribe_analyze": "Next: Call `transcribe_save_context` to persist meeting to semantic and ephemeral memory.",
-    "transcribe_save_context": "Next: Call `transcribe_prepare_delivery` to package results for delivery destinations.",
-    "transcribe_prepare_delivery": "Next: Call `send_delivery_email` to send results via email.",
-    "send_delivery_email": "Next: Call `save_to_drive` to save results to google drive.",
-    "save_to_drive": "Next: Call `create_trello_action_items` to create action items as trello cards.",
-    "create_trello_action_items": "Pipeline complete. Call a delivery tool (send_delivery_email, save_to_drive, create_trello_action_items) or finish."
+    "transcribe_save_context": "Pipeline complete. Call a delivery tool (send_delivery_email, save_to_drive, create_trello_action_items) or finish."
   },
   "event_templates": {
     "ready_for_processing": "Actions: refine transcript (removes fillers and PII, preserves timestamps), extract action items, generate summary, generate analysis, prepare delivery.\nExisting memory context is provided below — use it for continuity and to identify recurring topics. Repetition is signal (e.g., same action item across weeks = blocker).\nIf an action item from a previous meeting is resolved here, note it as completed.\nTranscript ({{segment_count}} segments):\n{{transcript_preview}}",

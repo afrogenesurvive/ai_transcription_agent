@@ -484,7 +484,7 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
         </div>
       </div>
 
-      <div className="skip-options" style={disabled ? { opacity: 0.5, pointerEvents: "none" } : undefined}>
+      {/* <div className="skip-options" style={disabled ? { opacity: 0.5, pointerEvents: "none" } : undefined}>
         {Object.entries(SKIPPABLE_STEPS).map(([toolName, { label, hint }]) => (
           <label key={toolName} className="skip-checkbox" data-tooltip={`${label} — ${hint.replace(/[()]/g, "")}`}>
             <input type="checkbox" checked={skipSteps.includes(toolName)} onChange={() => toggleSkip(toolName)} disabled={disabled} />
@@ -492,7 +492,7 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
             <span className="skip-hint">{hint}</span>
           </label>
         ))}
-      </div>
+      </div> */}
 
       <button
         className="btn-primary"

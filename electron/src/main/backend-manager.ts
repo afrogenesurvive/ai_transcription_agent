@@ -19,6 +19,39 @@ import { getChildEnv } from "./config";
 const isProd = app.isPackaged;
 const IS_WIN = process.platform === "win32";
 
+/** Extract a [tag] prefix from the start of a message, e.g. "[transcription] ..." → "transcription"
+ *
+ *  Falls back to detecting Whisper's verbose timestamp format:
+ *    [01:21.560 --> 01:25.380] text
+ *  and treats those lines as sub-source "transcription".
+ */
+function extractSubSource(msg: string): string | undefined {
+  // Primary: match a word-only [tag] prefix like [transcription], [pipeline], [agent_bridge]
+  const tagMatch = msg.match(/^\[(\w+)\]/);
+  if (tagMatch) return tagMatch[1].toLowerCase();
+
+  // Fallback: detect Whisper verbose timestamp format
+  //   [MM:SS.mmm --> MM:SS.mmm] or [HH:MM:SS.mmm --> HH:MM:SS.mmm]
+  // These come from Whisper's internal verbose print() calls and don't
+  // have a [transcription] prefix, but should be tagged as such.
+  const tsMatch = msg.match(/^\[\d{1,2}:\d{2}\.\d{3}\s*-->/);
+  if (tsMatch) return "transcription";
+
+  return undefined;
+}
+
+/** Extract a job ID from a log message for per-job log routing. */
+function _extractJobIdFromMsg(msg: string): string | undefined {
+  // Match "job <uuid-like>" where uuid-like is a hex string (8+ chars, optionally hyphenated)
+  const match = msg.match(/\bjob\s+([a-f0-9]{8,}(?:-[a-f0-9]{4}){0,3}[a-f0-9]{4,})/i);
+  return match ? match[1] : undefined;
+}
+
+/** Check if a log message signals the end of a pipeline for a job. */
+function _isPipelineEnd(msg: string): boolean {
+  return /(?:Pipeline complete|Resumed pipeline complete|ERROR in job|marked as complete|Pipeline failed|task cancelled)/i.test(msg);
+}
+
 /** Platform-aware Python binary name (dev fallback) */
 const PYTHON_BIN = IS_WIN ? "python" : "python3";
 
@@ -163,40 +196,15 @@ export async function startPythonBackend(port = 5001): Promise<void> {
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-  /** Extract a [tag] prefix from the start of a message, e.g. "[transcription] ..." → "transcription"
-   *
-   *  Falls back to detecting Whisper's verbose timestamp format:
-   *    [01:21.560 --> 01:25.380] text
-   *  and treats those lines as sub-source "transcription".
-   */
-  function extractSubSource(msg: string): string | undefined {
-    // Primary: match a word-only [tag] prefix like [transcription], [pipeline], [agent_bridge]
-    const tagMatch = msg.match(/^\[(\w+)\]/);
-    if (tagMatch) return tagMatch[1].toLowerCase();
-
-    // Fallback: detect Whisper verbose timestamp format
-    //   [MM:SS.mmm --> MM:SS.mmm] or [HH:MM:SS.mmm --> HH:MM:SS.mmm]
-    // These come from Whisper's internal verbose print() calls and don't
-    // have a [transcription] prefix, but should be tagged as such.
-    const tsMatch = msg.match(/^\[\d{1,2}:\d{2}\.\d{3}\s*-->/);
-    if (tsMatch) return "transcription";
-
-    return undefined;
-  }
-
-  /** Extract a job ID from a log message for per-job log routing. */
-  function _extractJobIdFromMsg(msg: string): string | undefined {
-    // Match "job <uuid-like>" where uuid-like is a hex string (8+ chars, optionally hyphenated)
-    const match = msg.match(/\bjob\s+([a-f0-9]{8,}(?:-[a-f0-9]{4}){0,3}[a-f0-9]{4,})/i);
-    return match ? match[1] : undefined;
-  }
-
   // ── Line-buffered stdout handler ──
   // The OS pipe buffer can split Python's stdout at arbitrary byte boundaries,
   // so a single print() line may arrive across multiple `data` events.  We
   // buffer chunks and split by actual newlines to guarantee each message is
   // a complete line with the [tag] prefix intact.
   let stdoutBuffer = "";
+  // Track active job ID so intermediate messages (without "job <uuid>" in the
+  // text) still get routed to the per-job pipeline.log.
+  let _pythonJobId: string | null = null;
 
   pythonProcess.stdout?.on("data", (d: Buffer) => {
     stdoutBuffer += d.toString();
@@ -213,9 +221,17 @@ export async function startPythonBackend(port = 5001): Promise<void> {
       // like [01:21.560 --> ...] get a synthetic "transcription" subSource
       // but the message itself has no tag to strip.
       const cleanMsg = subSource && /^\[\w+\]/.test(msg) ? msg.replace(/^\[\w+\]\s*/, "") : msg;
-      const jobId = _extractJobIdFromMsg(msg);
+
+      // Track the active job ID so all intermediate messages during a pipeline
+      // are written to the correct per-job pipeline.log, not just the start/end
+      // messages that explicitly mention "job <uuid>".
+      const extractedId = _extractJobIdFromMsg(msg);
+      if (extractedId) _pythonJobId = extractedId;
+      const jobId = _pythonJobId;
+      if (extractedId && _isPipelineEnd(msg)) _pythonJobId = null;
+
       console.log(`[python] ${msg}`);
-      addLog("python", "info", cleanMsg, subSource, jobId);
+      addLog("python", "info", cleanMsg, subSource, jobId || undefined);
     }
   });
 
@@ -225,10 +241,14 @@ export async function startPythonBackend(port = 5001): Promise<void> {
     if (remaining) {
       const subSource = extractSubSource(remaining);
       const cleanMsg = subSource && /^\[\w+\]/.test(remaining) ? remaining.replace(/^\[\w+\]\s*/, "") : remaining;
-      const jobId = _extractJobIdFromMsg(remaining);
-      addLog("python", "info", cleanMsg, subSource, jobId);
+      const extractedId = _extractJobIdFromMsg(remaining);
+      if (extractedId) _pythonJobId = extractedId;
+      const jobId = _pythonJobId;
+      if (extractedId && _isPipelineEnd(remaining)) _pythonJobId = null;
+      addLog("python", "info", cleanMsg, subSource, jobId || undefined);
     }
     stdoutBuffer = "";
+    _pythonJobId = null;
   });
 
   // ── Line-buffered stderr handler (same approach) ──
@@ -244,9 +264,12 @@ export async function startPythonBackend(port = 5001): Promise<void> {
       if (!msg) continue;
       const subSource = extractSubSource(msg);
       const cleanMsg = subSource ? msg.replace(/^\[\w+\]\s*/, "") : msg;
-      const jobId = _extractJobIdFromMsg(msg);
+      const extractedId = _extractJobIdFromMsg(msg);
+      if (extractedId) _pythonJobId = extractedId;
+      const jobId = _pythonJobId;
+      if (extractedId && _isPipelineEnd(msg)) _pythonJobId = null;
       console.error(`[python:err] ${msg}`);
-      addLog("python", "error", cleanMsg, subSource, jobId);
+      addLog("python", "error", cleanMsg, subSource, jobId || undefined);
     }
   });
 
@@ -255,8 +278,11 @@ export async function startPythonBackend(port = 5001): Promise<void> {
     if (remaining) {
       const subSource = extractSubSource(remaining);
       const cleanMsg = subSource ? remaining.replace(/^\[\w+\]\s*/, "") : remaining;
-      const jobId = _extractJobIdFromMsg(remaining);
-      addLog("python", "error", cleanMsg, subSource, jobId);
+      const extractedId = _extractJobIdFromMsg(remaining);
+      if (extractedId) _pythonJobId = extractedId;
+      const jobId = _pythonJobId;
+      if (extractedId && _isPipelineEnd(remaining)) _pythonJobId = null;
+      addLog("python", "error", cleanMsg, subSource, jobId || undefined);
     }
     stderrBuffer = "";
   });
@@ -302,18 +328,26 @@ export async function startBridgeServer(bridgePort = 5010, pythonPort = 5001): P
     stdio: ["ignore", "pipe", "pipe"],
   });
 
+  let _bridgeJobId: string | null = null;
+
   bridgeProcess.stdout?.on("data", (d: Buffer) => {
     const msg = d.toString().trim();
-    const jobId = _extractJobIdFromMsg(msg);
+    const extractedId = _extractJobIdFromMsg(msg);
+    if (extractedId) _bridgeJobId = extractedId;
+    const jobId = _bridgeJobId;
+    if (extractedId && _isPipelineEnd(msg)) _bridgeJobId = null;
     console.log(`[bridge] ${msg}`);
-    addLog("bridge", "info", msg, undefined, jobId);
+    addLog("bridge", "info", msg, undefined, jobId || undefined);
   });
 
   bridgeProcess.stderr?.on("data", (d: Buffer) => {
     const msg = d.toString().trim();
-    const jobId = _extractJobIdFromMsg(msg);
+    const extractedId = _extractJobIdFromMsg(msg);
+    if (extractedId) _bridgeJobId = extractedId;
+    const jobId = _bridgeJobId;
+    if (extractedId && _isPipelineEnd(msg)) _bridgeJobId = null;
     console.error(`[bridge:err] ${msg}`);
-    addLog("bridge", "error", msg, undefined, jobId);
+    addLog("bridge", "error", msg, undefined, jobId || undefined);
   });
 
   bridgeProcess.on("exit", (code) => {
@@ -915,18 +949,26 @@ export async function startAgentRunner(): Promise<void> {
     stdio: ["pipe", "pipe", "pipe"],
   });
 
+  let _agentJobId: string | null = null;
+
   agentProcess.stdout?.on("data", (d: Buffer) => {
     const msg = d.toString().trim();
-    const jobId = _extractJobIdFromMsg(msg);
+    const extractedId = _extractJobIdFromMsg(msg);
+    if (extractedId) _agentJobId = extractedId;
+    const jobId = _agentJobId;
+    if (extractedId && _isPipelineEnd(msg)) _agentJobId = null;
     console.log(`[agent] ${msg}`);
-    addLog("agent", "info", msg, undefined, jobId);
+    addLog("agent", "info", msg, undefined, jobId || undefined);
   });
 
   agentProcess.stderr?.on("data", (d: Buffer) => {
     const msg = d.toString().trim();
-    const jobId = _extractJobIdFromMsg(msg);
+    const extractedId = _extractJobIdFromMsg(msg);
+    if (extractedId) _agentJobId = extractedId;
+    const jobId = _agentJobId;
+    if (extractedId && _isPipelineEnd(msg)) _agentJobId = null;
     console.error(`[agent:err] ${msg}`);
-    addLog("agent", "error", msg, undefined, jobId);
+    addLog("agent", "error", msg, undefined, jobId || undefined);
   });
 
   agentProcess.on("exit", (code) => {

@@ -373,7 +373,7 @@ ipcMain.handle("config:get", () => {
 
 ipcMain.handle("config:save", async (_event, values: Record<string, string>) => {
   addLog("main", "info", "Config saving...");
-  saveConfig(values);
+  const updatedConfig = saveConfig(values);
 
   // Check what changed
   const cfg = checkConfig();
@@ -588,7 +588,7 @@ ipcMain.handle("config:import", async () => {
     }
 
     // Import user config
-    saveConfig(importData.userConfig);
+    const updatedConfig = saveConfig(importData.userConfig);
     addLog("main", "info", "User config imported successfully");
 
     // Check config completeness

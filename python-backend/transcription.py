@@ -290,11 +290,23 @@ class TranscriptionEngine:
         if self._whisper is None:
             t_load = time.time()
             print(f"[transcription]   📦 Loading openai-whisper model '{self.model_size}' on {self.device}...")
-            self._whisper = whisper.load_model(self.model_size, device=self.device)
+            try:
+                self._whisper = whisper.load_model(self.model_size, device=self.device)
+            except Exception as e:
+                print(f"[transcription]   ❌ Failed to load openai-whisper model: {e}")
+                import traceback
+                traceback.print_exc()
+                return {"text": "", "segments": [], "words": []}
             print(f"[transcription]   ✅ Model loaded in {time.time()-t_load:.1f}s")
         t_infer = time.time()
         print(f"[transcription]   ⏳ Transcribing (openai-whisper, verbose)...")
-        result = self._whisper.transcribe(audio_path, word_timestamps=True, verbose=True)
+        try:
+            result = self._whisper.transcribe(audio_path, word_timestamps=True, verbose=True)
+        except Exception as e:
+            print(f"[transcription]   ❌ openai-whisper transcription failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return {"text": "", "segments": [], "words": []}
         print(f"[transcription]   ⏱️  Inference done in {time.time()-t_infer:.1f}s")
         return self._extract_words(result)
 
@@ -303,12 +315,25 @@ class TranscriptionEngine:
         t_infer = time.time()
         print(f"[transcription]   📦 Using mlx-whisper (Apple Silicon) model 'mlx-community/whisper-{self.model_size}'...")
         import mlx_whisper
-        result = mlx_whisper.transcribe(
-            audio_path,
-            path_or_hf_repo=f"mlx-community/whisper-{self.model_size}",
-            word_timestamps=True,
-            verbose=True,
-        )
+        try:
+            result = mlx_whisper.transcribe(
+                audio_path,
+                path_or_hf_repo=f"mlx-community/whisper-{self.model_size}",
+                word_timestamps=True,
+                verbose=True,
+            )
+        except Exception as e:
+            print(f"[transcription]   ❌ mlx-whisper failed: {e}")
+            import traceback
+            traceback.print_exc()
+            elapsed = time.time() - t_infer
+            print(f"[transcription]   ⏱️  mlx-whisper failed after {elapsed:.1f}s")
+            return {"text": "", "segments": [], "words": []}
+        if result is None:
+            print(f"[transcription]   ⚠️  mlx-whisper returned None — returning empty result")
+            elapsed = time.time() - t_infer
+            print(f"[transcription]   ⏱️  mlx-whisper returned None after {elapsed:.1f}s")
+            return {"text": "", "segments": [], "words": []}
         elapsed = time.time() - t_infer
         print(f"[transcription]   ⏱️  mlx-whisper done in {elapsed:.1f}s")
         return self._extract_words(result)
@@ -322,12 +347,24 @@ class TranscriptionEngine:
             t_load = time.time()
             print(f"[transcription]   📦 Loading faster-whisper model '{self.model_size}' "
                   f"(compute_type={ct}, device={self.device})...")
-            self._whisper = WhisperModel(self.model_size, device=self.device, compute_type=ct)
+            try:
+                self._whisper = WhisperModel(self.model_size, device=self.device, compute_type=ct)
+            except Exception as e:
+                print(f"[transcription]   ❌ Failed to load faster-whisper model: {e}")
+                import traceback
+                traceback.print_exc()
+                return {"text": "", "segments": [], "words": []}
             print(f"[transcription]   ✅ Model loaded in {time.time()-t_load:.1f}s")
 
         t_infer = time.time()
         print(f"[transcription]   ⏳ Transcribing (faster-whisper, beam_size=5)...")
-        segs, info = model.transcribe(audio_path, beam_size=5, word_timestamps=True)
+        try:
+            segs, info = self._whisper.transcribe(audio_path, beam_size=5, word_timestamps=True)
+        except Exception as e:
+            print(f"[transcription]   ❌ faster-whisper transcription failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return {"text": "", "segments": [], "words": []}
         elapsed = time.time() - t_infer
 
         words = []
@@ -351,10 +388,21 @@ class TranscriptionEngine:
         return {"text": "", "segments": list(segs), "words": words}
 
     def _extract_words(self, result: dict) -> dict:
-        """Normalize Whisper output into a consistent {words, segments, text} format."""
+        """Normalize Whisper output into a consistent {words, segments, text} format.
+
+        Safely handles None or malformed results — returns an empty structure
+        instead of crashing with AttributeError.
+        """
+        if not result or not isinstance(result, dict):
+            print(f"[transcription]   ⚠️  _extract_words: result is {type(result).__name__}, returning empty")
+            return {"text": "", "segments": [], "words": []}
         words = []
         for seg in result.get("segments", []):
+            if not isinstance(seg, dict):
+                continue
             for w in seg.get("words", []):
+                if not isinstance(w, dict):
+                    continue
                 words.append({
                     "text": w.get("word") or w.get("text") or "",
                     "start": w.get("start", 0),
@@ -363,6 +411,8 @@ class TranscriptionEngine:
         # If no word-level timestamps, fall back to segment-level text
         if not words and result.get("segments"):
             for seg in result.get("segments", []):
+                if not isinstance(seg, dict):
+                    continue
                 words.append({
                     "text": seg.get("text", ""),
                     "start": seg.get("start", 0),

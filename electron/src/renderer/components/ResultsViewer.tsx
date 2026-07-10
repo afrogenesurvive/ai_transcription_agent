@@ -547,7 +547,7 @@ function LogsTab({ jobId }: { jobId: string }) {
   const logRef = useRef<HTMLDivElement>(null);
 
   // Max chars to show when collapsed — large files get truncated
-  const MAX_COLLAPSED_CHARS = 2000;
+  const MAX_COLLAPSED_CHARS = 10000;
 
   useEffect(() => {
     let cancelled = false;

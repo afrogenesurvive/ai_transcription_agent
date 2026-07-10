@@ -31,8 +31,9 @@ from utils import is_network_error
 class VoiceprintManager:
     _thread_local = threading.local()
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: Optional[str] = None, device: Optional[str] = None):
         self.db_path = db_path or config.VOICEPRINT_DB
+        self._device = device  # Pass a device string ("mps", "cuda", "cpu") or None for auto-detect
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self._embedding_model = None  # Lazy-loaded pyannote Inference model
         self._init_db()
@@ -119,20 +120,28 @@ class VoiceprintManager:
             # Try online first so pyannote can check for model updates.
             # Falls back to local cache on network errors.
             try:
+                # Pass explicit device if configured to avoid pyannote's
+                # auto-detection, which can fail on MPS with certain ops.
+                inference_kwargs = {"window": "whole"}
+                if self._device:
+                    inference_kwargs["device"] = self._device
                 self._embedding_model = Inference(
-                    config.EMBEDDING_MODEL, window="whole",
+                    config.EMBEDDING_MODEL, **inference_kwargs,
                 )
             except Exception as _hub_err:
                 if is_network_error(_hub_err):
                     print(f"[voiceprint] ⚠️  HuggingFace unreachable ({_hub_err}). "
                           f"Falling back to local cache...")
+                    inference_kwargs = {"window": "whole", "local_files_only": True}
+                    if self._device:
+                        inference_kwargs["device"] = self._device
                     self._embedding_model = Inference(
-                        config.EMBEDDING_MODEL, window="whole",
-                        local_files_only=True,
+                        config.EMBEDDING_MODEL, **inference_kwargs,
                     )
                 else:
                     raise
-            print(f"[voiceprint] Embedding model loaded")
+            print(f"[voiceprint] Embedding model loaded" +
+                  (f" on device='{self._device}'" if self._device else ""))
 
         if segment:
             start, end = segment

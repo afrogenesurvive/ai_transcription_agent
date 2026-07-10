@@ -155,6 +155,32 @@ async function processEvent(event) {
   // Sanitize transcript data before building LLM context (Tier 2 — optional)
   const transcript = sanitizeTranscriptSegments(rawTranscript);
 
+  // ── Empty transcript guard ──
+  // If the ML pipeline failed (no transcript produced), skip LLM processing
+  // entirely to avoid wasting tokens on empty content. The job is marked as
+  // complete with a warning so the frontend knows there's nothing to show.
+  const transcriptHasContent = transcript.some(
+    (seg) => seg.text && seg.text.trim().length > 0,
+  );
+  if (
+    !transcriptHasContent &&
+    (event.type === "ready_for_processing" || event.type === "labeling_needed")
+  ) {
+    console.log(`   ⏭️  [RUNNER] Empty transcript — skipping LLM processing (event.type=${event.type})`);
+    console.log(`   ⏭️  [RUNNER]   Transcript has ${transcript.length} segment(s), 0 words of text`);
+    logAction({ eventId, eventType: event.type, action: "skipped", detail: "Empty transcript — no LLM processing needed" });
+    try {
+      const jobId = jobData.jobId || eventId;
+      await executeToolCall("transcribe_complete_job", { jobId });
+      console.log(`   ✅ [RUNNER] Job ${jobId.slice(0, 8)} marked as complete (empty transcript — no processing needed)`);
+    } catch (completeErr) {
+      console.log(`   ⚠️  [RUNNER] Could not update job status for empty transcript: ${completeErr.message}`);
+    }
+    markCleared(eventId);
+    releaseLock(eventId);
+    return;
+  }
+
   // Sanitize context strings (Tier 2 — optional)
   const safeTitle = sanitizeContextString(jobData.title || "");
   const safeAttendees = (jobData.attendees || []).map((a) => sanitizeContextString(a));

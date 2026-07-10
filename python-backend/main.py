@@ -68,7 +68,7 @@ _active_jobs: dict[str, dict] = {}
 async def lifespan(app: FastAPI):
     global uploader, vp_manager, agent_bridge, semantic_memory, ephemeral_memory
     uploader = AudioUploader()
-    vp_manager = VoiceprintManager()
+    vp_manager = VoiceprintManager(device=detect_device())
     agent_bridge = AgentBridge()
     semantic_memory = SemanticMemory()
     ephemeral_memory = EphemeralMemory()
@@ -1296,13 +1296,18 @@ async def fail_job(job_id: str, error: str = "Processing failed"):
 
 @app.post("/transcribe/complete/{job_id}")
 async def complete_job(job_id: str):
-    """Mark a job as complete. Called by the agent runner when the LLM pipeline finishes successfully."""
+    """Mark a job as complete. Called by the agent runner when the LLM pipeline finishes successfully.
+
+    Explicitly clears the ``error`` field to prevent stale ML pipeline errors
+    from persisting after successful agent-runner completion (the old
+    ``update_status`` merge behavior leaves old error keys in place).
+    """
     s = uploader.get_status(job_id)
     if s["status"] == "not_found":
         raise HTTPException(404, "Job not found")
-    uploader.update_status(job_id, {"status": "complete", "progress": 1.0})
+    uploader.update_status(job_id, {"status": "complete", "progress": 1.0, "error": None})
     _active_jobs.pop(job_id, None)
-    print(f"[api] POST /transcribe/complete/{job_id} → complete")
+    print(f"[api] POST /transcribe/complete/{job_id} → complete (error cleared)")
     return {"job_id": job_id, "status": "complete"}
 
 
@@ -2212,6 +2217,23 @@ def _run_pipeline_sync(job_id: str):
         # ── Step 5: Enqueue for agent ──
         jlog.log(f"\n   📨 [PIPELINE] Step 5/5: Enqueueing for agent runner...")
         if _check_cancelled(job_id): return
+
+        # Guard: if the transcript is empty (no words transcribed), skip
+        # LLM processing entirely — there's nothing to refine/summarize/analyze.
+        # This prevents wasting tokens on empty transcripts when ASR fails.
+        total_words = sum(len(seg.get("text", "").split()) for seg in aligned)
+        if total_words == 0:
+            jlog.log(f"\n   ⚠️  [PIPELINE] Empty transcript ({len(aligned)} segments, 0 words) — "
+                  f"skipping LLM processing. ASR may have failed.")
+            _update_active(job_id, "transcribed_empty", 0.95)
+            uploader.update_status(job_id, {
+                "status": "complete",
+                "progress": 1.0,
+                "error": None,  # Clear any previous ML error so stale errors don't persist
+            })
+            jlog.log(f"[pipeline] Job marked complete with empty transcript — no agent event enqueued")
+            return
+
         unknown = match_result.get("unknown", [])
         if unknown:
             for u in unknown:
