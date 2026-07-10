@@ -256,10 +256,33 @@ class VoiceprintManager:
         seen_names = set()
         known = {}
         for name, email, blob in rows:
-            if name not in seen_names:
-                seen_names.add(name)
-                known[name] = pickle.loads(blob)
+            if name in seen_names:
+                continue
+            seen_names.add(name)
+            try:
+                emb = pickle.loads(blob)
+            except Exception:
+                continue
+            if emb is None:
+                continue
+            known[name] = emb
         return known
+
+    @staticmethod
+    def _make_email(name: str, email: str) -> str:
+        """Return a valid unique email for the voiceprint upsert key.
+
+        If a real email is provided, use it as-is.  Otherwise derive a
+        deterministic placeholder from the speaker name so that multiple
+        named speakers never collide on the UNIQUE(email) constraint.
+        """
+        if email and email.strip():
+            return email.strip()
+        # Slugify the name into an email-like key
+        slug = name.strip().lower().replace(" ", ".").replace("_", ".")
+        # Strip any characters that aren't alphanumeric, dot, or hyphen
+        slug = "".join(c for c in slug if c.isalnum() or c in ".-")
+        return f"{slug}@voiceprint.local"
 
     def save_voiceprint(self, name: str, email: str, embedding: np.ndarray,
                         sample_job_id: str = None,
@@ -267,11 +290,16 @@ class VoiceprintManager:
                         sample_end: float = None):
         """Store or update a voiceprint. Uses email as the unique key (upsert).
 
+        When *email* is empty/falsy, a deterministic placeholder is derived
+        from *name* (``{slug}@voiceprint.local``) so multiple named speakers
+        never collide on the UNIQUE(email) constraint.
+
         Args:
             sample_job_id: Job ID where the sample clip is located.
             sample_start: Start time in seconds of the sample clip.
             sample_end: End time in seconds of the sample clip.
         """
+        resolved_email = self._make_email(name, email)
         conn = self._get_conn()
         conn.execute("""
             INSERT INTO voiceprints (speaker_name, email, embedding,
@@ -283,7 +311,7 @@ class VoiceprintManager:
                 sample_start=excluded.sample_start,
                 sample_end=excluded.sample_end,
                 updated_at=CURRENT_TIMESTAMP
-        """, (name, email, pickle.dumps(embedding),
+        """, (name, resolved_email, pickle.dumps(embedding),
               sample_job_id, sample_start, sample_end))
         conn.commit()
 

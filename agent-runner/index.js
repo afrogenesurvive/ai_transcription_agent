@@ -193,78 +193,81 @@ async function processEvent(event) {
   // Use TRANSCRIPTION_STORAGE env var if set (matches Python backend), otherwise fall back to project-relative path.
   const STORAGE_BASE = process.env.TRANSCRIPTION_STORAGE || path.resolve(__dirname, "..", "storage");
 
-  // ── Hard-wired: Fetch existing memory context before the pipeline starts ──
-  // This gives the LLM awareness of past action items, decisions, budgets,
-  // and semantically similar meetings — so it can reference continuity and
-  // identify recurring topics (repetition is itself valuable signal).
-  console.log(`   🧠 [RUNNER] Fetching existing memory context...`);
+  // ── Configurable: Fetch existing memory context before the pipeline starts ──
+  // Controlled by USE_MEMORY_FOR_CONTEXT env var (set in ConfigPanel → Logging tab).
+  // When disabled, skips all ephemeral and semantic memory queries to reduce
+  // LLM context size and save tokens.
+  const useMemory = process.env.USE_MEMORY_FOR_CONTEXT !== "false";
+  if (!useMemory) {
+    console.log(`   ⏭️  [RUNNER] Memory context disabled via USE_MEMORY_FOR_CONTEXT`);
+  } else {
+    try {
+      // 1. Query ephemeral memory for existing action items, decisions, budgets
+      const [queryActions, queryDecisions, queryBudgets] = await Promise.allSettled([
+        executeToolCall("transcribe_query_ephemeral", { table: "action_items", limit: 15 }),
+        executeToolCall("transcribe_query_ephemeral", { table: "decisions", limit: 10 }),
+        executeToolCall("transcribe_query_ephemeral", { table: "budgets", limit: 10 }),
+      ]);
 
-  try {
-    // 1. Query ephemeral memory for existing action items, decisions, budgets
-    const [queryActions, queryDecisions, queryBudgets] = await Promise.allSettled([
-      executeToolCall("transcribe_query_ephemeral", { table: "action_items", limit: 15 }),
-      executeToolCall("transcribe_query_ephemeral", { table: "decisions", limit: 10 }),
-      executeToolCall("transcribe_query_ephemeral", { table: "budgets", limit: 10 }),
-    ]);
+      const memoryLines = ["", "── Existing Memory Context (use for continuity, not dedup) ──"];
 
-    const memoryLines = ["", "── Existing Memory Context (use for continuity, not dedup) ──"];
-
-    if (queryActions.status === "fulfilled" && queryActions.value?.results?.length) {
-      const items = queryActions.value.results;
-      const totalCount = items.length;
-      const openItems = items.filter((ai) => ai.status === "open");
-      memoryLines.push(`Action items: ${openItems.length} open of ${totalCount} total in history`);
-      for (const ai of openItems.slice(0, 6)) {
-        const meeting = ai.source_meeting ? ` [from: ${ai.source_meeting}]` : "";
-        memoryLines.push(`  - ${ai.description} (assignee: ${ai.assignee || "unassigned"}${meeting})`);
-      }
-    }
-    if (queryDecisions.status === "fulfilled" && queryDecisions.value?.results?.length) {
-      const items = queryDecisions.value.results;
-      memoryLines.push(`Recent decisions (${items.length} total in history):`);
-      for (const d of items.slice(0, 5)) {
-        const meeting = d.source_meeting ? ` [from: ${d.source_meeting}]` : "";
-        memoryLines.push(`  - ${d.description}${meeting}`);
-      }
-    }
-    if (queryBudgets.status === "fulfilled" && queryBudgets.value?.results?.length) {
-      const items = queryBudgets.value.results;
-      memoryLines.push(`Recent budget items (${items.length} total in history):`);
-      for (const b of items.slice(0, 5)) {
-        const meeting = b.source_meeting ? ` [from: ${b.source_meeting}]` : "";
-        memoryLines.push(`  - ${b.description} (${b.currency || "USD"} ${b.amount})${meeting}`);
-      }
-    }
-
-    // 2. Try semantic search for similar past meetings by title
-    const titleWords = safeTitle
-      .replace(/[^a-zA-Z0-9 ]/g, "")
-      .split(/\s+/)
-      .filter((w) => w.length > 3)
-      .slice(0, 4)
-      .join(" ");
-    let semanticResult = null;
-    if (titleWords) {
-      semanticResult = await executeToolCall("transcribe_search_memory", {
-        query: titleWords,
-        nResults: 3,
-      });
-      if (semanticResult?.results?.length) {
-        memoryLines.push(`Similar past meetings:`);
-        for (const r of semanticResult.results.slice(0, 3)) {
-          const meta = r.metadata || {};
-          memoryLines.push(`  - "${meta.title || "?"}" (relevance: ${(1 - r.score).toFixed(2)})`);
+      if (queryActions.status === "fulfilled" && queryActions.value?.results?.length) {
+        const items = queryActions.value.results;
+        const totalCount = items.length;
+        const openItems = items.filter((ai) => ai.status === "open");
+        memoryLines.push(`Action items: ${openItems.length} open of ${totalCount} total in history`);
+        for (const ai of openItems.slice(0, 6)) {
+          const meeting = ai.source_meeting ? ` [from: ${ai.source_meeting}]` : "";
+          memoryLines.push(`  - ${ai.description} (assignee: ${ai.assignee || "unassigned"}${meeting})`);
         }
       }
-    }
+      if (queryDecisions.status === "fulfilled" && queryDecisions.value?.results?.length) {
+        const items = queryDecisions.value.results;
+        memoryLines.push(`Recent decisions (${items.length} total in history):`);
+        for (const d of items.slice(0, 5)) {
+          const meeting = d.source_meeting ? ` [from: ${d.source_meeting}]` : "";
+          memoryLines.push(`  - ${d.description}${meeting}`);
+        }
+      }
+      if (queryBudgets.status === "fulfilled" && queryBudgets.value?.results?.length) {
+        const items = queryBudgets.value.results;
+        memoryLines.push(`Recent budget items (${items.length} total in history):`);
+        for (const b of items.slice(0, 5)) {
+          const meeting = b.source_meeting ? ` [from: ${b.source_meeting}]` : "";
+          memoryLines.push(`  - ${b.description} (${b.currency || "USD"} ${b.amount})${meeting}`);
+        }
+      }
 
-    memoryLines.push("── End Memory Context ──\n");
-    context += "\n" + memoryLines.join("\n");
-    const memoryContextLen = memoryLines.join("\n").length;
-    console.log(`   ✅ [RUNNER] Memory context injected (${memoryLines.length - 3} items, ${memoryContextLen} chars)`);
-    console.log(`   📝 [RUNNER] Context now: ${context.length} chars (was ${initialContextLength}, +${context.length - initialContextLength})`);
-  } catch (err) {
-    console.log(`   ⚠️  [RUNNER] Memory fetch failed (non-fatal): ${err.message}`);
+      // 2. Try semantic search for similar past meetings by title
+      const titleWords = safeTitle
+        .replace(/[^a-zA-Z0-9 ]/g, "")
+        .split(/\s+/)
+        .filter((w) => w.length > 3)
+        .slice(0, 4)
+        .join(" ");
+      let semanticResult = null;
+      if (titleWords) {
+        semanticResult = await executeToolCall("transcribe_search_memory", {
+          query: titleWords,
+          nResults: 3,
+        });
+        if (semanticResult?.results?.length) {
+          memoryLines.push(`Similar past meetings:`);
+          for (const r of semanticResult.results.slice(0, 3)) {
+            const meta = r.metadata || {};
+            memoryLines.push(`  - "${meta.title || "?"}" (relevance: ${(1 - r.score).toFixed(2)})`);
+          }
+        }
+      }
+
+      memoryLines.push("── End Memory Context ──\n");
+      context += "\n" + memoryLines.join("\n");
+      const memoryContextLen = memoryLines.join("\n").length;
+      console.log(`   ✅ [RUNNER] Memory context injected (${memoryLines.length - 3} items, ${memoryContextLen} chars)`);
+      console.log(`   📝 [RUNNER] Context now: ${context.length} chars (was ${initialContextLength}, +${context.length - initialContextLength})`);
+    } catch (err) {
+      console.log(`   ⚠️  [RUNNER] Memory fetch failed (non-fatal): ${err.message}`);
+    }
   }
 
   // ── Skip-steps configuration ──

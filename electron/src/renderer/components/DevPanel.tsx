@@ -18,7 +18,7 @@ interface Props {
   onClose: () => void;
 }
 
-type Tab = "live" | "database" | "performance" | "usage" | "updates";
+type Tab = "live" | "database" | "performance" | "usage" | "updates" | "logfiles";
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
@@ -2290,6 +2290,237 @@ function UsageTab() {
   );
 }
 
+/* ── Log Files Tab ── */
+
+/** Parse a timestamp from a log line (e.g. "[2026-07-10 14:30:00]" or ISO date). */
+function parseLogTimestamp(line: string): string | null {
+  const m = line.match(/^\[(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?)/);
+  return m ? m[1] : null;
+}
+
+/** Extract a log source from a line like "[pipeline]" or "[voiceprint]" or "[api]" */
+function parseLogSource(line: string): string {
+  const m = line.match(/\[([a-z_]+)\]/i);
+  return m ? m[1].toLowerCase() : "main";
+}
+
+function LogFilesTab() {
+  const [jobs, setJobs] = useState<any[]>([]);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [logLines, setLogLines] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sidebarWidth, setSidebarWidth] = useState(280);
+  const resizingRef = useRef(false);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  // Fetch job history on mount
+  useEffect(() => {
+    const api = (window as any).useApi?.();
+    if (api?.getHistory) {
+      api.getHistory().then((r: any) => {
+        if (r?.jobs) setJobs(r.jobs);
+      }).catch(() => {});
+    }
+  }, []);
+
+  // Fetch pipeline log when a job is selected
+  const fetchLog = useCallback(async (jobId: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const api = (window as any).useApi?.();
+      if (api?.getJobLogs) {
+        const result = await api.getJobLogs(jobId, 2000);
+        // Merge all log sources into a single sorted list
+        const allLines: string[] = [];
+        if (result.job_logs) {
+          for (const jl of result.job_logs) {
+            const content = jl.content;
+            if (content) {
+              const lines = content.split("\n").filter(Boolean);
+              allLines.push(...lines);
+            }
+          }
+        }
+        if (result.logs) {
+          allLines.push(...result.logs);
+        }
+        setLogLines(allLines);
+      } else {
+        // Fallback: fetch directly from bridge
+        const resp = await fetch(`http://127.0.0.1:5010/transcribe/pipeline_log/${jobId}?max_lines=2000`);
+        if (resp.ok) {
+          const data = await resp.json();
+          setLogLines(data.lines || []);
+        } else {
+          setError(`Failed to load logs: ${resp.status}`);
+        }
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to load logs");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selectedJobId) {
+      fetchLog(selectedJobId);
+    }
+  }, [selectedJobId, fetchLog]);
+
+  // Sidebar drag resize
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    resizingRef.current = true;
+    document.body.classList.add("dev-panel-sidebar-resizing");
+    const startX = e.clientX;
+    const startW = sidebarWidth;
+    const onMove = (ev: MouseEvent) => {
+      if (!resizingRef.current) return;
+      const newW = Math.max(160, Math.min(600, startW + (ev.clientX - startX)));
+      setSidebarWidth(newW);
+    };
+    const onUp = () => {
+      resizingRef.current = false;
+      document.body.classList.remove("dev-panel-sidebar-resizing");
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }, [sidebarWidth]);
+
+  // Filter jobs by search
+  const filteredJobs = jobs.filter((j) => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      j.job_id?.toLowerCase().includes(q) ||
+      j.title?.toLowerCase().includes(q) ||
+      (j.attendees || []).some((a: string) => a.toLowerCase().includes(q))
+    );
+  });
+
+  const selectedJob = jobs.find((j) => j.job_id === selectedJobId);
+
+  // Format log line like live log format
+  const renderLogLine = (line: string, i: number) => {
+    const ts = parseLogTimestamp(line);
+    const source = parseLogSource(line);
+    const level =
+      /\berror\b/i.test(line) ? "error" :
+      /\bwarn\b/i.test(line) ? "warn" :
+      /\bdebug\b/i.test(line) ? "debug" : "info";
+    const sourceColor = SOURCE_COLORS[source] || SOURCE_COLORS.main;
+    const sourceLabel = source.replace(/_/g, " ").toUpperCase().slice(0, 8);
+
+    return (
+      <div key={i} className="rv-log-line--parsed">
+        {ts && <span className="rv-log-line-time">{ts}</span>}
+        {!ts && <span className="rv-log-line-time" style={{ opacity: 0.2 }}>──</span>}
+        <span className="rv-log-line-source" style={{ color: sourceColor }}>{sourceLabel}</span>
+        <span className={`rv-log-line-level rv-log-line-level--${level}`}>
+          {level === "error" ? "✖" : level === "warn" ? "⚠" : ""}
+        </span>
+        <span className="rv-log-line-text">{line}</span>
+      </div>
+    );
+  };
+
+  return (
+    <div className="dev-panel-file-browser" style={{ height: "100%" }}>
+      {/* Left sidebar — job list */}
+      <div className="dev-panel-file-list" style={{ width: sidebarWidth, flex: "none" }}>
+        <div className="dev-panel-file-filter-bar">
+          <div className="dev-panel-search-wrap">
+            <span className="dev-panel-search-icon material-symbols-outlined">search</span>
+            <input
+              className="dev-panel-search-input"
+              type="text"
+              placeholder="Filter jobs..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+          <span className="dev-panel-file-filter-count">{filteredJobs.length} job{filteredJobs.length !== 1 ? "s" : ""}</span>
+        </div>
+        <div style={{ overflowY: "auto", flex: 1 }} ref={listRef}>
+          {filteredJobs.length === 0 && (
+            <div className="dev-panel-empty">
+              {searchQuery ? "No matching jobs" : "No jobs yet"}
+            </div>
+          )}
+          {filteredJobs.map((job) => (
+            <div
+              key={job.job_id}
+              className={`dev-panel-file-item ${selectedJobId === job.job_id ? "dev-panel-file-item--active" : ""}`}
+              onClick={() => setSelectedJobId(job.job_id)}
+            >
+              <span className="dev-panel-file-name">
+                {job.title || "Untitled"}
+              </span>
+              <span className="dev-panel-file-meta">
+                {job.status} · {job.attendees?.length || 0} attendee{(job.attendees?.length || 0) !== 1 ? "s" : ""}
+              </span>
+              <span className="dev-panel-file-date">
+                {job.job_id?.slice(0, 8)} · {new Date(job.mtime * 1000).toLocaleDateString()}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Resize handle */}
+      <div className="dev-panel-sidebar-resize-handle" onMouseDown={handleMouseDown} />
+
+      {/* Right panel — log details */}
+      <div className="dev-panel-file-content" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        {!selectedJobId && (
+          <div className="dev-panel-empty">Select a job from the list to view its log files</div>
+        )}
+        {selectedJobId && loading && (
+          <div className="dev-panel-empty">Loading log files…</div>
+        )}
+        {selectedJobId && error && (
+          <div className="dev-panel-empty" style={{ color: "var(--red)" }}>
+            <Icon name="warning" size="14" color="red" /> {error}
+          </div>
+        )}
+        {selectedJobId && !loading && !error && (
+          <>
+            <div className="rv-logs-toolbar" style={{ flexShrink: 0 }}>
+              <span className="rv-logs-toolbar-title">
+                Logs: {selectedJob?.title || selectedJobId?.slice(0, 8)}
+              </span>
+              <span className="rv-logs-filter-count">{logLines.length} line{logLines.length !== 1 ? "s" : ""}</span>
+              {logLines.length > 0 && (
+                <button
+                  className="dev-panel-btn"
+                  onClick={() => setLogLines([])}
+                  title="Clear displayed logs"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            <div style={{ overflowY: "auto", flex: 1 }}>
+              {logLines.length === 0 && (
+                <div className="dev-panel-empty">
+                  <Icon name="info" size="14" color="muted" /> No log entries found for this job.
+                </div>
+              )}
+              {logLines.map((line, i) => renderLogLine(line, i))}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ── DevPanel ── */
 
 export default function DevPanel({ onClose }: Props) {
@@ -2335,6 +2566,13 @@ export default function DevPanel({ onClose }: Props) {
           data-tooltip="Check for and install application updates">
           <Icon name="system_update" size="14" color="accent" /> Updates
         </button>
+        <button
+          className={`dev-panel-tab ${activeTab === "logfiles" ? "dev-panel-tab--active" : ""}`}
+          onClick={() => setActiveTab("logfiles")}
+          title="Browse per-job log files"
+          data-tooltip="Select a job to view its pipeline logs — jobs on the left, formatted log details on the right">
+          <Icon name="description" size="14" color="accent" /> Log Files
+        </button>
         <div className="dev-panel-tabs-spacer" />
         <button
           className="dev-panel-btn dev-panel-btn-close"
@@ -2351,6 +2589,7 @@ export default function DevPanel({ onClose }: Props) {
       {activeTab === "performance" && <PerformanceTab />}
       {activeTab === "usage" && <UsageTab />}
       {activeTab === "updates" && <UpdatesTab />}
+      {activeTab === "logfiles" && <LogFilesTab />}
     </div>
   );
 }

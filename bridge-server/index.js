@@ -358,6 +358,22 @@ async function dispatch(tool, args) {
     case "storage_clear_logs":
       return await callPython("DELETE", `/storage/logs?log_type=${args.logType || "all"}`);
 
+    // ── Attendee registry ──
+
+    case "transcribe_register_attendees":
+      return await callPython("POST", "/attendees/register", {
+        names: args.names || [],
+        emails: args.emails || [],
+        source: args.source || "new_job_form",
+        job_id: args.jobId || "",
+      });
+
+    case "transcribe_list_attendees":
+      return await callPython("GET", `/attendees?limit=${args.limit ?? 100}`);
+
+    case "transcribe_search_attendees":
+      return await callPython("GET", `/attendees/search?name=${encodeURIComponent(args.name || "")}&limit=${args.limit ?? 50}`);
+
     default:
       throw new Error(`Unknown tool: ${tool}`);
   }

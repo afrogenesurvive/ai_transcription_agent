@@ -20,6 +20,7 @@ class EphemeralMemory:
     """Lightweight SQLite store for cross-meeting context.
 
     Tables:
+      - attendees:      people registered as meeting attendees (name, email, source, job_id)
       - action_items:   extracted to-dos with assignee, deadline, status
       - contacts:       people mentioned across meetings (name, email, org, role)
       - budgets:        financial figures mentioned (amount, currency, context)
@@ -67,6 +68,15 @@ class EphemeralMemory:
         conn.execute("PRAGMA foreign_keys=ON")
 
         conn.executescript("""
+            CREATE TABLE IF NOT EXISTS attendees (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                email TEXT DEFAULT '',
+                source TEXT NOT NULL DEFAULT 'new_job_form',
+                job_id TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
             CREATE TABLE IF NOT EXISTS action_items (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 job_id TEXT NOT NULL,
@@ -127,9 +137,73 @@ class EphemeralMemory:
             CREATE INDEX IF NOT EXISTS idx_contacts_name ON contacts(name);
             CREATE INDEX IF NOT EXISTS idx_notes_topic ON notes(topic);
             CREATE INDEX IF NOT EXISTS idx_budgets_category ON budgets(category);
+            CREATE INDEX IF NOT EXISTS idx_attendees_name ON attendees(name);
+            CREATE INDEX IF NOT EXISTS idx_attendees_job ON attendees(job_id);
         """)
         conn.commit()
         conn.close()
+
+    # ── Attendees (registered meeting participants) ──
+
+    def register_attendee(self, name: str, email: str = "",
+                          source: str = "new_job_form",
+                          job_id: str = ""):
+        """Insert or update an attendee record.
+
+        *source* indicates how the attendee was entered:
+          - ``"new_job_form"``   — from the UploadPanel at job creation
+          - ``"manual_labeling"`` — from the SpeakerLabelModal mid-pipeline
+        """
+        conn = self._get_conn()
+        # Upsert on name + source so the same person entered via different
+        # paths gets updated rather than duplicated.
+        existing = conn.execute(
+            "SELECT id FROM attendees WHERE name=? AND source=?",
+            (name, source),
+        ).fetchone()
+        if existing:
+            conn.execute(
+                "UPDATE attendees SET email=?, job_id=?, "
+                "created_at=CURRENT_TIMESTAMP WHERE id=?",
+                (email, job_id, existing[0]),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO attendees (name, email, source, job_id) "
+                "VALUES (?, ?, ?, ?)",
+                (name, email, source, job_id),
+            )
+        conn.commit()
+
+    def register_attendees(self, names: List[str], emails: List[str] = None,
+                           source: str = "new_job_form",
+                           job_id: str = ""):
+        """Bulk-register multiple attendees at once."""
+        emails = emails or []
+        for i, name in enumerate(names):
+            email = emails[i] if i < len(emails) else ""
+            self.register_attendee(name, email, source=source, job_id=job_id)
+
+    def query_attendees(self, name: str = "", limit: int = 50) -> List[dict]:
+        """Search registered attendees by name (substring match)."""
+        conn = self._get_conn()
+        conn.row_factory = sqlite3.Row
+        if name:
+            rows = conn.execute(
+                "SELECT * FROM attendees WHERE name LIKE ? "
+                "ORDER BY created_at DESC LIMIT ?",
+                (f"%{name}%", limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM attendees ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def list_attendees(self, limit: int = 100) -> List[dict]:
+        """List all registered attendees, newest first."""
+        return self.query_attendees("", limit=limit)
 
     # ── Action Items ──
 
@@ -323,11 +397,16 @@ class EphemeralMemory:
     def query_all(self, table: str, q: str = "", limit: int = 10) -> List[dict]:
         """Unified search across any table by keyword."""
         table = table.lower()
-        if table not in ("action_items", "contacts", "budgets", "decisions", "notes"):
+        if table not in ("attendees", "action_items", "contacts", "budgets", "decisions", "notes"):
             return []
         conn = self._get_conn()
         conn.row_factory = sqlite3.Row
-        if q and table != "notes":
+        if q and table == "attendees":
+            rows = conn.execute(
+                "SELECT * FROM attendees WHERE name LIKE ? OR email LIKE ? ORDER BY created_at DESC LIMIT ?",
+                (f"%{q}%", f"%{q}%", limit),
+            ).fetchall()
+        elif q and table != "notes":
             rows = conn.execute(
                 f"SELECT * FROM {table} WHERE description LIKE ? OR assignee LIKE ? ORDER BY created_at DESC LIMIT ?",
                 (f"%{q}%", f"%{q}%", limit),
@@ -349,7 +428,7 @@ class EphemeralMemory:
         Avoids fetching all rows into memory (unlike query_all with a large limit).
         """
         table = table.lower()
-        if table not in ("action_items", "contacts", "budgets", "decisions", "notes"):
+        if table not in ("attendees", "action_items", "contacts", "budgets", "decisions", "notes"):
             return 0
         conn = self._get_conn()
         row = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()

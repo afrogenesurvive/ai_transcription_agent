@@ -99,8 +99,16 @@ class MemorySearchResult(BaseModel):
     results: list
 
 
+class RegisterAttendeesRequest(BaseModel):
+    """Register one or more meeting attendees."""
+    names: List[str]
+    emails: List[str] = Field(default_factory=list)
+    source: str = "new_job_form"
+    job_id: str = ""
+
+
 class EphemeralMemoryItem(BaseModel):
-    table: str = "notes"  # action_items, contacts, budgets, decisions, notes
+    table: str = "notes"  # attendees, action_items, contacts, budgets, decisions, notes
     data: dict
 
 

@@ -146,17 +146,59 @@
     }
   },
   {
-    "name": "transcribe_save_ephemeral",
-    "description": "Save structured data to ephemeral memory: action items, contacts, budgets, decisions, or notes.",
+    "name": "transcribe_register_attendees",
+    "description": "Register meeting attendees. Use when you know who attended a meeting but they weren't pre-registered. Source distinguishes 'new_job_form' (from upload) vs 'manual_labeling' (from speaker labeling).",
     "terminal": false,
     "handler": "bridge",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "table": { "type": "string", "enum": ["action_items", "contacts", "budgets", "decisions", "notes"] },
+        "jobId": { "type": "string" },
+        "names": { "type": "array", "items": { "type": "string" } },
+        "emails": { "type": "array", "items": { "type": "string" } },
+        "source": { "type": "string", "enum": ["new_job_form", "manual_labeling"], "default": "manual_labeling" }
+      },
+      "required": ["jobId", "names"]
+    }
+  },
+  {
+    "name": "transcribe_list_attendees",
+    "description": "List all registered attendees across all meetings, newest first.",
+    "terminal": false,
+    "handler": "bridge",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "limit": { "type": "number", "default": 100 }
+      }
+    }
+  },
+  {
+    "name": "transcribe_search_attendees",
+    "description": "Search registered attendees by name substring. Useful for checking whether a person is already in the registry before registering them.",
+    "terminal": false,
+    "handler": "bridge",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Name substring to search for" },
+        "limit": { "type": "number", "default": 50 }
+      },
+      "required": ["name"]
+    }
+  },
+  {
+    "name": "transcribe_save_ephemeral",
+    "description": "Save structured data to ephemeral memory: attendees, action items, contacts, budgets, decisions, or notes.",
+    "terminal": false,
+    "handler": "bridge",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "table": { "type": "string", "enum": ["attendees", "action_items", "contacts", "budgets", "decisions", "notes"] },
         "data": {
           "type": "object",
-          "description": "Data payload. For action_items: {job_id, items: [{description, assignee, deadline, priority}], meeting_title}. For contacts: {name, email, org, role, phone, meeting}. For budgets: {job_id, items: [{description, amount, currency, category}], meeting_title}. For decisions: {job_id, items: [{description, rationale, made_by}], meeting_title}. For notes: {job_id, topic, content}."
+          "description": "Data payload. For attendees: {names: [str], emails: [str], source, job_id}. For action_items: {job_id, items: [{description, assignee, deadline, priority}], meeting_title}. For contacts: {name, email, org, role, phone, meeting}. For budgets: {job_id, items: [{description, amount, currency, category}], meeting_title}. For decisions: {job_id, items: [{description, rationale, made_by}], meeting_title}. For notes: {job_id, topic, content}."
         }
       },
       "required": ["table", "data"]
@@ -164,13 +206,13 @@
   },
   {
     "name": "transcribe_query_ephemeral",
-    "description": "Query ephemeral memory for action items, contacts, budgets, decisions, or notes. Optionally filter by keyword.",
+    "description": "Query ephemeral memory for attendees, action items, contacts, budgets, decisions, or notes. Optionally filter by keyword.",
     "terminal": false,
     "handler": "bridge",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "table": { "type": "string", "enum": ["action_items", "contacts", "budgets", "decisions", "notes"], "default": "notes" },
+        "table": { "type": "string", "enum": ["attendees", "action_items", "contacts", "budgets", "decisions", "notes"], "default": "notes" },
         "query": { "type": "string", "default": "", "description": "Optional keyword to filter results" },
         "limit": { "type": "number", "default": 10 }
       },

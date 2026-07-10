@@ -41,6 +41,7 @@ interface ConfigValues {
   WHISPER_MODEL_SIZE: string;
   KEEP_TRANSCRIPT_TIMESTAMPS: string;
   LOG_LLM_DATA: string;
+  USE_MEMORY_FOR_CONTEXT: string;
   DELIVERY_RECIPIENT_EMAILS: string;
   DELIVERY_EMAIL_SUBJECT: string;
   DELIVERY_EMAIL_ADDITIONAL_CONTENT: string;
@@ -468,6 +469,7 @@ export default function ConfigPanel({ onClose }: Props) {
         TRELLO_KEY: cfg.TRELLO_KEY?.value || "",
         TRELLO_TOKEN: cfg.TRELLO_TOKEN?.value || "",
         LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
+        USE_MEMORY_FOR_CONTEXT: cfg.USE_MEMORY_FOR_CONTEXT?.value || "true",
         DELIVERY_RECIPIENT_EMAILS: cfg.DELIVERY_RECIPIENT_EMAILS?.value || "",
         DELIVERY_EMAIL_SUBJECT: cfg.DELIVERY_EMAIL_SUBJECT?.value || "Meeting Summary: {title}",
         DELIVERY_EMAIL_ADDITIONAL_CONTENT: cfg.DELIVERY_EMAIL_ADDITIONAL_CONTENT?.value || "",
@@ -1870,6 +1872,37 @@ The system provides existing memory context at the start of each pipeline run. U
               All log entries from every source (Python backend, bridge server, agent runner, Electron main) are written to the per-job
               <code>pipeline.log</code> file while a job is active. The log is automatically closed when the pipeline completes or fails.
             </p>
+
+            {/* ── Memory Context Toggle ── */}
+            <div className="config-section">
+              <h3 className="config-section-title">
+                <Icon name="memory" size="16" color="accent" /> Memory Context
+              </h3>
+              <p className="config-field-hint">
+                When enabled, the agent runner fetches existing context from
+                ephemeral memory (action items, decisions, budgets) and semantic
+                memory (similar past meetings) at the start of each pipeline run.
+                Disable to reduce LLM context size and save tokens.
+              </p>
+              <div className="config-field">
+                <label className="config-toggle">
+                  <input
+                    type="checkbox"
+                    checked={values.USE_MEMORY_FOR_CONTEXT !== "false"}
+                    onChange={() =>
+                      handleChange(
+                        "USE_MEMORY_FOR_CONTEXT",
+                        values.USE_MEMORY_FOR_CONTEXT === "false" ? "true" : "false",
+                      )
+                    }
+                  />
+                  <span className="config-toggle-slider" />
+                  <span className="config-toggle-label">
+                    <strong>Use memory for agent context</strong>
+                  </span>
+                </label>
+              </div>
+            </div>
 
             {/* LLM Data Logging */}
             <div className="config-section">
