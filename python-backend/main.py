@@ -346,6 +346,33 @@ async def get_summary(job_id: str):
     return data
 
 
+@app.get("/transcribe/raw_transcript/{job_id}")
+async def get_raw_transcript(job_id: str):
+    """Return the raw/unrefined ASR transcript text (before any LLM refinement).
+
+    The raw transcript is saved during the ML pipeline as a plain-text file.
+    If not available, falls back to the existing transcript text.
+    """
+    # First try the dedicated raw transcript file
+    raw_path = os.path.join(config.STORAGE_PATH, job_id, "raw_transcript.txt")
+    if os.path.exists(raw_path):
+        with open(raw_path) as f:
+            text = f.read()
+        print(f"[api] GET /transcribe/raw_transcript/{job_id} → OK ({len(text)} chars)")
+        return {"text": text}
+
+    # Fallback: use the pre-refinement transcript.txt (may have speaker labels)
+    txt_path = os.path.join(config.STORAGE_PATH, job_id, "transcript.txt")
+    if os.path.exists(txt_path):
+        with open(txt_path) as f:
+            text = f.read()
+        print(f"[api] GET /transcribe/raw_transcript/{job_id} → fallback transcript.txt ({len(text)} chars)")
+        return {"text": text}
+
+    print(f"[api] GET /transcribe/raw_transcript/{job_id} → not_found")
+    raise HTTPException(404, "Raw transcript not available for this job")
+
+
 # ── Agent-facing endpoints ──
 
 @app.post("/agent/refine")
@@ -786,12 +813,9 @@ async def get_audio(job_id: str):
 
 @app.get("/transcribe/job_logs/{job_id}")
 async def get_job_logs(job_id: str, max_lines: int = 0):
-    """Return job-specific log lines filtered by job_id.
+    """Return job-specific log files listing.
 
-    Searches TWO sources:
-      1. ELECTRON_LOGS_DIR (<userData>/logs/) — combined stdout from
-         Python, Bridge, and Agent processes (app-YYYY-MM-DD.log)
-      2. storage/{job_id}/ — per-job files (agent-trace.jsonl, actions.jsonl, etc.)
+    Searches ``storage/{job_id}/`` for per-job log files (pipeline.log, actions.jsonl, etc.).
 
     All logs are stored in user storage (not the repo), organized by job ID.
     Pass ``max_lines=0`` (default) to return ALL matching lines (no truncation).
@@ -799,32 +823,7 @@ async def get_job_logs(job_id: str, max_lines: int = 0):
     """
     matched_lines = []
 
-    # ── Source 1: Electron combined logs (<userData>/logs/app-*.log) ──
-    # These contain all stdout from Python, Bridge, and Agent processes,
-    # captured and written by Electron's logger.ts. Each line is filtered
-    # by job_id so only relevant entries are returned.
-    logs_dirs = []
-    if config.ELECTRON_LOGS_DIR:
-        logs_dirs.append(config.ELECTRON_LOGS_DIR)
-    # Fallback for standalone (no Electron): search storage/logs/
-    fallback_dir = os.path.join(config.STORAGE_PATH, "logs")
-    if os.path.exists(fallback_dir):
-        logs_dirs.append(fallback_dir)
-
-    for logs_dir in logs_dirs:
-        for fname in sorted(os.listdir(logs_dir), reverse=True)[:10]:
-            fpath = os.path.join(logs_dir, fname)
-            if not fname.endswith(".log"):
-                continue
-            try:
-                with open(fpath) as f:
-                    for line in f:
-                        if job_id in line:
-                            matched_lines.append(line.strip())
-            except Exception:
-                continue
-
-    # ── Source 2: Per-job files (storage/{job_id}/) ──
+    # ── Source: Per-job files (storage/{job_id}/) ──
     job_dir = os.path.join(config.STORAGE_PATH, job_id)
     job_logs = []
     if os.path.exists(job_dir):
@@ -869,26 +868,26 @@ async def get_job_files(job_id: str):
 
 
 @app.get("/transcribe/pipeline_log/{job_id}")
-async def get_pipeline_log(job_id: str, max_lines: int = 0, include_global: str = "true"):
-    """Return ALL per-job log content merged into a single view.
+async def get_pipeline_log(job_id: str, max_lines: int = 0):
+    """Return the per-job log content.
 
-    Merges up to four sources:
-      1. pipeline.log — ML pipeline steps (diarization, ASR, alignment)
-      2. agent-trace.jsonl — LLM processing trace (refine, summarize, analyze, deliver)
-      3. actions.jsonl — per-action log entries from the agent runner
-      4. (optional) Global app logs filtered by job_id — stdout from all processes
+    Reads ``pipeline.log`` which now contains ALL log entries from every
+    source (Python backend, bridge server, agent runner, Electron main).
+    Entries are written by the Electron main process's ``addLog()`` function,
+    which captures stdout from all child processes.
 
-    JSONL entries are formatted as readable text lines prefixed with
-    ``[agent-trace]`` or ``[actions]`` so the frontend renders them uniformly.
+    Also reads ``actions.jsonl`` (per-action log entries from the agent runner)
+    and formats them as readable text lines prefixed with ``[actions]``.
 
-    Pass ``max_lines=0`` (default) to return ALL lines. Set ``include_global=false``
-    to skip the global log file search.
+    Pass ``max_lines=0`` (default) to return ALL lines.
+    When the pipeline completes or fails, the per-job log is closed and no
+    more entries are written.
     """
     job_dir = os.path.join(config.STORAGE_PATH, job_id)
     all_lines = []
-    pipeline_count = trace_count = actions_count = global_count = 0
+    pipeline_count = actions_count = 0
 
-    # ── Source 1: pipeline.log (ML pipeline steps) ──
+    # ── Source 1: pipeline.log (everything — Python, bridge, agent, main) ──
     p = os.path.join(job_dir, "pipeline.log")
     if os.path.exists(p):
         try:
@@ -901,34 +900,7 @@ async def get_pipeline_log(job_id: str, max_lines: int = 0, include_global: str 
         except Exception:
             pass
 
-    # ── Source 2: agent-trace.jsonl (LLM processing trace) ──
-    p = os.path.join(job_dir, "agent-trace.jsonl")
-    if os.path.exists(p):
-        try:
-            with open(p) as f:
-                for line in f:
-                    s = line.strip()
-                    if not s:
-                        continue
-                    try:
-                        entry = json.loads(s)
-                        ts = entry.get("timestamp", entry.get("ts", ""))
-                        tool = entry.get("tool", entry.get("event", ""))
-                        status = entry.get("status", entry.get("type", ""))
-                        msg = entry.get("summary", entry.get("message", ""))
-                        if isinstance(msg, dict):
-                            msg = json.dumps(msg)
-                        if len(str(msg)) > 300:
-                            msg = str(msg)[:300] + "..."
-                        all_lines.append(f"[agent-trace] [{ts}] [{tool}] [{status}] {msg}")
-                        trace_count += 1
-                    except json.JSONDecodeError:
-                        all_lines.append(f"[agent-trace] {s[:300]}")
-                        trace_count += 1
-        except Exception:
-            pass
-
-    # ── Source 3: actions.jsonl (per-action log) ──
+    # ── Source 2: actions.jsonl (per-action log) ──
     p = os.path.join(job_dir, "actions.jsonl")
     if os.path.exists(p):
         try:
@@ -955,37 +927,16 @@ async def get_pipeline_log(job_id: str, max_lines: int = 0, include_global: str 
         except Exception:
             pass
 
-    # ── Source 4 (optional): Global app logs filtered by job_id ──
-    if include_global and include_global.lower() in ("true", "1", "yes"):
-        logs_dir = os.path.join(config.STORAGE_PATH, "logs")
-        if os.path.exists(logs_dir):
-            for fname in sorted(os.listdir(logs_dir), reverse=True)[:5]:
-                fp = os.path.join(logs_dir, fname)
-                if not fname.endswith(".log"):
-                    continue
-                try:
-                    with open(fp) as f:
-                        for line in f:
-                            if job_id in line:
-                                s = line.strip()
-                                if s and s not in all_lines:
-                                    all_lines.append(s)
-                                    global_count += 1
-                except Exception:
-                    continue
-
     if max_lines > 0:
         all_lines = all_lines[-max_lines:]
 
     return {
         "job_id": job_id,
         "lines": all_lines,
-        "total_lines": pipeline_count + trace_count + actions_count + global_count,
+        "total_lines": pipeline_count + actions_count,
         "returned_lines": len(all_lines),
         "from_pipeline_log": pipeline_count,
-        "from_agent_trace": trace_count,
         "from_actions": actions_count,
-        "from_global_logs": global_count,
     }
 
 
@@ -1267,6 +1218,11 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
         if label_count:
             jlog.log(f"[pipeline] Applied {label_count} speaker label(s) from user"
                   f" — logged {asv_logged} ASV match(es)")
+
+        # Save the raw ASR text (unrefined, before any LLM processing)
+        raw_text = transcription.get("text", "")
+        if raw_text:
+            uploader.save_raw_transcript(job_id, raw_text)
 
         uploader.save_transcript(job_id, aligned)
         uploader.save_transcript_text(job_id, aligned)
@@ -1944,41 +1900,25 @@ _STOP_WORDS = {
 # ── Per-job logger ──
 
 class JobLogger:
-    """Writes pipeline logs to a per-job file in addition to stdout.
+    """Writes pipeline logs to stdout only.
 
-    Opens a log file at ``<job_dir>/pipeline.log``. Provides a ``.log()``
-    method that writes to both stdout (with the same format as existing
-    ``print()`` calls) and the job-specific log file on disk.
+    The Electron main process captures stdout and writes all entries to the
+    per-job ``<storage>/<job_id>/pipeline.log`` via ``addLog()``.
+    The per-job log is automatically closed when the pipeline completes or fails.
     """
 
     def __init__(self, job_id: str):
         self.job_id = job_id
         job_dir = os.path.join(config.STORAGE_PATH, job_id)
         os.makedirs(job_dir, exist_ok=True)
-        self.log_path = os.path.join(job_dir, "pipeline.log")
-        # Append mode so resumed pipeline steps don't overwrite previous entries
-        self._file = open(self.log_path, "a")
-        # Only write the header if the file is empty (first run, not a resume)
-        if os.path.getsize(self.log_path) < 10:
-            self._file.write(f"# Pipeline log for job {job_id}\n")
-            self._file.write(f"# Started: {datetime.utcnow().isoformat()}\n")
-            self._file.write("#\n")
-        else:
-            self._file.write(f"\n# Resumed: {datetime.utcnow().isoformat()}\n")
-            self._file.write("#\n")
-        self._file.flush()
 
     def log(self, message: str):
-        """Write a message to both stdout and the job log file."""
+        """Write a message to stdout (captured by Electron → per-job pipeline.log)."""
         print(message)
-        self._file.write(message + "\n")
-        self._file.flush()
 
     def close(self):
-        """Close the log file."""
-        if self._file and not self._file.closed:
-            self._file.write(f"# Ended: {datetime.utcnow().isoformat()}\n")
-            self._file.close()
+        """No-op — file writing is handled by Electron's addLog()."""
+        pass
 
     def __del__(self):
         self.close()
@@ -2246,6 +2186,11 @@ def _run_pipeline_sync(job_id: str):
         if label_count:
             jlog.log(f"[pipeline] Applied {label_count} speaker label(s) from voiceprint matching"
                   f" — logged {asv_logged} ASV match(es)")
+
+        # Save the raw ASR text (unrefined, before any LLM processing)
+        raw_text = transcription.get("text", "")
+        if raw_text:
+            uploader.save_raw_transcript(job_id, raw_text)
 
         uploader.save_transcript(job_id, aligned)
         uploader.save_transcript_text(job_id, aligned)

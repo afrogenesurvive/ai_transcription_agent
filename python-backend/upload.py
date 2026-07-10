@@ -124,6 +124,13 @@ class AudioUploader:
             f.write(text + "\n")
         print(f"[upload] Text transcript saved ({len(lines)} lines) to {path}")
 
+    def save_raw_transcript(self, job_id: str, raw_text: str):
+        """Save the raw/unrefined ASR transcript text (before any refinement)."""
+        path = os.path.join(self.storage_path, job_id, "raw_transcript.txt")
+        with open(path, "w") as f:
+            f.write(raw_text + "\n")
+        print(f"[upload] Raw transcript saved ({len(raw_text)} chars) to {path}")
+
     def save_summary(self, job_id: str, summary: dict):
         with open(os.path.join(self.storage_path, job_id, "summary.json"), "w") as f:
             json.dump(summary, f, indent=2)

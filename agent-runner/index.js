@@ -26,7 +26,6 @@ import { executeToolCall } from "./tool-executor.js";
 import { logAction } from "./logger.js";
 import { readPending, markCleared, acquireLock, releaseLock } from "./poller.js";
 import { sanitizeTranscriptSegments, sanitizeContextString } from "./sanitize.js";
-import { AgentTracer } from "./agent-trace.js";
 import {
   TOOLS,
   PIPELINE_HINTS,
@@ -165,22 +164,8 @@ async function processEvent(event) {
   const initialContextLength = context.length;
   console.log(`   📝 [RUNNER] Initial context built: ${context.length} chars`);
 
-  // ── Agent Trace Logger (per-job) ──
-  // Always-on: records every decision point, hint resolution, system prompt
-  // section, memory injection, tool selection, and pipeline control decision
-  // to <jobStorageDir>/agent-trace.jsonl.
   // Use TRANSCRIPTION_STORAGE env var if set (matches Python backend), otherwise fall back to project-relative path.
   const STORAGE_BASE = process.env.TRANSCRIPTION_STORAGE || path.resolve(__dirname, "..", "storage");
-  const agentTrace = new AgentTracer(path.join(STORAGE_BASE, jobData.jobId || eventId), {
-    event_id: eventId,
-    job_id: jobData.jobId || eventId,
-    title: safeTitle,
-    event_type: event.type,
-    event_source: event.source,
-    llm_provider: LLM_PROVIDER,
-    model: process.env.API_AGENT_MODEL || "deepseek-v4-flash",
-    skip_steps: jobData.skip_steps || [],
-  });
 
   // ── Hard-wired: Fetch existing memory context before the pipeline starts ──
   // This gives the LLM awareness of past action items, decisions, budgets,
@@ -252,15 +237,6 @@ async function processEvent(event) {
     const memoryContextLen = memoryLines.join("\n").length;
     console.log(`   ✅ [RUNNER] Memory context injected (${memoryLines.length - 3} items, ${memoryContextLen} chars)`);
     console.log(`   📝 [RUNNER] Context now: ${context.length} chars (was ${initialContextLength}, +${context.length - initialContextLength})`);
-    agentTrace.recordMemoryContext({
-      memorySources: {
-        action_items: queryActions.status === "fulfilled" ? queryActions.value?.results?.length || 0 : "failed",
-        decisions: queryDecisions.status === "fulfilled" ? queryDecisions.value?.results?.length || 0 : "failed",
-        budgets: queryBudgets.status === "fulfilled" ? queryBudgets.value?.results?.length || 0 : "failed",
-      },
-      totalItems: memoryLines.length - 4,
-      semanticResults: semanticResult?.results?.length || 0,
-    });
   } catch (err) {
     console.log(`   ⚠️  [RUNNER] Memory fetch failed (non-fatal): ${err.message}`);
   }
@@ -274,10 +250,6 @@ async function processEvent(event) {
   if (skippedTools.size > 0) {
     console.log(`   ⏭️  [RUNNER] Skipped tools: ${[...skippedTools].join(", ")}`);
   }
-  agentTrace.recordSkipConfig({
-    skippedTools,
-    skipSource: skippedTools.size > 0 ? "jobData.skip_steps" : "none",
-  });
 
   // Filter the available tools: remove any that are in the skip list
   let availableTools = TOOLS.filter((t) => !skippedTools.has(t.name));
@@ -349,29 +321,11 @@ async function processEvent(event) {
     }
     console.log(`${promptDivider}\n`);
 
-    agentTrace.recordSystemPrompt({
-      renderedPrompt,
-      strippedSections: [...skippedTools],
-      availableTools,
-    });
-
-    // Record the initial context composition in the agent trace
+    // Record the initial context composition
     const contextSections = [
       { name: "job_metadata", length: initialContextLength, source: "buildInitialContext()" },
       { name: "memory_context", length: context.length - initialContextLength, source: "ephemeral + semantic memory queries" },
     ];
-    agentTrace.recordContextComposition({
-      eventType: event.type,
-      templateName: `event_templates["${event.type}"]`,
-      variableSubstitutions: {
-        segment_count: transcript.length,
-        error: jobData.error || null,
-        error_message: jobData.error || null,
-        has_transcript_preview: event.type === "ready_for_processing",
-        has_speaker_details: event.type === "labeling_needed",
-      },
-      contextSections,
-    });
   }
 
   // Dynamically resolve the next non-skipped pipeline hint.
@@ -381,13 +335,6 @@ async function processEvent(event) {
     const hint = hints[currentTool];
     if (!hint) {
       console.log(`   🔍 [RUNNER] resolveNextHint("${currentTool}"): no hint defined — LLM will decide autonomously`);
-      agentTrace.recordHintResolution({
-        fromTool: currentTool,
-        hintText: null,
-        resolvedTo: null,
-        wasSkipped: false,
-        skipChain: [],
-      });
       return null;
     }
     console.log(`   🔍 [RUNNER] resolveNextHint("${currentTool}"): hint found — "${hint}"`);
@@ -395,13 +342,6 @@ async function processEvent(event) {
     const match = hint.match(/\b(transcribe_\w+)\b/);
     if (!match) {
       console.log(`   🔍 [RUNNER] resolveNextHint: no next tool reference in hint, returning as-is`);
-      agentTrace.recordHintResolution({
-        fromTool: currentTool,
-        hintText: hint,
-        resolvedTo: null,
-        wasSkipped: false,
-        skipChain: [],
-      });
       return hint;
     }
     const nextTool = match[0];
@@ -411,13 +351,6 @@ async function processEvent(event) {
       const nextHint = hints[nextTool];
       if (!nextHint) {
         console.log(`   ⏭️  [RUNNER] resolveNextHint: no hint for skipped "${nextTool}", returning original hint (fallback)`);
-        agentTrace.recordHintResolution({
-          fromTool: currentTool,
-          hintText: hint,
-          resolvedTo: nextTool,
-          wasSkipped: true,
-          skipChain: [nextTool],
-        });
         return hint;
       }
       const nextMatch = nextHint.match(/\b(transcribe_\w+)\b/);
@@ -425,13 +358,6 @@ async function processEvent(event) {
         // Multiple consecutive skips — recurse deeper
         console.log(`   🔄 [RUNNER] resolveNextHint: "${nextMatch[0]}" is also skipped, recursing deeper`);
         const result = resolveNextHint(nextTool, hints);
-        agentTrace.recordHintResolution({
-          fromTool: currentTool,
-          hintText: hint,
-          resolvedTo: nextMatch[0],
-          wasSkipped: true,
-          skipChain: [nextTool, nextMatch[0]],
-        });
         return result;
       }
       // Return the hint that points past the skipped tool
@@ -439,23 +365,9 @@ async function processEvent(event) {
         .replace(new RegExp(`\\b${nextMatch ? nextMatch[0].replace(/\./g, "\\.") : ""}\\b`), `(skipped ${nextTool}) ${nextMatch ? nextMatch[0] : ""}`)
         .trim();
       console.log(`   ⏭️  [RUNNER] resolveNextHint: overridden hint — "${overridden.slice(0, 120)}..."`);
-      agentTrace.recordHintResolution({
-        fromTool: currentTool,
-        hintText: hint,
-        resolvedTo: nextMatch ? nextMatch[0] : null,
-        wasSkipped: true,
-        skipChain: [nextTool],
-      });
       return overridden;
     }
     console.log(`   🔍 [RUNNER] resolveNextHint: next tool "${nextTool}" is available, returning original hint`);
-    agentTrace.recordHintResolution({
-      fromTool: currentTool,
-      hintText: hint,
-      resolvedTo: nextTool,
-      wasSkipped: false,
-      skipChain: [],
-    });
     return hint;
   }
 
@@ -565,7 +477,6 @@ async function processEvent(event) {
       context_length: context.length,
       available_tools: availableTools.map((t) => t.name),
     });
-    agentTrace.recordAvailableTools({ step, tools: availableTools });
     try {
       decision = await withRetry(() => callModel(context, availableTools, renderedPrompt), `LLM call (step ${step})`);
       logLlmData("step_response", {
@@ -578,7 +489,6 @@ async function processEvent(event) {
       console.log(`   ❌ [RUNNER] ${pipelineError}`);
       logLlmData("step_error", { step, error: pipelineError });
       logAction({ eventId, eventType: event.type, action: "failed", detail: pipelineError });
-      agentTrace.recordLlmDecision({ step, decision: null, error: pipelineError });
       pipelineComplete = true;
       break;
     }
@@ -604,16 +514,9 @@ async function processEvent(event) {
       console.log(`   ⚠️  [RUNNER] No usage data from LLM at step ${step} — decision.usage is ${JSON.stringify(decision?.usage)}`);
     }
 
-    agentTrace.recordLlmDecision({
-      step,
-      decision,
-      error: null,
-    });
-
     if (!decision) {
       console.log(`   ⏭️  [RUNNER] No decision — pipeline complete`);
       logAction({ eventId, eventType: event.type, action: "complete", detail: `ended at step ${step}, no LLM decision` });
-      agentTrace.recordControlDecision({ step, type: "no_decision", detail: "LLM returned no decision — pipeline complete" });
       pipelineComplete = true;
       break;
     }
@@ -631,11 +534,6 @@ async function processEvent(event) {
         action: "skipped",
         detail: `LLM returned locked tool "${decision.name}" at step ${step}`,
       });
-      agentTrace.recordControlDecision({
-        step,
-        type: "locked_tool_rejected",
-        detail: `LLM returned locked/removed tool "${decision.name}" — skipping`,
-      });
       // Append a note to context so the LLM doesn't retry the same tool
       context += `\n\n[Step ${step}] Tool "${decision.name}" is no longer available. Choose a different tool.`;
       continue;
@@ -650,7 +548,6 @@ async function processEvent(event) {
       pipelineError = `${decision.name} failed after ${toolRetries} retries: ${err.message}`;
       console.log(`   ❌ [RUNNER] ${pipelineError}`);
       logAction({ eventId, eventType: event.type, action: "failed", detail: pipelineError });
-      agentTrace.recordToolResult({ step, toolName: decision.name, success: false, resultPreview: null, error: pipelineError });
       pipelineComplete = true;
       break;
     }
@@ -665,14 +562,6 @@ async function processEvent(event) {
       toolName: decision.name,
       step,
       toolResult: ok ? "success" : "failed",
-      error: errorMsg,
-    });
-
-    agentTrace.recordToolResult({
-      step,
-      toolName: decision.name,
-      success: ok,
-      resultPreview: ok ? result : null,
       error: errorMsg,
     });
 
@@ -739,11 +628,6 @@ async function processEvent(event) {
         (t) => t.name !== "transcribe_get_transcript" && t.name !== "transcribe_label_speaker" && t.name !== "transcribe_list_voiceprints",
       );
       console.log(`   🔒 [RUNNER] transcribe_get_transcript + labeling tools locked — must summarize first`);
-      agentTrace.recordControlDecision({
-        step,
-        type: "tools_locked",
-        detail: "transcribe_get_transcript, transcribe_label_speaker, transcribe_list_voiceprints locked after read",
-      });
     }
 
     // Check if this was a terminal delivery tool — pipeline ends
@@ -751,11 +635,6 @@ async function processEvent(event) {
     if (TERMINAL_TOOLS.has(decision.name)) {
       console.log(`   📬 [RUNNER] Delivery complete — pipeline finished`);
       logAction({ eventId, eventType: event.type, action: "complete", detail: `delivered via ${decision.name}` });
-      agentTrace.recordControlDecision({
-        step,
-        type: "terminal_tool",
-        detail: `Terminal delivery tool "${decision.name}" called — pipeline finished`,
-      });
       // Save delivery results and mark job complete immediately (within the delivery step)
       saveDeliveryResults();
       try {
@@ -775,11 +654,6 @@ async function processEvent(event) {
       if (!hasRemainingDelivery) {
         console.log(`   ⏭️  [RUNNER] Delivery skipped — pipeline finished after save_context`);
         logAction({ eventId, eventType: event.type, action: "complete", detail: "delivery skipped, ended after save_context" });
-        agentTrace.recordControlDecision({
-          step,
-          type: "delivery_skipped",
-          detail: "All delivery tools in skip list — pipeline finished after save_context",
-        });
         pipelineComplete = true;
         break;
       }
@@ -819,11 +693,6 @@ async function processEvent(event) {
     context += `\n\n[Step ${step} Complete] Tool: ${decision.name}\nResult: ${resultBlock}`;
     const resultBlockLen = context.length - contextBeforeUpdate;
 
-    // ── Full context snapshot (opt-in via AGENT_TRACE_FULL_CONTEXT=true) ──
-    // Records the complete LLM context after every step for post-hoc analysis.
-    // Off by default because it produces very large trace files.
-    agentTrace.recordContextSnapshot({ step, context });
-
     // Add a hint about the next logical pipeline step, skipping over any
     // tools that are in the skip list.
     let hintAppended = false;
@@ -836,24 +705,10 @@ async function processEvent(event) {
       hintAppended = true;
       const contextLengthDelta = context.length - contextBeforeUpdate;
       console.log(`   📝 [RUNNER] Context growth at step ${step}: +${contextLengthDelta} chars (result: +${resultBlockLen}, hint: +${hintLen})`);
-      agentTrace.recordContextUpdate({
-        step,
-        toolName: decision.name,
-        hintAppended: true,
-        contextLengthDelta,
-        contextLengthTotal: context.length,
-      });
     } else {
       const contextLengthDelta = context.length - contextBeforeUpdate;
       console.log(`   🧭 [RUNNER] No pipeline hint for "${decision.name}" — LLM will decide next step autonomously`);
       console.log(`   📝 [RUNNER] Context growth at step ${step}: +${contextLengthDelta} chars (result only, no hint)`);
-      agentTrace.recordContextUpdate({
-        step,
-        toolName: decision.name,
-        hintAppended: false,
-        contextLengthDelta,
-        contextLengthTotal: context.length,
-      });
     }
   }
 
@@ -953,16 +808,6 @@ async function processEvent(event) {
   console.log(`   📝 [RUNNER]   Avg chars per token        : ${charsPerToken.toFixed(2)}`);
   console.log(`   📝 [RUNNER] ════════════════════════════════════════════\n`);
 
-  agentTrace.recordPipelineEnd({
-    status: pipelineError ? "failed" : "complete",
-    error: pipelineError,
-    totalSteps: tokenUsage.length,
-    tokensUsed: totalTokens,
-    finalContextLength,
-    contextGrowth,
-    llmDataLogged: LOG_LLM_DATA,
-  });
-
   // Only update job status here if a delivery tool did not already handle it inline.
   // When a delivery tool succeeds or fails, it saves delivery results and calls
   // transcribe_complete_job / transcribe_fail_job immediately within the pipeline loop.
@@ -996,9 +841,6 @@ async function processEvent(event) {
   } else {
     console.log(`   📬 [RUNNER] Job status already updated by delivery tool — skipping post-loop complete/fail`);
   }
-
-  // ── Close agent trace ──
-  agentTrace.close();
 
   // ── Close LLM data stream ──
   if (llmDataStream) {

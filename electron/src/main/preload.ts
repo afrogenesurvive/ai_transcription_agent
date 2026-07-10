@@ -83,10 +83,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   restoreDefaultAgentConfig: (): Promise<{ success?: boolean; restored?: string[]; error?: string }> =>
     ipcRenderer.invoke("agent-config:restore-defaults"),
 
-  // ── Log file browsing ──
-  listLogFiles: (): Promise<LogFileInfo[]> => ipcRenderer.invoke("logs:listFiles"),
-  readLogFile: (filePath: string, maxLines?: number): Promise<string[]> => ipcRenderer.invoke("logs:readFile", filePath, maxLines),
-  getLogPaths: (): Promise<{ primary: string | null; mirror: string | null }> => ipcRenderer.invoke("logs:getPaths"),
+  // ── Job log file browsing ──
   listJobLogFiles: (): Promise<LogFileInfo[]> => ipcRenderer.invoke("logs:listJobLogFiles"),
   readJobLogFile: (jobId: string, maxLines?: number): Promise<string[]> => ipcRenderer.invoke("logs:readJobLogFile", jobId, maxLines),
 

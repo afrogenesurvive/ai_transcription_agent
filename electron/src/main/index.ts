@@ -69,19 +69,7 @@ import {
   ollamaStartedByUs,
   stopOllamaServer,
 } from "./backend-manager";
-import {
-  subscribe,
-  getLogs,
-  clearLogs,
-  addLog,
-  initFileLogging,
-  configureLogFilter,
-  listLogFiles,
-  listJobLogFiles,
-  readLogFile,
-  getLogDir,
-  getMirrorDir,
-} from "./logger";
+import { subscribe, getLogs, clearLogs, addLog, setStorageBase, listJobLogFiles, readLogFile } from "./logger";
 import { getConfig, getChildEnv, saveConfig, checkConfig, getConfigWithSources } from "./config";
 import { startAutoUpdater, stopAutoUpdater, registerAutoUpdateIpc, getUpdateState, checkAndUpdate } from "./auto-updater";
 import { uninstall } from "./cleanup";
@@ -387,16 +375,6 @@ ipcMain.handle("config:save", async (_event, values: Record<string, string>) => 
   addLog("main", "info", "Config saving...");
   saveConfig(values);
 
-  // Re-apply log filter so changes take effect immediately (no restart needed)
-  const updatedConfig = getConfig();
-  configureLogFilter({
-    enabledSources: updatedConfig.LOG_ENABLED_SOURCES,
-    minLevel: updatedConfig.LOG_LEVEL,
-    maxFileSizeMb: updatedConfig.LOG_MAX_FILE_SIZE_MB,
-    maxFiles: updatedConfig.LOG_MAX_FILES,
-  });
-  addLog("main", "info", `Log filter updated: sources=${updatedConfig.LOG_ENABLED_SOURCES} level=${updatedConfig.LOG_LEVEL}`);
-
   // Check what changed
   const cfg = checkConfig();
   if (cfg.ok) {
@@ -612,16 +590,6 @@ ipcMain.handle("config:import", async () => {
     // Import user config
     saveConfig(importData.userConfig);
     addLog("main", "info", "User config imported successfully");
-
-    // Re-apply log filter so changes take effect immediately
-    const updatedConfig = getConfig();
-    configureLogFilter({
-      enabledSources: updatedConfig.LOG_ENABLED_SOURCES,
-      minLevel: updatedConfig.LOG_LEVEL,
-      maxFileSizeMb: updatedConfig.LOG_MAX_FILE_SIZE_MB,
-      maxFiles: updatedConfig.LOG_MAX_FILES,
-    });
-    addLog("main", "info", `Log filter updated: sources=${updatedConfig.LOG_ENABLED_SOURCES} level=${updatedConfig.LOG_LEVEL}`);
 
     // Check config completeness
     const cfgCheck = checkConfig();
@@ -1007,19 +975,7 @@ ipcMain.handle("metrics:getAll", async () => {
   return { electron: electronMetrics, children: childMetrics };
 });
 
-// ── Log file browsing ──
-
-ipcMain.handle("logs:listFiles", () => {
-  return listLogFiles();
-});
-
-ipcMain.handle("logs:readFile", async (_event, filePath: string, maxLines?: number) => {
-  return readLogFile(filePath, maxLines);
-});
-
-ipcMain.handle("logs:getPaths", () => {
-  return { primary: getLogDir(), mirror: getMirrorDir() };
-});
+// ── Job log file browsing ──
 
 ipcMain.handle("logs:listJobLogFiles", () => {
   const storageDir = process.env.TRANSCRIPTION_STORAGE || path.join(app.getPath("userData"), "storage");
@@ -1227,23 +1183,11 @@ app.whenReady().then(async () => {
   createWindow();
   createTray();
 
-  // Initialize file logging
-  const userDataLogs = path.join(app.getPath("userData"), "logs");
-  initFileLogging(userDataLogs);
-
-  // Apply log filter from config (controls which sources/levels write to disk)
-  const startupConfig = getConfig();
-  configureLogFilter({
-    enabledSources: startupConfig.LOG_ENABLED_SOURCES,
-    minLevel: startupConfig.LOG_LEVEL,
-    maxFileSizeMb: startupConfig.LOG_MAX_FILE_SIZE_MB,
-    maxFiles: startupConfig.LOG_MAX_FILES,
-  });
-  addLog(
-    "main",
-    "info",
-    `App started — logs: ${userDataLogs} | filter: sources=${startupConfig.LOG_ENABLED_SOURCES} level=${startupConfig.LOG_LEVEL}`,
-  );
+  // Initialize per-job logging — all log entries will be written to
+  // <storage>/<job_id>/pipeline.log while the job is active.
+  const storageBase = process.env.TRANSCRIPTION_STORAGE || path.join(app.getPath("userData"), "storage");
+  setStorageBase(storageBase);
+  addLog("main", "info", `App started — per-job logs: ${storageBase}/<job_id>/pipeline.log`);
 
   // Start periodic health monitoring
   startHealthMonitoring();

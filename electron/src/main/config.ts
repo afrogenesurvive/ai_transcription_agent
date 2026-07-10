@@ -44,14 +44,6 @@ export interface AppConfig {
   WHISPER_MODEL_SIZE: string;
   /** Keep start/end timestamps in refined transcript */
   KEEP_TRANSCRIPT_TIMESTAMPS: string;
-  /** Comma-separated list of log sources to write to disk: python,bridge,agent,main, or "all" */
-  LOG_ENABLED_SOURCES: string;
-  /** Minimum log level for disk writes: debug, info, warn, error, off */
-  LOG_LEVEL: string;
-  /** Maximum log file size in MB before rotation (0 = no limit) */
-  LOG_MAX_FILE_SIZE_MB: string;
-  /** Maximum number of rotated log files to keep (0 = no limit) */
-  LOG_MAX_FILES: string;
   /** Log LLM input/output data to job storage directory */
   LOG_LLM_DATA: string;
   /** UI theme: "dark" or "light" */
@@ -90,10 +82,6 @@ const DEFAULTS: AppConfig = {
   CREDIT_POLL_INTERVAL: "60000",
   WHISPER_MODEL_SIZE: "medium",
   KEEP_TRANSCRIPT_TIMESTAMPS: "false",
-  LOG_ENABLED_SOURCES: "all",
-  LOG_LEVEL: "info",
-  LOG_MAX_FILE_SIZE_MB: "50",
-  LOG_MAX_FILES: "10",
   LOG_LLM_DATA: "false",
   APPEARANCE_THEME: "dark",
   APPEARANCE_ACCENT_COLOR: "#58a6ff",
@@ -242,10 +230,7 @@ export function getChildEnv(): NodeJS.ProcessEnv {
     CREDIT_POLL_INTERVAL: config.CREDIT_POLL_INTERVAL || process.env.CREDIT_POLL_INTERVAL || "60000",
     WHISPER_MODEL_SIZE: config.WHISPER_MODEL_SIZE || process.env.WHISPER_MODEL_SIZE || "medium",
     KEEP_TRANSCRIPT_TIMESTAMPS: config.KEEP_TRANSCRIPT_TIMESTAMPS || process.env.KEEP_TRANSCRIPT_TIMESTAMPS || "false",
-    LOG_ENABLED_SOURCES: config.LOG_ENABLED_SOURCES || process.env.LOG_ENABLED_SOURCES || "all",
-    LOG_LEVEL: config.LOG_LEVEL || process.env.LOG_LEVEL || "info",
-    LOG_MAX_FILE_SIZE_MB: config.LOG_MAX_FILE_SIZE_MB || process.env.LOG_MAX_FILE_SIZE_MB || "50",
-    LOG_MAX_FILES: config.LOG_MAX_FILES || process.env.LOG_MAX_FILES || "10",
+
     LOG_LLM_DATA: config.LOG_LLM_DATA || process.env.LOG_LLM_DATA || "false",
     APPEARANCE_THEME: config.APPEARANCE_THEME || process.env.APPEARANCE_THEME || "dark",
     APPEARANCE_ACCENT_COLOR: config.APPEARANCE_ACCENT_COLOR || process.env.APPEARANCE_ACCENT_COLOR || "#58a6ff",

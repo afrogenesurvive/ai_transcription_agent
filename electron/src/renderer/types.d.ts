@@ -120,9 +120,6 @@ export interface ElectronAPI {
   restartAgent: () => Promise<{ success?: boolean; error?: string }>;
   getDefaultAgentConfig: () => Promise<{ tools?: any; pipeline?: any; systemPrompt?: string; error?: string }>;
   restoreDefaultAgentConfig: () => Promise<{ success?: boolean; restored?: string[]; error?: string }>;
-  listLogFiles: () => Promise<LogFileInfo[]>;
-  readLogFile: (filePath: string, maxLines?: number) => Promise<string[]>;
-  getLogPaths: () => Promise<{ primary: string | null; mirror: string | null }>;
   listJobLogFiles: () => Promise<LogFileInfo[]>;
   readJobLogFile: (jobId: string, maxLines?: number) => Promise<string[]>;
   getStorageUsage: () => Promise<StorageUsage>;

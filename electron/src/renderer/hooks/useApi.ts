@@ -58,6 +58,11 @@ export function useApi() {
       return bridgeCall("transcribe_get_summary", { jobId }) as Promise<any>;
     },
 
+    /** Get raw/unrefined transcript text */
+    getRawTranscript: async (jobId: string) => {
+      return bridgeCall("transcribe_get_raw_transcript", { jobId }) as Promise<{ text: string }>;
+    },
+
     /** Get analysis */
     getAnalysis: async (jobId: string) => {
       return bridgeCall("transcribe_get_analysis", { jobId }) as Promise<any>;

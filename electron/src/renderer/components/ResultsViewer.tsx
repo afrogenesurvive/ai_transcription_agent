@@ -16,7 +16,7 @@ import type { TranscriptionSegment, AnalysisData, LogEntry } from "../types";
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
-type TabId = "pipeline" | "audio" | "transcript" | "summary" | "analysis" | "tokens" | "performance" | "logs" | "delivery";
+type TabId = "pipeline" | "audio" | "transcript" | "summary" | "analysis" | "raw" | "tokens" | "performance" | "logs" | "delivery";
 
 interface Tab {
   id: TabId;
@@ -30,6 +30,7 @@ const TABS: Tab[] = [
   { id: "transcript", label: "Transcript", icon: "description" },
   { id: "summary", label: "Summary", icon: "summarize" },
   { id: "analysis", label: "Analysis", icon: "analytics" },
+  { id: "raw", label: "Raw", icon: "text_snippet" },
   { id: "tokens", label: "Tokens", icon: "token" },
   { id: "performance", label: "Performance", icon: "speed" },
   { id: "delivery", label: "Delivery", icon: "mail" },
@@ -410,6 +411,83 @@ function AnalysisTab({ analysis }: { analysis: AnalysisData | null }) {
             </ul>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ── Tab: Raw Transcript ── */
+
+function RawTranscriptTab({ jobId }: { jobId: string }) {
+  const [rawText, setRawText] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchRaw = async () => {
+      try {
+        const res = await fetch(`${BRIDGE_URL}/tools/call`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tool: "transcribe_get_raw_transcript", args: { jobId } }),
+        });
+        const data = await res.json();
+        if (!cancelled) {
+          setRawText(data.text || null);
+          setLoading(false);
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setError(err.message);
+          setLoading(false);
+        }
+      }
+    };
+    fetchRaw();
+    return () => {
+      cancelled = true;
+    };
+  }, [jobId]);
+
+  if (loading) {
+    return (
+      <div className="rv-tab-content">
+        <div className="rv-empty-state">
+          <p>Loading raw transcript…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !rawText) {
+    return (
+      <div className="rv-tab-content">
+        <div className="rv-empty-state">
+          <span className="rv-empty-icon">
+            <Icon name="text_snippet" size="32" color="muted" />
+          </span>
+          <p>Raw transcript unavailable</p>
+          <p className="rv-muted">
+            {error || "No raw transcript data found for this job. The raw transcript is saved during the initial ASR pipeline stage."}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const wordCount = rawText.split(/\s+/).filter(Boolean).length;
+
+  return (
+    <div className="rv-tab-content rv-tab-content--raw">
+      <div className="rv-transcript-toolbar">
+        <span className="rv-segment-count">{wordCount.toLocaleString()} words</span>
+        <span className="rv-muted" style={{ fontSize: 11 }}>
+          Raw ASR output — before speaker labeling or LLM refinement
+        </span>
+      </div>
+      <div className="rv-raw-text-block">
+        <pre className="rv-raw-pre">{rawText}</pre>
       </div>
     </div>
   );
@@ -1549,6 +1627,7 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
             transcript: "Browse the speaker-labeled transcript with timestamps and search",
             summary: "Read the executive summary, key decisions, discussion points, and action items",
             analysis: "Explore topics discussed, sentiment, key entities, and meeting effectiveness",
+            raw: "View the raw/unrefined transcript text before any LLM processing",
             tokens: "View LLM token usage breakdown per pipeline step",
             performance: "See performance metrics — stage durations and timing",
             delivery: "Check delivery status — email, Trello, and Google Drive",
@@ -1608,6 +1687,7 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
           ) : (
             <AnalysisTab analysis={analysis} />
           ))}
+        {activeTab === "raw" && <RawTranscriptTab jobId={jobId} />}
         {activeTab === "tokens" && <TokensTab jobId={jobId} />}
         {activeTab === "performance" && <PerformanceTab jobId={jobId} />}
         {activeTab === "delivery" && <DeliveryTab jobId={jobId} />}

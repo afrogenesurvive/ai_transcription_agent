@@ -40,10 +40,6 @@ interface ConfigValues {
   GITHUB_TOKEN: string;
   WHISPER_MODEL_SIZE: string;
   KEEP_TRANSCRIPT_TIMESTAMPS: string;
-  LOG_ENABLED_SOURCES: string;
-  LOG_LEVEL: string;
-  LOG_MAX_FILE_SIZE_MB: string;
-  LOG_MAX_FILES: string;
   LOG_LLM_DATA: string;
   DELIVERY_RECIPIENT_EMAILS: string;
   DELIVERY_EMAIL_SUBJECT: string;
@@ -401,10 +397,6 @@ export default function ConfigPanel({ onClose }: Props) {
             GMAIL_USER: cfg.GMAIL_USER?.value || "",
             TRELLO_KEY: cfg.TRELLO_KEY?.value || "",
             TRELLO_TOKEN: cfg.TRELLO_TOKEN?.value || "",
-            LOG_ENABLED_SOURCES: cfg.LOG_ENABLED_SOURCES?.value || "all",
-            LOG_LEVEL: cfg.LOG_LEVEL?.value || "info",
-            LOG_MAX_FILE_SIZE_MB: cfg.LOG_MAX_FILE_SIZE_MB?.value || "50",
-            LOG_MAX_FILES: cfg.LOG_MAX_FILES?.value || "10",
             LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
             DELIVERY_RECIPIENT_EMAILS: cfg.DELIVERY_RECIPIENT_EMAILS?.value || "",
             DELIVERY_EMAIL_SUBJECT: cfg.DELIVERY_EMAIL_SUBJECT?.value || "Meeting Summary: {title}",
@@ -475,10 +467,6 @@ export default function ConfigPanel({ onClose }: Props) {
         GMAIL_USER: cfg.GMAIL_USER?.value || "",
         TRELLO_KEY: cfg.TRELLO_KEY?.value || "",
         TRELLO_TOKEN: cfg.TRELLO_TOKEN?.value || "",
-        LOG_ENABLED_SOURCES: cfg.LOG_ENABLED_SOURCES?.value || "all",
-        LOG_LEVEL: cfg.LOG_LEVEL?.value || "info",
-        LOG_MAX_FILE_SIZE_MB: cfg.LOG_MAX_FILE_SIZE_MB?.value || "50",
-        LOG_MAX_FILES: cfg.LOG_MAX_FILES?.value || "10",
         LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
         DELIVERY_RECIPIENT_EMAILS: cfg.DELIVERY_RECIPIENT_EMAILS?.value || "",
         DELIVERY_EMAIL_SUBJECT: cfg.DELIVERY_EMAIL_SUBJECT?.value || "Meeting Summary: {title}",
@@ -1879,60 +1867,9 @@ The system provides existing memory context at the start of each pipeline run. U
         {activeTab === "logging" && (
           <>
             <p className="config-hint">
-              Control which log sources and severity levels are written to disk log files. The in-memory log buffer (visible in the DevPanel) is never
-              affected — these settings only control disk space usage.
+              All log entries from every source (Python backend, bridge server, agent runner, Electron main) are written to the per-job
+              <code>pipeline.log</code> file while a job is active. The log is automatically closed when the pipeline completes or fails.
             </p>
-
-            {/* Log Sources */}
-            <div className="config-section">
-              <h3 className="config-section-title">
-                <Icon name="rss_feed" size="16" color="accent" /> Log Sources (disk writes)
-              </h3>
-              <p className="config-field-hint">
-                Uncheck sources you don&apos;t want to write to log files. Reducing high-volume sources like python or bridge saves the most disk
-                space.
-              </p>
-              {["python", "bridge", "agent", "main"].map((source) => {
-                const enabledList =
-                  values.LOG_ENABLED_SOURCES === "all"
-                    ? ["python", "bridge", "agent", "main"]
-                    : values.LOG_ENABLED_SOURCES.split(",")
-                        .map((s) => s.trim())
-                        .filter(Boolean);
-                const isChecked = enabledList.includes(source);
-                const sourceLabels: Record<string, string> = {
-                  python: "Python Backend (API calls, transcription progress)",
-                  bridge: "Bridge Server (tool dispatch, proxy requests)",
-                  agent: "Agent Runner (pipeline steps, LLM calls)",
-                  main: "Electron Main Process (config saves, service mgmt)",
-                };
-                return (
-                  <div key={source} className="config-field">
-                    <label className="config-toggle">
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        disabled={activeJobs.length > 0}
-                        onChange={() => {
-                          const current =
-                            values.LOG_ENABLED_SOURCES === "all"
-                              ? ["python", "bridge", "agent", "main"]
-                              : values.LOG_ENABLED_SOURCES.split(",")
-                                  .map((s) => s.trim())
-                                  .filter(Boolean);
-                          const updated = isChecked ? current.filter((s) => s !== source) : [...current, source];
-                          handleChange("LOG_ENABLED_SOURCES", updated.join(",") || "none");
-                        }}
-                      />
-                      <span className="config-toggle-slider" />
-                      <span className="config-toggle-label">
-                        <strong>{source}</strong> — {sourceLabels[source]}
-                      </span>
-                    </label>
-                  </div>
-                );
-              })}
-            </div>
 
             {/* LLM Data Logging */}
             <div className="config-section">
@@ -1956,62 +1893,6 @@ The system provides existing memory context at the start of each pipeline run. U
                     <strong>Log LLM input/output data</strong>
                   </span>
                 </label>
-              </div>
-            </div>
-
-            {/* Log Level */}
-            <div className="config-section">
-              <h3 className="config-section-title">
-                <Icon name="volume_up" size="16" color="accent" /> Minimum Log Level
-              </h3>
-              <p className="config-field-hint">
-                Only log entries at or above this severity will be written to disk. &quot;off&quot; disables all disk logging.
-              </p>
-              <select
-                className="config-select"
-                value={values.LOG_LEVEL || "info"}
-                onChange={(e) => handleChange("LOG_LEVEL", e.target.value)}
-                disabled={activeJobs.length > 0}>
-                <option value="debug">debug — everything (most verbose)</option>
-                <option value="info">info — info + warnings + errors (recommended)</option>
-                <option value="warn">warn — warnings + errors only</option>
-                <option value="error">error — errors only</option>
-                <option value="off">off — disable all disk logging</option>
-              </select>
-            </div>
-
-            {/* File Rotation */}
-            <div className="config-section">
-              <h3 className="config-section-title">
-                <Icon name="inventory" size="16" color="accent" /> File Rotation
-              </h3>
-              <div className="config-field-row">
-                <div className="config-field config-field--compact">
-                  <label className="config-label">Max File Size (MB)</label>
-                  <input
-                    className="config-input config-input--number"
-                    type="number"
-                    min={0}
-                    max={1000}
-                    value={parseInt(values.LOG_MAX_FILE_SIZE_MB) || 0}
-                    onChange={(e) => handleChange("LOG_MAX_FILE_SIZE_MB", String(e.target.value))}
-                    disabled={activeJobs.length > 0}
-                  />
-                  <p className="config-field-hint">0 = no size limit</p>
-                </div>
-                <div className="config-field config-field--compact">
-                  <label className="config-label">Max Rotated Files</label>
-                  <input
-                    className="config-input config-input--number"
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={parseInt(values.LOG_MAX_FILES) || 0}
-                    onChange={(e) => handleChange("LOG_MAX_FILES", String(e.target.value))}
-                    disabled={activeJobs.length > 0}
-                  />
-                  <p className="config-field-hint">0 = keep all rotations</p>
-                </div>
               </div>
             </div>
           </>

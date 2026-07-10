@@ -184,6 +184,13 @@ export async function startPythonBackend(port = 5001): Promise<void> {
     return undefined;
   }
 
+  /** Extract a job ID from a log message for per-job log routing. */
+  function _extractJobIdFromMsg(msg: string): string | undefined {
+    // Match "job <uuid-like>" where uuid-like is a hex string (8+ chars, optionally hyphenated)
+    const match = msg.match(/\bjob\s+([a-f0-9]{8,}(?:-[a-f0-9]{4}){0,3}[a-f0-9]{4,})/i);
+    return match ? match[1] : undefined;
+  }
+
   // ── Line-buffered stdout handler ──
   // The OS pipe buffer can split Python's stdout at arbitrary byte boundaries,
   // so a single print() line may arrive across multiple `data` events.  We
@@ -206,8 +213,9 @@ export async function startPythonBackend(port = 5001): Promise<void> {
       // like [01:21.560 --> ...] get a synthetic "transcription" subSource
       // but the message itself has no tag to strip.
       const cleanMsg = subSource && /^\[\w+\]/.test(msg) ? msg.replace(/^\[\w+\]\s*/, "") : msg;
+      const jobId = _extractJobIdFromMsg(msg);
       console.log(`[python] ${msg}`);
-      addLog("python", "info", cleanMsg, subSource);
+      addLog("python", "info", cleanMsg, subSource, jobId);
     }
   });
 
@@ -217,7 +225,8 @@ export async function startPythonBackend(port = 5001): Promise<void> {
     if (remaining) {
       const subSource = extractSubSource(remaining);
       const cleanMsg = subSource && /^\[\w+\]/.test(remaining) ? remaining.replace(/^\[\w+\]\s*/, "") : remaining;
-      addLog("python", "info", cleanMsg, subSource);
+      const jobId = _extractJobIdFromMsg(remaining);
+      addLog("python", "info", cleanMsg, subSource, jobId);
     }
     stdoutBuffer = "";
   });
@@ -235,8 +244,9 @@ export async function startPythonBackend(port = 5001): Promise<void> {
       if (!msg) continue;
       const subSource = extractSubSource(msg);
       const cleanMsg = subSource ? msg.replace(/^\[\w+\]\s*/, "") : msg;
+      const jobId = _extractJobIdFromMsg(msg);
       console.error(`[python:err] ${msg}`);
-      addLog("python", "error", cleanMsg, subSource);
+      addLog("python", "error", cleanMsg, subSource, jobId);
     }
   });
 
@@ -245,7 +255,8 @@ export async function startPythonBackend(port = 5001): Promise<void> {
     if (remaining) {
       const subSource = extractSubSource(remaining);
       const cleanMsg = subSource ? remaining.replace(/^\[\w+\]\s*/, "") : remaining;
-      addLog("python", "error", cleanMsg, subSource);
+      const jobId = _extractJobIdFromMsg(remaining);
+      addLog("python", "error", cleanMsg, subSource, jobId);
     }
     stderrBuffer = "";
   });
@@ -293,14 +304,16 @@ export async function startBridgeServer(bridgePort = 5010, pythonPort = 5001): P
 
   bridgeProcess.stdout?.on("data", (d: Buffer) => {
     const msg = d.toString().trim();
+    const jobId = _extractJobIdFromMsg(msg);
     console.log(`[bridge] ${msg}`);
-    addLog("bridge", "info", msg);
+    addLog("bridge", "info", msg, undefined, jobId);
   });
 
   bridgeProcess.stderr?.on("data", (d: Buffer) => {
     const msg = d.toString().trim();
+    const jobId = _extractJobIdFromMsg(msg);
     console.error(`[bridge:err] ${msg}`);
-    addLog("bridge", "error", msg);
+    addLog("bridge", "error", msg, undefined, jobId);
   });
 
   bridgeProcess.on("exit", (code) => {
@@ -904,14 +917,16 @@ export async function startAgentRunner(): Promise<void> {
 
   agentProcess.stdout?.on("data", (d: Buffer) => {
     const msg = d.toString().trim();
+    const jobId = _extractJobIdFromMsg(msg);
     console.log(`[agent] ${msg}`);
-    addLog("agent", "info", msg);
+    addLog("agent", "info", msg, undefined, jobId);
   });
 
   agentProcess.stderr?.on("data", (d: Buffer) => {
     const msg = d.toString().trim();
+    const jobId = _extractJobIdFromMsg(msg);
     console.error(`[agent:err] ${msg}`);
-    addLog("agent", "error", msg);
+    addLog("agent", "error", msg, undefined, jobId);
   });
 
   agentProcess.on("exit", (code) => {

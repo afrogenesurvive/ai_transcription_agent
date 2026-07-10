@@ -151,6 +151,9 @@ async function dispatch(tool, args) {
     case "transcribe_get_transcript":
       return await callPython("GET", `/transcribe/transcript/${args.jobId}?format=${args.format || "json"}`);
 
+    case "transcribe_get_raw_transcript":
+      return await callPython("GET", `/transcribe/raw_transcript/${args.jobId}`);
+
     case "transcribe_get_summary":
       return await callPython("GET", `/transcribe/summary/${args.jobId}`);
 

@@ -12,13 +12,13 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import Icon from "./Icon";
-import type { LogEntry, LogFileInfo } from "../types";
+import type { LogEntry } from "../types";
 
 interface Props {
   onClose: () => void;
 }
 
-type Tab = "live" | "files" | "database" | "performance" | "usage" | "updates";
+type Tab = "live" | "database" | "performance" | "usage" | "updates";
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
@@ -48,12 +48,6 @@ const LEVEL_PREFIX: Record<string, string> = {
   error: "",
   debug: "",
 };
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 /* ── LocalStorage keys for persisting log settings ── */
 
@@ -306,290 +300,6 @@ function LiveLogsTab() {
       <div className="dev-panel-footer">
         <span>{filtered.length} entries</span>
         <span>{logs.length} total buffered</span>
-      </div>
-    </>
-  );
-}
-
-/* ── Log Files Tab ── */
-
-/** Try to detect a source tag like [python], [bridge], [agent], [main],
- *  [transcription], [usage], [ollama] in a log line. */
-function detectLogSource(line: string): string | null {
-  const match = line.match(/\[(python|bridge|agent|main|transcription|usage|ollama)\]/i);
-  if (match) return match[1].toLowerCase();
-  // Also match the 💰 [USAGE] pattern
-  if (/💰\s*\[usage\]/i.test(line)) return "usage";
-  return null;
-}
-
-/** Try to detect a log level like error, warn, info, debug in a log line. */
-function detectLogLevel(line: string): string | null {
-  const lower = line.toLowerCase();
-  if (/\berror\b/.test(lower)) return "error";
-  if (/\bwarn(ing)?\b/.test(lower)) return "warn";
-  if (/\bdebug\b/.test(lower)) return "debug";
-  if (/\binfo\b/.test(lower)) return "info";
-  return null;
-}
-
-function LogFilesTab() {
-  const [files, setFiles] = useState<LogFileInfo[]>([]);
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [fileContent, setFileContent] = useState<string[]>([]);
-  const [logPaths, setLogPaths] = useState<{ primary: string | null; mirror: string | null }>({ primary: null, mirror: null });
-  const [logSourceFilter, setLogSourceFilter] = useState<string>("all");
-  const [logLevelFilter, setLogLevelFilter] = useState<string>("all");
-  const [logSearchQuery, setLogSearchQuery] = useState("");
-  const [noTruncate, setNoTruncate] = useState(true);
-  const contentRef = useRef<HTMLDivElement>(null);
-  const fileListRef = useRef<HTMLDivElement>(null);
-  const [fileListWidth, setFileListWidth] = useState(240);
-  const fileListResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
-
-  const handleFileListResizeStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    const list = fileListRef.current;
-    if (!list) return;
-    fileListResizeRef.current = { startX: e.clientX, startWidth: list.offsetWidth };
-    const handleMouseMove = (me: MouseEvent) => {
-      if (!fileListResizeRef.current) return;
-      const diff = me.clientX - fileListResizeRef.current.startX;
-      setFileListWidth(Math.max(140, Math.min(500, fileListResizeRef.current.startWidth + diff)));
-    };
-    const handleMouseUp = () => {
-      fileListResizeRef.current = null;
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-      document.body.classList.remove("dev-panel-sidebar-resizing");
-    };
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-    document.body.classList.add("dev-panel-sidebar-resizing");
-  }, []);
-
-  /** Load all log files (global + per-job). */
-  const loadAllLogFiles = useCallback(async () => {
-    const [globalFiles, jobFiles] = await Promise.all([
-      window.electronAPI?.listLogFiles() || Promise.resolve([]),
-      window.electronAPI?.listJobLogFiles() || Promise.resolve([]),
-    ]);
-    // Merge: global files first, then job pipeline logs below
-    setFiles([...globalFiles, ...jobFiles]);
-  }, []);
-
-  useEffect(() => {
-    loadAllLogFiles();
-    window.electronAPI
-      ?.getLogPaths()
-      .then(setLogPaths)
-      .catch(() => {});
-  }, [loadAllLogFiles]);
-
-  const handleSelectFile = useCallback(
-    async (filePath: string) => {
-      setSelectedFile(filePath);
-      const lines = (await window.electronAPI?.readLogFile(filePath, noTruncate ? 0 : 1000)) || [];
-      setFileContent(lines);
-    },
-    [noTruncate],
-  );
-
-  // Auto-scroll to bottom when file content loads
-  useEffect(() => {
-    if (contentRef.current) {
-      contentRef.current.scrollTop = contentRef.current.scrollHeight;
-    }
-  }, [fileContent]);
-
-  // Re-read file when noTruncate toggles
-  useEffect(() => {
-    if (!selectedFile) return;
-    window.electronAPI?.readLogFile(selectedFile, noTruncate ? 0 : 1000).then((lines) => {
-      if (lines) setFileContent(lines);
-    });
-  }, [noTruncate, selectedFile]);
-
-  const handleRefresh = useCallback(async () => {
-    await loadAllLogFiles();
-    if (selectedFile) {
-      // Re-read currently selected file
-      const lines = (await window.electronAPI?.readLogFile(selectedFile, noTruncate ? 0 : 1000)) || [];
-      setFileContent(lines);
-    }
-  }, [selectedFile, loadAllLogFiles, noTruncate]);
-
-  /** Highlight search matches in plain text lines. */
-  const highlightFileLine = useCallback(
-    (text: string): React.ReactNode => {
-      if (!logSearchQuery.trim()) return text;
-      const escaped = logSearchQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const parts = text.split(new RegExp(`(${escaped})`, "gi"));
-      if (parts.length === 1) return text;
-      return parts.map((part, i) =>
-        part.toLowerCase() === logSearchQuery.toLowerCase() ? (
-          <em key={i} className="dev-panel-search-highlight">
-            {part}
-          </em>
-        ) : (
-          part
-        ),
-      );
-    },
-    [logSearchQuery],
-  );
-
-  // Filter file content by source, level, and search query
-  const filteredContent = fileContent.filter((line) => {
-    if (logSourceFilter !== "all") {
-      const detected = detectLogSource(line);
-      if (detected !== logSourceFilter) return false;
-    }
-    if (logLevelFilter !== "all") {
-      const detected = detectLogLevel(line);
-      if (detected !== logLevelFilter) return false;
-    }
-    if (logSearchQuery.trim()) {
-      const q = logSearchQuery.toLowerCase();
-      if (!line.toLowerCase().includes(q)) return false;
-    }
-    return true;
-  });
-
-  return (
-    <>
-      {/* Toolbar */}
-      <div className="dev-panel-toolbar">
-        <span className="dev-panel-title">
-          <Icon name="folder" size="14" color="accent" /> Log Files
-        </span>
-        <span className="dev-panel-file-path-hint">
-          {logPaths.primary && <span title={logPaths.primary}>Primary: {logPaths.primary.split("/").pop()}/…</span>}
-          {logPaths.mirror && <span title={logPaths.mirror}>Mirror: {logPaths.mirror.split("/").pop()}/…</span>}
-        </span>
-        <div className="dev-panel-actions">
-          <button className="dev-panel-btn" onClick={handleRefresh} title="Refresh file list">
-            <Icon name="refresh" size="14" /> Refresh
-          </button>
-        </div>
-      </div>
-
-      <div className="dev-panel-file-browser">
-        {/* File list sidebar */}
-        <div className="dev-panel-file-list" ref={fileListRef} style={{ width: fileListWidth }}>
-          {files.length === 0 && (
-            <div className="dev-panel-empty" style={{ padding: "12px" }}>
-              No log files found.
-            </div>
-          )}
-          {files.map((f) => (
-            <div
-              key={f.path}
-              className={`dev-panel-file-item ${selectedFile === f.path ? "dev-panel-file-item--active" : ""}`}
-              onClick={() => handleSelectFile(f.path)}>
-              <span className="dev-panel-file-name" title={f.name}>
-                {f.name}
-              </span>
-              <span className="dev-panel-file-meta">
-                {formatSize(f.size)} ·{" "}
-                <Icon name={f.source === "primary" ? "folder" : f.source === "job" ? "description" : "folder_open"} size="12" color="muted" />{" "}
-                {f.source === "job" ? "job log" : f.source}
-              </span>
-              <span className="dev-panel-file-date">{new Date(f.mtime).toLocaleDateString()}</span>
-            </div>
-          ))}
-        </div>
-
-        {/* Sidebar resize handle */}
-        <div className="dev-panel-sidebar-resize-handle" onMouseDown={handleFileListResizeStart} />
-
-        {/* File content */}
-        <div className="dev-panel-file-content" ref={contentRef}>
-          {!selectedFile && <div className="dev-panel-empty">Select a log file to view its contents.</div>}
-          {selectedFile && fileContent.length === 0 && <div className="dev-panel-empty">(empty file)</div>}
-
-          {/* Filter toolbar — shown when a file is selected */}
-          {selectedFile && fileContent.length > 0 && (
-            <div className="dev-panel-file-filter-bar">
-              {/* 🔍 Text search */}
-              <div className="dev-panel-search-wrap">
-                <span className="dev-panel-search-icon">🔍</span>
-                <input
-                  className="dev-panel-search-input dev-panel-search-input--compact"
-                  type="text"
-                  placeholder="Search in file…"
-                  value={logSearchQuery}
-                  onChange={(e) => setLogSearchQuery(e.target.value)}
-                />
-                {logSearchQuery && (
-                  <button
-                    className="dev-panel-search-clear"
-                    onClick={() => setLogSearchQuery("")}
-                    title="Clear search"
-                    data-tooltip="Clear the file search query">
-                    <Icon name="close" size="12" />
-                  </button>
-                )}
-              </div>
-              <select className="dev-panel-file-filter-select" value={logSourceFilter} onChange={(e) => setLogSourceFilter(e.target.value)}>
-                <option value="all">All sources</option>
-                <option value="python">Python</option>
-                <option value="bridge">Bridge</option>
-                <option value="agent">Agent</option>
-                <option value="main">Main</option>
-                <option value="transcription">Transcription</option>
-                <option value="usage">Usage</option>
-                <option value="ollama">Ollama</option>
-              </select>
-              <select className="dev-panel-file-filter-select" value={logLevelFilter} onChange={(e) => setLogLevelFilter(e.target.value)}>
-                <option value="all">All levels</option>
-                <option value="info">Info</option>
-                <option value="warn">Warnings</option>
-                <option value="error">Errors</option>
-                <option value="debug">Debug</option>
-              </select>
-              <label className="dev-panel-checkbox" data-tooltip="Show all lines without truncation">
-                <input type="checkbox" checked={noTruncate} onChange={(e) => setNoTruncate(e.target.checked)} />
-                No truncate
-              </label>
-              <span className="dev-panel-file-filter-count">
-                {filteredContent.length} / {fileContent.length} lines
-                {logSearchQuery.trim() && ` (${fileContent.filter((l) => l.toLowerCase().includes(logSearchQuery.toLowerCase())).length} matches)`}
-              </span>
-            </div>
-          )}
-
-          {selectedFile && filteredContent.length === 0 && fileContent.length > 0 && (
-            <div className="dev-panel-empty">No lines match the current filters.</div>
-          )}
-          {selectedFile &&
-            filteredContent.map((line, i) => {
-              const detectedSource = detectLogSource(line);
-              // Strip the exact [tag] prefix from the line for display
-              const lineDisplay = detectedSource ? line.replace(new RegExp(`^\\[${detectedSource}\\]\\s*`, "i"), "") : line;
-              return (
-                <div key={i} className="dev-panel-file-line">
-                  {detectedSource && (
-                    <span className="dev-panel-file-line-source" style={{ color: SOURCE_COLORS[detectedSource] || "#8b949e", marginRight: 6 }}>
-                      [{detectedSource}]
-                    </span>
-                  )}
-                  <span>{highlightFileLine(lineDisplay)}</span>
-                </div>
-              );
-            })}
-        </div>
-      </div>
-
-      {/* Footer with stats */}
-      <div className="dev-panel-footer">
-        <span>{files.length} file(s)</span>
-        {selectedFile && (
-          <span>
-            {filteredContent.length} / {fileContent.length} lines
-            {logSearchQuery.trim() && ` (${fileContent.filter((l) => l.toLowerCase().includes(logSearchQuery.toLowerCase())).length} matches)`}
-          </span>
-        )}
       </div>
     </>
   );
@@ -2596,13 +2306,7 @@ export default function DevPanel({ onClose }: Props) {
           data-tooltip="View real-time log stream from Python, Bridge, Agent, and Main processes">
           <Icon name="terminal" size="14" color="accent" /> Live Logs
         </button>
-        <button
-          className={`dev-panel-tab ${activeTab === "files" ? "dev-panel-tab--active" : ""}`}
-          onClick={() => setActiveTab("files")}
-          title="Browse on-disk log files"
-          data-tooltip="Browse and view saved log files from disk">
-          <Icon name="folder" size="14" /> Log Files
-        </button>
+
         <button
           className={`dev-panel-tab ${activeTab === "database" ? "dev-panel-tab--active" : ""}`}
           onClick={() => setActiveTab("database")}
@@ -2643,7 +2347,6 @@ export default function DevPanel({ onClose }: Props) {
 
       {/* Tab content */}
       {activeTab === "live" && <LiveLogsTab />}
-      {activeTab === "files" && <LogFilesTab />}
       {activeTab === "database" && <DatabaseTab />}
       {activeTab === "performance" && <PerformanceTab />}
       {activeTab === "usage" && <UsageTab />}
