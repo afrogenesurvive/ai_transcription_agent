@@ -336,6 +336,11 @@ function writeToFile(message: string): void {
 export function addLog(source: LogEntry["source"], level: LogEntry["level"], message: string, subSource?: string): void {
   if (!message) return;
   const timestamp = Date.now();
+  console.log("Log labelling debug!!!!:", {
+    source,
+    subSource,
+    msg_substr: message.substring(0, 10),
+  });
 
   if (!subSource) {
     // Only match a simple word-only [tag] at the start — NOT bracketed content
@@ -345,6 +350,14 @@ export function addLog(source: LogEntry["source"], level: LogEntry["level"], mes
     const match = message.match(/^\[(\w+)\]/);
     if (match) {
       subSource = match[1];
+    } else {
+      // Fallback: detect Whisper verbose timestamp format
+      //   [01:21.560 --> 01:25.380] text
+      // and tag as [transcription] sub-source.
+      const tsMatch = message.match(/^\[\d{1,2}:\d{2}\.\d{3}\s*-->/);
+      if (tsMatch) {
+        subSource = "transcription";
+      }
     }
   }
 

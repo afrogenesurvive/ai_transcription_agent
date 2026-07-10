@@ -80,6 +80,32 @@ export default function App() {
   // polling updates the shared transcript/metadata state.
   const [historyTranscript, setHistoryTranscript] = useState<any>(null);
 
+  // ── Pipeline-step-derived skip steps for new job form ──
+  const [defaultSkipSteps, setDefaultSkipSteps] = useState<string[]>([]);
+
+  // When the new job form opens, fetch agent config pipeline steps so the
+  // UploadPanel checkboxes reflect which steps are disabled in the ConfigPanel.
+  useEffect(() => {
+    if (!showNewForm) return;
+    let cancelled = false;
+    window.electronAPI
+      ?.getAgentConfig()
+      .then((cfg) => {
+        if (cancelled || !cfg || cfg.error) return;
+        const steps = cfg.pipeline?.pipeline_steps;
+        if (!steps || !Array.isArray(steps)) return;
+        // Derive skip_steps from pipeline steps where enabled === false
+        const disabled = steps.filter((s: any) => !s.enabled).map((s: any) => s.toolName);
+        setDefaultSkipSteps(disabled);
+      })
+      .catch(() => {
+        /* agent config unavailable — UploadPanel will use its own defaults */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showNewForm]);
+
   // ── Speaker labeling modal ──
   const [speakerClips, setSpeakerClips] = useState<any>(null);
   const [showSpeakerModal, setShowSpeakerModal] = useState(false);
@@ -624,7 +650,7 @@ export default function App() {
                 <>
                   {showNewForm ? (
                     <div className="upload-panel-full">
-                      <UploadPanel onUpload={handleUpload} uploading={uploading} disabled={isJobRunning} />
+                      <UploadPanel onUpload={handleUpload} uploading={uploading} disabled={isJobRunning} initialSkipSteps={defaultSkipSteps} />
                     </div>
                   ) : (
                     <>

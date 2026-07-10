@@ -15,10 +15,22 @@ interface AttendeeEntry {
   email: string;
 }
 
+/** Known non-essential pipeline steps that can be skipped in the upload form. */
+const SKIPPABLE_STEPS: Record<string, { label: string; hint: string }> = {
+  transcribe_refine: { label: "Skip refine", hint: "(filler word removal, PII redaction)" },
+  transcribe_analyze: { label: "Skip analysis", hint: "(topics, sentiment, entity extraction)" },
+  transcribe_prepare_delivery: { label: "Skip delivery prep", hint: "(prepare email, Drive, Trello)" },
+  send_delivery_email: { label: "Skip email", hint: "(no email delivery)" },
+  save_to_drive: { label: "Skip Drive", hint: "(no Google Drive save)" },
+  create_trello_action_items: { label: "Skip Trello", hint: "(no Trello cards)" },
+};
+
 interface Props {
   onUpload: (file: File, title: string, attendees: string[], emailRecipients: string[], skipSteps: string[]) => void;
   uploading: boolean;
   disabled?: boolean;
+  /** Initial set of tool names to skip, derived from disabled pipeline steps in agent config. */
+  initialSkipSteps?: string[];
 }
 
 // ── Email validation ──
@@ -62,7 +74,16 @@ function saveAttendees(attendees: AttendeeEntry[]): void {
   }
 }
 
-export default function UploadPanel({ onUpload, uploading, disabled }: Props) {
+/** Default initial skip steps when agent config is unavailable. */
+const DEFAULT_SKIP_STEPS = [
+  "transcribe_analyze",
+  "transcribe_prepare_delivery",
+  "send_delivery_email",
+  "save_to_drive",
+  "create_trello_action_items",
+];
+
+export default function UploadPanel({ onUpload, uploading, disabled, initialSkipSteps }: Props) {
   const [dragOver, setDragOver] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState("");
@@ -70,8 +91,7 @@ export default function UploadPanel({ onUpload, uploading, disabled }: Props) {
   const [attendeeName, setAttendeeName] = useState("");
   const [attendeeEmail, setAttendeeEmail] = useState("");
   const [emailError, setEmailError] = useState<string | null>(null);
-  const [skipAnalysis, setSkipAnalysis] = useState(true);
-  const [skipDelivery, setSkipDelivery] = useState(true);
+  const [skipSteps, setSkipSteps] = useState<string[]>(initialSkipSteps ?? DEFAULT_SKIP_STEPS);
   const [savedAttendees, setSavedAttendees] = useState<AttendeeEntry[]>(loadSavedAttendees);
   const [showNameSuggestions, setShowNameSuggestions] = useState(false);
   const [showEmailSuggestions, setShowEmailSuggestions] = useState(false);
@@ -80,6 +100,21 @@ export default function UploadPanel({ onUpload, uploading, disabled }: Props) {
   const nameInputRef = useRef<HTMLInputElement>(null);
   const emailInputRef = useRef<HTMLInputElement>(null);
   const suggestRef = useRef<HTMLDivElement>(null);
+
+  // Sync skipSteps when initialSkipSteps changes (e.g. agent config loaded after mount)
+  useEffect(() => {
+    if (initialSkipSteps) setSkipSteps(initialSkipSteps);
+  }, [initialSkipSteps]);
+
+  /** Toggle a tool name in/out of the skip list. */
+  const toggleSkip = useCallback((toolName: string) => {
+    setSkipSteps((prev) => (prev.includes(toolName) ? prev.filter((t) => t !== toolName) : [...prev, toolName]));
+  }, []);
+
+  /** Check whether the "delivery" group is fully skipped. */
+  const deliveryTools = ["transcribe_prepare_delivery", "send_delivery_email", "save_to_drive", "create_trello_action_items"];
+  const deliveryFullySkipped = deliveryTools.every((t) => skipSteps.includes(t));
+  const anyDeliverySkipped = deliveryTools.some((t) => skipSteps.includes(t));
 
   // Filter saved attendees that aren't already in the current list
   const unusedSaved = useMemo(
@@ -239,11 +274,6 @@ export default function UploadPanel({ onUpload, uploading, disabled }: Props) {
     if (attendeeList.length === 0) return; // attendees is required
     const nameList = attendeeList.map((a) => a.name);
     const emailList = attendeeList.map((a) => a.email).filter(Boolean);
-    const steps: string[] = [];
-    if (skipAnalysis) steps.push("transcribe_analyze");
-    if (skipDelivery) {
-      steps.push("transcribe_prepare_delivery", "send_delivery_email", "save_to_drive", "create_trello_action_items");
-    }
     // Persist all submitted attendees for future autocomplete
     const updated = [...savedAttendees];
     for (const a of attendeeList) {
@@ -253,7 +283,7 @@ export default function UploadPanel({ onUpload, uploading, disabled }: Props) {
     }
     setSavedAttendees(updated);
     saveAttendees(updated);
-    onUpload(file, title || file.name, nameList, emailList, steps);
+    onUpload(file, title || file.name, nameList, emailList, skipSteps);
   };
 
   const formatSize = (bytes: number) => {
@@ -455,16 +485,13 @@ export default function UploadPanel({ onUpload, uploading, disabled }: Props) {
       </div>
 
       <div className="skip-options" style={disabled ? { opacity: 0.5, pointerEvents: "none" } : undefined}>
-        <label className="skip-checkbox" data-tooltip="Skip AI analysis (topics, sentiment, entities) to speed up processing and save tokens">
-          <input type="checkbox" checked={skipAnalysis} onChange={(e) => setSkipAnalysis(e.target.checked)} disabled={disabled} />
-          <span>Skip analysis</span>
-          <span className="skip-hint">(topics, sentiment, entity extraction)</span>
-        </label>
-        <label className="skip-checkbox" data-tooltip="Skip email, Trello, and Google Drive delivery steps to save LLM tokens and time">
-          <input type="checkbox" checked={skipDelivery} onChange={(e) => setSkipDelivery(e.target.checked)} disabled={disabled} />
-          <span>Skip delivery</span>
-          <span className="skip-hint">(no email, Trello, or Drive — saves LLM tokens)</span>
-        </label>
+        {Object.entries(SKIPPABLE_STEPS).map(([toolName, { label, hint }]) => (
+          <label key={toolName} className="skip-checkbox" data-tooltip={`${label} — ${hint.replace(/[()]/g, "")}`}>
+            <input type="checkbox" checked={skipSteps.includes(toolName)} onChange={() => toggleSkip(toolName)} disabled={disabled} />
+            <span>{label}</span>
+            <span className="skip-hint">{hint}</span>
+          </label>
+        ))}
       </div>
 
       <button

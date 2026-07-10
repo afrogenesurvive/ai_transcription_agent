@@ -163,10 +163,25 @@ export async function startPythonBackend(port = 5001): Promise<void> {
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-  /** Extract a [tag] prefix from the start of a message, e.g. "[transcription] ..." → "transcription" */
+  /** Extract a [tag] prefix from the start of a message, e.g. "[transcription] ..." → "transcription"
+   *
+   *  Falls back to detecting Whisper's verbose timestamp format:
+   *    [01:21.560 --> 01:25.380] text
+   *  and treats those lines as sub-source "transcription".
+   */
   function extractSubSource(msg: string): string | undefined {
-    const match = msg.match(/^\[(\w+)\]/);
-    return match ? match[1].toLowerCase() : undefined;
+    // Primary: match a word-only [tag] prefix like [transcription], [pipeline], [agent_bridge]
+    const tagMatch = msg.match(/^\[(\w+)\]/);
+    if (tagMatch) return tagMatch[1].toLowerCase();
+
+    // Fallback: detect Whisper verbose timestamp format
+    //   [MM:SS.mmm --> MM:SS.mmm] or [HH:MM:SS.mmm --> HH:MM:SS.mmm]
+    // These come from Whisper's internal verbose print() calls and don't
+    // have a [transcription] prefix, but should be tagged as such.
+    const tsMatch = msg.match(/^\[\d{1,2}:\d{2}\.\d{3}\s*-->/);
+    if (tsMatch) return "transcription";
+
+    return undefined;
   }
 
   // ── Line-buffered stdout handler ──
@@ -186,7 +201,11 @@ export async function startPythonBackend(port = 5001): Promise<void> {
       const msg = line.trim();
       if (!msg) continue;
       const subSource = extractSubSource(msg);
-      const cleanMsg = subSource ? msg.replace(/^\[\w+\]\s*/, "") : msg;
+      // Only strip a [tag] prefix from the message if it actually starts with
+      // a word-only tag (e.g. [transcription]).  Whisper timestamp lines
+      // like [01:21.560 --> ...] get a synthetic "transcription" subSource
+      // but the message itself has no tag to strip.
+      const cleanMsg = subSource && /^\[\w+\]/.test(msg) ? msg.replace(/^\[\w+\]\s*/, "") : msg;
       console.log(`[python] ${msg}`);
       addLog("python", "info", cleanMsg, subSource);
     }
@@ -197,7 +216,7 @@ export async function startPythonBackend(port = 5001): Promise<void> {
     const remaining = stdoutBuffer.trim();
     if (remaining) {
       const subSource = extractSubSource(remaining);
-      const cleanMsg = subSource ? remaining.replace(/^\[\w+\]\s*/, "") : remaining;
+      const cleanMsg = subSource && /^\[\w+\]/.test(remaining) ? remaining.replace(/^\[\w+\]\s*/, "") : remaining;
       addLog("python", "info", cleanMsg, subSource);
     }
     stdoutBuffer = "";
