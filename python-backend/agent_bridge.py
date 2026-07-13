@@ -74,6 +74,10 @@ class AgentBridge:
                                 transcript: list, metadata: dict):
         """Unknown speakers detected — agent should notify for labeling.
 
+        Includes the full transcript so the agent-runner's empty-transcript
+        guard can properly detect content (it reads ``event.data.transcript``).
+        Also keeps a preview for quick reference.
+
         Includes skip_steps from metadata so the agent runner restricts
         pipeline tools (analyze, delivery, etc.) — the LLM should only
         handle labeling, not re-run the full pipeline.
@@ -83,6 +87,7 @@ class AgentBridge:
             "jobId": job_id,
             "title": metadata.get("title", "Untitled Meeting"),
             "unknownSpeakers": unknown_speakers,
+            "transcript": transcript,
             "transcriptPreview": transcript[:5] if transcript else [],
             "skip_steps": skip_steps,
             "actions": ["notify_labeling_needed"],

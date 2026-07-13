@@ -124,48 +124,65 @@ class VoiceprintManager:
             # that crashes with AttributeError: 'NoneType' object has no attribute 'eval'.
             device = self._device
 
-            for attempt in range(2):
+            # PyTorch 2.6+ defaults torch.load() to weights_only=True for
+            # security, but pyannote's models were saved with pickle and
+            # require full deserialization. Temporarily relax this.
+            import torch as _torch
+            _orig_load = _torch.load
+            try:
+                def _permissive_load(f, *a, **kw):
+                    kw["weights_only"] = False
+                    return _orig_load(f, *a, **kw)
+                _torch.load = _permissive_load
+
+                hf_token = config.HUGGING_FACE_TOKEN or None
+
+                # Attempt 1: configured device, online
                 try:
-                    hf_token = config.HUGGING_FACE_TOKEN or None
-
-                    if attempt == 1:
-                        # Second attempt: force local cache + CPU
-                        os.environ["HF_HUB_OFFLINE"] = "1"
-                        device = "cpu"
-
                     pyannote_model = Model.from_pretrained(
                         config.EMBEDDING_MODEL,
                         map_location=torch.device(device) if device else None,
-                        strict=False,
                         use_auth_token=hf_token,
                     )
-
-                    if pyannote_model is None:
-                        raise RuntimeError(
-                            f"Model '{config.EMBEDDING_MODEL}' could not be loaded. "
-                            "This is likely a gated model — make sure you have:\n"
-                            f"  1. Visited https://hf.co/{config.EMBEDDING_MODEL} "
-                            "and accepted the user conditions\n"
-                            "  2. Set HUGGING_FACE_TOKEN in your .env file"
-                        )
-
-                    self._embedding_model = Inference(
-                        pyannote_model, window="whole",
-                    )
-                    break  # Success — exit retry loop
-
-                except Exception as _load_err:
-                    if attempt == 0 and is_network_error(_load_err):
-                        print(f"[voiceprint] ⚠️  HuggingFace unreachable ({_load_err}). "
+                except Exception as _first_err:
+                    if is_network_error(_first_err):
+                        # Network issue — fall back to local cache on same device
+                        print(f"[voiceprint] ⚠️  HuggingFace unreachable ({_first_err}). "
                               f"Falling back to local cache...")
-                        continue  # Retry with local cache
-                    else:
-                        if attempt == 1:
-                            raise
-                        # First attempt non-network error: try CPU fallback
-                        print(f"[voiceprint] ⚠️  Model load failed ({_load_err}). "
+                        pyannote_model = Model.from_pretrained(
+                            config.EMBEDDING_MODEL,
+                            map_location=torch.device(device) if device else None,
+                            use_auth_token=hf_token,
+                            local_files_only=True,
+                        )
+                    elif device and device != "cpu":
+                        # Device-level error (e.g. MPS op not supported) — retry on CPU
+                        print(f"[voiceprint] ⚠️  Model load failed on {device} ({_first_err}). "
                               f"Retrying with CPU fallback...")
-                        continue
+                        device = "cpu"
+                        pyannote_model = Model.from_pretrained(
+                            config.EMBEDDING_MODEL,
+                            map_location=torch.device("cpu"),
+                            use_auth_token=hf_token,
+                        )
+                    else:
+                        raise
+
+                if pyannote_model is None:
+                    raise RuntimeError(
+                        f"Model '{config.EMBEDDING_MODEL}' could not be loaded. "
+                        "This is likely a gated model — make sure you have:\n"
+                        f"  1. Visited https://hf.co/{config.EMBEDDING_MODEL} "
+                        "and accepted the user conditions\n"
+                        "  2. Set HUGGING_FACE_TOKEN in your .env file"
+                    )
+
+                self._embedding_model = Inference(
+                    pyannote_model, window="whole",
+                )
+
+            finally:
+                _torch.load = _orig_load
 
             print(f"[voiceprint] Embedding model loaded" +
                   (f" on device='{device}'" if device else ""))
@@ -182,7 +199,7 @@ class VoiceprintManager:
             if duration < MIN_DURATION:
                 mid = (start + end) / 2.0
                 half = MIN_DURATION / 2.0
-                start = mid - half
+                start = max(0.0, mid - half)
                 end = mid + half
                 print(f"[voiceprint] ⚠️  Segment ({segment[0]:.2f}s–{segment[1]:.2f}s, "
                       f"{duration:.2f}s) too short for embedding model. "
