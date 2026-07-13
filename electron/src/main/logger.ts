@@ -97,16 +97,16 @@ const _UUID_RE = /([a-f0-9]{8,}(?:-[a-f0-9]{4}){0,3}[a-f0-9]{4,})/i;
  */
 function _extractJobId(message: string): string | null {
   // Pattern 1: "job <uuid>"  (e.g. "Starting pipeline for job abc123...")
-  let m = message.match(new RegExp(`\\bjob\\s+${_UUID_RE.source}`, 'i'));
+  let m = message.match(new RegExp(`\\bjob\\s+${_UUID_RE.source}`, "i"));
   if (m) return m[1];
 
   // Pattern 2: "job_id=<uuid>"  (e.g. "→ job_id=abc123" or "job_id=abc123 rules=...")
-  m = message.match(new RegExp(`job_id=${_UUID_RE.source}`, 'i'));
+  m = message.match(new RegExp(`job_id=${_UUID_RE.source}`, "i"));
   if (m) return m[1];
 
   // Pattern 3: "/.../<uuid>" in API paths (e.g. "/transcribe/status/abc123" or "/transcribe/cancel/abc123")
   // These appear in messages like "GET /transcribe/status/abc123 → ..." or "POST /transcribe/cancel/abc123 → ..."
-  m = message.match(new RegExp(`/(?:transcribe|agent)/(?:[a-z_]+/)?${_UUID_RE.source}(?:/|\\s|$)`, 'i'));
+  m = message.match(new RegExp(`/(?:transcribe|agent)/(?:[a-z_]+/)?${_UUID_RE.source}(?:/|\\s|$)`, "i"));
   if (m) return m[1];
 
   return null;
@@ -123,27 +123,27 @@ function _extractJobId(message: string): string | null {
  */
 function _detectPipelineEnd(message: string): string | null {
   // Python backend completion: "✅ [PIPELINE] Pipeline complete for job abc123..."
-  let m = message.match(new RegExp(`(?:Pipeline complete|Resumed pipeline complete)\\s+for\\s+job\\s+${_UUID_RE.source}`, 'i'));
+  let m = message.match(new RegExp(`(?:Pipeline complete|Resumed pipeline complete)\\s+for\\s+job\\s+${_UUID_RE.source}`, "i"));
   if (m) return m[1];
 
   // Agent runner completion: "✅ [RUNNER] Job abc12345 marked as complete"
-  m = message.match(new RegExp(`Job\\s+${_UUID_RE.source}\\s+marked\\s+as\\s+complete`, 'i'));
+  m = message.match(new RegExp(`Job\\s+${_UUID_RE.source}\\s+marked\\s+as\\s+complete`, "i"));
   if (m) return m[1];
 
   // Python backend failure: "❌ [pipeline] ERROR in job abc123: ..."
-  m = message.match(new RegExp(`ERROR\\s+in\\s+job\\s+${_UUID_RE.source}`, 'i'));
+  m = message.match(new RegExp(`ERROR\\s+in\\s+job\\s+${_UUID_RE.source}`, "i"));
   if (m) return m[1];
 
   // Agent runner failure: "❌ [RUNNER] Pipeline failed for job abc12345: ..."
-  m = message.match(new RegExp(`Pipeline\\s+failed\\s+for\\s+job\\s+${_UUID_RE.source}`, 'i'));
+  m = message.match(new RegExp(`Pipeline\\s+failed\\s+for\\s+job\\s+${_UUID_RE.source}`, "i"));
   if (m) return m[1];
 
   // Python cancellation: "🛑 [pipeline] Job abc123 task cancelled."
-  m = message.match(new RegExp(`Job\\s+${_UUID_RE.source}\\s+task\\s+cancelled`, 'i'));
+  m = message.match(new RegExp(`Job\\s+${_UUID_RE.source}\\s+task\\s+cancelled`, "i"));
   if (m) return m[1];
 
   // URL-based end markers: "POST /transcribe/complete/<uuid>" or "POST /transcribe/fail/<uuid>"
-  m = message.match(new RegExp(`/(?:transcribe|agent)/(?:complete|fail)/${_UUID_RE.source}`, 'i'));
+  m = message.match(new RegExp(`/(?:transcribe|agent)/(?:complete|fail)/${_UUID_RE.source}`, "i"));
   if (m) return m[1];
 
   return null;
@@ -291,8 +291,6 @@ export function addLog(
       subSource = undefined;
     }
   }
-
-  
 
   const entry: LogEntry = { timestamp, source, subSource, level, message };
   buffer.push(entry);

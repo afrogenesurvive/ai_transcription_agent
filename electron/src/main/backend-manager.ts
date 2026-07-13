@@ -52,15 +52,15 @@ const _UUID_RE = /([a-f0-9]{8,}(?:-[a-f0-9]{4}){0,3}[a-f0-9]{4,})/i;
  */
 function _extractJobIdFromMsg(msg: string): string | undefined {
   // Pattern 1: "job <uuid>" (e.g. "Starting pipeline for job abc123...")
-  let m = msg.match(new RegExp(`\\bjob\\s+${_UUID_RE.source}`, 'i'));
+  let m = msg.match(new RegExp(`\\bjob\\s+${_UUID_RE.source}`, "i"));
   if (m) return m[1];
 
   // Pattern 2: "job_id=<uuid>" (e.g. "→ job_id=abc123" or "job_id=abc123 rules=...")
-  m = msg.match(new RegExp(`job_id=${_UUID_RE.source}`, 'i'));
+  m = msg.match(new RegExp(`job_id=${_UUID_RE.source}`, "i"));
   if (m) return m[1];
 
   // Pattern 3: "/.../<uuid>" in API paths (e.g. "/transcribe/status/abc123")
-  m = msg.match(new RegExp(`/(?:transcribe|agent)/(?:[a-z_]+/)?${_UUID_RE.source}(?:/|\\s|$)`, 'i'));
+  m = msg.match(new RegExp(`/(?:transcribe|agent)/(?:[a-z_]+/)?${_UUID_RE.source}(?:/|\\s|$)`, "i"));
   if (m) return m[1];
 
   return undefined;
