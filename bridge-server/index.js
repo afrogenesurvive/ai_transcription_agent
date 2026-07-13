@@ -69,9 +69,7 @@ snapshotDefaults();
 
 // ── Sanitize (Tier 1 — mandatory for all proxied responses) ──
 
-const MAX_STRING_LENGTH = 10000;
-const MAX_ARRAY_ITEMS = 5000;
-const MAX_OBJECT_KEYS = 500;
+const MAX_STRING_LENGTH = 2000;
 const MAX_NESTING_DEPTH = 5;
 const SENSITIVE_PATTERNS = [
   /\b(?:sk-[A-Za-z0-9]{20,})\b/g,
@@ -87,10 +85,10 @@ function sanitizeValue(data, depth = 0) {
     return s;
   }
   if (typeof data === "number" || typeof data === "boolean" || data === null || data === undefined) return data;
-  if (Array.isArray(data)) return data.slice(0, MAX_ARRAY_ITEMS).map((v) => sanitizeValue(v, depth + 1));
+  if (Array.isArray(data)) return data.slice(0, 100).map((v) => sanitizeValue(v, depth + 1));
   if (typeof data === "object") {
     const result = {};
-    for (const [k, v] of Object.entries(data).slice(0, MAX_OBJECT_KEYS)) {
+    for (const [k, v] of Object.entries(data).slice(0, 200)) {
       result[k] = sanitizeValue(v, depth + 1);
     }
     return result;
@@ -286,7 +284,7 @@ async function dispatch(tool, args) {
     case "transcribe_get_token_usage": {
       const usageResult = await callPython("GET", `/transcribe/usage/${args.jobId}`);
       if (usageResult?.totals) {
-        console.log(`   💰 [USAGE] Token usage fetched for job ${args.jobId?.slice(0, 8) || "?"}: ${usageResult.totals.total_tokens} total tokens`);
+        console.log(`   [USAGE] Token usage fetched for job ${args.jobId?.slice(0, 8) || "?"}: ${usageResult.totals.total_tokens} total tokens`);
       }
       return usageResult;
     }
@@ -294,7 +292,7 @@ async function dispatch(tool, args) {
       const aggResult = await callPython("GET", "/transcribe/usage/aggregate");
       if (aggResult?.totals) {
         console.log(
-          `   💰 [USAGE] Aggregate token usage: ${aggResult.job_count} jobs, ${aggResult.totals.total_tokens} total tokens (${aggResult.totals.prompt_tokens} prompt + ${aggResult.totals.completion_tokens} completion)`,
+          `   [USAGE] Aggregate token usage: ${aggResult.job_count} jobs, ${aggResult.totals.total_tokens} total tokens (${aggResult.totals.prompt_tokens} prompt + ${aggResult.totals.completion_tokens} completion)`,
         );
       }
       return aggResult;
@@ -357,22 +355,6 @@ async function dispatch(tool, args) {
 
     case "storage_clear_logs":
       return await callPython("DELETE", `/storage/logs?log_type=${args.logType || "all"}`);
-
-    // ── Attendee registry ──
-
-    case "transcribe_register_attendees":
-      return await callPython("POST", "/attendees/register", {
-        names: args.names || [],
-        emails: args.emails || [],
-        source: args.source || "new_job_form",
-        job_id: args.jobId || "",
-      });
-
-    case "transcribe_list_attendees":
-      return await callPython("GET", `/attendees?limit=${args.limit ?? 100}`);
-
-    case "transcribe_search_attendees":
-      return await callPython("GET", `/attendees/search?name=${encodeURIComponent(args.name || "")}&limit=${args.limit ?? 50}`);
 
     default:
       throw new Error(`Unknown tool: ${tool}`);

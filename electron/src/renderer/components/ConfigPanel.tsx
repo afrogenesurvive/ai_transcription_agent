@@ -1879,22 +1879,15 @@ The system provides existing memory context at the start of each pipeline run. U
                 <Icon name="memory" size="16" color="accent" /> Memory Context
               </h3>
               <p className="config-field-hint">
-                When enabled, the agent runner fetches existing context from
-                ephemeral memory (action items, decisions, budgets) and semantic
-                memory (similar past meetings) at the start of each pipeline run.
-                Disable to reduce LLM context size and save tokens.
+                When enabled, the agent runner fetches existing context from ephemeral memory (action items, decisions, budgets) and semantic memory
+                (similar past meetings) at the start of each pipeline run. Disable to reduce LLM context size and save tokens.
               </p>
               <div className="config-field">
                 <label className="config-toggle">
                   <input
                     type="checkbox"
                     checked={values.USE_MEMORY_FOR_CONTEXT !== "false"}
-                    onChange={() =>
-                      handleChange(
-                        "USE_MEMORY_FOR_CONTEXT",
-                        values.USE_MEMORY_FOR_CONTEXT === "false" ? "true" : "false",
-                      )
-                    }
+                    onChange={() => handleChange("USE_MEMORY_FOR_CONTEXT", values.USE_MEMORY_FOR_CONTEXT === "false" ? "true" : "false")}
                   />
                   <span className="config-toggle-slider" />
                   <span className="config-toggle-label">

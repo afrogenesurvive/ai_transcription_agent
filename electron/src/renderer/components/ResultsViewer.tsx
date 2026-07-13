@@ -515,7 +515,7 @@ function parseLogLine(raw: string): { timestamp: number; source: string; level: 
   // Detect source
   const srcMatch = raw.match(/\[(python|bridge|agent|main|transcription|usage|ollama)\]/i);
   let source = srcMatch ? srcMatch[1].toLowerCase() : "main";
-  // Also match the 💰 [USAGE] pattern
+  // Also match the [USAGE] pattern
   if (/💰\s*\[usage\]/i.test(raw)) source = "usage";
 
   // Detect level

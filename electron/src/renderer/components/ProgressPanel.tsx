@@ -25,6 +25,8 @@ interface Props {
   diarizationAvailable?: boolean | null;
   /** Set of stage keys (e.g. "agent", "delivery") to show as skipped */
   skippedSteps?: Set<string>;
+  /** Called when the user clicks "New Job" after a failure */
+  onNewJob?: () => void;
 }
 
 /* ── Pipeline stages (non-technical friendly labels) ── */
@@ -127,7 +129,17 @@ function getStageState(
   return "pending";
 }
 
-export default function PipelineProgress({ status, progress, error, titleError, onCancel, cancelling, diarizationAvailable, skippedSteps }: Props) {
+export default function PipelineProgress({
+  status,
+  progress,
+  error,
+  titleError,
+  onCancel,
+  cancelling,
+  diarizationAvailable,
+  skippedSteps,
+  onNewJob,
+}: Props) {
   const [showConfirmCancel, setShowConfirmCancel] = useState(false);
   const pct = Math.round(progress * 100);
   const isFailed = status === "failed";
@@ -290,7 +302,6 @@ export default function PipelineProgress({ status, progress, error, titleError, 
                 className="pp-confirm-stop-btn"
                 onClick={() => {
                   setShowConfirmCancel(false);
-                  onCancel();
                 }}
                 title="Confirm — cancel this job permanently"
                 data-tooltip="Permanently cancel the transcription job">
@@ -309,6 +320,15 @@ export default function PipelineProgress({ status, progress, error, titleError, 
           </div>
           <p className="pp-error-message">{error}</p>
           <p className="pp-error-hint">You can go back and try uploading again, or check the developer logs for details.</p>
+          {onNewJob && (
+            <button
+              className="pp-new-job-btn"
+              onClick={onNewJob}
+              title="Start a new transcription job"
+              data-tooltip="Clear the current failed job and start fresh">
+              <Icon name="add_circle" size="14" /> New Job
+            </button>
+          )}
         </div>
       )}
 

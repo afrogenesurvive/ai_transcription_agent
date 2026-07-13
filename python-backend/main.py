@@ -39,7 +39,7 @@ from models import (
     RefineRequest, SummarizeRequest, LabelRequest, AnalysisRequest, Deliverable,
     MemorySearchRequest, MemorySearchResult,
     EphemeralMemoryItem, EphemeralMemoryQuery, EphemeralMemoryActionResult,
-    SaveMeetingContextRequest, UploadByPathRequest, RegisterAttendeesRequest,
+    SaveMeetingContextRequest, UploadByPathRequest,
 )
 from agent_bridge import AgentBridge
 from semantic_memory import SemanticMemory
@@ -68,7 +68,7 @@ _active_jobs: dict[str, dict] = {}
 async def lifespan(app: FastAPI):
     global uploader, vp_manager, agent_bridge, semantic_memory, ephemeral_memory
     uploader = AudioUploader()
-    vp_manager = VoiceprintManager(device=detect_device())
+    vp_manager = VoiceprintManager()
     agent_bridge = AgentBridge()
     semantic_memory = SemanticMemory()
     ephemeral_memory = EphemeralMemory()
@@ -179,16 +179,6 @@ async def upload_audio(
     print(f"[upload] Received file '{file.filename}' ({len(content)} bytes) → job_id={job_id}")
     print(f"[upload] Metadata: title='{title}', attendees={attendees}, event_type='{event_type}'")
     print(f"[upload] skip_steps={parsed_skip}")
-
-    # Register attendees from the new job form
-    parsed_attendees = json.loads(attendees)
-    if parsed_attendees:
-        ephemeral_memory.register_attendees(
-            parsed_attendees, parsed_emails,
-            source="new_job_form", job_id=job_id,
-        )
-        print(f"[upload] Registered {len(parsed_attendees)} attendee(s) from job form")
-
     _start_pipeline_async(job_id)
     return {"job_id": job_id, "status": "uploaded"}
 
@@ -237,15 +227,6 @@ async def upload_audio_by_path(req: UploadByPathRequest):
     file_size = os.path.getsize(file_path)
     print(f"[upload_by_path] File '{file_path}' ({file_size} bytes) → job_id={job_id}")
     print(f"[upload_by_path] Metadata: title='{req.title}', attendees={req.attendees}")
-
-    # Register attendees from the upload form
-    if req.attendees:
-        ephemeral_memory.register_attendees(
-            req.attendees, req.email_recipients,
-            source="new_job_form", job_id=job_id,
-        )
-        print(f"[upload_by_path] Registered {len(req.attendees)} attendee(s) from job form")
-
     _start_pipeline_async(job_id)
     return {"job_id": job_id, "status": "uploaded", "file_path": file_path}
 
@@ -525,7 +506,7 @@ async def get_aggregate_usage():
 
     # Sort by saved_at descending
     results.sort(key=lambda r: r.get("saved_at", ""), reverse=True)
-    print(f"💰 [USAGE] Aggregate token usage: {len(results)} jobs, {totals['total_tokens']} total tokens (${total_costs['total_cost']:.4f})")
+    print(f"[USAGE] Aggregate token usage: {len(results)} jobs, {totals['total_tokens']} total tokens (${total_costs['total_cost']:.4f})")
     return {"jobs": results, "totals": totals, "costs": total_costs, "job_count": len(results)}
 
 
@@ -546,24 +527,8 @@ async def get_token_usage(job_id: str):
 async def agent_label_speakers(req: LabelRequest):
     names = [f"{l.name} ({l.speaker_id})" for l in req.labels]
     print(f"[api] POST /agent/label_speakers job_id={req.job_id} labels={names}")
-
-    # Save voiceprints (embedding may be None — the LLM doesn't have
-    # access to audio files; real embeddings are extracted in
-    # POST /transcribe/label_and_resume which processes the audio).
-    labeled_names = []
-    labeled_emails = []
     for label in req.labels:
-        email = (label.email or "").strip()
-        vp_manager.save_voiceprint(label.name, email, None)
-        labeled_names.append(label.name)
-        labeled_emails.append(email)
-
-    # Register as attendees (source=manual_labeling via agent)
-    if labeled_names:
-        ephemeral_memory.register_attendees(
-            labeled_names, labeled_emails,
-            source="manual_labeling", job_id=req.job_id,
-        )
+        vp_manager.save_voiceprint(label.name, label.email or "", None)
 
     p = os.path.join(config.STORAGE_PATH, req.job_id, "transcript.json")
     if os.path.exists(p):
@@ -721,14 +686,7 @@ async def memory_ephemeral_save(req: EphemeralMemoryItem):
     try:
         table = req.table
         data = req.data
-        if table == "attendees":
-            names = data.get("names", [])
-            emails = data.get("emails", [])
-            source = data.get("source", "new_job_form")
-            job_id = data.get("job_id", "")
-            ephemeral_memory.register_attendees(names, emails, source=source, job_id=job_id)
-            print(f"[api] Registered {len(names)} attendee(s) from {source}")
-        elif table == "action_items":
+        if table == "action_items":
             items = data.get("items", [])
             ephemeral_memory.save_action_items(
                 data.get("job_id", ""), items, data.get("meeting_title", "")
@@ -982,43 +940,6 @@ async def get_pipeline_log(job_id: str, max_lines: int = 0):
     }
 
 
-# ── Attendee Registry ──
-
-@app.post("/attendees/register")
-async def register_attendees(req: RegisterAttendeesRequest):
-    """Register one or more meeting attendees.
-
-    Sources:
-      - ``new_job_form``    — from the UploadPanel at job creation
-      - ``manual_labeling`` — from the SpeakerLabelModal mid-pipeline
-    """
-    ephemeral_memory.register_attendees(
-        req.names, req.emails, source=req.source, job_id=req.job_id,
-    )
-    print(f"[api] POST /attendees/register → {len(req.names)} attendee(s) registered "
-          f"(source={req.source}, job={req.job_id[:8] if req.job_id else '?'})")
-    return {"success": True, "count": len(req.names)}
-
-
-@app.get("/attendees")
-async def list_attendees(limit: int = 100):
-    """List all registered attendees, newest first."""
-    attendees = ephemeral_memory.list_attendees(limit=limit)
-    print(f"[api] GET /attendees → {len(attendees)} attendee(s)")
-    return {"attendees": attendees}
-
-
-@app.get("/attendees/search")
-async def search_attendees(name: str = "", limit: int = 50):
-    """Search registered attendees by name (substring match)."""
-    if not name:
-        results = ephemeral_memory.list_attendees(limit=limit)
-    else:
-        results = ephemeral_memory.query_attendees(name=name, limit=limit)
-    print(f"[api] GET /attendees/search?name='{name}' → {len(results)} result(s)")
-    return {"attendees": results}
-
-
 # ── Speaker Labeling (pause & resume) ──
 
 @app.get("/transcribe/speaker_clips/{job_id}")
@@ -1138,22 +1059,6 @@ async def label_and_resume(job_id: str, labels: list = Body(...)):
         raise HTTPException(400, "Body must be a JSON array of {speaker_id, name} objects")
 
     print(f"[api] POST /transcribe/label_and_resume/{job_id} labels={[l.get('name', '?') for l in labels]}")
-
-    # Register manually labeled speakers as attendees (source=manual_labeling)
-    labeled_names = []
-    labeled_emails = []
-    for label in labels:
-        name = label.get("name", "").strip()
-        email = label.get("email", "").strip()
-        if name:
-            labeled_names.append(name)
-            labeled_emails.append(email)
-    if labeled_names:
-        ephemeral_memory.register_attendees(
-            labeled_names, labeled_emails,
-            source="manual_labeling", job_id=job_id,
-        )
-        print(f"[api] Registered {len(labeled_names)} attendee(s) from manual labeling")
 
     # Save voiceprints with actual audio embeddings
     diar_data = uploader.load_diarization(job_id)
@@ -1391,18 +1296,13 @@ async def fail_job(job_id: str, error: str = "Processing failed"):
 
 @app.post("/transcribe/complete/{job_id}")
 async def complete_job(job_id: str):
-    """Mark a job as complete. Called by the agent runner when the LLM pipeline finishes successfully.
-
-    Explicitly clears the ``error`` field to prevent stale ML pipeline errors
-    from persisting after successful agent-runner completion (the old
-    ``update_status`` merge behavior leaves old error keys in place).
-    """
+    """Mark a job as complete. Called by the agent runner when the LLM pipeline finishes successfully."""
     s = uploader.get_status(job_id)
     if s["status"] == "not_found":
         raise HTTPException(404, "Job not found")
-    uploader.update_status(job_id, {"status": "complete", "progress": 1.0, "error": None})
+    uploader.update_status(job_id, {"status": "complete", "progress": 1.0})
     _active_jobs.pop(job_id, None)
-    print(f"[api] POST /transcribe/complete/{job_id} → complete (error cleared)")
+    print(f"[api] POST /transcribe/complete/{job_id} → complete")
     return {"job_id": job_id, "status": "complete"}
 
 
@@ -1738,7 +1638,6 @@ async def storage_usage():
 # ── Database browsing (for DevPanel) ──
 
 EPHEMERAL_TABLES = {
-    "attendees": {"label": "Attendees", "columns": ["id", "name", "email", "source", "job_id", "created_at"]},
     "action_items": {"label": "Action Items", "columns": ["id", "job_id", "description", "assignee", "deadline", "status", "priority", "source_meeting", "created_at"]},
     "contacts": {"label": "Contacts", "columns": ["id", "name", "email", "organization", "role", "phone", "source_meeting", "first_mentioned", "last_mentioned"]},
     "budgets": {"label": "Budgets", "columns": ["id", "job_id", "description", "amount", "currency", "category", "source_meeting", "created_at"]},
@@ -2313,23 +2212,6 @@ def _run_pipeline_sync(job_id: str):
         # ── Step 5: Enqueue for agent ──
         jlog.log(f"\n   📨 [PIPELINE] Step 5/5: Enqueueing for agent runner...")
         if _check_cancelled(job_id): return
-
-        # Guard: if the transcript is empty (no words transcribed), skip
-        # LLM processing entirely — there's nothing to refine/summarize/analyze.
-        # This prevents wasting tokens on empty transcripts when ASR fails.
-        total_words = sum(len(seg.get("text", "").split()) for seg in aligned)
-        if total_words == 0:
-            jlog.log(f"\n   ⚠️  [PIPELINE] Empty transcript ({len(aligned)} segments, 0 words) — "
-                  f"skipping LLM processing. ASR may have failed.")
-            _update_active(job_id, "transcribed_empty", 0.95)
-            uploader.update_status(job_id, {
-                "status": "complete",
-                "progress": 1.0,
-                "error": None,  # Clear any previous ML error so stale errors don't persist
-            })
-            jlog.log(f"[pipeline] Job marked complete with empty transcript — no agent event enqueued")
-            return
-
         unknown = match_result.get("unknown", [])
         if unknown:
             for u in unknown:

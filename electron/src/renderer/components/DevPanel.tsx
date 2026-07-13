@@ -149,7 +149,7 @@ function LiveLogsTab() {
   function entryHasTag(entry: LogEntry, tag: string): boolean {
     if (tag === "all") return true;
     if (entry.message.includes(`[${tag}]`) || entry.message.includes(`[${tag.toUpperCase()}]`)) return true;
-    // Also match the 💰 [USAGE] format
+    // Also match the [USAGE] format
     if (tag === "usage" && /💰\s*\[usage\]/i.test(entry.message)) return true;
     return false;
   }
@@ -2319,9 +2319,12 @@ function LogFilesTab() {
   useEffect(() => {
     const api = (window as any).useApi?.();
     if (api?.getHistory) {
-      api.getHistory().then((r: any) => {
-        if (r?.jobs) setJobs(r.jobs);
-      }).catch(() => {});
+      api
+        .getHistory()
+        .then((r: any) => {
+          if (r?.jobs) setJobs(r.jobs);
+        })
+        .catch(() => {});
     }
   }, []);
 
@@ -2372,26 +2375,29 @@ function LogFilesTab() {
   }, [selectedJobId, fetchLog]);
 
   // Sidebar drag resize
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    resizingRef.current = true;
-    document.body.classList.add("dev-panel-sidebar-resizing");
-    const startX = e.clientX;
-    const startW = sidebarWidth;
-    const onMove = (ev: MouseEvent) => {
-      if (!resizingRef.current) return;
-      const newW = Math.max(160, Math.min(600, startW + (ev.clientX - startX)));
-      setSidebarWidth(newW);
-    };
-    const onUp = () => {
-      resizingRef.current = false;
-      document.body.classList.remove("dev-panel-sidebar-resizing");
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-    };
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  }, [sidebarWidth]);
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      resizingRef.current = true;
+      document.body.classList.add("dev-panel-sidebar-resizing");
+      const startX = e.clientX;
+      const startW = sidebarWidth;
+      const onMove = (ev: MouseEvent) => {
+        if (!resizingRef.current) return;
+        const newW = Math.max(160, Math.min(600, startW + (ev.clientX - startX)));
+        setSidebarWidth(newW);
+      };
+      const onUp = () => {
+        resizingRef.current = false;
+        document.body.classList.remove("dev-panel-sidebar-resizing");
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    },
+    [sidebarWidth],
+  );
 
   // Filter jobs by search
   const filteredJobs = jobs.filter((j) => {
@@ -2410,21 +2416,22 @@ function LogFilesTab() {
   const renderLogLine = (line: string, i: number) => {
     const ts = parseLogTimestamp(line);
     const source = parseLogSource(line);
-    const level =
-      /\berror\b/i.test(line) ? "error" :
-      /\bwarn\b/i.test(line) ? "warn" :
-      /\bdebug\b/i.test(line) ? "debug" : "info";
+    const level = /\berror\b/i.test(line) ? "error" : /\bwarn\b/i.test(line) ? "warn" : /\bdebug\b/i.test(line) ? "debug" : "info";
     const sourceColor = SOURCE_COLORS[source] || SOURCE_COLORS.main;
     const sourceLabel = source.replace(/_/g, " ").toUpperCase().slice(0, 8);
 
     return (
       <div key={i} className="rv-log-line--parsed">
         {ts && <span className="rv-log-line-time">{ts}</span>}
-        {!ts && <span className="rv-log-line-time" style={{ opacity: 0.2 }}>──</span>}
-        <span className="rv-log-line-source" style={{ color: sourceColor }}>{sourceLabel}</span>
-        <span className={`rv-log-line-level rv-log-line-level--${level}`}>
-          {level === "error" ? "✖" : level === "warn" ? "⚠" : ""}
+        {!ts && (
+          <span className="rv-log-line-time" style={{ opacity: 0.2 }}>
+            ──
+          </span>
+        )}
+        <span className="rv-log-line-source" style={{ color: sourceColor }}>
+          {sourceLabel}
         </span>
+        <span className={`rv-log-line-level rv-log-line-level--${level}`}>{level === "error" ? "✖" : level === "warn" ? "⚠" : ""}</span>
         <span className="rv-log-line-text">{line}</span>
       </div>
     );
@@ -2445,23 +2452,18 @@ function LogFilesTab() {
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
-          <span className="dev-panel-file-filter-count">{filteredJobs.length} job{filteredJobs.length !== 1 ? "s" : ""}</span>
+          <span className="dev-panel-file-filter-count">
+            {filteredJobs.length} job{filteredJobs.length !== 1 ? "s" : ""}
+          </span>
         </div>
         <div style={{ overflowY: "auto", flex: 1 }} ref={listRef}>
-          {filteredJobs.length === 0 && (
-            <div className="dev-panel-empty">
-              {searchQuery ? "No matching jobs" : "No jobs yet"}
-            </div>
-          )}
+          {filteredJobs.length === 0 && <div className="dev-panel-empty">{searchQuery ? "No matching jobs" : "No jobs yet"}</div>}
           {filteredJobs.map((job) => (
             <div
               key={job.job_id}
               className={`dev-panel-file-item ${selectedJobId === job.job_id ? "dev-panel-file-item--active" : ""}`}
-              onClick={() => setSelectedJobId(job.job_id)}
-            >
-              <span className="dev-panel-file-name">
-                {job.title || "Untitled"}
-              </span>
+              onClick={() => setSelectedJobId(job.job_id)}>
+              <span className="dev-panel-file-name">{job.title || "Untitled"}</span>
               <span className="dev-panel-file-meta">
                 {job.status} · {job.attendees?.length || 0} attendee{(job.attendees?.length || 0) !== 1 ? "s" : ""}
               </span>
@@ -2478,12 +2480,8 @@ function LogFilesTab() {
 
       {/* Right panel — log details */}
       <div className="dev-panel-file-content" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        {!selectedJobId && (
-          <div className="dev-panel-empty">Select a job from the list to view its log files</div>
-        )}
-        {selectedJobId && loading && (
-          <div className="dev-panel-empty">Loading log files…</div>
-        )}
+        {!selectedJobId && <div className="dev-panel-empty">Select a job from the list to view its log files</div>}
+        {selectedJobId && loading && <div className="dev-panel-empty">Loading log files…</div>}
         {selectedJobId && error && (
           <div className="dev-panel-empty" style={{ color: "var(--red)" }}>
             <Icon name="warning" size="14" color="red" /> {error}
@@ -2492,16 +2490,12 @@ function LogFilesTab() {
         {selectedJobId && !loading && !error && (
           <>
             <div className="rv-logs-toolbar" style={{ flexShrink: 0 }}>
-              <span className="rv-logs-toolbar-title">
-                Logs: {selectedJob?.title || selectedJobId?.slice(0, 8)}
+              <span className="rv-logs-toolbar-title">Logs: {selectedJob?.title || selectedJobId?.slice(0, 8)}</span>
+              <span className="rv-logs-filter-count">
+                {logLines.length} line{logLines.length !== 1 ? "s" : ""}
               </span>
-              <span className="rv-logs-filter-count">{logLines.length} line{logLines.length !== 1 ? "s" : ""}</span>
               {logLines.length > 0 && (
-                <button
-                  className="dev-panel-btn"
-                  onClick={() => setLogLines([])}
-                  title="Clear displayed logs"
-                >
+                <button className="dev-panel-btn" onClick={() => setLogLines([])} title="Clear displayed logs">
                   Clear
                 </button>
               )}

@@ -159,13 +159,8 @@ async function processEvent(event) {
   // If the ML pipeline failed (no transcript produced), skip LLM processing
   // entirely to avoid wasting tokens on empty content. The job is marked as
   // complete with a warning so the frontend knows there's nothing to show.
-  const transcriptHasContent = transcript.some(
-    (seg) => seg.text && seg.text.trim().length > 0,
-  );
-  if (
-    !transcriptHasContent &&
-    (event.type === "ready_for_processing" || event.type === "labeling_needed")
-  ) {
+  const transcriptHasContent = transcript.some((seg) => seg.text && seg.text.trim().length > 0);
+  if (!transcriptHasContent && (event.type === "ready_for_processing" || event.type === "labeling_needed")) {
     console.log(`   ⏭️  [RUNNER] Empty transcript — skipping LLM processing (event.type=${event.type})`);
     console.log(`   ⏭️  [RUNNER]   Transcript has ${transcript.length} segment(s), 0 words of text`);
     logAction({ eventId, eventType: event.type, action: "skipped", detail: "Empty transcript — no LLM processing needed" });
@@ -436,7 +431,7 @@ async function processEvent(event) {
       if (existing.steps?.length) {
         existingSteps = existing.steps;
         console.log(`   💰 [RUNNER] Loaded ${existingSteps.length} existing token usage steps — accumulating across retries`);
-        console.log(`   💰 [USAGE] Job ${jobId?.slice(0, 8) || "???"}: loaded ${existingSteps.length} existing usage steps (retry accumulation)`);
+        console.log(`   [USAGE] Job ${jobId?.slice(0, 8) || "???"}: loaded ${existingSteps.length} existing usage steps (retry accumulation)`);
       }
     } catch (err) {
       console.log(`   ⚠️  [RUNNER] Could not read existing usage.json: ${err.message}`);
@@ -538,7 +533,7 @@ async function processEvent(event) {
       console.log(
         `   💰 [RUNNER] Tracked usage for step ${step} (${decision.name}): ${stepUsage.total_tokens} tokens (prompt: ${stepUsage.prompt_tokens}, completion: ${stepUsage.completion_tokens})`,
       );
-      console.log(`   💰 [USAGE] Step ${step} (${decision.name}): ${stepUsage.total_tokens} tokens`);
+      console.log(`   [USAGE] Step ${step} (${decision.name}): ${stepUsage.total_tokens} tokens`);
     } else {
       console.log(`   ⚠️  [RUNNER] No usage data from LLM at step ${step} — decision.usage is ${JSON.stringify(decision?.usage)}`);
     }
@@ -783,7 +778,7 @@ async function processEvent(event) {
         `   💰 [RUNNER] Token usage saved: ${totalTokens.toLocaleString()} total tokens across ${allSteps.length} steps (${tokenUsage.length} new + ${existingSteps.length} existing)`,
       );
       console.log(
-        `   💰 [USAGE] Token usage saved for job ${traceTag}: ${totalTokens.toLocaleString()} total tokens (${allSteps.length} steps, ${tokenUsage.length} new)`,
+        `   [USAGE] Token usage saved for job ${traceTag}: ${totalTokens.toLocaleString()} total tokens (${allSteps.length} steps, ${tokenUsage.length} new)`,
       );
     } catch (err) {
       console.log(`   ⚠️  [RUNNER] Failed to save token usage: ${err.message}`);

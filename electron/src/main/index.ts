@@ -69,7 +69,7 @@ import {
   ollamaStartedByUs,
   stopOllamaServer,
 } from "./backend-manager";
-import { subscribe, getLogs, clearLogs, addLog, setStorageBase, listJobLogFiles, readLogFile } from "./logger";
+import { subscribe, getLogs, clearLogs, addLog, setStorageBase, setCurrentJobId, listJobLogFiles, readLogFile } from "./logger";
 import { getConfig, getChildEnv, saveConfig, checkConfig, getConfigWithSources } from "./config";
 import { startAutoUpdater, stopAutoUpdater, registerAutoUpdateIpc, getUpdateState, checkAndUpdate } from "./auto-updater";
 import { uninstall } from "./cleanup";
@@ -367,12 +367,12 @@ ipcMain.handle("logs:clear", () => {
 
 ipcMain.handle("config:get", () => {
   const cfg = getConfig();
-  addLog("main", "info", "Config retrieved");
+  addLog("main", "info", "[config] retrieved");
   return cfg;
 });
 
 ipcMain.handle("config:save", async (_event, values: Record<string, string>) => {
-  addLog("main", "info", "Config saving...");
+  addLog("main", "info", "[config] saving...");
   const updatedConfig = saveConfig(values);
 
   // Check what changed
@@ -439,13 +439,13 @@ ipcMain.handle("api:getAggregateUsage", async () => {
     });
     if (res.ok) {
       const data = await res.json();
-      addLog("main", "info", `💰 [USAGE] Aggregate token usage fetched: ${data.job_count} jobs, ${data.totals?.total_tokens || 0} total tokens`);
+      addLog("main", "info", `[USAGE] Aggregate token usage fetched: ${data.job_count} jobs, ${data.totals?.total_tokens || 0} total tokens`);
       return data;
     }
-    addLog("main", "warn", `💰 [USAGE] Aggregate token usage fetch failed: bridge returned ${res.status}`);
+    addLog("main", "warn", `[USAGE] Aggregate token usage fetch failed: bridge returned ${res.status}`);
     return { error: `Bridge returned ${res.status}` };
   } catch (err: any) {
-    addLog("main", "warn", `💰 [USAGE] Aggregate token usage fetch failed: ${err.message}`);
+    addLog("main", "warn", `[USAGE] Aggregate token usage fetch failed: ${err.message}`);
     return { error: `Bridge unreachable: ${err.message}` };
   }
 });
@@ -456,7 +456,7 @@ ipcMain.handle("api:checkDeepSeekBalance", async () => {
   const cfg = getConfig();
   const apiKey = cfg.DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY || "";
   if (!apiKey) {
-    addLog("main", "warn", "💰 [USAGE] Credit balance check skipped — no API key configured");
+    addLog("main", "warn", "[USAGE] Credit balance check skipped — no API key configured");
     return { available: false, balance: null, error: "No API key configured" };
   }
   try {
@@ -466,7 +466,7 @@ ipcMain.handle("api:checkDeepSeekBalance", async () => {
     });
     if (!res.ok) {
       const text = await res.text().catch(() => "Unknown");
-      addLog("main", "warn", `💰 [USAGE] Credit balance check failed: API Error ${res.status}`);
+      addLog("main", "warn", `[USAGE] Credit balance check failed: API Error ${res.status}`);
       return { available: false, balance: null, error: `API Error ${res.status}: ${text}` };
     }
     const data = await res.json();
@@ -474,14 +474,14 @@ ipcMain.handle("api:checkDeepSeekBalance", async () => {
     //   { balance_infos: [{ total_balance: "12.34", topped_up_balance: "10.00", grant_balance: "2.34" }], is_available: true }
     // Extract total_balance from the first balance_info entry (fall back to flat `balance` for older API versions).
     const balance = data.balance_infos?.[0]?.total_balance ?? data.balance ?? null;
-    addLog("main", "info", `💰 [USAGE] Credit balance checked: $${balance || "0"} (available: ${data.is_available ?? true})`);
+    addLog("main", "info", `[USAGE] Credit balance checked: $${balance || "0"} (available: ${data.is_available ?? true})`);
     return {
       available: data.is_available ?? true,
       balance,
       error: null,
     };
   } catch (err: any) {
-    addLog("main", "warn", `💰 [USAGE] Credit balance check failed: ${err.message}`);
+    addLog("main", "warn", `[USAGE] Credit balance check failed: ${err.message}`);
     return { available: false, balance: null, error: err.message };
   }
 });
@@ -489,7 +489,7 @@ ipcMain.handle("api:checkDeepSeekBalance", async () => {
 // ── Config Export / Import IPC ──
 
 ipcMain.handle("config:export", async () => {
-  addLog("main", "info", "Config export requested");
+  addLog("main", "info", "[config] export requested");
   try {
     // Read user config file
     const userDataPath = app.getPath("userData");
@@ -526,7 +526,7 @@ ipcMain.handle("config:export", async () => {
     });
 
     if (result.canceled || !result.filePath) {
-      addLog("main", "info", "Config export cancelled by user");
+      addLog("main", "info", "[config] export cancelled by user");
       return { success: false, cancelled: true };
     }
 
@@ -540,7 +540,7 @@ ipcMain.handle("config:export", async () => {
 });
 
 ipcMain.handle("config:import", async () => {
-  addLog("main", "info", "Config import requested");
+  addLog("main", "info", "[config] import requested");
   try {
     // Check for active jobs before allowing import
     let hasActiveJobs = false;
@@ -574,7 +574,7 @@ ipcMain.handle("config:import", async () => {
     });
 
     if (result.canceled || result.filePaths.length === 0) {
-      addLog("main", "info", "Config import cancelled by user");
+      addLog("main", "info", "[config] import cancelled by user");
       return { success: false, cancelled: true };
     }
 
@@ -1260,7 +1260,7 @@ app.whenReady().then(async () => {
       const msg = `Config incomplete — agent runner deferred. Missing: ${cfg.missing.join(", ")}`;
       console.log(`[startup] ${msg}`);
       addLog("main", "warn", msg);
-      mainWindow?.webContents.send("notification", "Config needed — enter API key to start agent");
+      mainWindow?.webContents.send("notification", "[config] needed — enter API key to start agent");
     }
   } catch (err: any) {
     const msg = `Failed to start backend: ${err.message}`;

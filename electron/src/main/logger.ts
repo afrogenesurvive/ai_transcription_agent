@@ -33,7 +33,7 @@ export interface LogFileInfo {
   source: "primary" | "mirror" | "job";
 }
 
-const MAX_ENTRIES = 2000;
+const MAX_ENTRIES = 50000;
 const buffer: LogEntry[] = [];
 let subscribers: Array<(entry: LogEntry) => void> = [];
 
@@ -47,6 +47,24 @@ const jobLogs = new Map<string, JobLogStream>();
 
 // Storage base path — set once during app startup
 let _storageBase: string | null = null;
+
+// Tracks the most recently seen active job ID so subsequent log entries
+// without an explicit jobId can still be written to the right job's log.
+let _currentJobId: string | null = null;
+
+/**
+ * Set or clear the "current" job ID. The logger remembers this so that
+ * subsequent addLog() calls without an explicit jobId will still write to
+ * the active job's pipeline.log. Call with null to clear when the job ends.
+ */
+export function setCurrentJobId(jobId: string | null): void {
+  _currentJobId = jobId;
+}
+
+/** Get the currently tracked job ID (if any). */
+export function getCurrentJobId(): string | null {
+  return _currentJobId;
+}
 
 /**
  * Set the storage base directory (e.g. <userData>/storage).
@@ -62,19 +80,35 @@ export function getStorageBase(): string | null {
 }
 
 /**
- * Extract a job ID from a log message by looking for common patterns:
- *   "Starting pipeline for job <uuid>" — Python backend
- *   "ERROR in job <uuid>" — Python backend
- *   "Job <uuid> task cancelled" — Python backend
- *   "Pipeline complete for job <uuid>" — Python backend
- *   "Processing event <id> for job <id>" — agent runner
+ * Shared UUID/hex-string capture pattern.
+ * Matches full UUIDs (550e8400-e29b-41d4-a716-446655440000) and bare hex strings (8+ chars).
+ */
+const _UUID_RE = /([a-f0-9]{8,}(?:-[a-f0-9]{4}){0,3}[a-f0-9]{4,})/i;
+
+/**
+ * Extract a job ID from a log message by trying multiple patterns:
+ *   "job <uuid>"               — Pipeline start/complete/fail messages
+ *   "job_id=<uuid>"             — Upload messages, agent tool calls
+ *   "/transcribe/.../<uuid>"    — API endpoint logs
+ *   "/agent/.../<uuid>"         — Agent API endpoint logs
+ *   "/label_and_resume/<uuid>"  — Label and resume endpoint
  *
  * Returns the full UUID or hex string, or null if no job ID found.
  */
 function _extractJobId(message: string): string | null {
-  // Match "job <uuid-like>" where uuid-like can be a full UUID or hex string
-  const match = message.match(/\bjob\s+([a-f0-9]{8,}(?:-[a-f0-9]{4}){0,3}[a-f0-9]{4,})/i);
-  if (match) return match[1];
+  // Pattern 1: "job <uuid>"  (e.g. "Starting pipeline for job abc123...")
+  let m = message.match(new RegExp(`\\bjob\\s+${_UUID_RE.source}`, 'i'));
+  if (m) return m[1];
+
+  // Pattern 2: "job_id=<uuid>"  (e.g. "→ job_id=abc123" or "job_id=abc123 rules=...")
+  m = message.match(new RegExp(`job_id=${_UUID_RE.source}`, 'i'));
+  if (m) return m[1];
+
+  // Pattern 3: "/.../<uuid>" in API paths (e.g. "/transcribe/status/abc123" or "/transcribe/cancel/abc123")
+  // These appear in messages like "GET /transcribe/status/abc123 → ..." or "POST /transcribe/cancel/abc123 → ..."
+  m = message.match(new RegExp(`/(?:transcribe|agent)/(?:[a-z_]+/)?${_UUID_RE.source}(?:/|\\s|$)`, 'i'));
+  if (m) return m[1];
+
   return null;
 }
 
@@ -85,27 +119,32 @@ function _extractJobId(message: string): string | null {
  * Handles patterns from:
  *   - Python backend: "Pipeline complete for job <uuid>", "ERROR in job <uuid>"
  *   - Agent runner:  "Job <short_id> marked as complete", "Pipeline failed for job <short_id>"
+ *   - Also matches "complete/<uuid>" and "fail/<uuid>" URL patterns
  */
 function _detectPipelineEnd(message: string): string | null {
   // Python backend completion: "✅ [PIPELINE] Pipeline complete for job abc123..."
-  const completePy = message.match(/(?:Pipeline complete|Resumed pipeline complete)\s+for\s+job\s+([a-f0-9]{8,}(?:-[a-f0-9]{4}){0,3}[a-f0-9]{4,})/i);
-  if (completePy) return completePy[1];
+  let m = message.match(new RegExp(`(?:Pipeline complete|Resumed pipeline complete)\\s+for\\s+job\\s+${_UUID_RE.source}`, 'i'));
+  if (m) return m[1];
 
   // Agent runner completion: "✅ [RUNNER] Job abc12345 marked as complete"
-  const completeAr = message.match(/Job\s+([a-f0-9]{8,}(?:-[a-f0-9]{4}){0,3}[a-f0-9]{4,})\s+marked\s+as\s+complete/i);
-  if (completeAr) return completeAr[1];
+  m = message.match(new RegExp(`Job\\s+${_UUID_RE.source}\\s+marked\\s+as\\s+complete`, 'i'));
+  if (m) return m[1];
 
   // Python backend failure: "❌ [pipeline] ERROR in job abc123: ..."
-  const failPy = message.match(/ERROR\s+in\s+job\s+([a-f0-9]{8,}(?:-[a-f0-9]{4}){0,3}[a-f0-9]{4,})/i);
-  if (failPy) return failPy[1];
+  m = message.match(new RegExp(`ERROR\\s+in\\s+job\\s+${_UUID_RE.source}`, 'i'));
+  if (m) return m[1];
 
   // Agent runner failure: "❌ [RUNNER] Pipeline failed for job abc12345: ..."
-  const failAr = message.match(/Pipeline\s+failed\s+for\s+job\s+([a-f0-9]{8,}(?:-[a-f0-9]{4}){0,3}[a-f0-9]{4,})/i);
-  if (failAr) return failAr[1];
+  m = message.match(new RegExp(`Pipeline\\s+failed\\s+for\\s+job\\s+${_UUID_RE.source}`, 'i'));
+  if (m) return m[1];
 
   // Python cancellation: "🛑 [pipeline] Job abc123 task cancelled."
-  const cancel = message.match(/Job\s+([a-f0-9]{8,}(?:-[a-f0-9]{4}){0,3}[a-f0-9]{4,})\s+task\s+cancelled/i);
-  if (cancel) return cancel[1];
+  m = message.match(new RegExp(`Job\\s+${_UUID_RE.source}\\s+task\\s+cancelled`, 'i'));
+  if (m) return m[1];
+
+  // URL-based end markers: "POST /transcribe/complete/<uuid>" or "POST /transcribe/fail/<uuid>"
+  m = message.match(new RegExp(`/(?:transcribe|agent)/(?:complete|fail)/${_UUID_RE.source}`, 'i'));
+  if (m) return m[1];
 
   return null;
 }
@@ -236,13 +275,33 @@ export function addLog(
     }
   }
 
+  // console.log("Live Log Debug!!!!", {
+  //   source,
+  //   subSource,
+  //   msg_substring: message.substring(0, 15),
+  //   level,
+  // });
+
+  if (subSource === undefined || subSource === null || subSource.trim() === "") {
+    const firstBracketIndex = message.indexOf("[");
+    const firstClosingBracketIndex = message.indexOf("]");
+    if (firstBracketIndex !== -1 && firstClosingBracketIndex !== -1 && firstClosingBracketIndex > firstBracketIndex) {
+      subSource = message.substring(firstBracketIndex + 1, firstClosingBracketIndex).trim();
+    } else {
+      subSource = undefined;
+    }
+  }
+
+  
+
   const entry: LogEntry = { timestamp, source, subSource, level, message };
   buffer.push(entry);
   if (buffer.length > MAX_ENTRIES) buffer.shift();
 
   // ── Write to per-job pipeline.log ──
-  // If no explicit jobId, try to extract one from the message text.
-  const logJobId = jobId || _extractJobId(message);
+  // Priority: explicit jobId > _currentJobId (tracked active job) > extracted from message text
+  const logJobId = jobId || _currentJobId || _extractJobId(message);
+
   if (logJobId) {
     // Check if this message signals pipeline end — close the log if so
     const endJobId = _detectPipelineEnd(message);
@@ -252,16 +311,25 @@ export function addLog(
       if (stream) {
         const timeStr = new Date(timestamp).toISOString();
         const subTag = subSource ? `[${subSource}] ` : "";
-        _writeToJobLog(endJobId, `[${timeStr}] [${source}] [${level}] ${subTag}${message}`);
+        _writeToJobLog(endJobId, `[${timeStr}] [${source}] [${subTag}] [${level}] ${message}`);
       }
       closeJobLog(endJobId);
+      // Clear current job tracking when the pipeline ends
+      if (_currentJobId === endJobId) {
+        _currentJobId = null;
+      }
     } else {
       // Normal entry — write to job log
       const stream = _getOrCreateJobStream(logJobId);
       if (stream) {
         const timeStr = new Date(timestamp).toISOString();
         const subTag = subSource ? `[${subSource}] ` : "";
-        _writeToJobLog(logJobId, `[${timeStr}] [${source}] [${level}] ${subTag}${message}`);
+        _writeToJobLog(logJobId, `[${timeStr}] [${source}] [${subTag}] [${level}] ${message}`);
+      }
+      // Track this as the current active job if we don't already have one
+      // (ensures subsequent logs without explicit jobId still go to this job)
+      if (!_currentJobId) {
+        _currentJobId = logJobId;
       }
     }
   }

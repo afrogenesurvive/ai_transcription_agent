@@ -674,6 +674,11 @@ export default function App() {
                                 cancelling={cancelling}
                                 diarizationAvailable={diarizationAvailable}
                                 skippedSteps={computeSkippedStages(statusData)}
+                                onNewJob={() => {
+                                  setShowNewForm(true);
+                                  setSidebarView("current");
+                                  setShowHistory(false);
+                                }}
                               />
                             )}
 

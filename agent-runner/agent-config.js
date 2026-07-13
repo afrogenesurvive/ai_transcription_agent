@@ -87,7 +87,8 @@ const FALLBACK_TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        jobId: { type: "string" }, names: { type: "array", items: { type: "string" } },
+        jobId: { type: "string" },
+        names: { type: "array", items: { type: "string" } },
         emails: { type: "array", items: { type: "string" } },
         source: { type: "string", enum: ["new_job_form", "manual_labeling"], default: "manual_labeling" },
       },
@@ -97,13 +98,15 @@ const FALLBACK_TOOLS = [
   {
     name: "transcribe_list_attendees",
     description: "List all registered attendees across all meetings, newest first.",
-    terminal: false, handler: "bridge",
+    terminal: false,
+    handler: "bridge",
     inputSchema: { type: "object", properties: { limit: { type: "number", default: 100 } } },
   },
   {
     name: "transcribe_search_attendees",
     description: "Search registered attendees by name substring.",
-    terminal: false, handler: "bridge",
+    terminal: false,
+    handler: "bridge",
     inputSchema: {
       type: "object",
       properties: { name: { type: "string" }, limit: { type: "number", default: 50 } },
@@ -221,8 +224,10 @@ const FALLBACK_PIPELINE = {
     transcribe_save_context: "Next: Call transcribe_prepare_delivery to package results for delivery.",
     transcribe_prepare_delivery: "Next: Deliver results using send_delivery_email, save_to_drive, or create_trello_action_items.",
     transcribe_label_speaker: "Next: If more unknown speakers remain, call transcribe_label_speaker again; otherwise the pipeline is complete.",
-    transcribe_register_attendees: "Attendees registered. Use transcribe_search_attendees to verify or find existing attendees before registering duplicates.",
-    transcribe_list_attendees: "Use to see the full attendee registry. Cross-reference with voiceprints via matching email addresses or name lookups.",
+    transcribe_register_attendees:
+      "Attendees registered. Use transcribe_search_attendees to verify or find existing attendees before registering duplicates.",
+    transcribe_list_attendees:
+      "Use to see the full attendee registry. Cross-reference with voiceprints via matching email addresses or name lookups.",
     transcribe_search_attendees: "Search results returned. Use transcribe_register_attendees to add new attendees if the person isn't found.",
   },
   event_templates: {
