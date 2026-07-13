@@ -821,6 +821,13 @@ function ensurePerfSampler() {
       if (!res.ok) return;
       const data = await res.json();
       const jobs: Array<{ job_id: string; status: string; progress: number }> = data.active_jobs || [];
+
+      if (jobs.length > 0) {
+        setCurrentJobId(jobs[0].job_id);
+      } else {
+        setCurrentJobId(null);
+      }
+
       if (jobs.length === 0) return;
 
       // Capture pidusage for all child processes

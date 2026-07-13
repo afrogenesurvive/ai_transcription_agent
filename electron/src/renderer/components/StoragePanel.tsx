@@ -1,9 +1,9 @@
 /**
- * StoragePanel — disk usage breakdown view + developer log management section.
+ * StoragePanel — disk usage breakdown view + developer data management section.
  *
- * Shows a visual breakdown of storage consumption across five categories.
- * Below the breakdown, a developer section allows wiping JSONL log files
- * in two flavors: all logs or error-only logs (with a prominent warning).
+ * Shows a visual breakdown of storage consumption across six categories.
+ * Below the breakdown, a developer section allows clearing logs, job history,
+ * semantic memory (ChromaDB), and ephemeral/voiceprint databases.
  */
 
 import React, { useState, useEffect, useCallback } from "react";
@@ -63,11 +63,11 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Log deletion state
+  // Developer section — generic clear actions
   const [showDevSection, setShowDevSection] = useState(false);
-  const [confirmLogAction, setConfirmLogAction] = useState<"all" | "error" | "all_including_errors" | null>(null);
-  const [deletingLogs, setDeletingLogs] = useState(false);
-  const [logDeleteResult, setLogDeleteResult] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{ type: string; label: string; description: string; bridgeTool: string; bridgeArgs?: Record<string, any> } | null>(null);
+  const [processingAction, setProcessingAction] = useState<string | null>(null);
+  const [actionResult, setActionResult] = useState<string | null>(null);
 
   const fetchUsage = useCallback(async () => {
     setLoading(true);
@@ -92,23 +92,23 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
     fetchUsage();
   }, [fetchUsage, refreshTrigger]);
 
-  const handleDeleteLogs = useCallback(
-    async (logType: "all" | "error" | "all_including_errors") => {
-      setConfirmLogAction(null);
-      setDeletingLogs(true);
-      setLogDeleteResult(null);
+  const handleClearAction = useCallback(
+    async (action: { type: string; label: string; description: string; bridgeTool: string; bridgeArgs?: Record<string, any> }) => {
+      setConfirmAction(null);
+      setProcessingAction(action.type);
+      setActionResult(null);
       try {
-        const result = await callBridge("storage_clear_logs", { logType });
-        const msg = result.message || `Deleted ${result.deleted} log file(s)${result.errors ? ` (${result.errors} error(s))` : ""}`;
-        setLogDeleteResult(msg);
-        onNotify?.(`${msg}`);
+        const result = await callBridge(action.bridgeTool, action.bridgeArgs || {});
+        const msg = result.message || "Cleared successfully";
+        setActionResult(msg);
+        onNotify?.(`${action.label}: ${msg}`);
         // Refresh storage usage to reflect the change
         fetchUsage();
       } catch (err: any) {
-        setLogDeleteResult(`Error: ${err.message}`);
-        onNotify?.(`Log deletion failed: ${err.message}`);
+        setActionResult(`Error: ${err.message}`);
+        onNotify?.(`${action.label} failed: ${err.message}`);
       } finally {
-        setDeletingLogs(false);
+        setProcessingAction(null);
       }
     },
     [fetchUsage, onNotify],
@@ -287,77 +287,129 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
               <button
                 className="storage-dev-toggle"
                 onClick={() => setShowDevSection((v) => !v)}
-                title="Toggle developer log management section"
-                data-tooltip="Show/hide the developer section for managing agent trace log files">
+                title="Toggle developer section"
+                data-tooltip="Show/hide the developer section for managing storage data">
                 <span className="storage-dev-toggle-icon">
                   {showDevSection ? <Icon name="expand_more" size="14" /> : <Icon name="chevron_right" size="14" />}
                 </span>
                 <span className="storage-dev-toggle-label">
-                  <Icon name="terminal" size="14" color="accent" /> Developer: Log File Management
+                  <Icon name="terminal" size="14" color="accent" /> Developer
                 </span>
               </button>
 
               {showDevSection && (
                 <div className="storage-dev-content">
                   <p className="storage-dev-description">
-                    Manage <code>.jsonl</code> log files from the agent runner. These files contain per-event traces of pipeline execution. Deleting
-                    them is irreversible.
+                    Destructive actions to clear stored data. These operations are irreversible.
                   </p>
 
-                  {/* Non-error log deletion — preserves error logs */}
+                  {/* Clear all logs */}
                   <div className="storage-log-action">
                     <div className="storage-log-action-info">
                       <strong>
-                        <Icon name="delete" size="14" color="red" /> Delete All Log Files (keep errors)
+                        <Icon name="delete" size="14" color="red" /> Clear All Logs
                       </strong>
                       <p>
-                        Removes every <code>.jsonl</code> log file <strong>except</strong> those containing error events. Error files are preserved
-                        for troubleshooting.
+                        Delete all <code>.jsonl</code> and <code>.log</code> files from storage, including error logs.
                       </p>
                     </div>
-                    <button className="btn-warning" onClick={() => setConfirmLogAction("all")} disabled={deletingLogs}>
-                      Delete Non-Error Logs
+                    <button
+                      className="btn-warning"
+                      onClick={() =>
+                        setConfirmAction({
+                          type: "logs",
+                          label: "Clear All Logs",
+                          description: "This will permanently delete all log files including those with error events. This action cannot be undone.",
+                          bridgeTool: "storage_clear_logs",
+                          bridgeArgs: { logType: "all_including_errors" },
+                        })
+                      }
+                      disabled={!!processingAction}>
+                      {processingAction === "logs" ? "Clearing…" : "Clear All Logs"}
                     </button>
                   </div>
 
-                  {/* Error-only log deletion */}
+                  {/* Clear all job history */}
                   <div className="storage-log-action">
                     <div className="storage-log-action-info">
                       <strong>
-                        <Icon name="shield" size="14" color="orange" /> Delete Error Logs Only
+                        <Icon name="history" size="14" color="accent" /> Clear All Job History
                       </strong>
                       <p>
-                        Delete only log files that contain <strong>error</strong> events. Files without error entries will be preserved.
+                        Delete all transcription job directories and their associated data (transcripts, summaries, analyses, audio files).
                       </p>
                     </div>
-                    <button className="btn-secondary" onClick={() => setConfirmLogAction("error")} disabled={deletingLogs}>
-                      Delete Error Logs
+                    <button
+                      className="btn-warning"
+                      onClick={() =>
+                        setConfirmAction({
+                          type: "jobs",
+                          label: "Clear All Job History",
+                          description: "This will permanently delete all transcription jobs and their data. This action cannot be undone.",
+                          bridgeTool: "storage_clear_jobs",
+                        })
+                      }
+                      disabled={!!processingAction}>
+                      {processingAction === "jobs" ? "Clearing…" : "Clear All Jobs"}
                     </button>
                   </div>
 
-                  {/* Everything — separate sub-section with bright warning */}
-                  <div className="storage-log-error-section">
-                    <div className="storage-log-action">
-                      <div className="storage-log-action-info">
-                        <strong className="storage-error-label">
-                          <Icon name="warning" color="red" size="14" /> DANGER ZONE <Icon name="warning" color="red" size="14" />
-                        </strong>
-                        <p className="storage-error-description">
-                          Delete <strong>all</strong> <code>.jsonl</code> log files — including those with error events. Error logs that may be needed
-                          for debugging will be lost.
-                        </p>
-                      </div>
-                      <button className="btn-danger" onClick={() => setConfirmLogAction("all_including_errors")} disabled={deletingLogs}>
-                        Delete All Logs (Including Errors)
-                      </button>
+                  {/* Clear all semantic db data */}
+                  <div className="storage-log-action">
+                    <div className="storage-log-action-info">
+                      <strong>
+                        <Icon name="memory" size="14" color="green" /> Clear Semantic DB Data
+                      </strong>
+                      <p>
+                        Delete the ChromaDB vector store containing semantic memory (meeting summaries and searchable transcript embeddings).
+                      </p>
                     </div>
+                    <button
+                      className="btn-warning"
+                      onClick={() =>
+                        setConfirmAction({
+                          type: "semantic",
+                          label: "Clear Semantic DB Data",
+                          description: "This will permanently delete the ChromaDB vector store and all semantic memory data. This action cannot be undone.",
+                          bridgeTool: "storage_clear_semantic",
+                        })
+                      }
+                      disabled={!!processingAction}>
+                      {processingAction === "semantic" ? "Clearing…" : "Clear Semantic DB"}
+                    </button>
+                  </div>
+
+                  {/* Clear all ephemeral / voiceprint data */}
+                  <div className="storage-log-action">
+                    <div className="storage-log-action-info">
+                      <strong>
+                        <Icon name="database" size="14" color="purple" /> Clear Ephemeral / Voiceprint Data
+                      </strong>
+                      <p>
+                        Delete the ephemeral memory database (action items, contacts, budgets, decisions) and voiceprint database (speaker
+                        embeddings).
+                      </p>
+                    </div>
+                    <button
+                      className="btn-warning"
+                      onClick={() =>
+                        setConfirmAction({
+                          type: "ephemeral",
+                          label: "Clear Ephemeral / Voiceprint Data",
+                          description: "This will permanently delete both the ephemeral memory and voiceprint databases. This action cannot be undone.",
+                          bridgeTool: "storage_clear_ephemeral",
+                        })
+                      }
+                      disabled={!!processingAction}>
+                      {processingAction === "ephemeral" ? "Clearing…" : "Clear Ephemeral / Voiceprint"}
+                    </button>
                   </div>
 
                   {/* Result feedback */}
-                  {logDeleteResult && (
+                  {actionResult && (
                     <div
-                      className={`storage-log-result ${logDeleteResult.startsWith("Error") ? "storage-log-result--error" : "storage-log-result--ok"}`}>
-                      {logDeleteResult}
+                      className={`storage-log-result ${actionResult.startsWith("Error") ? "storage-log-result--error" : "storage-log-result--ok"}`}>
+                      {actionResult}
                     </div>
                   )}
                 </div>
@@ -368,50 +420,22 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
       </div>
 
       {/* ── Confirmation Dialog ── */}
-      {confirmLogAction && (
-        <div className="confirm-overlay" onClick={() => setConfirmLogAction(null)}>
+      {confirmAction && (
+        <div className="confirm-overlay" onClick={() => setConfirmAction(null)}>
           <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
             <h3 className="confirm-dialog-title">
-              {confirmLogAction === "error" ? (
-                <>
-                  <Icon name="shield" size="16" color="orange" /> Delete Error Logs
-                </>
-              ) : confirmLogAction === "all" ? (
-                <>
-                  <Icon name="delete" size="16" color="red" /> Delete Non-Error Logs
-                </>
-              ) : (
-                <>
-                  <Icon name="warning" size="16" color="red" /> Delete All Logs (Including Errors)
-                </>
-              )}
+              <Icon name="warning" size="16" color="red" /> {confirmAction.label}
             </h3>
-            <p className="confirm-dialog-text">
-              {confirmLogAction === "error" ? (
-                <>
-                  This will permanently delete all <code>.jsonl</code> log files that contain error events. Non-error files will be kept.
-                </>
-              ) : confirmLogAction === "all" ? (
-                <>
-                  This will permanently delete all <code>.jsonl</code> log files <strong>except</strong> those containing error events. Error files
-                  are preserved.
-                </>
-              ) : (
-                <>
-                  This will permanently delete <strong>every</strong> <code>.jsonl</code> log file including those with error events. This action
-                  cannot be undone.
-                </>
-              )}
-            </p>
+            <p className="confirm-dialog-text">{confirmAction.description}</p>
             <div className="confirm-dialog-actions">
-              <button className="btn-secondary" onClick={() => setConfirmLogAction(null)}>
+              <button className="btn-secondary" onClick={() => setConfirmAction(null)}>
                 Cancel
               </button>
               <button
-                className={confirmLogAction === "all_including_errors" ? "btn-danger" : "btn-warning"}
-                onClick={() => handleDeleteLogs(confirmLogAction!)}
-                disabled={deletingLogs}>
-                {deletingLogs ? "Deleting..." : "Confirm Delete"}
+                className="btn-danger"
+                onClick={() => handleClearAction(confirmAction)}
+                disabled={!!processingAction}>
+                {processingAction === confirmAction.type ? "Processing..." : "Confirm"}
               </button>
             </div>
           </div>

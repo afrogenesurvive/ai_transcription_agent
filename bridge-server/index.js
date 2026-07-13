@@ -356,6 +356,15 @@ async function dispatch(tool, args) {
     case "storage_clear_logs":
       return await callPython("DELETE", `/storage/logs?log_type=${args.logType || "all"}`);
 
+    case "storage_clear_jobs":
+      return await callPython("DELETE", "/storage/jobs");
+
+    case "storage_clear_semantic":
+      return await callPython("DELETE", "/storage/semantic");
+
+    case "storage_clear_ephemeral":
+      return await callPython("DELETE", "/storage/ephemeral");
+
     default:
       throw new Error(`Unknown tool: ${tool}`);
   }
@@ -431,7 +440,9 @@ const server = http.createServer(async (req, res) => {
       const jobId = args?.jobId || args?.job_id || "?";
       console.log(`[bridge] → ${tool} (job=${jobId})`);
       const startTime = Date.now();
-      result = sanitizeValue(await dispatch(tool, args || {}));
+      // Skip sanitization for pipeline_log — the lines array needs to be full
+      const raw = await dispatch(tool, args || {});
+      result = tool === "transcribe_get_pipeline_log" ? raw : sanitizeValue(raw);
       const elapsed = Date.now() - startTime;
       console.log(`[bridge] ← ${tool} OK (${elapsed}ms)`);
       res.writeHead(200, { "Content-Type": "application/json" });

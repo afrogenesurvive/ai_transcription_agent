@@ -155,6 +155,18 @@ async function processEvent(event) {
   // Sanitize transcript data before building LLM context (Tier 2 — optional)
   const transcript = sanitizeTranscriptSegments(rawTranscript);
 
+  // ── Failed event guard ──
+  // If the ML pipeline reported a failure (event.type === "failed"), skip LLM
+  // processing entirely. The job is already marked as "failed" by the pipeline.
+  if (event.type === "failed") {
+    const errMsg = jobData.error || "Unknown pipeline error";
+    console.log(`   ⏭️  [RUNNER] Skipping failed event (event.type=failed): ${errMsg}`);
+    logAction({ eventId, eventType: event.type, action: "skipped", detail: `Pipeline failed: ${errMsg}` });
+    markCleared(eventId);
+    releaseLock(eventId);
+    return;
+  }
+
   // ── Empty transcript guard ──
   // If the ML pipeline failed (no transcript produced), skip LLM processing
   // entirely to avoid wasting tokens on empty content. The job is marked as
@@ -166,8 +178,9 @@ async function processEvent(event) {
     logAction({ eventId, eventType: event.type, action: "skipped", detail: "Empty transcript — no LLM processing needed" });
     try {
       const jobId = jobData.jobId || eventId;
-      await executeToolCall("transcribe_complete_job", { jobId });
-      console.log(`   ✅ [RUNNER] Job ${jobId.slice(0, 8)} marked as complete (empty transcript — no processing needed)`);
+      const errorMsg = "ML pipeline produced empty transcript — check pipeline logs for details";
+      await executeToolCall("transcribe_fail_job", { jobId, error: errorMsg });
+      console.log(`   ❌ [RUNNER] Job ${jobId.slice(0, 8)} marked as failed (empty transcript — pipeline error)`);
     } catch (completeErr) {
       console.log(`   ⚠️  [RUNNER] Could not update job status for empty transcript: ${completeErr.message}`);
     }

@@ -8,9 +8,14 @@ Patches:
   1. speechbrain LazyModule.__getattr__ — prevents crash on __file__ access
   2. torchaudio.list_audio_backends — avoids deprecated API that pyannote triggers
   3. pyannote.audio get_torchaudio_info — replaces deprecated torchaudio.info call
+  4. torch.load weights_only — PyTorch 2.6+ defaults weights_only=True, which
+     breaks loading pyannote checkpoints (contain pytorch_lightning callback
+     classes not in the safe globals allowlist). The checkpoints come from
+     HuggingFace (trusted source), so we default to weights_only=False.
 """
 
 import soundfile
+import torch
 import torchaudio as _torchaudio
 
 
@@ -70,3 +75,26 @@ try:
     print("[patches] ✅ Patched pyannote.audio → soundfile (avoids torchaudio deprecations)")
 except Exception:
     pass  # pyannote may not be installed
+
+
+# ── 4. torch.load weights_only workaround ──
+# PyTorch 2.6+ changed the default of `weights_only` from False to True.
+# pyannote checkpoints contain pytorch_lightning callback classes (e.g.
+# EarlyStopping) that aren't in the safe globals allowlist, causing:
+#   _pickle.UnpicklingError: Weights only load failed.
+# The checkpoints come from HuggingFace (trusted source), so we default
+# to weights_only=False to restore the pre-2.6 behaviour.
+_orig_torch_load = torch.load
+
+
+def _patched_torch_load(f, *args, **kwargs):
+    # Force weights_only=False regardless of what callers pass.
+    # lightning_fabric.utilities.cloud_io._load explicitly passes
+    # weights_only=True (PyTorch 2.6+ default), which breaks loading
+    # pyannote checkpoints from HuggingFace (trusted source).
+    kwargs["weights_only"] = False
+    return _orig_torch_load(f, *args, **kwargs)
+
+
+torch.load = _patched_torch_load
+print("[patches] ✅ Patched torch.load → forces weights_only=False")

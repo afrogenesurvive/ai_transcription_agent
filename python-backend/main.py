@@ -1423,6 +1423,116 @@ async def delete_logs(log_type: str = "all"):
     }
 
 
+# ── Clear All Job History ──
+
+@app.delete("/storage/jobs")
+async def clear_all_jobs():
+    """Delete all job directories from storage, preserving non-job dirs (logs, chroma, uploads, .model_cache)."""
+    storage_path = config.STORAGE_PATH
+    deleted = 0
+    errors = 0
+    preserved = ["logs", "chroma", "uploads", ".model_cache", "chroma_old"]
+
+    if not os.path.exists(storage_path):
+        return {"deleted": 0, "message": "Storage directory does not exist"}
+
+    for entry in os.scandir(storage_path):
+        if not entry.is_dir():
+            continue
+        name = entry.name
+        if name in preserved:
+            continue
+
+        try:
+            shutil.rmtree(entry.path)
+            deleted += 1
+            print(f"[api] DELETE /storage/jobs → removed {name}")
+        except Exception as e:
+            errors += 1
+            print(f"[api] DELETE /storage/jobs → failed to remove {name}: {e}")
+
+    # Also clear cancelled/active job tracking
+    _pipeline_tasks.clear()
+    _pipeline_cancel.clear()
+    _active_jobs.clear()
+
+    # Also clear from uploader's status cache
+    if uploader and hasattr(uploader, '_status_cache'):
+        uploader._status_cache.clear()
+
+    msg = f"Deleted {deleted} job director{'y' if deleted == 1 else 'ies'}"
+    if errors:
+        msg += f" ({errors} error(s))"
+    return {"deleted": deleted, "errors": errors, "message": msg}
+
+
+# ── Clear Semantic Memory (ChromaDB) ──
+
+@app.delete("/storage/semantic")
+async def clear_semantic_memory():
+    """Delete all ChromaDB vector store data (semantic memory)."""
+    chroma_dir = os.path.join(config.STORAGE_PATH, "chroma")
+    if not os.path.exists(chroma_dir):
+        return {"deleted": False, "message": "No ChromaDB data found"}
+
+    try:
+        # Clear in-memory collection reference first
+        if semantic_memory:
+            semantic_memory._collection = None
+
+        shutil.rmtree(chroma_dir)
+        print(f"[api] DELETE /storage/semantic → removed ChromaDB data")
+        return {"deleted": True, "message": "Semantic memory (ChromaDB) cleared successfully"}
+    except Exception as e:
+        print(f"[api] DELETE /storage/semantic → error: {e}")
+        raise HTTPException(500, f"Failed to clear semantic memory: {e}")
+
+
+# ── Clear Ephemeral Memory + Voiceprint Data ──
+
+@app.delete("/storage/ephemeral")
+async def clear_ephemeral_data():
+    """Delete ephemeral memory database and voiceprint database files."""
+    storage_path = config.STORAGE_PATH
+    db_files = ["ephemeral_memory.db", "voiceprints.db"]
+    deleted_files = []
+    errors = []
+
+    for fname in db_files:
+        fpath = os.path.join(storage_path, fname)
+        if os.path.exists(fpath):
+            try:
+                # Close any open connections first
+                if fname == "ephemeral_memory.db" and ephemeral_memory:
+                    ephemeral_memory.close()
+                if fname == "voiceprints.db" and vp_manager:
+                    vp_manager.close()
+                os.remove(fpath)
+                deleted_files.append(fname)
+                print(f"[api] DELETE /storage/ephemeral → removed {fname}")
+            except Exception as e:
+                errors.append(f"{fname}: {e}")
+                print(f"[api] DELETE /storage/ephemeral → failed to remove {fname}: {e}")
+
+    # Re-initialize so subsequent calls work without restart
+    try:
+        if ephemeral_memory:
+            ephemeral_memory.__init__()
+        if vp_manager:
+            vp_manager.__init__()
+    except Exception as e:
+        print(f"[api] DELETE /storage/ephemeral → re-init warning: {e}")
+
+    if not deleted_files and not errors:
+        return {"deleted": [], "message": "No database files found"}
+
+    msg = f"Deleted: {', '.join(deleted_files)}" if deleted_files else "Nothing deleted"
+    if errors:
+        msg += f" | Errors: {', '.join(errors)}"
+
+    return {"deleted": deleted_files, "errors": errors, "message": msg}
+
+
 @app.get("/transcribe/models/status")
 async def models_status():
     """Check which ML models are available. Helps users diagnose setup issues."""
@@ -2232,8 +2342,7 @@ def _run_pipeline_sync(job_id: str):
         jlog.log(f"\n   ❌ [pipeline] ERROR in job {job_id}: {e}")
         import traceback
         traceback.print_exc()
-        uploader.update_status(job_id, {"status": "failed", "error": str(e)})
-        agent_bridge.enqueue_failed(job_id, str(e), {})
+        raise  # Re-raise so the outer _run_pipeline handles status + enqueue
     finally:
         jlog.close()
         _pipeline_cancel.discard(job_id)

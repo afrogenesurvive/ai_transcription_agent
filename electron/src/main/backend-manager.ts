@@ -40,32 +40,6 @@ function extractSubSource(msg: string): string | undefined {
   return undefined;
 }
 
-/** Shared UUID/hex-string capture pattern (must match logger.ts _UUID_RE). */
-const _UUID_RE = /([a-f0-9]{8,}(?:-[a-f0-9]{4}){0,3}[a-f0-9]{4,})/i;
-
-/** Extract a job ID from a log message for per-job log routing.
- *
- * Tries multiple patterns used by the Python backend and agent runner:
- *   "job <uuid>"         — Pipeline messages (start, complete, fail)
- *   "job_id=<uuid>"      — Upload messages, agent tool calls
- *   "/.../<uuid>"        — API endpoint paths (status, cancel, etc.)
- */
-function _extractJobIdFromMsg(msg: string): string | undefined {
-  // Pattern 1: "job <uuid>" (e.g. "Starting pipeline for job abc123...")
-  let m = msg.match(new RegExp(`\\bjob\\s+${_UUID_RE.source}`, "i"));
-  if (m) return m[1];
-
-  // Pattern 2: "job_id=<uuid>" (e.g. "→ job_id=abc123" or "job_id=abc123 rules=...")
-  m = msg.match(new RegExp(`job_id=${_UUID_RE.source}`, "i"));
-  if (m) return m[1];
-
-  // Pattern 3: "/.../<uuid>" in API paths (e.g. "/transcribe/status/abc123")
-  m = msg.match(new RegExp(`/(?:transcribe|agent)/(?:[a-z_]+/)?${_UUID_RE.source}(?:/|\\s|$)`, "i"));
-  if (m) return m[1];
-
-  return undefined;
-}
-
 /** Platform-aware Python binary name (dev fallback) */
 const PYTHON_BIN = IS_WIN ? "python" : "python3";
 
@@ -232,9 +206,7 @@ export async function startPythonBackend(port = 5001): Promise<void> {
       // like [01:21.560 --> ...] get a synthetic "transcription" subSource
       // but the message itself has no tag to strip.
       const cleanMsg = subSource && /^\[\w+\]/.test(msg) ? msg.replace(/^\[\w+\]\s*/, "") : msg;
-      const jobId = _extractJobIdFromMsg(msg);
-      console.log(`[python] ${msg}`);
-      addLog("python", "info", cleanMsg, subSource, jobId);
+      addLog("python", "info", cleanMsg, subSource);
     }
   });
 
@@ -244,8 +216,7 @@ export async function startPythonBackend(port = 5001): Promise<void> {
     if (remaining) {
       const subSource = extractSubSource(remaining);
       const cleanMsg = subSource && /^\[\w+\]/.test(remaining) ? remaining.replace(/^\[\w+\]\s*/, "") : remaining;
-      const jobId = _extractJobIdFromMsg(remaining);
-      addLog("python", "info", cleanMsg, subSource, jobId);
+      addLog("python", "info", cleanMsg, subSource);
     }
     stdoutBuffer = "";
   });
@@ -263,9 +234,8 @@ export async function startPythonBackend(port = 5001): Promise<void> {
       if (!msg) continue;
       const subSource = extractSubSource(msg);
       const cleanMsg = subSource ? msg.replace(/^\[\w+\]\s*/, "") : msg;
-      const jobId = _extractJobIdFromMsg(msg);
       console.error(`[python:err] ${msg}`);
-      addLog("python", "error", cleanMsg, subSource, jobId);
+      addLog("python", "error", cleanMsg, subSource);
     }
   });
 
@@ -274,8 +244,7 @@ export async function startPythonBackend(port = 5001): Promise<void> {
     if (remaining) {
       const subSource = extractSubSource(remaining);
       const cleanMsg = subSource ? remaining.replace(/^\[\w+\]\s*/, "") : remaining;
-      const jobId = _extractJobIdFromMsg(remaining);
-      addLog("python", "error", cleanMsg, subSource, jobId);
+      addLog("python", "error", cleanMsg, subSource);
     }
     stderrBuffer = "";
   });
@@ -323,16 +292,14 @@ export async function startBridgeServer(bridgePort = 5010, pythonPort = 5001): P
 
   bridgeProcess.stdout?.on("data", (d: Buffer) => {
     const msg = d.toString().trim();
-    const jobId = _extractJobIdFromMsg(msg);
     console.log(`[bridge] ${msg}`);
-    addLog("bridge", "info", msg, undefined, jobId);
+    addLog("bridge", "info", msg);
   });
 
   bridgeProcess.stderr?.on("data", (d: Buffer) => {
     const msg = d.toString().trim();
-    const jobId = _extractJobIdFromMsg(msg);
     console.error(`[bridge:err] ${msg}`);
-    addLog("bridge", "error", msg, undefined, jobId);
+    addLog("bridge", "error", msg);
   });
 
   bridgeProcess.on("exit", (code) => {
@@ -936,16 +903,14 @@ export async function startAgentRunner(): Promise<void> {
 
   agentProcess.stdout?.on("data", (d: Buffer) => {
     const msg = d.toString().trim();
-    const jobId = _extractJobIdFromMsg(msg);
     console.log(`[agent] ${msg}`);
-    addLog("agent", "info", msg, undefined, jobId);
+    addLog("agent", "info", msg);
   });
 
   agentProcess.stderr?.on("data", (d: Buffer) => {
     const msg = d.toString().trim();
-    const jobId = _extractJobIdFromMsg(msg);
     console.error(`[agent:err] ${msg}`);
-    addLog("agent", "error", msg, undefined, jobId);
+    addLog("agent", "error", msg);
   });
 
   agentProcess.on("exit", (code) => {

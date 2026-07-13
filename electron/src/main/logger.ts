@@ -80,73 +80,23 @@ export function getStorageBase(): string | null {
 }
 
 /**
- * Shared UUID/hex-string capture pattern.
- * Matches full UUIDs (550e8400-e29b-41d4-a716-446655440000) and bare hex strings (8+ chars).
- */
-const _UUID_RE = /([a-f0-9]{8,}(?:-[a-f0-9]{4}){0,3}[a-f0-9]{4,})/i;
-
-/**
- * Extract a job ID from a log message by trying multiple patterns:
- *   "job <uuid>"               — Pipeline start/complete/fail messages
- *   "job_id=<uuid>"             — Upload messages, agent tool calls
- *   "/transcribe/.../<uuid>"    — API endpoint logs
- *   "/agent/.../<uuid>"         — Agent API endpoint logs
- *   "/label_and_resume/<uuid>"  — Label and resume endpoint
- *
- * Returns the full UUID or hex string, or null if no job ID found.
- */
-function _extractJobId(message: string): string | null {
-  // Pattern 1: "job <uuid>"  (e.g. "Starting pipeline for job abc123...")
-  let m = message.match(new RegExp(`\\bjob\\s+${_UUID_RE.source}`, "i"));
-  if (m) return m[1];
-
-  // Pattern 2: "job_id=<uuid>"  (e.g. "→ job_id=abc123" or "job_id=abc123 rules=...")
-  m = message.match(new RegExp(`job_id=${_UUID_RE.source}`, "i"));
-  if (m) return m[1];
-
-  // Pattern 3: "/.../<uuid>" in API paths (e.g. "/transcribe/status/abc123" or "/transcribe/cancel/abc123")
-  // These appear in messages like "GET /transcribe/status/abc123 → ..." or "POST /transcribe/cancel/abc123 → ..."
-  m = message.match(new RegExp(`/(?:transcribe|agent)/(?:[a-z_]+/)?${_UUID_RE.source}(?:/|\\s|$)`, "i"));
-  if (m) return m[1];
-
-  return null;
-}
-
-/**
  * Detect pipeline end markers in a message to know when to close a job log.
- * Returns the job ID if this message signals pipeline completion or failure.
- *
- * Handles patterns from:
- *   - Python backend: "Pipeline complete for job <uuid>", "ERROR in job <uuid>"
- *   - Agent runner:  "Job <short_id> marked as complete", "Pipeline failed for job <short_id>"
- *   - Also matches "complete/<uuid>" and "fail/<uuid>" URL patterns
+ * Returns true if the message signals pipeline completion, failure, or cancellation.
  */
-function _detectPipelineEnd(message: string): string | null {
+function _detectPipelineEnd(message: string): boolean {
   // Python backend completion: "✅ [PIPELINE] Pipeline complete for job abc123..."
-  let m = message.match(new RegExp(`(?:Pipeline complete|Resumed pipeline complete)\\s+for\\s+job\\s+${_UUID_RE.source}`, "i"));
-  if (m) return m[1];
-
+  if (/Pipeline complete for job|Resumed pipeline complete for job/i.test(message)) return true;
   // Agent runner completion: "✅ [RUNNER] Job abc12345 marked as complete"
-  m = message.match(new RegExp(`Job\\s+${_UUID_RE.source}\\s+marked\\s+as\\s+complete`, "i"));
-  if (m) return m[1];
-
+  if (/Job [a-f0-9-]+ marked as complete/i.test(message)) return true;
   // Python backend failure: "❌ [pipeline] ERROR in job abc123: ..."
-  m = message.match(new RegExp(`ERROR\\s+in\\s+job\\s+${_UUID_RE.source}`, "i"));
-  if (m) return m[1];
-
+  if (/ERROR in job [a-f0-9-]+/i.test(message)) return true;
   // Agent runner failure: "❌ [RUNNER] Pipeline failed for job abc12345: ..."
-  m = message.match(new RegExp(`Pipeline\\s+failed\\s+for\\s+job\\s+${_UUID_RE.source}`, "i"));
-  if (m) return m[1];
-
+  if (/Pipeline failed for job [a-f0-9-]+/i.test(message)) return true;
   // Python cancellation: "🛑 [pipeline] Job abc123 task cancelled."
-  m = message.match(new RegExp(`Job\\s+${_UUID_RE.source}\\s+task\\s+cancelled`, "i"));
-  if (m) return m[1];
-
+  if (/Job [a-f0-9-]+ task cancelled/i.test(message)) return true;
   // URL-based end markers: "POST /transcribe/complete/<uuid>" or "POST /transcribe/fail/<uuid>"
-  m = message.match(new RegExp(`/(?:transcribe|agent)/(?:complete|fail)/${_UUID_RE.source}`, "i"));
-  if (m) return m[1];
-
-  return null;
+  if (/\/?(?:transcribe|agent)\/(?:complete|fail)\/[a-f0-9-]+/i.test(message)) return true;
+  return false;
 }
 
 function _getOrCreateJobStream(jobId: string): JobLogStream | null {
@@ -275,47 +225,27 @@ export function addLog(
     }
   }
 
-  // console.log("Live Log Debug!!!!", {
-  //   source,
-  //   subSource,
-  //   msg_substring: message.substring(0, 15),
-  //   level,
-  // });
-
-  if (subSource === undefined || subSource === null || subSource.trim() === "") {
-    const firstBracketIndex = message.indexOf("[");
-    const firstClosingBracketIndex = message.indexOf("]");
-    if (firstBracketIndex !== -1 && firstClosingBracketIndex !== -1 && firstClosingBracketIndex > firstBracketIndex) {
-      subSource = message.substring(firstBracketIndex + 1, firstClosingBracketIndex).trim();
-    } else {
-      subSource = undefined;
-    }
-  }
-
   const entry: LogEntry = { timestamp, source, subSource, level, message };
   buffer.push(entry);
   if (buffer.length > MAX_ENTRIES) buffer.shift();
 
   // ── Write to per-job pipeline.log ──
-  // Priority: explicit jobId > _currentJobId (tracked active job) > extracted from message text
-  const logJobId = jobId || _currentJobId || _extractJobId(message);
+  // Priority: explicit jobId > _currentJobId (set via setCurrentJobId)
+  const logJobId = jobId || _currentJobId;
+  // console.log("addLog job id", jobId, _currentJobId, logJobId);
 
   if (logJobId) {
     // Check if this message signals pipeline end — close the log if so
-    const endJobId = _detectPipelineEnd(message);
-    if (endJobId) {
+    if (_detectPipelineEnd(message)) {
       // Write the final entry before closing
-      const stream = _getOrCreateJobStream(endJobId);
+      const stream = _getOrCreateJobStream(logJobId);
       if (stream) {
         const timeStr = new Date(timestamp).toISOString();
         const subTag = subSource ? `[${subSource}] ` : "";
-        _writeToJobLog(endJobId, `[${timeStr}] [${source}] [${subTag}] [${level}] ${message}`);
+        _writeToJobLog(logJobId, `[${timeStr}] [${source}] [${subTag}] [${level}] ${message}`);
       }
-      closeJobLog(endJobId);
-      // Clear current job tracking when the pipeline ends
-      if (_currentJobId === endJobId) {
-        _currentJobId = null;
-      }
+      closeJobLog(logJobId);
+      _currentJobId = null;
     } else {
       // Normal entry — write to job log
       const stream = _getOrCreateJobStream(logJobId);

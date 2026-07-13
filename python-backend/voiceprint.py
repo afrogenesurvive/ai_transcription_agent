@@ -23,6 +23,7 @@ import sqlite3
 import pickle
 import threading
 import numpy as np
+import torch
 from typing import List, Optional, Dict
 from config import config
 from utils import is_network_error
@@ -113,39 +114,80 @@ class VoiceprintManager:
         representing vocal characteristics.
         """
         if self._embedding_model is None:
-            from pyannote.audio import Inference
-            # Inference model: takes audio → outputs embedding vector
-            # window="whole" means process the full segment at once (not sliding)
+            from pyannote.audio import Inference, Model
             print(f"[voiceprint] Loading embedding model ({config.EMBEDDING_MODEL})...")
-            # Try online first so pyannote can check for model updates.
-            # Falls back to local cache on network errors.
-            try:
-                # Pass explicit device if configured to avoid pyannote's
-                # auto-detection, which can fail on MPS with certain ops.
-                inference_kwargs = {"window": "whole"}
-                if self._device:
-                    inference_kwargs["device"] = self._device
-                self._embedding_model = Inference(
-                    config.EMBEDDING_MODEL, **inference_kwargs,
-                )
-            except Exception as _hub_err:
-                if is_network_error(_hub_err):
-                    print(f"[voiceprint] ⚠️  HuggingFace unreachable ({_hub_err}). "
-                          f"Falling back to local cache...")
-                    inference_kwargs = {"window": "whole", "local_files_only": True}
-                    if self._device:
-                        inference_kwargs["device"] = self._device
-                    self._embedding_model = Inference(
-                        config.EMBEDDING_MODEL, **inference_kwargs,
+
+            # Pre-load the Model object ourselves so we can detect a None return
+            # (gated model / terms not accepted) before passing it to Inference.
+            # Inference.__init__ calls Model.from_pretrained internally and then
+            # chain-calls self.model.eval() — if from_pretrained returns None,
+            # that crashes with AttributeError: 'NoneType' object has no attribute 'eval'.
+            device = self._device
+
+            for attempt in range(2):
+                try:
+                    hf_token = config.HUGGING_FACE_TOKEN or None
+
+                    if attempt == 1:
+                        # Second attempt: force local cache + CPU
+                        os.environ["HF_HUB_OFFLINE"] = "1"
+                        device = "cpu"
+
+                    pyannote_model = Model.from_pretrained(
+                        config.EMBEDDING_MODEL,
+                        map_location=torch.device(device) if device else None,
+                        strict=False,
+                        use_auth_token=hf_token,
                     )
-                else:
-                    raise
+
+                    if pyannote_model is None:
+                        raise RuntimeError(
+                            f"Model '{config.EMBEDDING_MODEL}' could not be loaded. "
+                            "This is likely a gated model — make sure you have:\n"
+                            f"  1. Visited https://hf.co/{config.EMBEDDING_MODEL} "
+                            "and accepted the user conditions\n"
+                            "  2. Set HUGGING_FACE_TOKEN in your .env file"
+                        )
+
+                    self._embedding_model = Inference(
+                        pyannote_model, window="whole",
+                    )
+                    break  # Success — exit retry loop
+
+                except Exception as _load_err:
+                    if attempt == 0 and is_network_error(_load_err):
+                        print(f"[voiceprint] ⚠️  HuggingFace unreachable ({_load_err}). "
+                              f"Falling back to local cache...")
+                        continue  # Retry with local cache
+                    else:
+                        if attempt == 1:
+                            raise
+                        # First attempt non-network error: try CPU fallback
+                        print(f"[voiceprint] ⚠️  Model load failed ({_load_err}). "
+                              f"Retrying with CPU fallback...")
+                        continue
+
             print(f"[voiceprint] Embedding model loaded" +
-                  (f" on device='{self._device}'" if self._device else ""))
+                  (f" on device='{device}'" if device else ""))
+
+        # Minimum segment duration required by the embedding model's SincNet
+        # layers. Very short segments (<~1s) cause "kernel size > input size"
+        # errors in conv1d. We expand short segments symmetrically.
+        MIN_DURATION = 1.0  # seconds — safe for all SincNet variants
 
         if segment:
+            from pyannote.core import Segment
             start, end = segment
-            emb = self._embedding_model(audio_path, start=start, end=end)
+            duration = end - start
+            if duration < MIN_DURATION:
+                mid = (start + end) / 2.0
+                half = MIN_DURATION / 2.0
+                start = mid - half
+                end = mid + half
+                print(f"[voiceprint] ⚠️  Segment ({segment[0]:.2f}s–{segment[1]:.2f}s, "
+                      f"{duration:.2f}s) too short for embedding model. "
+                      f"Expanded to {start:.2f}s–{end:.2f}s ({MIN_DURATION:.1f}s)")
+            emb = self._embedding_model.crop(audio_path, Segment(start, end))
             return emb
         return self._embedding_model(audio_path)
 
