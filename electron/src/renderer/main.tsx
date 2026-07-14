@@ -24,6 +24,7 @@ import "./styles/components/_appearance-panel.css";
 import "./styles/components/_speaker-label-modal.css";
 import "./styles/components/_delivery-config.css";
 import "./styles/components/_dev-panel-testing.css";
+import "./styles/components/_loading-modal.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

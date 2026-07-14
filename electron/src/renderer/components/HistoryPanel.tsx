@@ -4,6 +4,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import Icon from "./Icon";
+import LoadingModal from "./LoadingModal";
 
 interface JobSummary {
   job_id: string;
@@ -148,7 +149,7 @@ export default function HistoryPanel({ onSelectJob, currentJobId, onNotify, onSt
         </button>
       </div>
 
-      {loading && <div className="history-panel-status">Loading...</div>}
+      <LoadingModal visible={loading} message="Loading job history…" />
       {error && <div className="history-panel-status history-panel-status--error">Error: {error}</div>}
 
       {!loading && !error && jobs.length === 0 && <div className="history-panel-status">No jobs yet. Upload an audio file to get started.</div>}

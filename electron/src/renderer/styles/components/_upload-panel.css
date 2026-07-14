@@ -430,6 +430,17 @@
   color: var(--accent);
 }
 
+.attendee-play-btn--disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.attendee-play-btn--disabled:hover {
+  background: transparent;
+  color: var(--text-muted);
+  opacity: 0.4;
+}
+
 .attendee-add-btn:hover {
   background: rgba(35, 185, 100, 0.12);
   color: #23b964;

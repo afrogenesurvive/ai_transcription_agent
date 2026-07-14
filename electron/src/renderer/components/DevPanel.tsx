@@ -12,6 +12,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import Icon from "./Icon";
+import LoadingModal from "./LoadingModal";
 import type { LogEntry } from "../types";
 
 interface Props {
@@ -685,11 +686,7 @@ function DatabaseTab() {
           <>
             {/* Table list sidebar */}
             <div className="dev-panel-db-sidebar" ref={sidebarRef} style={{ width: dbSidebarWidth }}>
-              {loading && tables.length === 0 && (
-                <div className="dev-panel-empty" style={{ padding: "12px" }}>
-                  Loading...
-                </div>
-              )}
+              <LoadingModal visible={loading && tables.length === 0} message="Loading ephemeral memory tables…" />
               {!loading && tables.length === 0 && (
                 <div className="dev-panel-empty" style={{ padding: "12px" }}>
                   No tables found.
@@ -823,7 +820,7 @@ function DatabaseTab() {
 
         {activeView === "semantic" && (
           <div className="dev-panel-db-content" ref={contentRef}>
-            {loading && meetings.length === 0 && <div className="dev-panel-empty">Loading...</div>}
+            <LoadingModal visible={loading && meetings.length === 0} message="Loading semantic memory meetings…" />
             {!loading && meetings.length === 0 && <div className="dev-panel-empty">No meetings stored in ChromaDB.</div>}
 
             {/* Stats bar */}

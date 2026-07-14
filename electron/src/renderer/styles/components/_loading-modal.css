@@ -1,0 +1,81 @@
+/* ── Loading Modal ── */
+
+.lm-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 950;
+  animation: lm-fadein 0.15s ease-out;
+}
+
+@keyframes lm-fadein {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.lm-card {
+  width: 20vw;
+  height: 20vh;
+  min-width: 140px;
+  min-height: 120px;
+  max-width: 320px;
+  max-height: 200px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  animation: lm-scalein 0.15s ease-out;
+}
+
+@keyframes lm-scalein {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.lm-spinner {
+  display: inline-flex;
+  animation: lm-spin 1s linear infinite;
+}
+
+@keyframes lm-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.lm-message {
+  margin: 0;
+  font-size: var(--fs-13, 13px);
+  color: var(--text-muted);
+  text-align: center;
+  line-height: 1.4;
+  padding: 0 12px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

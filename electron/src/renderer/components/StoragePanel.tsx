@@ -8,6 +8,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import Icon from "./Icon";
+import LoadingModal from "./LoadingModal";
 import type { StorageUsage } from "../types";
 
 interface Props {
@@ -147,7 +148,7 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
       </div>
 
       <div className="config-body" style={{ padding: "16px 24px" }}>
-        {loading && !data && <p style={{ color: "var(--text-muted)" }}>Fetching storage usage…</p>}
+        <LoadingModal visible={loading && !data} message="Fetching storage usage…" />
 
         {error && (
           <div className="error-box" style={{ marginBottom: 16 }}>

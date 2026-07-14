@@ -94,10 +94,12 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
   const [skipSteps, setSkipSteps] = useState<string[]>(initialSkipSteps ?? DEFAULT_SKIP_STEPS);
   const [savedAttendees, setSavedAttendees] = useState<AttendeeEntry[]>(loadSavedAttendees);
   const [registeredAttendees, setRegisteredAttendees] = useState<AttendeeEntry[]>([]);
+  const [voiceprintEmails, setVoiceprintEmails] = useState<Set<string>>(new Set());
   const [showNameSuggestions, setShowNameSuggestions] = useState(false);
   const [showEmailSuggestions, setShowEmailSuggestions] = useState(false);
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
   const [playingVp, setPlayingVp] = useState<string | null>(null);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
@@ -110,24 +112,45 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
     if (initialSkipSteps) setSkipSteps(initialSkipSteps);
   }, [initialSkipSteps]);
 
-  // ── Fetch registered attendees from bridge on mount ──
+  // ── Fetch registered attendees + voiceprints from bridge on mount ──
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("http://127.0.0.1:5010/tools/call", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tool: "transcribe_list_attendees", args: { limit: 100 } }),
-          signal: AbortSignal.timeout(3000),
-        });
-        if (!cancelled && res.ok) {
-          const data = await res.json();
+        const [attendeesRes, vpRes] = await Promise.all([
+          fetch("http://127.0.0.1:5010/tools/call", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ tool: "transcribe_list_attendees", args: { limit: 100 } }),
+            signal: AbortSignal.timeout(3000),
+          }),
+          fetch("http://127.0.0.1:5010/tools/call", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ tool: "transcribe_list_voiceprints", args: {} }),
+            signal: AbortSignal.timeout(3000),
+          }),
+        ]);
+
+        if (!cancelled && attendeesRes.ok) {
+          const data = await attendeesRes.json();
           const attendees: AttendeeEntry[] = ((data as any).attendees || (data as any).results || []).map((a: any) => ({
             name: a.name || "",
             email: a.email || "",
           }));
           setRegisteredAttendees(attendees.filter((a: AttendeeEntry) => a.name));
+        }
+
+        if (!cancelled && vpRes.ok) {
+          const vpData = await vpRes.json();
+          const vps: any[] = vpData.voiceprints || [];
+          const emails = new Set<string>(
+            vps
+              .filter((vp) => vp.sample_job_id)
+              .map((vp) => vp.email)
+              .filter(Boolean),
+          );
+          setVoiceprintEmails(emails);
         }
       } catch {
         // Bridge unavailable — use only saved attendees
@@ -330,6 +353,7 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
 
   const handlePlayVoiceprint = useCallback(
     (email: string) => {
+      setPlaybackError(null);
       if (playingVp === email) {
         audioRef.current?.pause();
         setPlayingVp(null);
@@ -340,13 +364,26 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
       }
       const audio = new Audio(`http://127.0.0.1:5010/agent/voiceprints/sample/${encodeURIComponent(email)}`);
       audio.onended = () => setPlayingVp(null);
-      audio.onerror = () => setPlayingVp(null);
-      audio.play().catch(() => setPlayingVp(null));
+      audio.onerror = () => {
+        setPlayingVp(null);
+        setPlaybackError("Voice sample unavailable — no recording found for this attendee");
+      };
+      audio.play().catch(() => {
+        setPlayingVp(null);
+        setPlaybackError("Could not play voice sample — the audio may be missing");
+      });
       audioRef.current = audio;
       setPlayingVp(email);
     },
     [playingVp],
   );
+
+  // Auto-clear playback error after 4 seconds
+  useEffect(() => {
+    if (!playbackError) return;
+    const timer = setTimeout(() => setPlaybackError(null), 4000);
+    return () => clearTimeout(timer);
+  }, [playbackError]);
 
   const handleSubmit = () => {
     if (!file) return;
@@ -581,7 +618,7 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
                       <span className="registered-attendee-name">{ra.name}</span>
                       {ra.email && <span className="registered-attendee-email">{ra.email}</span>}
                       <div className="registered-attendee-actions">
-                        {ra.email && (
+                        {ra.email && voiceprintEmails.has(ra.email) ? (
                           <button
                             className="btn-text attendee-play-btn"
                             onClick={() => handlePlayVoiceprint(ra.email)}
@@ -589,7 +626,14 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
                             data-tooltip={playingVp === ra.email ? "Stop playback" : "Hear a 3-second voice sample of this attendee"}>
                             <Icon name={playingVp === ra.email ? "stop" : "play_arrow"} size="14" color="accent" />
                           </button>
-                        )}
+                        ) : ra.email ? (
+                          <span
+                            className="btn-text attendee-play-btn attendee-play-btn--disabled"
+                            title="No voice sample available"
+                            data-tooltip="This attendee does not have an enrolled voiceprint with a sample recording">
+                            <Icon name="play_arrow" size="14" color="muted" />
+                          </span>
+                        ) : null}
                         <button
                           className="btn-text attendee-add-btn"
                           onClick={() => addAttendee(ra.name, ra.email)}
@@ -601,6 +645,16 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
                     </div>
                   ))}
               </div>
+            </div>
+          )}
+
+          {/* Playback error toast */}
+          {playbackError && (
+            <div
+              className="rv-playback-error"
+              style={{ marginTop: 8, fontSize: 11, color: "var(--orange)", display: "flex", alignItems: "center", gap: 6 }}>
+              <Icon name="warning" size="12" color="orange" />
+              <span>{playbackError}</span>
             </div>
           )}
         </div>

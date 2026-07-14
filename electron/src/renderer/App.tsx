@@ -27,6 +27,7 @@ import AboutPanel from "./components/AboutPanel";
 import AppearancePanel from "./components/AppearancePanel";
 import ServerStatusBanner from "./components/ServerStatusBanner";
 import SpeakerLabelModal from "./components/SpeakerLabelModal";
+import LoadingModal from "./components/LoadingModal";
 import Icon from "./components/Icon";
 import { useApi } from "./hooks/useApi";
 import { useJobStatus } from "./hooks/useJobStatus";
@@ -65,6 +66,7 @@ export default function App() {
   const [jobMetadata, setJobMetadata] = useState<any>(null);
   const [statusData, setStatusData] = useState<any>(null);
   const [uploading, setUploading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState<string | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
   const [sidebarView, setSidebarView] = useState<SidebarView>("current");
   const [configOk, setConfigOk] = useState(true);
@@ -382,6 +384,7 @@ export default function App() {
   ) => {
     console.log("handleUpload", { skipSteps, emailRecipients, attendeeEmails });
     setUploading(true);
+    setLoadingMessage("Uploading audio file…");
     try {
       const result: any = await api.uploadAudio(file, title, attendees, emailRecipients, skipSteps);
       console.log("Upload result", result);
@@ -394,6 +397,7 @@ export default function App() {
       notify(`Upload failed: ${err.message}`);
     } finally {
       setUploading(false);
+      setLoadingMessage(null);
     }
   };
 
@@ -417,6 +421,7 @@ export default function App() {
     async (jobId: string) => {
       setHistoryJobId(jobId);
       setShowHistory(true);
+      setLoadingMessage("Loading job data…");
       try {
         const [transcriptData, summaryData, statusData] = await Promise.all([
           api.getTranscript(jobId),
@@ -439,6 +444,8 @@ export default function App() {
       } catch (err: any) {
         notify(`Failed to load job: ${err.message}`);
         setView("results");
+      } finally {
+        setLoadingMessage(null);
       }
     },
     [api],
@@ -497,6 +504,9 @@ export default function App() {
           submitting={labelingSubmitting}
         />
       )}
+
+      {/* Global loading modal — covers everything during data fetches */}
+      <LoadingModal visible={!!loadingMessage} message={loadingMessage || undefined} />
 
       <div className="app-body">
         <nav className="sidebar" ref={sidebarRef}>
