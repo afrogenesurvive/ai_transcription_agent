@@ -1331,6 +1331,7 @@ body {
   background: var(--surface);
   border-top: 1px solid var(--accent-border, var(--border));
   color: var(--text-muted);
+  margin-bottom: 20px;
 }
 
 .status-item-group {

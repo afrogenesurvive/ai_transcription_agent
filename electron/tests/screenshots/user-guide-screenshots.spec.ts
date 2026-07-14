@@ -47,7 +47,20 @@ const TITLE_TEMPLATE = process.env.PLAYWRIGHT_TITLE_TEMPLATE || "test {autoNum}"
 /** Bridge server URL */
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
-/** Default name to assign to unlabeled speakers during the labeling modal */
+/**
+ * Generic speaker names used during the labeling modal.
+ * The test assigns each detected speaker a unique name from this list.
+ * If more speakers are detected than names available, the remainder use
+ * the DEFAULT_SPEAKER_NAME fallback.
+ */
+const GENERIC_NAMES = [
+  "Alex", "Blake", "Casey", "Drew", "Ellis",
+  "Finley", "Gray", "Harper", "Indigo", "Jade",
+  "Kai", "Logan", "Morgan", "Nico", "Oakley",
+  "Parker", "Quinn", "Reese", "Skyler", "Taylor",
+];
+
+/** Fallback name if more speakers than GENERIC_NAMES entries */
 const DEFAULT_SPEAKER_NAME = process.env.PLAYWRIGHT_DEFAULT_SPEAKER_NAME || "dave";
 
 // ════════════════════════════════════════════════════════════════
@@ -418,11 +431,14 @@ test("12 - speaker labeling modal", async () => {
     return;
   }
 
-  // Fill all speaker name inputs with the default name
+  // Fill each speaker name input with a unique generic name.
+  // Uses the GENERIC_NAMES list — if there are more speakers than names,
+  // the remainder get the DEFAULT_SPEAKER_NAME fallback.
   const nameInputs = modal.locator(".speaker-name-input");
   const inputCount = await nameInputs.count();
   for (let i = 0; i < inputCount; i++) {
-    await nameInputs.nth(i).fill(DEFAULT_SPEAKER_NAME);
+    const name = i < GENERIC_NAMES.length ? GENERIC_NAMES[i] : DEFAULT_SPEAKER_NAME;
+    await nameInputs.nth(i).fill(name);
   }
 
   await window.screenshot({

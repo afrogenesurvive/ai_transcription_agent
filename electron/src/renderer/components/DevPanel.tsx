@@ -2865,11 +2865,11 @@ function TestingTab() {
               />
             </label>
             <label className="dev-panel-testing-field">
-              <span className="dev-panel-testing-field-label">Default Speaker Name</span>
+              <span className="dev-panel-testing-field-label">Speaker Fallback Name</span>
               <input
                 className="dev-panel-testing-input"
                 type="text"
-                placeholder="dave"
+                placeholder="dave (fallback)"
                 value={vars.PLAYWRIGHT_DEFAULT_SPEAKER_NAME}
                 onChange={(e) => handleChange("PLAYWRIGHT_DEFAULT_SPEAKER_NAME", e.target.value)}
               />

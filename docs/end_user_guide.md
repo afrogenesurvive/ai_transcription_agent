@@ -301,7 +301,7 @@ Configure variables for the Playwright screenshot tests:
 | ------------------------ | ----------------------------------------------------------------- |
 | **Audio File Path**      | Absolute path to an audio file (MP3/WAV) used by screenshot tests |
 | **Test Title Template**  | Meeting title template (`{autoNum}` auto-increments)              |
-| **Default Speaker Name** | Name assigned to unlabeled speakers during labeling modal         |
+| **Default Speaker Name** | Fallback name (used if >20 speakers detected) — see built-in 20-name list in the test source |
 
 These same variables are also editable in **Dev Tools → Testing** tab, where you can run the tests directly.
 

@@ -91,7 +91,7 @@ const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secre
   { key: "DELIVERY_DRIVE_FOLDER", label: "Drive Destination Folder", required: false, secret: false, section: "Delivery Config" },
   { key: "PLAYWRIGHT_AUDIO_FILE_PATH", label: "Audio File Path", required: false, secret: false, section: "Testing" },
   { key: "PLAYWRIGHT_TITLE_TEMPLATE", label: "Test Title Template", required: false, secret: false, section: "Testing" },
-  { key: "PLAYWRIGHT_DEFAULT_SPEAKER_NAME", label: "Default Speaker Name", required: false, secret: false, section: "Testing" },
+  { key: "PLAYWRIGHT_DEFAULT_SPEAKER_NAME", label: "Speaker Fallback Name", required: false, secret: false, section: "Testing" },
 ];
 
 const SOURCE_LABELS: Record<string, string> = {
