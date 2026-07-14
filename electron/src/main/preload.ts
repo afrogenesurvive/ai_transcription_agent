@@ -172,6 +172,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // ── Playwright Testing ──
   runPlaywrightTests: (vars: Record<string, string>): Promise<{ exitCode: number; output: string }> => ipcRenderer.invoke("testing:run", vars),
+  checkPlaywrightBuild: (): Promise<{ exists: boolean }> => ipcRenderer.invoke("testing:checkBuild"),
   onPlaywrightOutput: (callback: (text: string) => void) => {
     ipcRenderer.on("testing:output", (_event, text) => callback(text));
     return () => ipcRenderer.removeAllListeners("testing:output");

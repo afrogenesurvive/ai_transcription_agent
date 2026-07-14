@@ -2750,10 +2750,14 @@ function TestingTab() {
   // ── Prerequisite live status ──
   const [backendStatus, setBackendStatus] = useState<{ python: boolean; bridge: boolean; agent: boolean } | null>(null);
   const [fileExists, setFileExists] = useState<boolean | null>(null);
+  const [appBuilt, setAppBuilt] = useState<boolean | null>(null);
 
-  // Poll backend status every 10s
+  // Poll backend status and build check every 10s
   useEffect(() => {
-    const check = () => window.electronAPI?.checkServers().then(setBackendStatus).catch(() => setBackendStatus(null));
+    const check = () => {
+      window.electronAPI?.checkServers().then(setBackendStatus).catch(() => setBackendStatus(null));
+      window.electronAPI?.checkPlaywrightBuild().then((r) => setAppBuilt(r.exists)).catch(() => setAppBuilt(false));
+    };
     check();
     const interval = setInterval(check, 10_000);
     return () => clearInterval(interval);
@@ -2870,6 +2874,7 @@ function TestingTab() {
     backendStatus?.python &&
     backendStatus?.bridge &&
     backendStatus?.agent &&
+    appBuilt === true &&
     fileExists === true &&
     namesValid
   );
@@ -2931,6 +2936,10 @@ function TestingTab() {
             <span>
               {statusIcon(backendStatus?.agent ?? null)} Agent Runner{" "}
               {statusText(backendStatus?.agent ?? null, "Running", "Down", "Checking…")}
+            </span>
+            <span>
+              {statusIcon(appBuilt)} App build{" "}
+              {statusText(appBuilt, "Built", "Missing (run build)", "Checking…")}
             </span>
             <span>
               {statusIcon(fileExists)} Audio file{" "}

@@ -1112,6 +1112,21 @@ ipcMain.handle("testing:run", async (_event, vars: Record<string, string>) => {
   }
 });
 
+// ── Playwright Build Check IPC ──
+
+ipcMain.handle("testing:checkBuild", async () => {
+  // Check if the built Electron main process exists — required by Playwright
+  const appPath = app.getAppPath();
+  const buildPath = path.join(appPath, "dist", "main", "index.js");
+  try {
+    const exists = fs.existsSync(buildPath);
+    addLog("main", "debug", `[testing] Build check: ${buildPath} ${exists ? "found" : "missing"}`);
+    return { exists };
+  } catch {
+    return { exists: false };
+  }
+});
+
 // ── Uninstall / Cleanup IPC ──
 
 ipcMain.handle("app:uninstall", async () => {

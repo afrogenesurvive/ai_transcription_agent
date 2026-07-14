@@ -199,6 +199,7 @@ export interface ElectronAPI {
   // ── Playwright Testing ──
   runPlaywrightTests: (vars: Record<string, string>) => Promise<{ exitCode: number; output: string }>;
   onPlaywrightOutput: (callback: (text: string) => void) => () => void;
+  checkPlaywrightBuild: () => Promise<{ exists: boolean }>;
 
   platform: string;
 }
