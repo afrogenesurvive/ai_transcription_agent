@@ -8285,3 +8285,76 @@ body {
 .config-textarea:focus {
   border-color: var(--accent);
 }
+
+/* ── DevPanel Testing Tab ── */
+
+.dev-panel-testing-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dev-panel-testing-field-label {
+  font-size: var(--fs-10);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.dev-panel-testing-input {
+  width: 100%;
+  padding: 6px 10px;
+  font-size: var(--fs-13);
+  font-family: var(--font);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.dev-panel-testing-input:focus {
+  border-color: var(--accent);
+}
+
+.dev-panel-testing-input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+.dev-panel-testing-output {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  max-height: 300px;
+  overflow-y: auto;
+  font-family: monospace;
+  font-size: var(--fs-11);
+  white-space: pre-wrap;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+@keyframes testing-cursor-blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.dev-panel-testing-cursor {
+  display: inline-block;
+  width: 6px;
+  height: 14px;
+  background: var(--accent);
+  margin-left: 2px;
+  animation: testing-cursor-blink 1s step-end infinite;
+  vertical-align: text-bottom;
+}

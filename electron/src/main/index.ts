@@ -1054,6 +1054,64 @@ ipcMain.handle("voiceprints:check-conflicts", async (_event, attendees: Array<{ 
   }
 });
 
+// ── Playwright Testing IPC ──
+
+ipcMain.handle("testing:run", async (_event, vars: Record<string, string>) => {
+  addLog("main", "info", "[testing] Starting Playwright screenshot tests");
+  try {
+    // 1. Save any test variable overrides to config
+    if (vars && Object.keys(vars).length > 0) {
+      saveConfig(vars);
+    }
+
+    // 2. Resolve the electron directory for the playwright project
+    const appPath = app.getAppPath();
+    const electronDir = app.isPackaged ? path.join(process.resourcesPath, "..", "electron") : appPath; // In dev, appPath is electron/
+
+    // 3. Set the env vars from config so playwright reads them
+    const cfg = getConfig();
+    const testEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      PLAYWRIGHT_AUDIO_FILE_PATH: cfg.PLAYWRIGHT_AUDIO_FILE_PATH || "",
+      PLAYWRIGHT_TITLE_TEMPLATE: cfg.PLAYWRIGHT_TITLE_TEMPLATE || "test {autoNum}",
+      PLAYWRIGHT_DEFAULT_SPEAKER_NAME: cfg.PLAYWRIGHT_DEFAULT_SPEAKER_NAME || "dave",
+    };
+
+    // 4. Spawn Playwright in the electron directory
+    const child = spawn("npx", ["playwright", "test", "tests/screenshots/", "--headed"], {
+      cwd: electronDir,
+      stdio: ["pipe", "pipe", "pipe"],
+      env: testEnv,
+    });
+
+    let output = "";
+    const onData = (data: Buffer) => {
+      const text = data.toString();
+      output += text;
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("testing:output", text);
+      }
+    };
+
+    child.stdout?.on("data", onData);
+    child.stderr?.on("data", onData);
+
+    return await new Promise<{ exitCode: number; output: string }>((resolve) => {
+      child.on("close", (code) => {
+        addLog("main", "info", `[testing] Playwright exited with code ${code}`);
+        resolve({ exitCode: code ?? -1, output });
+      });
+      child.on("error", (err) => {
+        addLog("main", "error", `[testing] Failed to spawn Playwright: ${err.message}`);
+        resolve({ exitCode: -1, output: `Failed to spawn: ${err.message}` });
+      });
+    });
+  } catch (err: any) {
+    addLog("main", "error", `[testing] Unexpected error: ${err.message}`);
+    return { exitCode: -1, output: `Unexpected error: ${err.message}` };
+  }
+});
+
 // ── Uninstall / Cleanup IPC ──
 
 ipcMain.handle("app:uninstall", async () => {

@@ -18,7 +18,7 @@ interface Props {
   onClose: () => void;
 }
 
-type Tab = "live" | "database" | "performance" | "usage" | "updates" | "logfiles";
+type Tab = "live" | "database" | "performance" | "usage" | "updates" | "logfiles" | "testing";
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
@@ -2731,6 +2731,233 @@ function LogFilesTab() {
   );
 }
 
+/* ── Testing Tab ── */
+
+/**
+ * Default test variable values used when config.json has no values set.
+ * These mirror the defaults in config.ts.
+ */
+const TEST_VAR_DEFAULTS = {
+  PLAYWRIGHT_AUDIO_FILE_PATH: "",
+  PLAYWRIGHT_TITLE_TEMPLATE: "test {autoNum}",
+  PLAYWRIGHT_DEFAULT_SPEAKER_NAME: "dave",
+};
+
+function TestingTab() {
+  const [vars, setVars] = useState<Record<string, string>>({ ...TEST_VAR_DEFAULTS });
+  const [running, setRunning] = useState(false);
+  const [output, setOutput] = useState<string[]>([]);
+  const [exitCode, setExitCode] = useState<number | null>(null);
+  const outputRef = useRef<HTMLDivElement>(null);
+
+  // Load test vars from config on mount
+  useEffect(() => {
+    window.electronAPI?.getConfig().then((cfg) => {
+      setVars((prev) => ({
+        PLAYWRIGHT_AUDIO_FILE_PATH: cfg.PLAYWRIGHT_AUDIO_FILE_PATH || prev.PLAYWRIGHT_AUDIO_FILE_PATH,
+        PLAYWRIGHT_TITLE_TEMPLATE: cfg.PLAYWRIGHT_TITLE_TEMPLATE || prev.PLAYWRIGHT_TITLE_TEMPLATE,
+        PLAYWRIGHT_DEFAULT_SPEAKER_NAME: cfg.PLAYWRIGHT_DEFAULT_SPEAKER_NAME || prev.PLAYWRIGHT_DEFAULT_SPEAKER_NAME,
+      }));
+    });
+  }, []);
+
+  // Subscribe to real-time test output
+  useEffect(() => {
+    const unsub = window.electronAPI?.onPlaywrightOutput((text: string) => {
+      setOutput((prev) => [...prev, text]);
+    });
+    return () => unsub?.();
+  }, []);
+
+  // Auto-scroll on new output
+  useEffect(() => {
+    if (outputRef.current) {
+      outputRef.current.scrollTop = outputRef.current.scrollHeight;
+    }
+  }, [output]);
+
+  const handleRun = useCallback(async () => {
+    setRunning(true);
+    setOutput([]);
+    setExitCode(null);
+
+    // Save test vars to config first
+    await window.electronAPI?.saveConfig(vars);
+
+    const result = await window.electronAPI?.runPlaywrightTests(vars);
+    if (result) {
+      setExitCode(result.exitCode);
+      if (result.output) {
+        setOutput((prev) => [...prev, result.output]);
+      }
+    }
+    setRunning(false);
+  }, [vars]);
+
+  const handleChange = useCallback((key: string, value: string) => {
+    setVars((prev) => ({ ...prev, [key]: value }));
+  }, []);
+
+  const outputColor = exitCode === null ? "var(--text-muted)" : exitCode === 0 ? "var(--green)" : "var(--red)";
+  const outputIcon = exitCode === null ? "info" : exitCode === 0 ? "check_circle" : "error";
+
+  return (
+    <>
+      {/* Toolbar */}
+      <div className="dev-panel-toolbar">
+        <span className="dev-panel-title">
+          <Icon name="bug_report" size="14" color="accent" /> Testing
+        </span>
+        <div className="dev-panel-actions">
+          <button
+            className="dev-panel-btn"
+            onClick={handleRun}
+            disabled={running}
+            title="Run Playwright screenshot tests"
+            data-tooltip="Launch Playwright screenshot tests in a headed browser. Requires backend services (Python :5001, Bridge :5010) to be running.">
+            <Icon name={running ? "sync" : "play_arrow"} size="14" color={running ? "muted" : "accent"} />
+            {running ? " Running..." : " Run Tests"}
+          </button>
+          <button
+            className="dev-panel-btn"
+            onClick={() => setOutput([])}
+            disabled={output.length === 0}
+            title="Clear test output"
+            data-tooltip="Clear the output log below">
+            Clear Output
+          </button>
+        </div>
+      </div>
+
+      <div className="dev-panel-list" style={{ padding: "12px 16px", fontFamily: "var(--font)", display: "flex", flexDirection: "column", gap: 16 }}>
+        {/* ── Test Variables ── */}
+        <div>
+          <h4
+            style={{
+              fontSize: "var(--fs-12)",
+              fontWeight: 600,
+              color: "var(--text-muted)",
+              textTransform: "uppercase",
+              letterSpacing: 0.4,
+              margin: "0 0 10px",
+            }}>
+            <Icon name="settings" size="14" color="accent" /> Test Variables
+          </h4>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <label className="dev-panel-testing-field">
+              <span className="dev-panel-testing-field-label">Audio File Path</span>
+              <input
+                className="dev-panel-testing-input"
+                type="text"
+                placeholder="/path/to/test-meeting.mp3"
+                value={vars.PLAYWRIGHT_AUDIO_FILE_PATH}
+                onChange={(e) => handleChange("PLAYWRIGHT_AUDIO_FILE_PATH", e.target.value)}
+              />
+            </label>
+            <label className="dev-panel-testing-field">
+              <span className="dev-panel-testing-field-label">Title Template</span>
+              <input
+                className="dev-panel-testing-input"
+                type="text"
+                placeholder="test {autoNum}"
+                value={vars.PLAYWRIGHT_TITLE_TEMPLATE}
+                onChange={(e) => handleChange("PLAYWRIGHT_TITLE_TEMPLATE", e.target.value)}
+              />
+            </label>
+            <label className="dev-panel-testing-field">
+              <span className="dev-panel-testing-field-label">Default Speaker Name</span>
+              <input
+                className="dev-panel-testing-input"
+                type="text"
+                placeholder="dave"
+                value={vars.PLAYWRIGHT_DEFAULT_SPEAKER_NAME}
+                onChange={(e) => handleChange("PLAYWRIGHT_DEFAULT_SPEAKER_NAME", e.target.value)}
+              />
+            </label>
+          </div>
+        </div>
+
+        {/* ── Requirements ── */}
+        <div
+          style={{
+            background: "var(--surface)",
+            borderRadius: "var(--radius)",
+            padding: "10px 14px",
+            fontSize: "var(--fs-11)",
+            color: "var(--text-muted)",
+            lineHeight: 1.6,
+          }}>
+          <strong style={{ color: "var(--text)" }}>Prerequisites:</strong>
+          <ul style={{ margin: "6px 0 0 16px", padding: 0 }}>
+            <li>Backend services running (Python :5001, Bridge :5010, Agent)</li>
+            <li>
+              App built: <code style={{ background: "var(--bg)", padding: "1px 6px", borderRadius: 3 }}>cd electron && npm run build</code>
+            </li>
+            <li>
+              An audio file must exist at the path set in <strong>Audio File Path</strong> above
+            </li>
+            <li>
+              Test variables are saved to config.json — they appear in <strong>Settings → Testing</strong> section too
+            </li>
+          </ul>
+        </div>
+
+        {/* ── Output ── */}
+        <div>
+          <h4
+            style={{
+              fontSize: "var(--fs-12)",
+              fontWeight: 600,
+              color: "var(--text-muted)",
+              textTransform: "uppercase",
+              letterSpacing: 0.4,
+              margin: "0 0 10px",
+            }}>
+            <Icon name="terminal" size="14" color="accent" /> Test Output
+          </h4>
+          <div
+            ref={outputRef}
+            className="dev-panel-testing-output"
+            style={{
+              background: "var(--bg)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius)",
+              padding: 12,
+              maxHeight: 300,
+              overflowY: "auto",
+              fontFamily: "monospace",
+              fontSize: "var(--fs-11)",
+              whiteSpace: "pre-wrap",
+              lineHeight: 1.5,
+              color: "var(--text)",
+            }}>
+            {output.length === 0 && !running && <span style={{ color: "var(--text-muted)" }}>No output yet — click "Run Tests" to start.</span>}
+            {output.length === 0 && running && <span style={{ color: "var(--text-muted)" }}>Starting Playwright...</span>}
+            {output.map((chunk, i) => (
+              <span key={i}>{chunk}</span>
+            ))}
+            {running && <span className="dev-panel-testing-cursor">▊</span>}
+          </div>
+          {exitCode !== null && (
+            <div style={{ marginTop: 8, fontSize: "var(--fs-12)", color: outputColor }}>
+              <Icon name={outputIcon} size="14" color={exitCode === 0 ? "green" : "red"} />{" "}
+              {exitCode === 0 ? "All tests passed" : `Tests failed (exit code: ${exitCode})`}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="dev-panel-footer">
+        <span>
+          {exitCode !== null ? (exitCode === 0 ? "Passed" : "Failed") : "Idle"}
+          {running && " · Running…"}
+        </span>
+        <span>{output.length > 0 ? `${output.length} output chunk(s)` : ""}</span>
+      </div>
+    </>
+  );
+}
+
 /* ── DevPanel ── */
 
 export default function DevPanel({ onClose }: Props) {
@@ -2783,6 +3010,13 @@ export default function DevPanel({ onClose }: Props) {
           data-tooltip="Select a job to view its pipeline logs — jobs on the left, formatted log details on the right">
           <Icon name="description" size="14" color="accent" /> Log Files
         </button>
+        <button
+          className={`dev-panel-tab ${activeTab === "testing" ? "dev-panel-tab--active" : ""}`}
+          onClick={() => setActiveTab("testing")}
+          title="Run Playwright screenshot tests"
+          data-tooltip="Run screenshot tests and edit test variables — variables are saved to config.json">
+          <Icon name="bug_report" size="14" color="accent" /> Testing
+        </button>
         <div className="dev-panel-tabs-spacer" />
         <button
           className="dev-panel-btn dev-panel-btn-close"
@@ -2800,6 +3034,7 @@ export default function DevPanel({ onClose }: Props) {
       {activeTab === "usage" && <UsageTab />}
       {activeTab === "updates" && <UpdatesTab />}
       {activeTab === "logfiles" && <LogFilesTab />}
+      {activeTab === "testing" && <TestingTab />}
     </div>
   );
 }

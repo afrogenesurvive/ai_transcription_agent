@@ -64,6 +64,12 @@ export interface AppConfig {
   DELIVERY_EMAIL_ADDITIONAL_CONTENT: string;
   /** Delivery config — Google Drive destination folder name */
   DELIVERY_DRIVE_FOLDER: string;
+  /** Path to audio file for Playwright screenshot tests */
+  PLAYWRIGHT_AUDIO_FILE_PATH: string;
+  /** Title template for test jobs (use {autoNum}) */
+  PLAYWRIGHT_TITLE_TEMPLATE: string;
+  /** Default speaker name to assign during labeling modal */
+  PLAYWRIGHT_DEFAULT_SPEAKER_NAME: string;
 }
 
 const DEFAULTS: AppConfig = {
@@ -93,6 +99,9 @@ const DEFAULTS: AppConfig = {
   DELIVERY_EMAIL_SUBJECT: "Meeting Summary: {title}",
   DELIVERY_EMAIL_ADDITIONAL_CONTENT: "",
   DELIVERY_DRIVE_FOLDER: "Meeting Transcripts",
+  PLAYWRIGHT_AUDIO_FILE_PATH: "",
+  PLAYWRIGHT_TITLE_TEMPLATE: "test {autoNum}",
+  PLAYWRIGHT_DEFAULT_SPEAKER_NAME: "dave",
 };
 
 /** Keys the UI considers "required" before the pipeline can run. */
@@ -238,6 +247,9 @@ export function getChildEnv(): NodeJS.ProcessEnv {
     APPEARANCE_ACCENT_COLOR: config.APPEARANCE_ACCENT_COLOR || process.env.APPEARANCE_ACCENT_COLOR || "#58a6ff",
     APPEARANCE_FONT_SIZE: config.APPEARANCE_FONT_SIZE || process.env.APPEARANCE_FONT_SIZE || "medium",
     APPEARANCE_SIDEBAR_WIDTH: config.APPEARANCE_SIDEBAR_WIDTH || process.env.APPEARANCE_SIDEBAR_WIDTH || "48",
+    PLAYWRIGHT_AUDIO_FILE_PATH: config.PLAYWRIGHT_AUDIO_FILE_PATH || process.env.PLAYWRIGHT_AUDIO_FILE_PATH || "",
+    PLAYWRIGHT_TITLE_TEMPLATE: config.PLAYWRIGHT_TITLE_TEMPLATE || process.env.PLAYWRIGHT_TITLE_TEMPLATE || "test {autoNum}",
+    PLAYWRIGHT_DEFAULT_SPEAKER_NAME: config.PLAYWRIGHT_DEFAULT_SPEAKER_NAME || process.env.PLAYWRIGHT_DEFAULT_SPEAKER_NAME || "dave",
     // Storage paths — only override in packaged (prod) mode so DBs land in a
     // writable location. In dev the Python backend defaults to the project-
     // relative storage/ dir, which is already writable.

@@ -13,32 +13,56 @@
  *   cd electron
  *   npx playwright test tests/screenshots/user-guide-screenshots.spec.ts
  *
- * Screenshots are saved to: docs/screenshots/
+ * Screenshots are saved to a timestamped subdirectory under docs/screenshots/
+ * (e.g. docs/screenshots/2026-07-14/01-main-window-empty.png) AND copied to
+ * the root docs/screenshots/ directory so the user guide always sees the
+ * latest run. Previous runs remain accessible in their date-stamped folders.
  */
 
 import { test, _electron as electron } from "@playwright/test";
 import type { ElectronApplication, Page } from "@playwright/test";
 import path from "path";
+import fs from "fs";
 
 // ════════════════════════════════════════════════════════════════
 // CONFIGURATION — edit these before running
 // ════════════════════════════════════════════════════════════════
 
+/**
+ * Test variable defaults — can be overridden via environment variables
+ * (set by the DevPanel Testing tab which reads/writes config.json).
+ *
+ * When running from Dev Panel or with env vars set:
+ *   PLAYWRIGHT_AUDIO_FILE_PATH
+ *   PLAYWRIGHT_TITLE_TEMPLATE
+ *   PLAYWRIGHT_DEFAULT_SPEAKER_NAME
+ */
+
 /** Absolute path to a short audio file for upload testing (MP3, WAV, etc.) */
-const AUDIO_FILE_PATH = "/Users/michaelgrandison/Desktop/test-meeting.mp3";
+const AUDIO_FILE_PATH = process.env.PLAYWRIGHT_AUDIO_FILE_PATH || "/Users/michaelgrandison/Downloads/test-meeting.mp3";
 
 /** Meeting title template. {autoNum} will be replaced with the auto-incremented number */
-const TITLE_TEMPLATE = "Sprint Review {autoNum}";
+const TITLE_TEMPLATE = process.env.PLAYWRIGHT_TITLE_TEMPLATE || "test {autoNum}";
 
 /** Bridge server URL */
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
 /** Default name to assign to unlabeled speakers during the labeling modal */
-const DEFAULT_SPEAKER_NAME = "dave";
+const DEFAULT_SPEAKER_NAME = process.env.PLAYWRIGHT_DEFAULT_SPEAKER_NAME || "dave";
 
 // ════════════════════════════════════════════════════════════════
 
-const SCREENSHOT_DIR = path.resolve(__dirname, "../../docs/screenshots");
+/** Root directory for guide screenshots (always shows the latest run) */
+const SCREENSHOT_DIR_ROOT = path.resolve(__dirname, "../../docs/screenshots");
+
+/**
+ * Timestamped subdirectory for this run (e.g. docs/screenshots/2026-07-14).
+ * Each run gets its own dated folder so prior runs are preserved.
+ */
+const SCREENSHOT_DIR = path.join(
+  SCREENSHOT_DIR_ROOT,
+  new Date().toISOString().slice(0, 10), // YYYY-MM-DD
+);
 
 let app: ElectronApplication;
 let window: Page;
@@ -103,23 +127,13 @@ async function getNextJobNumber(): Promise<number> {
  * Upload an audio file by path (skipping analysis & delivery steps for speed).
  * Returns the job_id.
  */
-async function uploadAudioByPath(
-  filePath: string,
-  title: string,
-  attendees: string[],
-): Promise<string> {
+async function uploadAudioByPath(filePath: string, title: string, attendees: string[]): Promise<string> {
   const result = await callBridge("transcribe_upload_by_path", {
     filePath,
     title,
     attendees,
     eventType: "internal",
-    skipSteps: [
-      "transcribe_analyze",
-      "transcribe_prepare_delivery",
-      "send_delivery_email",
-      "save_to_drive",
-      "create_trello_action_items",
-    ],
+    skipSteps: ["transcribe_analyze", "transcribe_prepare_delivery", "send_delivery_email", "save_to_drive", "create_trello_action_items"],
   });
   return result.job_id;
 }
@@ -142,6 +156,25 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await app.close();
+
+  // Copy all screenshots from the timestamped subdirectory to the root
+  // screenshots directory so the user guide's markdown links (which point
+  // to e.g. screenshots/01-main-window-empty.png) always show the latest run.
+  if (!fs.existsSync(SCREENSHOT_DIR_ROOT)) {
+    fs.mkdirSync(SCREENSHOT_DIR_ROOT, { recursive: true });
+  }
+
+  try {
+    const files = fs.readdirSync(SCREENSHOT_DIR);
+    for (const file of files) {
+      const src = path.join(SCREENSHOT_DIR, file);
+      const dst = path.join(SCREENSHOT_DIR_ROOT, file);
+      fs.copyFileSync(src, dst);
+    }
+    console.log(`[test] Copied ${files.length} screenshot(s) to ${SCREENSHOT_DIR_ROOT}`);
+  } catch (err) {
+    console.warn(`[test] Failed to sync screenshots to root: ${err}`);
+  }
 });
 
 // ════════════════════════════════════════════════════════════════

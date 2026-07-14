@@ -196,6 +196,10 @@ export interface ElectronAPI {
   // ── Shell (open folders in native file manager) ──
   openPath: (filePath: string) => Promise<{ success: boolean; error?: string }>;
 
+  // ── Playwright Testing ──
+  runPlaywrightTests: (vars: Record<string, string>) => Promise<{ exitCode: number; output: string }>;
+  onPlaywrightOutput: (callback: (text: string) => void) => () => void;
+
   platform: string;
 }
 

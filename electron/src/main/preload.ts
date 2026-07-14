@@ -170,6 +170,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // ── Shell (open folders in native file manager) ──
   openPath: (filePath: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke("shell:openPath", filePath),
 
+  // ── Playwright Testing ──
+  runPlaywrightTests: (vars: Record<string, string>): Promise<{ exitCode: number; output: string }> => ipcRenderer.invoke("testing:run", vars),
+  onPlaywrightOutput: (callback: (text: string) => void) => {
+    ipcRenderer.on("testing:output", (_event, text) => callback(text));
+    return () => ipcRenderer.removeAllListeners("testing:output");
+  },
+
   // ── Platform ──
   platform: process.platform,
 });
