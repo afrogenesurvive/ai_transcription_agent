@@ -105,7 +105,7 @@ export default function SpeakerLabelModal({ jobId, speakers, suggestedEmails = [
     const result = speakers.map((s) => ({
       speaker_id: s.speaker_id,
       name: labels[s.speaker_id]?.trim() || s.speaker_id,
-      email: (emails[s.speaker_id]?.trim() || ""),
+      email: emails[s.speaker_id]?.trim() || "",
     }));
 
     // Check for existing voiceprints with these names
@@ -142,7 +142,7 @@ export default function SpeakerLabelModal({ jobId, speakers, suggestedEmails = [
     const result = speakers.map((s) => ({
       speaker_id: s.speaker_id,
       name: labels[s.speaker_id]?.trim() || s.speaker_id,
-      email: (emails[s.speaker_id]?.trim() || ""),
+      email: emails[s.speaker_id]?.trim() || "",
     }));
     setConflicts([]);
     await onConfirm(result);
@@ -153,7 +153,7 @@ export default function SpeakerLabelModal({ jobId, speakers, suggestedEmails = [
     const defaultLabels = speakers.map((s) => ({
       speaker_id: s.speaker_id,
       name: labels[s.speaker_id]?.trim() || s.speaker_id,
-      email: (emails[s.speaker_id]?.trim() || ""),
+      email: emails[s.speaker_id]?.trim() || "",
     }));
     onConfirm(defaultLabels);
   };

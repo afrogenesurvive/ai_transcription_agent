@@ -372,7 +372,14 @@ export default function App() {
   }, [jobId, api, statusHook]);
 
   // Handle upload submit
-  const handleUpload = async (file: File, title: string, attendees: string[], emailRecipients: string[], skipSteps: string[], attendeeEmails?: string[]) => {
+  const handleUpload = async (
+    file: File,
+    title: string,
+    attendees: string[],
+    emailRecipients: string[],
+    skipSteps: string[],
+    attendeeEmails?: string[],
+  ) => {
     console.log("handleUpload", { skipSteps, emailRecipients, attendeeEmails });
     setUploading(true);
     try {
