@@ -63,7 +63,7 @@ function enqueueFailed(event, errorMsg) {
   // agent-runner (e.g., "No handler" errors), don't re-enqueue — it will
   // just fail again with the same error and burn tokens forever.
   if (event.source === "agent-runner") {
-    console.log(`   ⛔ [RUNNER] Not re-enqueuing failed event from agent-runner (source=${event.source}) — prevents infinite loop`);
+    console.log(`⛔ [RUNNER] Not re-enqueuing failed event from agent-runner (source=${event.source}) — prevents infinite loop`);
     return;
   }
 
@@ -109,9 +109,9 @@ function enqueueFailed(event, errorMsg) {
       /* non-fatal */
     }
 
-    console.log(`   📝 [RUNNER] Failed event enqueued for job ${event.data?.jobId?.slice(0, 8) || "?"}`);
+    console.log(`📝 [RUNNER] Failed event enqueued for job ${event.data?.jobId?.slice(0, 8) || "?"}`);
   } catch (err) {
-    console.error(`   ❌ [RUNNER] Could not enqueue failed event: ${err.message}`);
+    console.error(`❌ [RUNNER] Could not enqueue failed event: ${err.message}`);
   }
 }
 
@@ -132,7 +132,7 @@ async function withRetry(fn, label, maxRetries) {
       lastErr = err;
       if (attempt < retries) {
         const delay = baseDelay * Math.pow(2, attempt - 1);
-        console.log(`   🔄 [RUNNER] ${label} failed (attempt ${attempt}/${retries}), retrying in ${delay}ms...`);
+        console.log(`🔄 [RUNNER] ${label} failed (attempt ${attempt}/${retries}), retrying in ${delay}ms...`);
         await new Promise((r) => setTimeout(r, delay));
       }
     }
@@ -147,7 +147,7 @@ async function processEvent(event) {
   // Emit a machine-parseable marker so the Electron main process can track
   // which job the agent is currently processing and route log entries to the
   // correct per-job pipeline.log file. The backend-manager.ts parses this.
-  console.log(`   [JOB_START] ${event.data?.jobId || eventId}`);
+  console.log(`[JOB_START] ${event.data?.jobId || eventId}`);
 
   console.log(`\n   ╔══════════════════════════════════════════╗`);
   console.log(`   ║   🔄 JOB ${tag.padEnd(27)}║`);
@@ -166,7 +166,7 @@ async function processEvent(event) {
   // processing entirely. The job is already marked as "failed" by the pipeline.
   if (event.type === "failed") {
     const errMsg = jobData.error || "Unknown pipeline error";
-    console.log(`   ⏭️  [RUNNER] Skipping failed event (event.type=failed): ${errMsg}`);
+    console.log(`⏭️  [RUNNER] Skipping failed event (event.type=failed): ${errMsg}`);
     logAction({ eventId, eventType: event.type, action: "skipped", detail: `Pipeline failed: ${errMsg}` });
     markCleared(eventId);
     releaseLock(eventId);
@@ -179,16 +179,16 @@ async function processEvent(event) {
   // complete with a warning so the frontend knows there's nothing to show.
   const transcriptHasContent = transcript.some((seg) => seg.text && seg.text.trim().length > 0);
   if (!transcriptHasContent && (event.type === "ready_for_processing" || event.type === "labeling_needed")) {
-    console.log(`   ⏭️  [RUNNER] Empty transcript — skipping LLM processing (event.type=${event.type})`);
-    console.log(`   ⏭️  [RUNNER]   Transcript has ${transcript.length} segment(s), 0 words of text`);
+    console.log(`⏭️  [RUNNER] Empty transcript — skipping LLM processing (event.type=${event.type})`);
+    console.log(`⏭️  [RUNNER]   Transcript has ${transcript.length} segment(s), 0 words of text`);
     logAction({ eventId, eventType: event.type, action: "skipped", detail: "Empty transcript — no LLM processing needed" });
     try {
       const jobId = jobData.jobId || eventId;
       const errorMsg = "ML pipeline produced empty transcript — check pipeline logs for details";
       await executeToolCall("transcribe_fail_job", { jobId, error: errorMsg });
-      console.log(`   ❌ [RUNNER] Job ${jobId.slice(0, 8)} marked as failed (empty transcript — pipeline error)`);
+      console.log(`❌ [RUNNER] Job ${jobId.slice(0, 8)} marked as failed (empty transcript — pipeline error)`);
     } catch (completeErr) {
-      console.log(`   ⚠️  [RUNNER] Could not update job status for empty transcript: ${completeErr.message}`);
+      console.log(`⚠️  [RUNNER] Could not update job status for empty transcript: ${completeErr.message}`);
     }
     markCleared(eventId);
     releaseLock(eventId);
@@ -202,7 +202,7 @@ async function processEvent(event) {
   // Build initial context with job info + transcript preview
   let context = buildInitialContext(event, transcript, safeTitle, safeAttendees, eventId);
   const initialContextLength = context.length;
-  console.log(`   📝 [RUNNER] Initial context built: ${context.length} chars`);
+  console.log(`📝 [RUNNER] Initial context built: ${context.length} chars`);
 
   // Use TRANSCRIPTION_STORAGE env var if set (matches Python backend), otherwise fall back to project-relative path.
   const STORAGE_BASE = process.env.TRANSCRIPTION_STORAGE || path.resolve(__dirname, "..", "storage");
@@ -215,7 +215,7 @@ async function processEvent(event) {
   const memoryStep = PIPELINE_STEPS.find((s) => s.toolName === "_fetch_memory_context");
   const useMemory = memoryStep ? memoryStep.enabled : true;
   if (!useMemory) {
-    console.log(`   ⏭️  [RUNNER] Memory context disabled via pipeline step (_fetch_memory_context)`);
+    console.log(`⏭️  [RUNNER] Memory context disabled via pipeline step (_fetch_memory_context)`);
   } else {
     try {
       // 1. Query ephemeral memory for existing action items, decisions, budgets
@@ -279,10 +279,10 @@ async function processEvent(event) {
       memoryLines.push("── End Memory Context ──\n");
       context += "\n" + memoryLines.join("\n");
       const memoryContextLen = memoryLines.join("\n").length;
-      console.log(`   ✅ [RUNNER] Memory context injected (${memoryLines.length - 3} items, ${memoryContextLen} chars)`);
-      console.log(`   📝 [RUNNER] Context now: ${context.length} chars (was ${initialContextLength}, +${context.length - initialContextLength})`);
+      console.log(`✅ [RUNNER] Memory context injected (${memoryLines.length - 3} items, ${memoryContextLen} chars)`);
+      console.log(`📝 [RUNNER] Context now: ${context.length} chars (was ${initialContextLength}, +${context.length - initialContextLength})`);
     } catch (err) {
-      console.log(`   ⚠️  [RUNNER] Memory fetch failed (non-fatal): ${err.message}`);
+      console.log(`⚠️  [RUNNER] Memory fetch failed (non-fatal): ${err.message}`);
     }
   }
 
@@ -293,7 +293,7 @@ async function processEvent(event) {
   // "what to do next" guidance.
   const skippedTools = new Set(jobData.skip_steps || []);
   if (skippedTools.size > 0) {
-    console.log(`   ⏭️  [RUNNER] Skipped tools: ${[...skippedTools].join(", ")}`);
+    console.log(`⏭️  [RUNNER] Skipped tools: ${[...skippedTools].join(", ")}`);
   }
 
   // Filter the available tools: remove any that are in the skip list
@@ -305,15 +305,15 @@ async function processEvent(event) {
   // so model-client.js doesn't need any stripping logic.
   let renderedPrompt = null;
   {
-    console.log(`   📝 [RUNNER] Compiling system prompt from template (${SYSTEM_PROMPT_TEMPLATE.length} chars)`);
-    console.log(`   📝 [RUNNER]   Injecting ${availableTools.length} tool definitions into {{TOOL_LIST}}`);
+    console.log(`📝 [RUNNER] Compiling system prompt from template (${SYSTEM_PROMPT_TEMPLATE.length} chars)`);
+    console.log(`📝 [RUNNER]   Injecting ${availableTools.length} tool definitions into {{TOOL_LIST}}`);
     const toolLines = availableTools.map((t) => `  - ${t.name}: ${t.description}`).join("\n");
     let rendered = SYSTEM_PROMPT_TEMPLATE.replace("{{TOOL_LIST}}", toolLines);
-    console.log(`   📝 [RUNNER]   System prompt after tool injection: ${rendered.length} chars`);
+    console.log(`📝 [RUNNER]   System prompt after tool injection: ${rendered.length} chars`);
 
     // Strip numbered sections that reference skipped tools
     if (skippedTools.size > 0) {
-      console.log(`   📝 [RUNNER]   Stripping sections for ${skippedTools.size} skipped tool(s):`);
+      console.log(`📝 [RUNNER]   Stripping sections for ${skippedTools.size} skipped tool(s):`);
       for (const toolName of skippedTools) {
         const sectionRegex = new RegExp(
           `\\d+\\.\\s+\\*\\*[^*]+\\*\\*\\s+[—–-]\\s+[^\\n]*\\b${toolName}\\b[^\\n]*(?:\\n(?!\\d+\\.\\s+\\*\\*|##|$)[^\\n]*)*`,
@@ -322,7 +322,7 @@ async function processEvent(event) {
         rendered = rendered.replace(sectionRegex, "");
         const commentRegex = new RegExp(`<!--\\s*\\d+\\.\\s+\\*\\*[^*]+\\*\\*[^>]*\\b${toolName}\\b[^>]*-->`, "g");
         rendered = rendered.replace(commentRegex, "");
-        console.log(`   📝 [RUNNER]     - ${toolName}`);
+        console.log(`📝 [RUNNER]     - ${toolName}`);
       }
       rendered = rendered.replace(/\n{3,}/g, "\n\n").trim();
       console.log(
@@ -334,24 +334,24 @@ async function processEvent(event) {
     // Log the full instruction composition breakdown
     const contextBeforeLLM = context;
     const totalInstructionsLength = renderedPrompt.length + contextBeforeLLM.length;
-    console.log(`\n   📝 [RUNNER] ═══ Instructions Composition Breakdown ═══`);
+    console.log(`\n📝 [RUNNER] ═══ Instructions Composition Breakdown ═══`);
     console.log(
       `   📝 [RUNNER]   System prompt          : ${renderedPrompt.length.toString().padStart(7)} chars (${((renderedPrompt.length / totalInstructionsLength) * 100).toFixed(1)}%)`,
     );
-    console.log(`   📝 [RUNNER]     - Template base       : ${SYSTEM_PROMPT_TEMPLATE.length.toString().padStart(7)} chars`);
-    console.log(`   📝 [RUNNER]     - Tool definitions    : ${toolLines.length.toString().padStart(7)} chars (${availableTools.length} tools)`);
+    console.log(`📝 [RUNNER]     - Template base       : ${SYSTEM_PROMPT_TEMPLATE.length.toString().padStart(7)} chars`);
+    console.log(`📝 [RUNNER]     - Tool definitions    : ${toolLines.length.toString().padStart(7)} chars (${availableTools.length} tools)`);
     if (skippedTools.size > 0) {
       console.log(
         `   📝 [RUNNER]     - Stripped sections   : removed ${(SYSTEM_PROMPT_TEMPLATE.length - renderedPrompt.length).toString().padStart(4)} chars (${skippedTools.size} tools)`,
       );
     }
-    console.log(`   📝 [RUNNER]   User context           : ${String(contextBeforeLLM.length).padStart(7)} chars`);
-    console.log(`   📝 [RUNNER]     - Job metadata        : part of initial context`);
-    console.log(`   📝 [RUNNER]     - Event template      : from pipeline.json event_templates`);
-    console.log(`   📝 [RUNNER]     - Transcript preview  : included in event template`);
-    console.log(`   📝 [RUNNER]     - Memory context      : injected from ephemeral + semantic memory`);
-    console.log(`   📝 [RUNNER]   Total instructions      : ${totalInstructionsLength.toString().padStart(7)} chars`);
-    console.log(`   📝 [RUNNER] ═══════════════════════════════════════════\n`);
+    console.log(`📝 [RUNNER]   User context           : ${String(contextBeforeLLM.length).padStart(7)} chars`);
+    console.log(`📝 [RUNNER]     - Job metadata        : part of initial context`);
+    console.log(`📝 [RUNNER]     - Event template      : from pipeline.json event_templates`);
+    console.log(`📝 [RUNNER]     - Transcript preview  : included in event template`);
+    console.log(`📝 [RUNNER]     - Memory context      : injected from ephemeral + semantic memory`);
+    console.log(`📝 [RUNNER]   Total instructions      : ${totalInstructionsLength.toString().padStart(7)} chars`);
+    console.log(`📝 [RUNNER] ═══════════════════════════════════════════\n`);
 
     // Log the actual built system prompt for debugging
     const promptLine = `   📝 [RUNNER] ═══ Built System Prompt ═══`;
@@ -362,7 +362,7 @@ async function processEvent(event) {
     // Split into lines and log each with the prefix for readability
     const promptLines = renderedPrompt.split("\n");
     for (const line of promptLines) {
-      console.log(`   📝 [RUNNER] | ${line}`);
+      console.log(`📝 [RUNNER] | ${line}`);
     }
     console.log(`${promptDivider}\n`);
 
@@ -379,29 +379,29 @@ async function processEvent(event) {
   function resolveNextHint(currentTool, hints) {
     const hint = hints[currentTool];
     if (!hint) {
-      console.log(`   🔍 [RUNNER] resolveNextHint("${currentTool}"): no hint defined — LLM will decide autonomously`);
+      console.log(`🔍 [RUNNER] resolveNextHint("${currentTool}"): no hint defined — LLM will decide autonomously`);
       return null;
     }
-    console.log(`   🔍 [RUNNER] resolveNextHint("${currentTool}"): hint found — "${hint}"`);
+    console.log(`🔍 [RUNNER] resolveNextHint("${currentTool}"): hint found — "${hint}"`);
     // Extract the first referenced tool name from the hint prose
     const match = hint.match(/\b(transcribe_\w+)\b/);
     if (!match) {
-      console.log(`   🔍 [RUNNER] resolveNextHint: no next tool reference in hint, returning as-is`);
+      console.log(`🔍 [RUNNER] resolveNextHint: no next tool reference in hint, returning as-is`);
       return hint;
     }
     const nextTool = match[0];
     if (skippedTools.has(nextTool)) {
-      console.log(`   ⏭️  [RUNNER] resolveNextHint: "${nextTool}" is in skip list, walking past it`);
+      console.log(`⏭️  [RUNNER] resolveNextHint: "${nextTool}" is in skip list, walking past it`);
       // Try the hint of the tool after the skipped one
       const nextHint = hints[nextTool];
       if (!nextHint) {
-        console.log(`   ⏭️  [RUNNER] resolveNextHint: no hint for skipped "${nextTool}", returning original hint (fallback)`);
+        console.log(`⏭️  [RUNNER] resolveNextHint: no hint for skipped "${nextTool}", returning original hint (fallback)`);
         return hint;
       }
       const nextMatch = nextHint.match(/\b(transcribe_\w+)\b/);
       if (nextMatch && skippedTools.has(nextMatch[0])) {
         // Multiple consecutive skips — recurse deeper
-        console.log(`   🔄 [RUNNER] resolveNextHint: "${nextMatch[0]}" is also skipped, recursing deeper`);
+        console.log(`🔄 [RUNNER] resolveNextHint: "${nextMatch[0]}" is also skipped, recursing deeper`);
         const result = resolveNextHint(nextTool, hints);
         return result;
       }
@@ -409,10 +409,10 @@ async function processEvent(event) {
       const overridden = nextHint
         .replace(new RegExp(`\\b${nextMatch ? nextMatch[0].replace(/\./g, "\\.") : ""}\\b`), `(skipped ${nextTool}) ${nextMatch ? nextMatch[0] : ""}`)
         .trim();
-      console.log(`   ⏭️  [RUNNER] resolveNextHint: overridden hint — "${overridden.slice(0, 120)}..."`);
+      console.log(`⏭️  [RUNNER] resolveNextHint: overridden hint — "${overridden.slice(0, 120)}..."`);
       return overridden;
     }
-    console.log(`   🔍 [RUNNER] resolveNextHint: next tool "${nextTool}" is available, returning original hint`);
+    console.log(`🔍 [RUNNER] resolveNextHint: next tool "${nextTool}" is available, returning original hint`);
     return hint;
   }
 
@@ -427,7 +427,7 @@ async function processEvent(event) {
       fs.mkdirSync(jobStorageDir, { recursive: true });
       llmDataStream = fs.createWriteStream(path.join(jobStorageDir, "llm-data.jsonl"), { flags: "a" });
     } catch (err) {
-      console.log(`   ⚠️  [RUNNER] Could not open llm-data.jsonl: ${err.message}`);
+      console.log(`⚠️  [RUNNER] Could not open llm-data.jsonl: ${err.message}`);
     }
   }
   function logLlmData(type, data) {
@@ -451,11 +451,11 @@ async function processEvent(event) {
       const existing = JSON.parse(fs.readFileSync(existingUsagePath, "utf8"));
       if (existing.steps?.length) {
         existingSteps = existing.steps;
-        console.log(`   💰 [RUNNER] Loaded ${existingSteps.length} existing token usage steps — accumulating across retries`);
-        console.log(`   [USAGE] Job ${jobId?.slice(0, 8) || "???"}: loaded ${existingSteps.length} existing usage steps (retry accumulation)`);
+        console.log(`💰 [RUNNER] Loaded ${existingSteps.length} existing token usage steps — accumulating across retries`);
+        console.log(`[USAGE] Job ${jobId?.slice(0, 8) || "???"}: loaded ${existingSteps.length} existing usage steps (retry accumulation)`);
       }
     } catch (err) {
-      console.log(`   ⚠️  [RUNNER] Could not read existing usage.json: ${err.message}`);
+      console.log(`⚠️  [RUNNER] Could not read existing usage.json: ${err.message}`);
     }
   }
 
@@ -499,7 +499,7 @@ async function processEvent(event) {
         `   📬 [RUNNER] Delivery results saved for job ${jobId?.slice(0, 8) || "???"}: ${deliveryData.summary.success} success, ${deliveryData.summary.failed} failed`,
       );
     } catch (err) {
-      console.log(`   ⚠️  [RUNNER] Failed to save delivery results: ${err.message}`);
+      console.log(`⚠️  [RUNNER] Failed to save delivery results: ${err.message}`);
     }
   }
 
@@ -514,7 +514,7 @@ async function processEvent(event) {
   let totalTokens = existingSteps.reduce((sum, s) => sum + (s.total_tokens || 0), 0);
 
   for (let step = 1; step <= MAX_PIPELINE_STEPS && !pipelineComplete; step++) {
-    console.log(`   🤖 [RUNNER] Asking LLM (step ${step}) — context: ${context.length} chars, ${availableTools.length} tools available`);
+    console.log(`🤖 [RUNNER] Asking LLM (step ${step}) — context: ${context.length} chars, ${availableTools.length} tools available`);
     let decision;
     logLlmData("step_input", {
       step,
@@ -531,7 +531,7 @@ async function processEvent(event) {
     } catch (err) {
       const llmRetries = LLM_PROVIDER === "ollama" ? OLLAMA_MAX_RETRIES : MAX_RETRIES;
       pipelineError = `LLM call failed after ${llmRetries} retries: ${err.message}`;
-      console.log(`   ❌ [RUNNER] ${pipelineError}`);
+      console.log(`❌ [RUNNER] ${pipelineError}`);
       logLlmData("step_error", { step, error: pipelineError });
       logAction({ eventId, eventType: event.type, action: "failed", detail: pipelineError });
       pipelineComplete = true;
@@ -554,13 +554,13 @@ async function processEvent(event) {
       console.log(
         `   💰 [RUNNER] Tracked usage for step ${step} (${decision.name}): ${stepUsage.total_tokens} tokens (prompt: ${stepUsage.prompt_tokens}, completion: ${stepUsage.completion_tokens})`,
       );
-      console.log(`   [USAGE] Step ${step} (${decision.name}): ${stepUsage.total_tokens} tokens`);
+      console.log(`[USAGE] Step ${step} (${decision.name}): ${stepUsage.total_tokens} tokens`);
     } else {
-      console.log(`   ⚠️  [RUNNER] No usage data from LLM at step ${step} — decision.usage is ${JSON.stringify(decision?.usage)}`);
+      console.log(`⚠️  [RUNNER] No usage data from LLM at step ${step} — decision.usage is ${JSON.stringify(decision?.usage)}`);
     }
 
     if (!decision) {
-      console.log(`   ⏭️  [RUNNER] No decision — pipeline complete`);
+      console.log(`⏭️  [RUNNER] No decision — pipeline complete`);
       logAction({ eventId, eventType: event.type, action: "complete", detail: `ended at step ${step}, no LLM decision` });
       pipelineComplete = true;
       break;
@@ -572,7 +572,7 @@ async function processEvent(event) {
     // silently skips them instead of executing, preventing wasted tokens
     // and bogus errors like "Transcript not ready" with missing job IDs.
     if (!availableTools.some((t) => t.name === decision.name)) {
-      console.log(`   ⏭️  [RUNNER] LLM returned locked/removed tool "${decision.name}" — skipping`);
+      console.log(`⏭️  [RUNNER] LLM returned locked/removed tool "${decision.name}" — skipping`);
       logAction({
         eventId,
         eventType: event.type,
@@ -584,14 +584,14 @@ async function processEvent(event) {
       continue;
     }
 
-    console.log(`   🎯 [RUNNER] ${decision.name}`);
+    console.log(`🎯 [RUNNER] ${decision.name}`);
     let result;
     try {
       result = await withRetry(() => executeToolCall(decision.name, decision.arguments), `${decision.name}`);
     } catch (err) {
       const toolRetries = LLM_PROVIDER === "ollama" ? OLLAMA_MAX_RETRIES : MAX_RETRIES;
       pipelineError = `${decision.name} failed after ${toolRetries} retries: ${err.message}`;
-      console.log(`   ❌ [RUNNER] ${pipelineError}`);
+      console.log(`❌ [RUNNER] ${pipelineError}`);
       logAction({ eventId, eventType: event.type, action: "failed", detail: pipelineError });
       pipelineComplete = true;
       break;
@@ -615,42 +615,42 @@ async function processEvent(event) {
       const DELIVERY_TOOLS = new Set(["send_delivery_email", "save_to_drive", "create_trello_action_items"]);
       if (DELIVERY_TOOLS.has(decision.name)) {
         recordDeliveryResult(decision.name, false, null, errorMsg);
-        console.log(`   📬 [RUNNER] Delivery failure recorded for ${decision.name}: ${errorMsg}`);
+        console.log(`📬 [RUNNER] Delivery failure recorded for ${decision.name}: ${errorMsg}`);
         // Save delivery results and mark job failed immediately (within the delivery step)
         saveDeliveryResults();
         try {
           await executeToolCall("transcribe_fail_job", { jobId, error: errorMsg });
-          console.log(`   ✅ [RUNNER] Job ${jobId.slice(0, 8)} marked as failed by delivery tool`);
+          console.log(`✅ [RUNNER] Job ${jobId.slice(0, 8)} marked as failed by delivery tool`);
         } catch (failErr) {
-          console.log(`   ⚠️  [RUNNER] Could not update job status to failed from delivery: ${failErr.message}`);
+          console.log(`⚠️  [RUNNER] Could not update job status to failed from delivery: ${failErr.message}`);
         }
         deliveryHandled = true;
       }
 
       pipelineError = errorMsg || `Unknown error in ${decision.name}`;
-      console.log(`   ❌ [RUNNER] ${pipelineError}`);
+      console.log(`❌ [RUNNER] ${pipelineError}`);
       logAction({ eventId, eventType: event.type, action: "failed", detail: pipelineError });
       pipelineComplete = true;
       break;
     }
 
-    console.log(`   ✅ [RUNNER] ${decision.name} succeeded`);
+    console.log(`✅ [RUNNER] ${decision.name} succeeded`);
 
     // ── Log voiceprint identification results ──
     if (decision.name === "transcribe_list_voiceprints") {
       const vps = result?.voiceprints || [];
       if (vps.length > 0) {
-        console.log(`   🗣️ [RUNNER] Enrolled voiceprints (${vps.length}):`);
+        console.log(`🗣️ [RUNNER] Enrolled voiceprints (${vps.length}):`);
         for (const vp of vps) {
-          console.log(`   🗣️ [RUNNER]   - ${vp.name}${vp.email ? ` (${vp.email})` : ""}`);
+          console.log(`🗣️ [RUNNER]   - ${vp.name}${vp.email ? ` (${vp.email})` : ""}`);
         }
       } else {
-        console.log(`   🗣️ [RUNNER] No enrolled voiceprints`);
+        console.log(`🗣️ [RUNNER] No enrolled voiceprints`);
       }
     }
     if (decision.name === "transcribe_label_speaker" && result) {
       const labelArgs = decision.arguments || {};
-      console.log(`   🏷️  [RUNNER] Speaker labeled: ${labelArgs.name || "?"} (speaker_id=${labelArgs.speakerId || "?"})`);
+      console.log(`🏷️  [RUNNER] Speaker labeled: ${labelArgs.name || "?"} (speaker_id=${labelArgs.speakerId || "?"})`);
     }
 
     // ── Record delivery tool results ──
@@ -658,7 +658,7 @@ async function processEvent(event) {
     if (DELIVERY_TOOLS.has(decision.name)) {
       const resultData = result?.result || null;
       recordDeliveryResult(decision.name, true, resultData, null);
-      console.log(`   📬 [RUNNER] Delivery result recorded for ${decision.name}`);
+      console.log(`📬 [RUNNER] Delivery result recorded for ${decision.name}`);
     }
 
     // ── One-shot tool removal ──
@@ -672,21 +672,21 @@ async function processEvent(event) {
       availableTools = availableTools.filter(
         (t) => t.name !== "transcribe_get_transcript" && t.name !== "transcribe_label_speaker" && t.name !== "transcribe_list_voiceprints",
       );
-      console.log(`   🔒 [RUNNER] transcribe_get_transcript + labeling tools locked — must summarize first`);
+      console.log(`🔒 [RUNNER] transcribe_get_transcript + labeling tools locked — must summarize first`);
     }
 
     // Check if this was a terminal delivery tool — pipeline ends
     // Delivery tools update terminal steps immediately: save results and mark job complete.
     if (TERMINAL_TOOLS.has(decision.name)) {
-      console.log(`   📬 [RUNNER] Delivery complete — pipeline finished`);
+      console.log(`📬 [RUNNER] Delivery complete — pipeline finished`);
       logAction({ eventId, eventType: event.type, action: "complete", detail: `delivered via ${decision.name}` });
       // Save delivery results and mark job complete immediately (within the delivery step)
       saveDeliveryResults();
       try {
         await executeToolCall("transcribe_complete_job", { jobId });
-        console.log(`   ✅ [RUNNER] Job ${jobId.slice(0, 8)} marked as complete by delivery tool`);
+        console.log(`✅ [RUNNER] Job ${jobId.slice(0, 8)} marked as complete by delivery tool`);
       } catch (completeErr) {
-        console.log(`   ⚠️  [RUNNER] Could not update job status to complete from delivery: ${completeErr.message}`);
+        console.log(`⚠️  [RUNNER] Could not update job status to complete from delivery: ${completeErr.message}`);
       }
       deliveryHandled = true;
       pipelineComplete = true;
@@ -697,7 +697,7 @@ async function processEvent(event) {
     if (decision.name === "transcribe_save_context" && skippedTools.size > 0) {
       const hasRemainingDelivery = [...TERMINAL_TOOLS].some((t) => !skippedTools.has(t));
       if (!hasRemainingDelivery) {
-        console.log(`   ⏭️  [RUNNER] Delivery skipped — pipeline finished after save_context`);
+        console.log(`⏭️  [RUNNER] Delivery skipped — pipeline finished after save_context`);
         logAction({ eventId, eventType: event.type, action: "complete", detail: "delivery skipped, ended after save_context" });
         pipelineComplete = true;
         break;
@@ -743,17 +743,17 @@ async function processEvent(event) {
     let hintAppended = false;
     const hint = resolveNextHint(decision.name, PIPELINE_HINTS);
     if (hint) {
-      console.log(`   🧭 [RUNNER] Pipeline hint appended for next step: "${hint}"`);
+      console.log(`🧭 [RUNNER] Pipeline hint appended for next step: "${hint}"`);
       const hintStart = context.length;
       context += `\n${hint}`;
       const hintLen = context.length - hintStart;
       hintAppended = true;
       const contextLengthDelta = context.length - contextBeforeUpdate;
-      console.log(`   📝 [RUNNER] Context growth at step ${step}: +${contextLengthDelta} chars (result: +${resultBlockLen}, hint: +${hintLen})`);
+      console.log(`📝 [RUNNER] Context growth at step ${step}: +${contextLengthDelta} chars (result: +${resultBlockLen}, hint: +${hintLen})`);
     } else {
       const contextLengthDelta = context.length - contextBeforeUpdate;
-      console.log(`   🧭 [RUNNER] No pipeline hint for "${decision.name}" — LLM will decide next step autonomously`);
-      console.log(`   📝 [RUNNER] Context growth at step ${step}: +${contextLengthDelta} chars (result only, no hint)`);
+      console.log(`🧭 [RUNNER] No pipeline hint for "${decision.name}" — LLM will decide next step autonomously`);
+      console.log(`📝 [RUNNER] Context growth at step ${step}: +${contextLengthDelta} chars (result only, no hint)`);
     }
   }
 
@@ -802,7 +802,7 @@ async function processEvent(event) {
         `   [USAGE] Token usage saved for job ${traceTag}: ${totalTokens.toLocaleString()} total tokens (${allSteps.length} steps, ${tokenUsage.length} new)`,
       );
     } catch (err) {
-      console.log(`   ⚠️  [RUNNER] Failed to save token usage: ${err.message}`);
+      console.log(`⚠️  [RUNNER] Failed to save token usage: ${err.message}`);
     }
   } else {
     const traceTag = jobId?.slice(0, 8) || "???";
@@ -834,57 +834,57 @@ async function processEvent(event) {
         `   📬 [RUNNER] Delivery results saved for job ${jobId?.slice(0, 8) || "???"}: ${deliveryData.summary.success} success, ${deliveryData.summary.failed} failed`,
       );
     } catch (err) {
-      console.log(`   ⚠️  [RUNNER] Failed to save delivery results: ${err.message}`);
+      console.log(`⚠️  [RUNNER] Failed to save delivery results: ${err.message}`);
     }
   }
 
   // ── Log instruction building summary at pipeline end ──
   const finalContextLength = context.length;
   const contextGrowth = finalContextLength - initialContextLength;
-  console.log(`\n   📝 [RUNNER] ═══ Pipeline Instructions Summary ═══`);
-  console.log(`   📝 [RUNNER]   Initial context            : ${String(initialContextLength).padStart(7)} chars`);
-  console.log(`   📝 [RUNNER]   Final context              : ${String(finalContextLength).padStart(7)} chars`);
+  console.log(`\n📝 [RUNNER] ═══ Pipeline Instructions Summary ═══`);
+  console.log(`📝 [RUNNER]   Initial context            : ${String(initialContextLength).padStart(7)} chars`);
+  console.log(`📝 [RUNNER]   Final context              : ${String(finalContextLength).padStart(7)} chars`);
   console.log(
     `   📝 [RUNNER]   Total context growth       : ${String(contextGrowth).padStart(7)} chars (+${contextGrowth > 0 ? ((contextGrowth / initialContextLength) * 100).toFixed(1) : 0}%)`,
   );
-  console.log(`   📝 [RUNNER]   Pipeline steps             : ${String(tokenUsage.length).padStart(7)}`);
-  console.log(`   📝 [RUNNER]   Tokens consumed            : ${String(totalTokens).padStart(7)}`);
+  console.log(`📝 [RUNNER]   Pipeline steps             : ${String(tokenUsage.length).padStart(7)}`);
+  console.log(`📝 [RUNNER]   Tokens consumed            : ${String(totalTokens).padStart(7)}`);
   const charsPerToken = finalContextLength / Math.max(totalTokens || 1, 1);
-  console.log(`   📝 [RUNNER]   Avg chars per token        : ${charsPerToken.toFixed(2)}`);
-  console.log(`   📝 [RUNNER] ════════════════════════════════════════════\n`);
+  console.log(`📝 [RUNNER]   Avg chars per token        : ${charsPerToken.toFixed(2)}`);
+  console.log(`📝 [RUNNER] ════════════════════════════════════════════\n`);
 
   // Only update job status here if a delivery tool did not already handle it inline.
   // When a delivery tool succeeds or fails, it saves delivery results and calls
   // transcribe_complete_job / transcribe_fail_job immediately within the pipeline loop.
   if (!deliveryHandled) {
     if (pipelineError) {
-      console.log(`   ❌ [RUNNER] Pipeline failed for job ${tag}: ${pipelineError}`);
+      console.log(`❌ [RUNNER] Pipeline failed for job ${tag}: ${pipelineError}`);
       logAction({ eventId, eventType: event.type, action: "failed", detail: pipelineError });
       // Directly fail the job on the Python backend so the UI sees the error
       try {
         const jobId = jobData.jobId || eventId;
         await executeToolCall("transcribe_fail_job", { jobId, error: pipelineError });
-        console.log(`   ✅ [RUNNER] Job ${jobId.slice(0, 8)} marked as failed on backend`);
+        console.log(`✅ [RUNNER] Job ${jobId.slice(0, 8)} marked as failed on backend`);
       } catch (failErr) {
-        console.log(`   ⚠️  [RUNNER] Could not update job status to failed: ${failErr.message}`);
+        console.log(`⚠️  [RUNNER] Could not update job status to failed: ${failErr.message}`);
       }
       // Also enqueue a failed event as a fallback
       await enqueueFailed(event, pipelineError);
     } else {
-      console.log(`   ✅ [RUNNER] Pipeline finished for job ${tag}`);
+      console.log(`✅ [RUNNER] Pipeline finished for job ${tag}`);
       // Mark the job as complete on the backend so the frontend knows all
       // processing (including LLM summarization, analysis, memory context)
       // is done and the summary.json is ready to be fetched.
       try {
         const jobId = jobData.jobId || eventId;
         await executeToolCall("transcribe_complete_job", { jobId });
-        console.log(`   ✅ [RUNNER] Job ${jobId.slice(0, 8)} marked as complete on backend`);
+        console.log(`✅ [RUNNER] Job ${jobId.slice(0, 8)} marked as complete on backend`);
       } catch (completeErr) {
-        console.log(`   ⚠️  [RUNNER] Could not update job status to complete: ${completeErr.message}`);
+        console.log(`⚠️  [RUNNER] Could not update job status to complete: ${completeErr.message}`);
       }
     }
   } else {
-    console.log(`   📬 [RUNNER] Job status already updated by delivery tool — skipping post-loop complete/fail`);
+    console.log(`📬 [RUNNER] Job status already updated by delivery tool — skipping post-loop complete/fail`);
   }
 
   // ── Close LLM data stream ──
@@ -923,15 +923,15 @@ function buildInitialContext(event, transcript, safeTitle, safeAttendees, eventI
     ``,
   ].filter(Boolean);
 
-  console.log(`   📝 [BUILD-CONTEXT] Building initial context for event type "${event.type}"`);
-  console.log(`   📝 [BUILD-CONTEXT]   Metadata section: job title, ${safeAttendees.length} attendee(s), delivery config`);
+  console.log(`📝 [BUILD-CONTEXT] Building initial context for event type "${event.type}"`);
+  console.log(`📝 [BUILD-CONTEXT]   Metadata section: job title, ${safeAttendees.length} attendee(s), delivery config`);
 
   // Use event templates from agent-config/pipeline.json, with variable substitution
   const template = EVENT_TEMPLATES[event.type] || "";
   const templateName = template ? `event_templates["${event.type}"]` : "none (using fallback)";
-  console.log(`   📝 [BUILD-CONTEXT]   Template: ${templateName}`);
+  console.log(`📝 [BUILD-CONTEXT]   Template: ${templateName}`);
   if (template) {
-    console.log(`   📝 [BUILD-CONTEXT]   Template raw length: ${template.length} chars`);
+    console.log(`📝 [BUILD-CONTEXT]   Template raw length: ${template.length} chars`);
     // Log variable substitutions that will be applied
     const substitutions = [
       { var: "{{segment_count}}", value: String(transcript.length) },
@@ -942,7 +942,7 @@ function buildInitialContext(event, transcript, safeTitle, safeAttendees, eventI
       substitutions.push({ var: "{{transcript_preview}}", value: `${Math.min(transcript.length, 10)} segments preview` });
     if (event.type === "labeling_needed")
       substitutions.push({ var: "{{speaker_details}}", value: `${(jobData.unknownSpeakers || []).length} unknown speakers` });
-    console.log(`   📝 [BUILD-CONTEXT]   Variable substitutions: ${substitutions.map((s) => `${s.var} → ${s.value}`).join(", ")}`);
+    console.log(`📝 [BUILD-CONTEXT]   Variable substitutions: ${substitutions.map((s) => `${s.var} → ${s.value}`).join(", ")}`);
 
     const rendered = template
       .replace("{{segment_count}}", String(transcript.length))
@@ -966,36 +966,36 @@ function buildInitialContext(event, transcript, safeTitle, safeAttendees, eventI
       for (const uk of jobData.unknownSpeakers || []) {
         speakerLines.push(`  - ${uk.speaker_id}: "${(uk.sample_text || "").slice(0, 80)}"`);
       }
-      console.log(`   📝 [BUILD-CONTEXT]   Unknown speakers: ${(jobData.unknownSpeakers || []).length} speaker(s) in preview`);
+      console.log(`📝 [BUILD-CONTEXT]   Unknown speakers: ${(jobData.unknownSpeakers || []).length} speaker(s) in preview`);
       lines.push(rendered.replace("{{speaker_details}}", speakerLines.join("\n")));
     } else {
       lines.push(rendered);
     }
   } else {
-    console.log(`   📝 [BUILD-CONTEXT]   No template found for event type "${event.type}" — using hard-coded fallback`);
+    console.log(`📝 [BUILD-CONTEXT]   No template found for event type "${event.type}" — using hard-coded fallback`);
     // Fallback if no template is defined for this event type
     if (event.type === "ready_for_processing") {
-      console.log(`   📝 [BUILD-CONTEXT]   Fallback: inline transcript preview (${transcript.length} segments)`);
+      console.log(`📝 [BUILD-CONTEXT]   Fallback: inline transcript preview (${transcript.length} segments)`);
       lines.push(`Transcript (${transcript.length} segments):`);
       for (const seg of transcript.slice(0, 10)) {
         lines.push(`  [${seg.start?.toFixed(1)}s] ${seg.speaker}: ${(seg.text || "").slice(0, 100)}`);
       }
       if (transcript.length > 10) lines.push(`  ... (${transcript.length - 10} more)`);
     } else if (event.type === "labeling_needed") {
-      console.log(`   📝 [BUILD-CONTEXT]   Fallback: inline unknown speakers (${(jobData.unknownSpeakers || []).length})`);
+      console.log(`📝 [BUILD-CONTEXT]   Fallback: inline unknown speakers (${(jobData.unknownSpeakers || []).length})`);
       lines.push(`Unknown speakers detected:`);
       for (const uk of jobData.unknownSpeakers || []) {
         lines.push(`  - ${uk.speaker_id}: "${(uk.sample_text || "").slice(0, 80)}"`);
       }
     } else if (event.type === "failed") {
-      console.log(`   📝 [BUILD-CONTEXT]   Fallback: inline error message`);
+      console.log(`📝 [BUILD-CONTEXT]   Fallback: inline error message`);
       lines.push(`Processing failed. Error: ${jobData.error || "unknown"}`);
     }
   }
 
   const result = lines.join("\n");
   const sectionCount = lines.filter(Boolean).length;
-  console.log(`   📝 [BUILD-CONTEXT]   Total sections in context: ${sectionCount}, total length: ${result.length} chars`);
+  console.log(`📝 [BUILD-CONTEXT]   Total sections in context: ${sectionCount}, total length: ${result.length} chars`);
   return result;
 }
 
@@ -1021,7 +1021,7 @@ async function mainLoop() {
 
   const pending = readPending();
   if (pending.length > 0) {
-    console.log(`\n   🔔 [RUNNER] ${pending.length} pending job(s)`);
+    console.log(`\n🔔 [RUNNER] ${pending.length} pending job(s)`);
     await processEvent(pending[0]);
   }
 

@@ -64,17 +64,17 @@ export function startOllamaHealthCheck() {
   if (PROVIDER !== "ollama") return;
   if (healthCheckTimer) return; // already running
 
-  console.log(`   🩺 [MODEL] Starting Ollama health check (interval: ${HEALTH_CHECK_INTERVAL}ms)`);
+  console.log(`🩺 [MODEL] Starting Ollama health check (interval: ${HEALTH_CHECK_INTERVAL}ms)`);
 
   // Immediate first check
   (async () => {
     const healthy = await checkOllamaHealth();
-    console.log(`   🩺 [MODEL] Ollama health check: ${healthy ? "✅ UP" : "❌ DOWN"}`);
+    console.log(`🩺 [MODEL] Ollama health check: ${healthy ? "✅ UP" : "❌ DOWN"}`);
   })();
 
   healthCheckTimer = setInterval(async () => {
     const healthy = await checkOllamaHealth();
-    console.log(`   🩺 [MODEL] Ollama health check: ${healthy ? "✅ UP" : "❌ DOWN"}`);
+    console.log(`🩺 [MODEL] Ollama health check: ${healthy ? "✅ UP" : "❌ DOWN"}`);
   }, HEALTH_CHECK_INTERVAL);
 }
 
@@ -85,7 +85,7 @@ export function stopOllamaHealthCheck() {
   if (healthCheckTimer) {
     clearInterval(healthCheckTimer);
     healthCheckTimer = null;
-    console.log(`   🩺 [MODEL] Ollama health check stopped`);
+    console.log(`🩺 [MODEL] Ollama health check stopped`);
   }
 }
 
@@ -161,9 +161,9 @@ export async function callModel(context, toolDefs, systemMessageOverride) {
     systemMessageOverride || SYSTEM_PROMPT_TEMPLATE.replace("{{TOOL_LIST}}", toolDefs.map((t) => `  - ${t.name}: ${t.description}`).join("\n"));
 
   if (process.env.LOG_LLM_DATA === "true") {
-    console.log(`   🤖 [MODEL] Calling ${PROVIDER}/${MODEL}... w/`, context);
+    console.log(`🤖 [MODEL] Calling ${PROVIDER}/${MODEL}... w/`, context);
   } else {
-    console.log(`   🤖 [MODEL] Calling ${PROVIDER}/${MODEL} (context: ${context.length} chars, ${tools?.length || 0} tools)`);
+    console.log(`🤖 [MODEL] Calling ${PROVIDER}/${MODEL} (context: ${context.length} chars, ${tools?.length || 0} tools)`);
   }
 
   try {
@@ -186,15 +186,15 @@ export async function callModel(context, toolDefs, systemMessageOverride) {
     const choice = response.choices?.[0];
     const usage = response.usage || null;
 
-    console.log(`   📊 [MODEL] Raw API — usage: ${JSON.stringify(usage)}`);
-    // Only dump full message content when LLM data logging is explicitly enabled
+    // Only log usage & full message content when LLM data logging is explicitly enabled
     if (process.env.LOG_LLM_DATA === "true") {
-      console.log(`   📊 [MODEL] Raw API — messages: ${JSON.stringify(response.choices?.[0]?.message)}`);
+      console.log(`📊 [MODEL] Raw API — usage: ${JSON.stringify(usage)}`);
+      console.log(`📊 [MODEL] Raw API — messages: ${JSON.stringify(response.choices?.[0]?.message)}`);
     }
 
     const toolCall = choice?.message?.tool_calls?.[0];
     if (!toolCall) {
-      console.log(`   ⚠️  [MODEL] No tool call in response — usage from this call will NOT be tracked`);
+      console.log(`⚠️  [MODEL] No tool call in response — usage from this call will NOT be tracked`);
       return null;
     }
 
@@ -207,7 +207,7 @@ export async function callModel(context, toolDefs, systemMessageOverride) {
 
     return { name: toolCall.function.name, arguments: args, usage };
   } catch (err) {
-    console.error(`   ❌ [MODEL] ${err.message}`);
+    console.error(`❌ [MODEL] ${err.message}`);
     throw err;
   }
 }

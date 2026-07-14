@@ -97,6 +97,8 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
   const [showNameSuggestions, setShowNameSuggestions] = useState(false);
   const [showEmailSuggestions, setShowEmailSuggestions] = useState(false);
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
+  const [playingVp, setPlayingVp] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const emailInputRef = useRef<HTMLInputElement>(null);
@@ -144,6 +146,12 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
   const deliveryTools = ["transcribe_prepare_delivery", "send_delivery_email", "save_to_drive", "create_trello_action_items"];
   const deliveryFullySkipped = deliveryTools.every((t) => skipSteps.includes(t));
   const anyDeliverySkipped = deliveryTools.some((t) => skipSteps.includes(t));
+
+  // Set of registered attendee names (lowercase) for UI highlighting
+  const registeredNames = useMemo(
+    () => new Set(registeredAttendees.map((ra) => ra.name.toLowerCase())),
+    [registeredAttendees],
+  );
 
   // Merge saved attendees with registered attendees from bridge, deduped by name
   const allKnownAttendees = useMemo(() => {
@@ -211,10 +219,20 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
   );
 
   const addAttendee = (name?: string, email?: string) => {
-    const resolvedName = (name || attendeeName).trim();
+    const isManualEntry = name === undefined;
+    const resolvedName = isManualEntry ? attendeeName.trim() : name.trim();
     if (!resolvedName) return;
     // Prevent duplicate names
     if (attendeeList.some((a) => a.name.toLowerCase() === resolvedName.toLowerCase())) return;
+    // Only for manual entry: if this name matches a registered attendee, reject it
+    if (isManualEntry && registeredAttendees.some((ra) => ra.name.toLowerCase() === resolvedName.toLowerCase())) {
+      setEmailError(`"${resolvedName}" is a registered attendee — use the + Add button below to add them`);
+      setAttendeeName("");
+      setAttendeeEmail("");
+      setShowNameSuggestions(false);
+      setShowEmailSuggestions(false);
+      return;
+    }
     // Validate email if provided
     const resolvedEmail = email !== undefined ? email : attendeeEmail.trim();
     if (resolvedEmail && !validateEmail(resolvedEmail)) {
@@ -305,6 +323,26 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
     setAttendeeList(attendeeList.filter((_, i) => i !== index));
     setEmailError(null);
   };
+
+  const handlePlayVoiceprint = useCallback(
+    (email: string) => {
+      if (playingVp === email) {
+        audioRef.current?.pause();
+        setPlayingVp(null);
+        return;
+      }
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      const audio = new Audio(`http://127.0.0.1:5010/agent/voiceprints/sample/${encodeURIComponent(email)}`);
+      audio.onended = () => setPlayingVp(null);
+      audio.onerror = () => setPlayingVp(null);
+      audio.play().catch(() => setPlayingVp(null));
+      audioRef.current = audio;
+      setPlayingVp(email);
+    },
+    [playingVp],
+  );
 
   const handleSubmit = () => {
     if (!file) return;
@@ -407,7 +445,7 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
             className="attendee-section-label"
             data-tooltip="List of meeting participants — names map to speakers, emails are used for delivery"
             data-tooltip-pos="right">
-            Attendees <span className="required">*</span>
+            Meeting Attendees <span className="required">*</span>
           </label>
           <span className="field-hint">Names map positionally to detected speakers for labeling. Emails are used for delivery.</span>
 
@@ -504,9 +542,14 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
           {attendeeList.length > 0 && (
             <ul className="attendee-list">
               {attendeeList.map((a, i) => (
-                <li key={i} className="attendee-list-item">
+                <li
+                  key={i}
+                  className={`attendee-list-item${registeredNames.has(a.name.toLowerCase()) ? " attendee-list-item--registered" : ""}`}>
                   <span className="attendee-list-name">{a.name}</span>
                   {a.email && <span className="attendee-list-email">{a.email}</span>}
+                  {registeredNames.has(a.name.toLowerCase()) && (
+                    <span className="attendee-list-badge" data-tooltip="This attendee is in the registered attendees list">Registered</span>
+                  )}
                   <button
                     className="btn-text attendee-remove-btn"
                     onClick={() => removeAttendee(i)}
@@ -519,26 +562,38 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
             </ul>
           )}
 
-          {/* Registered attendee quick-add chips */}
+          {/* Registered attendee quick-add list */}
           {registeredAttendees.length > 0 && (
             <div className="registered-attendees">
               <span className="registered-attendees-label">
                 <Icon name="badge" size="12" color="accent" /> Registered attendees:
               </span>
-              <div className="registered-attendees-chips">
+              <div className="registered-attendees-list">
                 {registeredAttendees
                   .filter((ra) => !attendeeList.some((a) => a.name.toLowerCase() === ra.name.toLowerCase()))
                   .map((ra) => (
-                    <button
-                      key={ra.name}
-                      className="attendee-chip"
-                      onClick={() => {
-                        addAttendee(ra.name, ra.email);
-                      }}
-                      title={`Add ${ra.name}${ra.email ? ` (${ra.email})` : ""}`}
-                      data-tooltip={`Click to add ${ra.name} to the attendee list`}>
-                      <Icon name="add" size="10" /> {ra.name}
-                    </button>
+                    <div key={ra.name} className="registered-attendee-row">
+                      <span className="registered-attendee-name">{ra.name}</span>
+                      {ra.email && <span className="registered-attendee-email">{ra.email}</span>}
+                      <div className="registered-attendee-actions">
+                        {ra.email && (
+                          <button
+                            className="btn-text attendee-play-btn"
+                            onClick={() => handlePlayVoiceprint(ra.email)}
+                            title={playingVp === ra.email ? "Stop playback" : "Play voice sample"}
+                            data-tooltip={playingVp === ra.email ? "Stop playback" : "Hear a 3-second voice sample of this attendee"}>
+                            <Icon name={playingVp === ra.email ? "stop" : "play_arrow"} size="14" color="accent" />
+                          </button>
+                        )}
+                        <button
+                          className="btn-text attendee-add-btn"
+                          onClick={() => addAttendee(ra.name, ra.email)}
+                          title={`Add ${ra.name} to attendee list`}
+                          data-tooltip={`Click to add ${ra.name} to the meeting participant list`}>
+                          <Icon name="add" size="14" />
+                        </button>
+                      </div>
+                    </div>
                   ))}
               </div>
             </div>

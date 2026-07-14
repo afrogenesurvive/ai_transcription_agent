@@ -536,18 +536,27 @@ async def agent_label_speakers(req: LabelRequest):
 
     for label in req.labels:
         emb = None
+        sample_start = None
+        sample_end = None
         if audio_path and transcript_data:
             speaker_segs = [s for s in transcript_data if s.get("speaker") == label.speaker_id]
             if speaker_segs:
                 longest = max(speaker_segs, key=lambda s: s["end"] - s["start"])
+                sample_start = longest["start"]
+                sample_end = longest["end"]
                 try:
                     emb = vp_manager.extract_embedding(
-                        audio_path, segment=(longest["start"], longest["end"])
+                        audio_path, segment=(sample_start, sample_end)
                     )
                     print(f"[api]   ✅ Extracted embedding for '{label.name}' ({label.speaker_id})")
                 except Exception as e:
                     print(f"[api]   ⚠️  Could not extract embedding for '{label.name}': {e}")
-        vp_manager.save_voiceprint(label.name, label.email or "", emb)
+        vp_manager.save_voiceprint(
+            label.name, label.email or "", emb,
+            sample_job_id=req.job_id,
+            sample_start=sample_start,
+            sample_end=sample_end,
+        )
 
     if transcript_data:
         mapping = {l.speaker_id: l.name for l in req.labels}
@@ -631,7 +640,7 @@ async def agent_voiceprint_sample(email: str):
     if not os.path.exists(audio_path):
         raise HTTPException(404, "Source audio file not found")
 
-    clip_duration = min(3.0, seg_end - seg_start)
+    clip_duration = min(8.0, seg_end - seg_start)
     clip_start = seg_start
 
     with _tf.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:

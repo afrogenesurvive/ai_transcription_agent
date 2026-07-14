@@ -541,13 +541,14 @@ body {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  /* overflow-x: hidden; */
+  overflow-x: hidden;
 }
 
 .form-fields label {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  font-weight: 600;
   color: var(--text-muted);
 }
 
@@ -8087,10 +8088,13 @@ body {
   margin-top: 8px;
 }
 
-.attendee-section-label {
-  display: block;
-  font-weight: 500;
-  font-size: var(--fs-12);
+.form-fields .attendee-section-label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 3px;
+  font-weight: 600;
+  font-size: var(--fs-14);
   color: var(--text);
   margin-bottom: 4px;
 }
@@ -8292,7 +8296,24 @@ body {
   background: rgba(248, 81, 73, 0.1);
 }
 
-/* ── Registered attendee quick-add chips ── */
+/* ── Registered attendee highlighted border ── */
+
+.attendee-list-item--registered {
+  border-color: var(--accent);
+  border-left: 3px solid var(--accent);
+}
+
+.attendee-list-badge {
+  font-size: var(--fs-10);
+  color: var(--accent);
+  background: rgba(var(--accent-rgb, 88, 166, 255), 0.1);
+  padding: 1px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Registered attendee quick-add list (column) ── */
 
 .registered-attendees {
   margin-top: 8px;
@@ -8302,38 +8323,95 @@ body {
 }
 
 .registered-attendees-label {
-  font-size: 11px;
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.registered-attendees-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.attendee-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 3px 8px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--surface);
+  font-size: var(--fs-13);
+  font-weight: 600;
   color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.registered-attendees-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 240px;
+  /* overflow-y: auto; */
+}
+
+.registered-attendee-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--accent);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 12px;
+}
+
+.registered-attendee-name {
+  font-weight: 500;
+  color: var(--text);
+  min-width: 100px;
+}
+
+.registered-attendee-email {
+  color: var(--text-muted);
   font-size: 11px;
-  cursor: pointer;
-  transition: all 0.15s;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.attendee-chip:hover {
-  background: var(--accent);
-  color: #fff;
-  border-color: var(--accent);
+.registered-attendee-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.attendee-play-btn,
+.attendee-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.attendee-play-btn:hover {
+  background: rgba(var(--accent-rgb, 88, 166, 255), 0.12);
+  color: var(--accent);
+}
+
+.attendee-add-btn:hover {
+  background: rgba(35, 185, 100, 0.12);
+  color: #23b964;
+}
+
+.registered-attendees-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.registered-attendees-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.registered-attendees-list::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
 }
 
 .config-textarea {
