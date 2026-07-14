@@ -923,6 +923,63 @@
   font-size: var(--fs-16);
 }
 
+/* ── Log sub-tab navigation ── */
+
+.rv-logs-sub-tabs {
+  display: flex;
+  gap: 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.rv-logs-sub-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  font-size: var(--fs-12);
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: var(--font);
+  white-space: nowrap;
+}
+
+.rv-logs-sub-tab:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.rv-logs-sub-tab--active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  background: rgba(88, 166, 255, 0.06);
+}
+
+/* Full-height pre block for transcript/raw file viewers */
+
+.rv-logs-rpre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 12px;
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: var(--fs-11);
+  color: var(--text);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 120px;
+}
+
 .rv-logs-section {
   border-bottom: 1px solid var(--border);
 }

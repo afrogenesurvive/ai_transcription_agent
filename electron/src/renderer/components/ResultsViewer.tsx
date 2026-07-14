@@ -488,12 +488,8 @@ function LogsTab({ jobId }: { jobId: string }) {
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [autoScroll, setAutoScroll] = useState(true);
   const [noTruncate, setNoTruncate] = useState(true);
-  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
-  const [activeFile, setActiveFile] = useState<string | null>(null);
+  const [logSubTab, setLogSubTab] = useState<"pipeline" | "transcript" | "raw">("pipeline");
   const logRef = useRef<HTMLDivElement>(null);
-
-  // Max chars to show when collapsed — large files get truncated
-  const MAX_COLLAPSED_CHARS = 10000;
 
   useEffect(() => {
     let cancelled = false;
@@ -561,50 +557,6 @@ function LogsTab({ jobId }: { jobId: string }) {
     }
   }, [entries, autoScroll]);
 
-  // Toggle file expand/collapse
-  const toggleFile = useCallback((fileName: string) => {
-    setExpandedFiles((prev) => {
-      const next = new Set(prev);
-      if (next.has(fileName)) {
-        next.delete(fileName);
-      } else {
-        next.add(fileName);
-      }
-      return next;
-    });
-  }, []);
-
-  // Select a file in the browser view
-  const selectFile = useCallback((fileName: string) => {
-    setActiveFile((prev) => (prev === fileName ? null : fileName));
-  }, []);
-
-  // Format content for display: try to pretty-print JSON
-  const formatContent = useCallback((content: string, fileName: string): string => {
-    if (!content) return "";
-    if (fileName.endsWith(".json")) {
-      try {
-        const parsed = JSON.parse(content);
-        return JSON.stringify(parsed, null, 2);
-      } catch {
-        return content;
-      }
-    }
-    if (fileName.endsWith(".jsonl")) {
-      const lines = content.split("\n").filter(Boolean);
-      const formatted = lines.map((line) => {
-        try {
-          const parsed = JSON.parse(line);
-          return JSON.stringify(parsed, null, 2);
-        } catch {
-          return line;
-        }
-      });
-      return formatted.join("\n---\n");
-    }
-    return content;
-  }, []);
-
   // Filter entries by source, level, and search query
   // Strip nulls first to keep TS happy
   const nonNullEntries = entries.filter((e): e is NonNullable<typeof e> => e !== null);
@@ -666,181 +618,179 @@ function LogsTab({ jobId }: { jobId: string }) {
     );
   }
 
-  return (
-    <div className="rv-tab-content rv-tab-content--logs">
-      {/* Job-specific log files — file browser + expandable content */}
-      {jobLogFiles.length > 0 && (
-        <div className="rv-logs-section">
-          <h4 className="rv-logs-section-title">
-            <Icon name="folder" size="14" /> Job-Specific Files
-          </h4>
-          <div className="rv-logs-file-browser">
-            {jobLogFiles.map((jf) => (
-              <button
-                key={jf.file}
-                className={`rv-logs-file-btn ${activeFile === jf.file ? "rv-logs-file-btn--active" : ""} ${
-                  searchQuery.trim() && jf.content.toLowerCase().includes(searchQuery.toLowerCase()) ? "rv-logs-file-btn--match" : ""
-                }`}
-                onClick={() => selectFile(jf.file)}
-                title={`View ${jf.file} (${(jf.content.length / 1024).toFixed(1)} KB)${
-                  searchQuery.trim() && jf.content.toLowerCase().includes(searchQuery.toLowerCase()) ? " — contains search match" : ""
-                }`}>
-                <span className="rv-logs-file-btn-name">{jf.file}</span>
-                <span className="rv-logs-file-btn-meta">{(jf.content.length / 1024).toFixed(1)} KB</span>
-              </button>
-            ))}
-          </div>
-          {activeFile &&
-            (() => {
-              const jf = jobLogFiles.find((f) => f.file === activeFile);
-              if (!jf) return null;
-              const isExpanded = expandedFiles.has(jf.file);
-              const formatted = formatContent(jf.content, jf.file);
-              const isLarge = formatted.length > MAX_COLLAPSED_CHARS;
-              const displayContent =
-                isExpanded || !isLarge ? formatted : formatted.slice(0, MAX_COLLAPSED_CHARS) + "\n\n... (truncated — click to expand)";
-              return (
-                <div className="rv-logs-file-item">
-                  <div className="rv-logs-file-header">
-                    <span className="rv-logs-file-name">{jf.file}</span>
-                    <span className="rv-logs-file-size">{(jf.content.length / 1024).toFixed(1)} KB</span>
-                    {isLarge && (
-                      <button className="rv-logs-expand-btn" onClick={() => toggleFile(jf.file)}>
-                        <Icon name={isExpanded ? "unfold_less" : "unfold_more"} size="14" />
-                        {isExpanded ? " Collapse" : " Expand full file"}
-                      </button>
-                    )}
-                  </div>
-                  <pre className="rv-logs-pre">{displayContent}</pre>
-                </div>
-              );
-            })()}
-        </div>
-      )}
+  // Find transcript and raw transcript file content
+  const transcriptFile = jobLogFiles.find((jf) => jf.file === "transcript.txt");
+  const rawTranscriptFile = jobLogFiles.find((jf) => jf.file === "raw_transcript.txt");
 
-      {/* Filter toolbar */}
-      {rawLogs.length > 0 && (
-        <div className="rv-logs-toolbar">
-          <span className="rv-logs-toolbar-title">
-            <Icon name="terminal" size="14" color="accent" /> Pipeline Logs
+  /** Render a file viewer for a given job file */
+  const renderFileViewer = (jf: { file: string; content: string } | undefined, label: string) => {
+    if (!jf || !jf.content) {
+      return (
+        <div className="rv-empty-state" style={{ padding: 24 }}>
+          <span className="rv-empty-icon">
+            <Icon name="description" size="24" color="muted" />
           </span>
-          <div className="rv-logs-toolbar-filters">
-            {/* 🔍 Text search filter */}
-            <div className="rv-logs-search-wrap">
-              <span className="rv-logs-search-icon">🔍</span>
-              <input
-                className="rv-logs-search-input"
-                type="text"
-                placeholder="Search logs…"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                title={
-                  searchQuery.trim()
-                    ? `${searchMatchTotal} match${searchMatchTotal !== 1 ? "es" : ""} in unfiltered logs`
-                    : "Search log entries by text"
-                }
-              />
-              {searchQuery && (
-                <button
-                  className="rv-logs-search-clear"
-                  onClick={() => setSearchQuery("")}
-                  title="Clear search"
-                  data-tooltip="Clear the log search query">
-                  <Icon name="close" size="12" />
-                </button>
-              )}
-            </div>
-            <select className="rv-logs-filter-select" value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
-              <option value="all">All sources</option>
-              <option value="python">Python</option>
-              <option value="bridge">Bridge</option>
-              <option value="agent">Agent</option>
-              <option value="main">Main</option>
-            </select>
-            <select className="rv-logs-filter-select" value={subSourceFilter} onChange={(e) => setSubSourceFilter(e.target.value)}>
-              <option value="all">All sub-sources</option>
-              <option value="runner">Runner</option>
-              <option value="model">Model</option>
-              <option value="executor">Executor</option>
-              <option value="transcription">Transcription</option>
-              <option value="pipeline">Pipeline</option>
-              <option value="voiceprint">Voiceprint</option>
-              <option value="upload">Upload</option>
-              <option value="http">HTTP</option>
-              <option value="usage">Usage</option>
-              <option value="ollama">Ollama</option>
-            </select>
-            <select className="rv-logs-filter-select" value={levelFilter} onChange={(e) => setLevelFilter(e.target.value)}>
-              <option value="all">All levels</option>
-              <option value="info">Info</option>
-              <option value="warn">Warnings</option>
-              <option value="error">Errors</option>
-              <option value="debug">Debug</option>
-            </select>
-            {/* <label className="dev-panel-checkbox" data-tooltip="Automatically scroll to the bottom when entries are loaded">
-              <input type="checkbox" checked={autoScroll} onChange={(e) => setAutoScroll(e.target.checked)} />
-              Auto-scroll
-            </label>
-            <label className="dev-panel-checkbox" data-tooltip="Show all available log entries without truncation">
-              <input type="checkbox" checked={noTruncate} onChange={(e) => setNoTruncate(e.target.checked)} />
-              No truncate
-            </label>
-            <span className="rv-logs-filter-count">
-              {filteredEntries.length} / {rawLogs.length} entries
-              {searchQuery.trim() && ` (${searchMatchTotal} matches)`}
-            </span> */}
-          </div>
+          <p>No {label} available for this job.</p>
+          <p className="rv-muted">The file will appear here once generated by the pipeline.</p>
         </div>
-      )}
+      );
+    }
+    return (
+      <div className="rv-logs-file-item" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div className="rv-logs-file-header">
+          <span className="rv-logs-file-name">{jf.file}</span>
+          <span className="rv-logs-file-size">{(jf.content.length / 1024).toFixed(1)} KB</span>
+        </div>
+        <pre className="rv-logs-rpre">{jf.content}</pre>
+      </div>
+    );
+  };
 
-      {/* Filtered pipeline logs */}
-      {rawLogs.length > 0 && (
-        <div className="rv-logs-section" style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-          {filteredEntries.length > 0 ? (
-            <div className="rv-logs-list" ref={logRef}>
-              {filteredEntries.map((entry, i) => (
-                <div key={i} className="rv-log-line rv-log-line--parsed">
-                  <span className="rv-log-line-time">{new Date(entry.timestamp).toLocaleTimeString()}</span>
-                  <span className="rv-log-line-source" style={{ color: RV_SOURCE_COLORS[entry.source] || "#8b949e" }}>
-                    [{entry.source}]
-                  </span>
-                  {entry.subSource && (
-                    <span className="rv-log-line-subsource" style={{ color: RV_SOURCE_COLORS[entry.subSource] || "#8b949e" }}>
-                      [{entry.subSource}]
-                    </span>
-                  )}
-                  <span className={`rv-log-line-level rv-log-line-level--${entry.level}`}>
-                    {entry.level === "error" ? "!" : entry.level === "warn" ? "▲" : ""}
-                  </span>
-                  <span className="rv-log-line-text">{highlightText(entry.message)}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="rv-logs-empty-filter">
-              <span className="rv-logs-empty-filter-icon">
-                <Icon name="search_off" size="14" color="muted" />
+  return (
+    <div className="rv-tab-content rv-tab-content--logs" style={{ display: "flex", flexDirection: "column", overflow: "hidden", height: "100%" }}>
+      {/* Sub-tab navigation */}
+      <div className="rv-logs-sub-tabs">
+        <button
+          className={`rv-logs-sub-tab ${logSubTab === "pipeline" ? "rv-logs-sub-tab--active" : ""}`}
+          onClick={() => setLogSubTab("pipeline")}
+          title="View parsed pipeline log entries with source and level filtering">
+          <Icon name="terminal" size="14" /> Pipeline Log
+        </button>
+        <button
+          className={`rv-logs-sub-tab ${logSubTab === "transcript" ? "rv-logs-sub-tab--active" : ""}`}
+          onClick={() => setLogSubTab("transcript")}
+          title="View the formatted transcript text file">
+          <Icon name="description" size="14" /> Transcript TXT
+        </button>
+        <button
+          className={`rv-logs-sub-tab ${logSubTab === "raw" ? "rv-logs-sub-tab--active" : ""}`}
+          onClick={() => setLogSubTab("raw")}
+          title="View the raw (unrefined) transcript text file">
+          <Icon name="article" size="14" /> Raw Transcript TXT
+        </button>
+      </div>
+
+      {/* ── Pipeline Log sub-tab ── */}
+      {logSubTab === "pipeline" && (
+        <>
+          {/* Filter toolbar */}
+          {rawLogs.length > 0 && (
+            <div className="rv-logs-toolbar" style={{ flexShrink: 0, flexWrap: "wrap" }}>
+              <span className="rv-logs-toolbar-title">
+                <Icon name="terminal" size="14" color="accent" /> Pipeline Logs
               </span>
-              <span>No logs match the current filters.</span>
+              <div className="rv-logs-toolbar-filters">
+                <div className="rv-logs-search-wrap">
+                  <span className="rv-logs-search-icon">🔍</span>
+                  <input
+                    className="rv-logs-search-input"
+                    type="text"
+                    placeholder="Search logs…"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    title={
+                      searchQuery.trim()
+                        ? `${searchMatchTotal} match${searchMatchTotal !== 1 ? "es" : ""} in unfiltered logs`
+                        : "Search log entries by text"
+                    }
+                  />
+                  {searchQuery && (
+                    <button
+                      className="rv-logs-search-clear"
+                      onClick={() => setSearchQuery("")}
+                      title="Clear search"
+                      data-tooltip="Clear the log search query">
+                      <Icon name="close" size="12" />
+                    </button>
+                  )}
+                </div>
+                <select className="rv-logs-filter-select" value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
+                  <option value="all">All sources</option>
+                  <option value="python">Python</option>
+                  <option value="bridge">Bridge</option>
+                  <option value="agent">Agent</option>
+                  <option value="main">Main</option>
+                </select>
+                <select className="rv-logs-filter-select" value={subSourceFilter} onChange={(e) => setSubSourceFilter(e.target.value)}>
+                  <option value="all">All sub-sources</option>
+                  <option value="runner">Runner</option>
+                  <option value="model">Model</option>
+                  <option value="executor">Executor</option>
+                  <option value="transcription">Transcription</option>
+                  <option value="pipeline">Pipeline</option>
+                  <option value="voiceprint">Voiceprint</option>
+                  <option value="upload">Upload</option>
+                  <option value="http">HTTP</option>
+                  <option value="usage">Usage</option>
+                  <option value="ollama">Ollama</option>
+                </select>
+                <select className="rv-logs-filter-select" value={levelFilter} onChange={(e) => setLevelFilter(e.target.value)}>
+                  <option value="all">All levels</option>
+                  <option value="info">Info</option>
+                  <option value="warn">Warnings</option>
+                  <option value="error">Errors</option>
+                  <option value="debug">Debug</option>
+                </select>
+              </div>
+              <span className="rv-logs-filter-count">
+                {filteredEntries.length} / {rawLogs.length} entry{rawLogs.length !== 1 ? "ies" : "y"}
+              </span>
             </div>
           )}
-          {/* Footer */}
-          <div className="dev-panel-footer">
-            <span>{filteredEntries.length} matches</span>
-            <span>{rawLogs.length} total</span>
-          </div>
-        </div>
+
+          {/* Filtered pipeline logs */}
+          {rawLogs.length > 0 ? (
+            <div className="rv-logs-section" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              {filteredEntries.length > 0 ? (
+                <div className="rv-logs-list" ref={logRef} style={{ maxHeight: "none", flex: 1 }}>
+                  {filteredEntries.map((entry, i) => (
+                    <div key={i} className="rv-log-line rv-log-line--parsed">
+                      <span className="rv-log-line-time">{new Date(entry.timestamp).toLocaleTimeString()}</span>
+                      <span className="rv-log-line-source" style={{ color: RV_SOURCE_COLORS[entry.source] || "#8b949e" }}>
+                        [{entry.source}]
+                      </span>
+                      {entry.subSource && (
+                        <span className="rv-log-line-subsource" style={{ color: RV_SOURCE_COLORS[entry.subSource] || "#8b949e" }}>
+                          [{entry.subSource}]
+                        </span>
+                      )}
+                      <span className={`rv-log-line-level rv-log-line-level--${entry.level}`}>
+                        {entry.level === "error" ? "!" : entry.level === "warn" ? "▲" : ""}
+                      </span>
+                      <span className="rv-log-line-text">{highlightText(entry.message)}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rv-logs-empty-filter">
+                  <span className="rv-logs-empty-filter-icon">
+                    <Icon name="search_off" size="14" color="muted" />
+                  </span>
+                  <span>No logs match the current filters.</span>
+                </div>
+              )}
+              <div className="dev-panel-footer">
+                <span>{filteredEntries.length} matches</span>
+                <span>{rawLogs.length} total</span>
+              </div>
+            </div>
+          ) : (
+            <div className="rv-empty-state">
+              <span className="rv-empty-icon">
+                <Icon name="terminal" size="32" color="muted" />
+              </span>
+              <p>No pipeline log entries found for this job.</p>
+              <p className="rv-muted">Pipeline log will appear here as the pipeline runs.</p>
+            </div>
+          )}
+        </>
       )}
 
-      {rawLogs.length === 0 && jobLogFiles.length === 0 && (
-        <div className="rv-empty-state">
-          <span className="rv-empty-icon">
-            <Icon name="terminal" size="32" color="muted" />
-          </span>
-          <p>No log entries found for this job.</p>
-          <p className="rv-muted">Logs will appear here as the pipeline runs.</p>
-        </div>
-      )}
+      {/* ── Transcript TXT sub-tab ── */}
+      {logSubTab === "transcript" && renderFileViewer(transcriptFile, "transcript text")}
+
+      {/* ── Raw Transcript TXT sub-tab ── */}
+      {logSubTab === "raw" && renderFileViewer(rawTranscriptFile, "raw transcript text")}
     </div>
   );
 }

@@ -2384,9 +2384,7 @@ function LogFilesTab() {
   const [logLevelFilter, setLogLevelFilter] = useState<string>("all");
   const [logSubSourceFilter, setLogSubSourceFilter] = useState<string>("all");
   const [sidebarWidth, setSidebarWidth] = useState(280);
-  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
-  const [activeFile, setActiveFile] = useState<string | null>(null);
-  const MAX_COLLAPSED_CHARS = 10000;
+  const [logSubTab, setLogSubTab] = useState<"pipeline" | "transcript" | "raw">("pipeline");
   const resizingRef = useRef(false);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -2458,19 +2456,6 @@ function LogFilesTab() {
   }, []);
 
   const [jobSpecificFiles, setJobSpecificFiles] = useState<{ file: string; content: string }[]>([]);
-
-  const toggleFile = useCallback((fileName: string) => {
-    setExpandedFiles((prev) => {
-      const next = new Set(prev);
-      if (next.has(fileName)) next.delete(fileName);
-      else next.add(fileName);
-      return next;
-    });
-  }, []);
-
-  const selectFile = useCallback((fileName: string) => {
-    setActiveFile((prev) => (prev === fileName ? null : fileName));
-  }, []);
 
   useEffect(() => {
     if (selectedJobId) {
@@ -2625,112 +2610,140 @@ function LogFilesTab() {
         )}
         {selectedJobId && !loading && !error && (
           <>
-            <div className="rv-logs-toolbar" style={{ flexShrink: 0 }}>
-              <span className="rv-logs-toolbar-title">Logs: {selectedJob?.title || selectedJobId?.slice(0, 8)}</span>
-              <div className="rv-logs-toolbar-filters" style={{ flex: 1, justifyContent: "flex-end", gap: 6 }}>
-                <div className="rv-logs-search-wrap">
-                  <span className="rv-logs-search-icon">🔍</span>
-                  <input
-                    className="rv-logs-search-input"
-                    type="text"
-                    placeholder="Search log lines…"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
-                  {searchQuery && (
-                    <button className="rv-logs-search-clear" onClick={() => setSearchQuery("")} title="Clear search">
-                      <Icon name="close" size="12" />
-                    </button>
-                  )}
-                </div>
-                <select className="rv-logs-filter-select" value={logSourceFilter} onChange={(e) => setLogSourceFilter(e.target.value)}>
-                  <option value="all">All sources</option>
-                  <option value="python">Python</option>
-                  <option value="bridge">Bridge</option>
-                  <option value="agent">Agent</option>
-                  <option value="main">Main</option>
-                </select>
-                <select className="rv-logs-filter-select" value={logSubSourceFilter} onChange={(e) => setLogSubSourceFilter(e.target.value)}>
-                  <option value="all">All sub-sources</option>
-                  <option value="runner">Runner</option>
-                  <option value="model">Model</option>
-                  <option value="executor">Executor</option>
-                  <option value="transcription">Transcription</option>
-                  <option value="pipeline">Pipeline</option>
-                  <option value="voiceprint">Voiceprint</option>
-                  <option value="upload">Upload</option>
-                  <option value="http">HTTP</option>
-                  <option value="usage">Usage</option>
-                  <option value="ollama">Ollama</option>
-                </select>
-                <select className="rv-logs-filter-select" value={logLevelFilter} onChange={(e) => setLogLevelFilter(e.target.value)}>
-                  <option value="all">All levels</option>
-                  <option value="info">Info</option>
-                  <option value="warn">Warnings</option>
-                  <option value="error">Errors</option>
-                </select>
-              </div>
-              <span className="rv-logs-filter-count">
-                {filteredLogLines.length} / {logLines.length} line{logLines.length !== 1 ? "s" : ""}
-              </span>
-              {logLines.length > 0 && (
-                <button className="dev-panel-btn" onClick={() => setLogLines([])} title="Clear displayed logs">
-                  Clear
-                </button>
-              )}
+            {/* Sub-tab navigation */}
+            <div className="rv-logs-sub-tabs" style={{ flexShrink: 0 }}>
+              <button
+                className={`rv-logs-sub-tab ${logSubTab === "pipeline" ? "rv-logs-sub-tab--active" : ""}`}
+                onClick={() => setLogSubTab("pipeline")}
+                title="View parsed pipeline log entries">
+                <Icon name="terminal" size="14" /> Pipeline Log
+              </button>
+              <button
+                className={`rv-logs-sub-tab ${logSubTab === "transcript" ? "rv-logs-sub-tab--active" : ""}`}
+                onClick={() => setLogSubTab("transcript")}
+                title="View the formatted transcript text file">
+                <Icon name="description" size="14" /> Transcript TXT
+              </button>
+              <button
+                className={`rv-logs-sub-tab ${logSubTab === "raw" ? "rv-logs-sub-tab--active" : ""}`}
+                onClick={() => setLogSubTab("raw")}
+                title="View the raw transcript text file">
+                <Icon name="article" size="14" /> Raw Transcript TXT
+              </button>
             </div>
-            <div style={{ overflowY: "auto", flex: 1 }}>
-              {/* Job-specific files (transcripts, summaries, etc.) */}
-              {jobSpecificFiles.length > 0 && (
-                <div className="rv-logs-section">
-                  <h4 className="rv-logs-section-title">
-                    <Icon name="folder" size="14" /> Job-Specific Files
-                  </h4>
-                  <div className="rv-logs-file-browser">
-                    {jobSpecificFiles.map((jf) => (
-                      <button
-                        key={jf.file}
-                        className={`rv-logs-file-btn ${activeFile === jf.file ? "rv-logs-file-btn--active" : ""}`}
-                        onClick={() => selectFile(jf.file)}
-                        title={`View ${jf.file} (${(jf.content.length / 1024).toFixed(1)} KB)`}>
-                        <span className="rv-logs-file-btn-name">{jf.file}</span>
-                        <span className="rv-logs-file-btn-meta">{(jf.content.length / 1024).toFixed(1)} KB</span>
-                      </button>
-                    ))}
+
+            {/* ── Pipeline Log sub-tab ── */}
+            {logSubTab === "pipeline" && (
+              <>
+                <div className="rv-logs-toolbar" style={{ flexShrink: 0 }}>
+                  <span className="rv-logs-toolbar-title">Logs: {selectedJob?.title || selectedJobId?.slice(0, 8)}</span>
+                  <div className="rv-logs-toolbar-filters" style={{ flex: 1, justifyContent: "flex-end", gap: 6 }}>
+                    <div className="rv-logs-search-wrap">
+                      <span className="rv-logs-search-icon">🔍</span>
+                      <input
+                        className="rv-logs-search-input"
+                        type="text"
+                        placeholder="Search log lines…"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                      />
+                      {searchQuery && (
+                        <button className="rv-logs-search-clear" onClick={() => setSearchQuery("")} title="Clear search">
+                          <Icon name="close" size="12" />
+                        </button>
+                      )}
+                    </div>
+                    <select className="rv-logs-filter-select" value={logSourceFilter} onChange={(e) => setLogSourceFilter(e.target.value)}>
+                      <option value="all">All sources</option>
+                      <option value="python">Python</option>
+                      <option value="bridge">Bridge</option>
+                      <option value="agent">Agent</option>
+                      <option value="main">Main</option>
+                    </select>
+                    <select className="rv-logs-filter-select" value={logSubSourceFilter} onChange={(e) => setLogSubSourceFilter(e.target.value)}>
+                      <option value="all">All sub-sources</option>
+                      <option value="runner">Runner</option>
+                      <option value="model">Model</option>
+                      <option value="executor">Executor</option>
+                      <option value="transcription">Transcription</option>
+                      <option value="pipeline">Pipeline</option>
+                      <option value="voiceprint">Voiceprint</option>
+                      <option value="upload">Upload</option>
+                      <option value="http">HTTP</option>
+                      <option value="usage">Usage</option>
+                      <option value="ollama">Ollama</option>
+                    </select>
+                    <select className="rv-logs-filter-select" value={logLevelFilter} onChange={(e) => setLogLevelFilter(e.target.value)}>
+                      <option value="all">All levels</option>
+                      <option value="info">Info</option>
+                      <option value="warn">Warnings</option>
+                      <option value="error">Errors</option>
+                    </select>
                   </div>
-                  {activeFile &&
-                    (() => {
-                      const jf = jobSpecificFiles.find((f) => f.file === activeFile);
-                      if (!jf) return null;
-                      const isExpanded = expandedFiles.has(jf.file);
-                      const isLarge = jf.content.length > MAX_COLLAPSED_CHARS;
-                      const displayContent =
-                        isExpanded || !isLarge ? jf.content : jf.content.slice(0, MAX_COLLAPSED_CHARS) + "\n\n... (truncated — click to expand)";
-                      return (
-                        <div className="rv-logs-file-item">
-                          <div className="rv-logs-file-header">
-                            <span className="rv-logs-file-name">{jf.file}</span>
-                            <span className="rv-logs-file-size">{(jf.content.length / 1024).toFixed(1)} KB</span>
-                            {isLarge && (
-                              <button className="rv-logs-expand-btn" onClick={() => toggleFile(jf.file)}>
-                                <Icon name={isExpanded ? "unfold_less" : "unfold_more"} size="14" />
-                                {isExpanded ? " Collapse" : " Expand full file"}
-                              </button>
-                            )}
-                          </div>
-                          <pre className="rv-logs-pre">{displayContent}</pre>
-                        </div>
-                      );
-                    })()}
+                  <span className="rv-logs-filter-count">
+                    {filteredLogLines.length} / {logLines.length} line{logLines.length !== 1 ? "s" : ""}
+                  </span>
                 </div>
-              )}
-              {filteredLogLines.length === 0 && (
-                <div className="dev-panel-empty">
-                  <Icon name="info" size="14" color="muted" /> No log entries found for this job.
+                <div style={{ overflowY: "auto", flex: 1 }}>
+                  {filteredLogLines.length === 0 && (
+                    <div className="dev-panel-empty">
+                      <Icon name="info" size="14" color="muted" /> No log entries found for this job.
+                    </div>
+                  )}
+                  {filteredLogLines.map((line, i) => renderLogLine(line, i))}
                 </div>
-              )}
-              {filteredLogLines.map((line, i) => renderLogLine(line, i))}
-            </div>
+              </>
+            )}
+
+            {/* ── Transcript TXT sub-tab ── */}
+            {logSubTab === "transcript" && (
+              <div style={{ overflowY: "auto", flex: 1, padding: "12px 18px" }}>
+                {(() => {
+                  const tf = jobSpecificFiles.find((jf) => jf.file === "transcript.txt");
+                  if (!tf || !tf.content) {
+                    return (
+                      <div className="dev-panel-empty">
+                        <Icon name="description" size="14" color="muted" /> No transcript text available for this job.
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="rv-logs-file-item">
+                      <div className="rv-logs-file-header">
+                        <span className="rv-logs-file-name">transcript.txt</span>
+                        <span className="rv-logs-file-size">{(tf.content.length / 1024).toFixed(1)} KB</span>
+                      </div>
+                      <pre className="rv-logs-rpre">{tf.content}</pre>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* ── Raw Transcript TXT sub-tab ── */}
+            {logSubTab === "raw" && (
+              <div style={{ overflowY: "auto", flex: 1, padding: "12px 18px" }}>
+                {(() => {
+                  const rf = jobSpecificFiles.find((jf) => jf.file === "raw_transcript.txt");
+                  if (!rf || !rf.content) {
+                    return (
+                      <div className="dev-panel-empty">
+                        <Icon name="article" size="14" color="muted" /> No raw transcript text available for this job.
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="rv-logs-file-item">
+                      <div className="rv-logs-file-header">
+                        <span className="rv-logs-file-name">raw_transcript.txt</span>
+                        <span className="rv-logs-file-size">{(rf.content.length / 1024).toFixed(1)} KB</span>
+                      </div>
+                      <pre className="rv-logs-rpre">{rf.content}</pre>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
           </>
         )}
       </div>
