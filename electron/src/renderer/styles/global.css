@@ -6923,6 +6923,74 @@ body {
   opacity: 0.4;
 }
 
+/* ── ServerStatusBanner — spinner & collapsible details ── */
+
+.ssb-header--center {
+  align-items: center;
+}
+
+.ssb-spinner-wrap {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+}
+
+.ssb-spinner-ring {
+  display: block;
+}
+
+.ssb-spinner-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--fs-12);
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.ssb-details {
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.ssb-details[open] {
+  padding-bottom: 4px;
+}
+
+.ssb-details-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  font-size: var(--fs-13);
+  font-weight: 500;
+  color: var(--text-muted);
+  padding: 8px 0;
+  list-style: none;
+}
+
+.ssb-details-summary::-webkit-details-marker {
+  display: none;
+}
+
+.ssb-details-summary:hover {
+  color: var(--text);
+}
+
+.ssb-details-count {
+  margin-left: auto;
+  font-size: var(--fs-11);
+  color: var(--text-muted);
+  background: var(--bg);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
 /* ── About Panel ── */
 
 .about-panel {

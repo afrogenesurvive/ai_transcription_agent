@@ -15,7 +15,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import Icon from "./Icon";
-import type { PipelineStep } from "../types";
+import type { PipelineStep, ConfigValueSource } from "../types";
 
 interface Props {
   onClose: () => void;
@@ -45,11 +45,6 @@ interface ConfigValues {
   DELIVERY_EMAIL_SUBJECT: string;
   DELIVERY_EMAIL_ADDITIONAL_CONTENT: string;
   DELIVERY_DRIVE_FOLDER: string;
-}
-
-interface ConfigSourceInfo {
-  value: string;
-  source: "user_config" | "environment" | "default";
 }
 
 interface AgentConfig {
@@ -177,7 +172,13 @@ function getDefaultPipelineSteps(cfg: AgentConfig): PipelineStep[] {
     },
     { toolName: "send_delivery_email", label: "Deliver via Email", description: "Send results via email", isTerminal: true },
     { toolName: "save_to_drive", label: "Save to Drive", description: "Save results to Google Drive", isTerminal: true },
-    { toolName: "create_trello_action_items", label: "Create Trello Cards", description: "Create action items as Trello cards", isTerminal: true },
+    {
+      toolName: "create_trello_action_items",
+      label: "Create Trello Cards",
+      description: "Create action items as Trello cards",
+      isTerminal: true,
+      enabled: false,
+    },
   ];
 
   const terminalToolsSet = new Set(cfg.pipeline?.terminal_tools || []);
@@ -191,7 +192,7 @@ function getDefaultPipelineSteps(cfg: AgentConfig): PipelineStep[] {
       description: def.description,
       systemPromptTemplate: "",
       hintTemplate: hints[def.toolName] || "",
-      enabled: true,
+      enabled: (def as any).enabled ?? true,
       isTerminal: def.isTerminal || terminalToolsSet.has(def.toolName),
     }));
 }
@@ -208,7 +209,7 @@ export default function ConfigPanel({ onClose }: Props) {
   const [activeTab, setActiveTab] = useState<ConfigTab>("config");
   const [configSection, setConfigSection] = useState<string>("LLM Provider");
   const [values, setValues] = useState<ConfigValues>({} as ConfigValues);
-  const [sourceInfo, setSourceInfo] = useState<Record<string, ConfigSourceInfo>>({});
+  const [sourceInfo, setSourceInfo] = useState<Record<string, ConfigValueSource>>({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -348,6 +349,7 @@ export default function ConfigPanel({ onClose }: Props) {
 
   // ── Pipeline steps (draggable checklist) state ──
   const [editPipelineSteps, setEditPipelineSteps] = useState<PipelineStep[]>([]);
+  const [trelloToggleEnabled, setTrelloToggleEnabled] = useState(false); // Developer toggle unlocks Trello step checkbox
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
@@ -1649,12 +1651,12 @@ The system provides existing memory context at the start of each pipeline run. U
                           ⠿
                         </span>
 
-                        {/* Enable/disable toggle */}
+                        {/* Enable/disable toggle — Trello step checkbox is unlocked via Developer section toggle */}
                         <label className="pipeline-step-checkbox" onClick={(e) => e.stopPropagation()}>
                           <input
                             type="checkbox"
                             checked={step.enabled}
-                            disabled={activeJobs.length > 0}
+                            disabled={activeJobs.length > 0 || (step.toolName === "create_trello_action_items" && !trelloToggleEnabled)}
                             onChange={() => {
                               const updated = editPipelineSteps.map((s) => (s.id === step.id ? { ...s, enabled: !s.enabled } : s));
                               setEditPipelineSteps(updated);
@@ -1751,6 +1753,33 @@ The system provides existing memory context at the start of each pipeline run. U
                     </div>
                   ))}
                 </div>
+
+                {/* ── Developer section (collapsed by default) ── */}
+                <details className="config-preview-details" style={{ marginTop: 12 }}>
+                  <summary
+                    className="config-preview-summary"
+                    style={{ cursor: "pointer", userSelect: "none", fontSize: 12, fontWeight: 600, color: "var(--text-muted)" }}>
+                    <Icon name="build" size="14" color="muted" /> Developer
+                  </summary>
+                  <div style={{ marginTop: 8, padding: "8px 12px", background: "var(--bg-secondary)", borderRadius: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <input
+                        type="checkbox"
+                        id="dev-trello-toggle"
+                        checked={trelloToggleEnabled}
+                        disabled={activeJobs.length > 0}
+                        onChange={() => setTrelloToggleEnabled((prev) => !prev)}
+                      />
+                      <label htmlFor="dev-trello-toggle" style={{ fontSize: 12, cursor: "pointer" }}>
+                        <Icon name="dashboard" size="14" color="accent" /> Unlock Trello Cards step checkbox
+                      </label>
+                    </div>
+                    <p className="config-field-hint" style={{ marginTop: 4, marginBottom: 0 }}>
+                      Enables the &ldquo;Create Trello Cards&rdquo; step checkbox above so you can toggle it on/off. This prevents accidental enabling
+                      of Trello delivery without first visiting this section.
+                    </p>
+                  </div>
+                </details>
               </div>
             )}
 

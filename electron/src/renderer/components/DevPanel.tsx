@@ -2346,10 +2346,17 @@ function UsageTab() {
 
 /* ── Log Files Tab ── */
 
-/** Parse a timestamp from a log line (e.g. "[2026-07-10 14:30:00]" or ISO date). */
+/** Parse a timestamp from a log line and return a local-time formatted string.
+ *  Handles ISO format: "[2026-07-14T16:10:57.123Z]" or "[2026-07-14 16:10:57]". */
 function parseLogTimestamp(line: string): string | null {
-  const m = line.match(/^\[(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?)/);
-  return m ? m[1] : null;
+  const m = line.match(/^\[(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)\]/);
+  if (!m) return null;
+  // Replace space separator with T, append Z if missing, for consistent Date parsing
+  const raw = m[1].replace(" ", "T");
+  const isoStr = raw.endsWith("Z") ? raw : raw + "Z";
+  const d = new Date(isoStr);
+  if (isNaN(d.getTime())) return m[1]; // fallback: show raw string
+  return d.toLocaleTimeString(); // e.g. "11:10:57 AM"
 }
 
 /** Extract a log source from a line like "[pipeline]" or "[voiceprint]" or "[api]" */
@@ -2938,10 +2945,12 @@ function TestingTab() {
               {statusIcon(backendStatus?.agent ?? null)} Agent Runner {statusText(backendStatus?.agent ?? null, "Running", "Down", "Checking…")}
             </span>
             <span>
-              {statusIcon(appBuilt)} App build{' '}
-              {appBuilt === true
-                ? <span style={{ color: "var(--green)" }}>Built{builtAt ? ` — ${new Date(builtAt).toLocaleString()}` : ''}</span>
-                : statusText(appBuilt, "Built", "Missing (run build)", "Checking…")}
+              {statusIcon(appBuilt)} App build{" "}
+              {appBuilt === true ? (
+                <span style={{ color: "var(--green)" }}>Built{builtAt ? ` — ${new Date(builtAt).toLocaleString()}` : ""}</span>
+              ) : (
+                statusText(appBuilt, "Built", "Missing (run build)", "Checking…")
+              )}
             </span>
             <span>
               {statusIcon(fileExists)} Audio file {statusText(fileExists, "Found", "Not found", audioPath ? "Checking…" : "Not set")}
