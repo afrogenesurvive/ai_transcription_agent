@@ -2734,7 +2734,8 @@ function LogFilesTab() {
 /* ── Testing Tab ── */
 
 /** Default 20 generic speaker names (comma-separated, matches config.ts) */
-const DEFAULT_GENERIC_NAMES = "Alex,Blake,Casey,Drew,Ellis,Finley,Gray,Harper,Indigo,Jade,Kai,Logan,Morgan,Nico,Oakley,Parker,Quinn,Reese,Skyler,Taylor";
+const DEFAULT_GENERIC_NAMES =
+  "Alex,Blake,Casey,Drew,Ellis,Finley,Gray,Harper,Indigo,Jade,Kai,Logan,Morgan,Nico,Oakley,Parker,Quinn,Reese,Skyler,Taylor";
 
 function TestingTab() {
   const [audioPath, setAudioPath] = useState("");
@@ -2755,8 +2756,14 @@ function TestingTab() {
   // Poll backend status and build check every 10s
   useEffect(() => {
     const check = () => {
-      window.electronAPI?.checkServers().then(setBackendStatus).catch(() => setBackendStatus(null));
-      window.electronAPI?.checkPlaywrightBuild().then((r) => setAppBuilt(r.exists)).catch(() => setAppBuilt(false));
+      window.electronAPI
+        ?.checkServers()
+        .then(setBackendStatus)
+        .catch(() => setBackendStatus(null));
+      window.electronAPI
+        ?.checkPlaywrightBuild()
+        .then((r) => setAppBuilt(r.exists))
+        .catch(() => setAppBuilt(false));
     };
     check();
     const interval = setInterval(check, 10_000);
@@ -2765,42 +2772,25 @@ function TestingTab() {
 
   // Check file existence when audioPath changes
   useEffect(() => {
-    if (!audioPath.trim()) { setFileExists(null); return; }
-    // We check via an IPC call that tests if the file exists
-    window.electronAPI?.openPath(audioPath).then(() => setFileExists(true)).catch(() => setFileExists(false));
-    // Simple heuristic: we can't actually stat a file from the renderer, so
-    // we'll set it based on what's plausible. The IPC handler will fail at runtime anyway.
-    // But we can at least check if the path looks non-empty.
-    setFileExists(audioPath.trim().length > 0 ? null : false);
-  }, [audioPath]);
-
-  // Actually check file existence via a bridge call (Python can stat the file)
-  useEffect(() => {
-    if (!audioPath.trim()) { setFileExists(null); return; }
+    if (!audioPath.trim()) {
+      setFileExists(null);
+      return;
+    }
     let cancelled = false;
-    fetch(`http://127.0.0.1:5010/tools/call`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tool: "transcribe_status", args: {} }),
-    }).then(() => {
-      // Bridge is up — check file via a simple approach
-      if (!cancelled) {
-        // Use the bridge to stat the file
-        fetch(`http://127.0.0.1:5010/tools/call`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tool: "transcribe_upload_by_path", args: { filePath: audioPath, dryRun: true } }),
-        })
-          .then((r) => { if (!cancelled) setFileExists(r.ok); })
-          .catch(() => { if (!cancelled) setFileExists(false); });
-      }
-    }).catch(() => { if (!cancelled) setFileExists(false); });
-    return () => { cancelled = true; };
+    window.electronAPI?.fileExists(audioPath).then((exists) => {
+      if (!cancelled) setFileExists(exists);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [audioPath]);
 
   // Validate generic names (must have at least 20 non-empty items)
   useEffect(() => {
-    const names = genericNames.split(",").map((s) => s.trim()).filter(Boolean);
+    const names = genericNames
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
     setNamesValid(names.length >= 20);
   }, [genericNames]);
 
@@ -2830,7 +2820,11 @@ function TestingTab() {
 
   const handleBrowse = useCallback(async () => {
     const filePath = await window.electronAPI?.selectAudioFile();
-    if (filePath) setAudioPath(filePath);
+    if (filePath) {
+      setAudioPath(filePath);
+      // Persist to config immediately so the path survives a panel close
+      window.electronAPI?.saveConfig({ PLAYWRIGHT_AUDIO_FILE_PATH: filePath });
+    }
   }, []);
 
   const handleRun = useCallback(async () => {
@@ -2865,19 +2859,13 @@ function TestingTab() {
   };
   const statusText = (ok: boolean | null, yes: string, no: string, unknown: string) => {
     if (ok === null) return <span style={{ color: "var(--text-muted)" }}>{unknown}</span>;
-    return ok
-      ? <span style={{ color: "var(--green)" }}>{yes}</span>
-      : <span style={{ color: "var(--red)" }}>{no}</span>;
+    return ok ? <span style={{ color: "var(--green)" }}>{yes}</span> : <span style={{ color: "var(--red)" }}>{no}</span>;
   };
 
-  const allPrereqsMet = (
-    backendStatus?.python &&
-    backendStatus?.bridge &&
-    backendStatus?.agent &&
-    appBuilt === true &&
-    fileExists === true &&
-    namesValid
-  );
+  // All prerequisite checks must have resolved (not null) before the button enables
+  const allChecksComplete = backendStatus !== null && appBuilt !== null && fileExists !== null;
+  const allPrereqsMet =
+    allChecksComplete && backendStatus!.python && backendStatus!.bridge && backendStatus!.agent && appBuilt === true && fileExists === true && namesValid;
 
   const outputColor = exitCode === null ? "var(--text-muted)" : exitCode === 0 ? "var(--green)" : "var(--red)";
   const outputIcon = exitCode === null ? "info" : exitCode === 0 ? "check_circle" : "error";
@@ -2899,11 +2887,7 @@ function TestingTab() {
             <Icon name={running ? "sync" : "play_arrow"} size="14" color={running ? "muted" : "accent"} />
             {running ? " Running..." : " Run Tests"}
           </button>
-          <button
-            className="dev-panel-btn"
-            onClick={() => setOutput([])}
-            disabled={output.length === 0}
-            title="Clear test output">
+          <button className="dev-panel-btn" onClick={() => setOutput([])} disabled={output.length === 0} title="Clear test output">
             Clear Output
           </button>
         </div>
@@ -2911,43 +2895,43 @@ function TestingTab() {
 
       <div className="dev-panel-list" style={{ padding: "12px 16px", fontFamily: "var(--font)", display: "flex", flexDirection: "column", gap: 16 }}>
         {/* ── Prerequisites (live status) ── */}
-        <div style={{
-          background: "var(--surface)",
-          borderRadius: "var(--radius)",
-          padding: "10px 14px",
-          fontSize: "var(--fs-11)",
-          lineHeight: 1.8,
-        }}>
-          <h4 style={{
-            fontSize: "var(--fs-12)", fontWeight: 600, color: "var(--text-muted)",
-            textTransform: "uppercase", letterSpacing: 0.4, margin: "0 0 8px",
+        <div
+          style={{
+            background: "var(--surface)",
+            borderRadius: "var(--radius)",
+            padding: "10px 14px",
+            fontSize: "var(--fs-11)",
+            lineHeight: 1.8,
           }}>
+          <h4
+            style={{
+              fontSize: "var(--fs-12)",
+              fontWeight: 600,
+              color: "var(--text-muted)",
+              textTransform: "uppercase",
+              letterSpacing: 0.4,
+              margin: "0 0 8px",
+            }}>
             <Icon name="checklist" size="14" color="accent" /> Prerequisites
           </h4>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2px 16px" }}>
             <span>
-              {statusIcon(backendStatus?.python ?? null)} Python :5001{" "}
-              {statusText(backendStatus?.python ?? null, "Running", "Down", "Checking…")}
+              {statusIcon(backendStatus?.python ?? null)} Python :5001 {statusText(backendStatus?.python ?? null, "Running", "Down", "Checking…")}
             </span>
             <span>
-              {statusIcon(backendStatus?.bridge ?? null)} Bridge :5010{" "}
-              {statusText(backendStatus?.bridge ?? null, "Running", "Down", "Checking…")}
+              {statusIcon(backendStatus?.bridge ?? null)} Bridge :5010 {statusText(backendStatus?.bridge ?? null, "Running", "Down", "Checking…")}
             </span>
             <span>
-              {statusIcon(backendStatus?.agent ?? null)} Agent Runner{" "}
-              {statusText(backendStatus?.agent ?? null, "Running", "Down", "Checking…")}
+              {statusIcon(backendStatus?.agent ?? null)} Agent Runner {statusText(backendStatus?.agent ?? null, "Running", "Down", "Checking…")}
             </span>
             <span>
-              {statusIcon(appBuilt)} App build{" "}
-              {statusText(appBuilt, "Built", "Missing (run build)", "Checking…")}
+              {statusIcon(appBuilt)} App build {statusText(appBuilt, "Built", "Missing (run build)", "Checking…")}
             </span>
             <span>
-              {statusIcon(fileExists)} Audio file{" "}
-              {statusText(fileExists, "Found", "Not found", audioPath ? "Checking…" : "Not set")}
+              {statusIcon(fileExists)} Audio file {statusText(fileExists, "Found", "Not found", audioPath ? "Checking…" : "Not set")}
             </span>
             <span>
-              {statusIcon(namesValid)} 20 speaker names{" "}
-              {statusText(namesValid, "Valid", "Need ≥20", "—")}
+              {statusIcon(namesValid)} 20 speaker names {statusText(namesValid, "Valid", "Need ≥20", "—")}
             </span>
           </div>
           {!allPrereqsMet && (
@@ -2959,10 +2943,15 @@ function TestingTab() {
 
         {/* ── Test Variables ── */}
         <div>
-          <h4 style={{
-            fontSize: "var(--fs-12)", fontWeight: 600, color: "var(--text-muted)",
-            textTransform: "uppercase", letterSpacing: 0.4, margin: "0 0 10px",
-          }}>
+          <h4
+            style={{
+              fontSize: "var(--fs-12)",
+              fontWeight: 600,
+              color: "var(--text-muted)",
+              textTransform: "uppercase",
+              letterSpacing: 0.4,
+              margin: "0 0 10px",
+            }}>
             <Icon name="settings" size="14" color="accent" /> Test Variables
           </h4>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -2994,7 +2983,7 @@ function TestingTab() {
               <input
                 className="dev-panel-testing-input"
                 type="text"
-                placeholder='test {autoNum}'
+                placeholder="test {autoNum}"
                 value={titleTemplate}
                 onChange={(e) => setTitleTemplate(e.target.value)}
               />
@@ -3003,14 +2992,20 @@ function TestingTab() {
             {/* Generic names (editable textarea, 20 lines) */}
             <label className="dev-panel-testing-field">
               <span className="dev-panel-testing-field-label">
-                Generic Speaker Names ({genericNames.split(",").filter(s => s.trim()).length}/20 required)
+                Generic Speaker Names ({genericNames.split(",").filter((s) => s.trim()).length}/20 required)
               </span>
               <textarea
                 className="dev-panel-testing-textarea"
                 rows={10}
-                value={genericNames.split(",").map((s) => s.trim()).join("\n")}
+                value={genericNames
+                  .split(",")
+                  .map((s) => s.trim())
+                  .join("\n")}
                 onChange={(e) => {
-                  const lines = e.target.value.split("\n").map((s) => s.trim()).filter(Boolean);
+                  const lines = e.target.value
+                    .split("\n")
+                    .map((s) => s.trim())
+                    .filter(Boolean);
                   setGenericNames(lines.join(","));
                 }}
                 placeholder="One name per line (at least 20 required)"
@@ -3018,7 +3013,7 @@ function TestingTab() {
               />
               {!namesValid && (
                 <span style={{ color: "var(--red)", fontSize: "var(--fs-10)", marginTop: 2 }}>
-                  At least 20 names are required ({genericNames.split(",").filter(s => s.trim()).length} provided)
+                  At least 20 names are required ({genericNames.split(",").filter((s) => s.trim()).length} provided)
                 </span>
               )}
             </label>
@@ -3027,10 +3022,15 @@ function TestingTab() {
 
         {/* ── Output ── */}
         <div>
-          <h4 style={{
-            fontSize: "var(--fs-12)", fontWeight: 600, color: "var(--text-muted)",
-            textTransform: "uppercase", letterSpacing: 0.4, margin: "0 0 10px",
-          }}>
+          <h4
+            style={{
+              fontSize: "var(--fs-12)",
+              fontWeight: 600,
+              color: "var(--text-muted)",
+              textTransform: "uppercase",
+              letterSpacing: 0.4,
+              margin: "0 0 10px",
+            }}>
             <Icon name="terminal" size="14" color="accent" /> Test Output
           </h4>
           <div

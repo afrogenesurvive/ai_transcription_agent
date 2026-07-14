@@ -225,6 +225,16 @@ ipcMain.handle("dialog:selectAudio", async () => {
   return result.canceled ? null : result.filePaths[0];
 });
 
+// ── File system helpers ──
+
+ipcMain.handle("fs:fileExists", async (_event, filePath: string) => {
+  try {
+    return fs.existsSync(filePath);
+  } catch {
+    return false;
+  }
+});
+
 ipcMain.handle("backend:status", async () => {
   // Check all three services with individual timeouts
   let python = false;
@@ -1074,7 +1084,9 @@ ipcMain.handle("testing:run", async (_event, vars: Record<string, string>) => {
       ...process.env,
       PLAYWRIGHT_AUDIO_FILE_PATH: cfg.PLAYWRIGHT_AUDIO_FILE_PATH || "",
       PLAYWRIGHT_TITLE_TEMPLATE: cfg.PLAYWRIGHT_TITLE_TEMPLATE || "test {autoNum}",
-      PLAYWRIGHT_GENERIC_NAMES: cfg.PLAYWRIGHT_GENERIC_NAMES || "Alex,Blake,Casey,Drew,Ellis,Finley,Gray,Harper,Indigo,Jade,Kai,Logan,Morgan,Nico,Oakley,Parker,Quinn,Reese,Skyler,Taylor",
+      PLAYWRIGHT_GENERIC_NAMES:
+        cfg.PLAYWRIGHT_GENERIC_NAMES ||
+        "Alex,Blake,Casey,Drew,Ellis,Finley,Gray,Harper,Indigo,Jade,Kai,Logan,Morgan,Nico,Oakley,Parker,Quinn,Reese,Skyler,Taylor",
     };
 
     // 4. Spawn Playwright in the electron directory

@@ -193,8 +193,9 @@ export interface ElectronAPI {
     error?: string;
   }>;
 
-  // ── Shell (open folders in native file manager) ──
+  // ── Shell & File system ──
   openPath: (filePath: string) => Promise<{ success: boolean; error?: string }>;
+  fileExists: (filePath: string) => Promise<boolean>;
 
   // ── Playwright Testing ──
   runPlaywrightTests: (vars: Record<string, string>) => Promise<{ exitCode: number; output: string }>;
