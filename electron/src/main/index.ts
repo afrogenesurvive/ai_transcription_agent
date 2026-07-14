@@ -64,7 +64,6 @@ import {
   isAgentRunning,
   startHealthMonitoring,
   stopHealthMonitoring,
-  killProcessOnPort,
   getChildPids,
   ollamaStartedByUs,
   stopOllamaServer,

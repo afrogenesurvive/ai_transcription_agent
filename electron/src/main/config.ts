@@ -128,7 +128,7 @@ function parseUserConfig(): Partial<AppConfig> {
 /** Describes the source of a config value for the UI. */
 export interface ConfigValueSource {
   value: string;
-  source: "user_config" | "env_file" | "default";
+  source: "user_config" | "env_file" | "environment" | "default";
 }
 
 /** Merge config from: user file > defaults. */
@@ -152,7 +152,7 @@ export function getConfigWithSources(): Record<keyof AppConfig, ConfigValueSourc
       source = "user_config";
     } else if (process.env[key]) {
       value = process.env[key]!;
-      source = "env_file";
+      source = "environment";
     }
 
     result[key] = { value, source };

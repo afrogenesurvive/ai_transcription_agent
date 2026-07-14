@@ -120,7 +120,11 @@ async function callPython(method, path, body = null) {
   if (!resp.ok) {
     console.error(`[bridge]   ← Python ${resp.status} (${elapsed}ms): ${JSON.stringify(data)}`);
     // Extract a clean message from Python's HTTPException body
-    const detail = data.detail || data.error || data.message || JSON.stringify(data);
+    // Ensure detail is always a string — FastAPI validation errors return
+    // data.detail as an array of objects, which would become "[object Object]"
+    // if passed directly to new Error().
+    const rawDetail = data.detail || data.error || data.message || JSON.stringify(data);
+    const detail = typeof rawDetail === "string" ? rawDetail : JSON.stringify(rawDetail);
     const err = new Error(detail);
     err.statusCode = resp.status;
     throw err;
@@ -712,9 +716,12 @@ const server = http.createServer(async (req, res) => {
     }
   } catch (err) {
     const statusCode = err.statusCode || 500;
-    console.error(`[bridge] Error (${statusCode}): ${err.message}`);
+    // Guard against err.message being a non-string (e.g. array from FastAPI
+    // validation), which would serialize as "[object Object]".
+    const safeMsg = typeof err.message === "string" ? err.message : JSON.stringify(err.message);
+    console.error(`[bridge] Error (${statusCode}): ${safeMsg}`);
     res.writeHead(statusCode, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: err.message }));
+    res.end(JSON.stringify({ error: safeMsg }));
   }
 });
 

@@ -242,7 +242,6 @@ export function addLog(
   // ── Write to per-job pipeline.log ──
   // Priority: explicit jobId > _currentJobId (set via setCurrentJobId)
   const logJobId = jobId || _currentJobId;
-  // console.log("addLog job id", jobId, _currentJobId, logJobId);
 
   if (logJobId) {
     // Check if this message signals pipeline end — close the log if so
@@ -278,10 +277,6 @@ export function addLog(
 
 export function getLogs(limit = 200): LogEntry[] {
   return buffer.slice(-limit);
-}
-
-export function getAllLogs(): LogEntry[] {
-  return [...buffer];
 }
 
 export function subscribe(fn: (entry: LogEntry) => void): () => void {

@@ -19,7 +19,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     agent: boolean;
   }> => ipcRenderer.invoke("backend:status"),
 
-  // ── Manual server check ──
+  // checkServers is intentionally aliased to getBackendStatus for API clarity
   checkServers: (): Promise<{
     python: boolean;
     bridge: boolean;

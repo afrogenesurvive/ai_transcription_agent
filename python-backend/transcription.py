@@ -209,7 +209,16 @@ class TranscriptionEngine:
         except Exception:
             pass
 
-        print(f"[transcription]   ⏳ Running diarization pipeline on {self.device}...")
+        print(f"[transcription]   ⏳ Running pyannote diarization pipeline ({config.DIARIZATION_MODEL}) on {self.device}...")
+        print(f"[transcription]   🔍 pyannote will call torchaudio.load() internally — any torchaudio warnings below originate from pyannote")
+        # Dump a short stack trace so the user can correlate the torchaudio
+        # deprecation warning (which fires inside pyannote's __call__) with
+        # the exact call site in this file.
+        import traceback as _tb
+        print(f"[transcription]   🔍 Call stack entering pyannote:")
+        for line in _tb.format_stack(limit=4)[:-1]:
+            for sub in line.rstrip().split("\n"):
+                print(f"[transcription]     | {sub}")
         diarization = self._diarization(audio_path)
         infer_elapsed = time.time() - t0
 

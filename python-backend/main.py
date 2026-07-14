@@ -250,12 +250,7 @@ async def get_active_jobs():
     delivered, transcribed) or were never started (labeling_needed)
     are not returned — they're handled by the agent runner separately.
     """
-    """List jobs actively running in the ML pipeline.
-
-    Uses in-memory tracking (``_active_jobs``) instead of scanning disk,
-    avoiding O(n) scandir + JSON reads on every request. The dict is
-    maintained by ``_run_pipeline`` and ``_run_pipeline_async``.
-    """
+    """List jobs actively running in the ML pipeline (uses in-memory tracking)."""
     ml_pipeline_statuses = {
         "uploaded", "initializing", "processing_diarization",
         "matching_voiceprints", "processing_transcription", "aligning",

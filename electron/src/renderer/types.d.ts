@@ -72,7 +72,7 @@ export interface LogFileInfo {
 
 export interface ConfigValueSource {
   value: string;
-  source: "user_config" | "default";
+  source: "user_config" | "default" | "environment";
 }
 
 export interface StorageUsage {
