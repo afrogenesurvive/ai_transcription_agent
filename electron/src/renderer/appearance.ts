@@ -39,16 +39,26 @@ export function readFontPreset(cfg: Record<string, string>): FontSizePreset {
   return "medium";
 }
 
-/**
- * Apply appearance settings to the document via CSS custom properties.
- * This function is idempotent and can be called multiple times.
- */
-export function applyAppearance(config: AppearanceConfig): void {
-  const root = document.documentElement;
-  const body = document.body;
+// ── System-theme media query listener ──
+// Tracks OS color scheme changes when theme is set to "system".
+let _systemMediaQuery: MediaQueryList | null = null;
+let _systemHandler: ((e: MediaQueryListEvent) => void) | null = null;
 
-  // Theme: swap between dark and light variable sets
-  if (config.theme === "light") {
+/**
+ * Resolve a theme value to an effective dark/light based on OS preference.
+ * "system" reads the prefers-color-scheme media query; other values pass through.
+ */
+function resolveTheme(theme: string): "dark" | "light" {
+  if (theme === "system") {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+  return theme === "light" ? "light" : "dark";
+}
+
+/** Set theme CSS variables and data-theme attribute for the given effective theme. */
+function applyThemeVars(effectiveTheme: "dark" | "light"): void {
+  const root = document.documentElement;
+  if (effectiveTheme === "light") {
     root.style.setProperty("--bg", "#ffffff");
     root.style.setProperty("--surface", "#f6f8fa");
     root.style.setProperty("--surface-hover", "#eaeef2");
@@ -65,6 +75,43 @@ export function applyAppearance(config: AppearanceConfig): void {
     root.style.setProperty("--text-muted", "#8b949e");
     root.removeAttribute("data-theme");
   }
+}
+
+/**
+ * Start watching OS color scheme changes when theme is "system".
+ * Calls `onChange` with the new effective theme every time the OS preference flips.
+ */
+export function watchSystemTheme(config: AppearanceConfig, onChange: (effective: "dark" | "light") => void): void {
+  unwatchSystemTheme();
+  if (config.theme !== "system") return;
+  _systemMediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+  _systemHandler = (e: MediaQueryListEvent) => {
+    onChange(e.matches ? "dark" : "light");
+  };
+  _systemMediaQuery.addEventListener("change", _systemHandler);
+}
+
+/** Remove the OS color scheme listener. */
+export function unwatchSystemTheme(): void {
+  if (_systemMediaQuery && _systemHandler) {
+    _systemMediaQuery.removeEventListener("change", _systemHandler);
+  }
+  _systemMediaQuery = null;
+  _systemHandler = null;
+}
+
+/**
+ * Apply appearance settings to the document via CSS custom properties.
+ * This function is idempotent and can be called multiple times.
+ * When theme is "system", it resolves to the OS preference (dark/light).
+ */
+export function applyAppearance(config: AppearanceConfig): void {
+  const root = document.documentElement;
+  const body = document.body;
+
+  // Theme: resolve "system" to OS preference, then apply variables
+  const effectiveTheme = resolveTheme(config.theme);
+  applyThemeVars(effectiveTheme);
 
   // Accent color — applies to buttons, highlights, and borders
   root.style.setProperty("--accent", config.accentColor);

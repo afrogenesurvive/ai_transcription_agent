@@ -36,7 +36,7 @@ try {
 // ── Config ──
 
 const DEV_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours
-const PACKAGED_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+const PACKAGED_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const GIT_FETCH_TIMEOUT_MS = 30_000;
 const BUILD_TIMEOUT_MS = 120_000;
 
@@ -447,8 +447,7 @@ export function startAutoUpdater(): void {
   if (isPackaged) setupPackagedUpdater();
 
   const interval = isPackaged ? PACKAGED_CHECK_INTERVAL_MS : DEV_CHECK_INTERVAL_MS;
-  const label = isPackaged ? "1 hour" : "12 hours";
-  addLog("main", "info", `[auto-update] Starting auto-updater (every ${label}, mode: ${state.mode})`);
+  addLog("main", "info", `[auto-update] Starting auto-updater (every 12 hours, mode: ${state.mode})`);
 
   setTimeout(() => {
     if (state.enabled) checkAndUpdate().catch(() => {});

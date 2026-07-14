@@ -36,6 +36,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getAppVersion: (): Promise<string> => ipcRenderer.invoke("app:version"),
   getAppName: (): Promise<string> => ipcRenderer.invoke("app:name"),
   getReadme: (): Promise<string> => ipcRenderer.invoke("app:readme"),
+  getGuide: (): Promise<string> => ipcRenderer.invoke("app:guide"),
 
   // ── Job status ──
   getActiveJobs: (): Promise<Array<{ job_id: string; status: string; progress: number; title: string }>> => ipcRenderer.invoke("jobs:getActive"),

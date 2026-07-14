@@ -1579,7 +1579,6 @@ function UpdatesTab() {
   const handleCheck = useCallback(async () => {
     setWorking(true);
     await window.electronAPI?.checkForUpdates();
-    // Poll status until check completes
     const poll = setInterval(async () => {
       const s = await window.electronAPI?.getUpdateStatus();
       setStatus(s);
@@ -1615,6 +1614,34 @@ function UpdatesTab() {
     );
   }
 
+  // ── Derived state ──
+
+  const isUpToDate = !status.checking && !status.updateAvailable && !status.updateDownloaded && !status.error;
+  const hasUpdate = status.updateAvailable && !status.updateDownloaded;
+  const isDownloaded = status.updateDownloaded;
+
+  const bannerClass = status.error
+    ? "updates-banner--error"
+    : status.checking
+      ? "updates-banner--checking"
+      : isDownloaded
+        ? "updates-banner--downloaded"
+        : hasUpdate
+          ? "updates-banner--available"
+          : "updates-banner--uptodate";
+
+  const bannerIcon = status.error ? "error" : status.checking ? "sync" : isDownloaded ? "check_circle" : hasUpdate ? "system_update" : "check_circle";
+
+  const bannerText = status.error
+    ? `Update check failed`
+    : status.checking
+      ? "Checking for updates…"
+      : isDownloaded
+        ? "Update downloaded — ready to install"
+        : hasUpdate
+          ? `Update available: ${status.updateAvailable}`
+          : "Up to date";
+
   const modeLabel =
     status.mode === "packaged" ? (
       <>
@@ -1625,84 +1652,108 @@ function UpdatesTab() {
         <Icon name="code" size="14" color="accent" /> Development (git)
       </>
     );
-  const statusIcon = status.checking ? (
-    <Icon name="sync" size="14" />
-  ) : status.updateDownloaded ? (
-    <Icon name="check_circle" size="14" color="green" />
-  ) : status.updateAvailable ? (
-    <Icon name="download" size="14" color="accent" />
-  ) : (
-    <Icon name="check" size="14" color="green" />
-  );
-  const versionLabel = status.mode === "packaged" ? `v${status.currentVersion}` : `branch: ${status.currentVersion}`;
+
+  const currentLabel = status.mode === "packaged" ? `v${status.currentVersion}` : `branch: ${status.currentVersion}`;
 
   return (
-    <div className="dev-panel-updates">
-      {/* Header card */}
-      <div className="config-section">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <h3 style={{ margin: 0 }}>
+    <div className="updates-container">
+      {/* ── Status banner ── */}
+      <div className={`updates-banner ${bannerClass}`}>
+        <Icon name={bannerIcon} size="18" />
+        <span className="updates-banner-text">{bannerText}</span>
+        {status.checking && <span className="updates-spinner" />}
+      </div>
+
+      {/* ── Main content card ── */}
+      <div className="updates-card">
+        {/* Header row */}
+        <div className="updates-card-header">
+          <h3 className="updates-card-title">
             <Icon name="system_update" size="16" color="accent" /> Auto-Update
           </h3>
-          <span style={{ fontSize: 12, opacity: 0.7 }}>{modeLabel}</span>
+          <span className="updates-mode-badge">{modeLabel}</span>
         </div>
 
-        <div className="config-field">
-          <label className="config-label">Version</label>
-          <div className="config-value-text">{versionLabel}</div>
+        {/* ── Version comparison ── */}
+        <div className="updates-versions">
+          <div className="updates-version-block">
+            <span className="updates-version-label">Current</span>
+            <span className="updates-version-value">{currentLabel}</span>
+          </div>
+          {hasUpdate && (
+            <>
+              <div className="updates-version-arrow">
+                <Icon name="arrow_forward" size="16" color="accent" />
+              </div>
+              <div className="updates-version-block">
+                <span className="updates-version-label">Available</span>
+                <span className="updates-version-value updates-version-value--new">v{status.updateAvailable}</span>
+              </div>
+            </>
+          )}
         </div>
 
-        <div className="config-field">
-          <label className="config-label">Status</label>
-          <div className="config-value-text">
-            {statusIcon} {status.checking ? "Checking for updates..." : ""}
-            {!status.checking && status.updateDownloaded ? "Update downloaded — ready to install" : ""}
-            {!status.checking && !status.updateDownloaded && status.updateAvailable ? `Update available: ${status.updateAvailable}` : ""}
-            {!status.checking && !status.updateDownloaded && !status.updateAvailable && !status.error ? "Up to date" : ""}
-            {status.error ? `Error: ${status.error}` : ""}
+        {/* ── Detail fields ── */}
+        <div className="updates-details">
+          {status.lastCheck && (
+            <div className="updates-detail-row">
+              <span className="updates-detail-label">Last checked</span>
+              <span className="updates-detail-value">{new Date(status.lastCheck).toLocaleString()}</span>
+            </div>
+          )}
+          {status.lastUpdate && (
+            <div className="updates-detail-row">
+              <span className="updates-detail-label">Last updated</span>
+              <span className="updates-detail-value">{new Date(status.lastUpdate).toLocaleString()}</span>
+            </div>
+          )}
+          <div className="updates-detail-row">
+            <span className="updates-detail-label">Check interval</span>
+            <span className="updates-detail-value">Every 12 hours</span>
           </div>
         </div>
 
-        {status.lastCheck && (
-          <div className="config-field">
-            <label className="config-label">Last Check</label>
-            <div className="config-value-text">{new Date(status.lastCheck).toLocaleString()}</div>
-          </div>
-        )}
-
-        {status.lastUpdate && (
-          <div className="config-field">
-            <label className="config-label">Last Update</label>
-            <div className="config-value-text">{new Date(status.lastUpdate).toLocaleString()}</div>
-          </div>
-        )}
-
+        {/* ── Download progress ── */}
         {status.downloadProgress !== null && (
-          <div className="config-field">
-            <label className="config-label">Download</label>
-            <div className="config-value-text">
-              <progress value={status.downloadProgress} max={100} style={{ width: 200, marginRight: 8 }} />
-              {status.downloadProgress}%
+          <div className="updates-progress-section">
+            <div className="updates-progress-header">
+              <span className="updates-progress-label">Downloading update…</span>
+              <span className="updates-progress-pct">{status.downloadProgress}%</span>
+            </div>
+            <div className="updates-progress-track">
+              <div className="updates-progress-fill" style={{ width: `${status.downloadProgress}%` }} />
             </div>
           </div>
         )}
 
-        {/* Actions */}
-        <div style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
-          <button className="btn-primary" onClick={handleCheck} disabled={working || status.checking}>
-            {working && status.checking ? (
-              "Checking..."
+        {/* ── Error display ── */}
+        {status.error && (
+          <div className="updates-error-box">
+            <Icon name="warning" size="14" color="orange" />
+            <span>{status.error}</span>
+          </div>
+        )}
+
+        {/* ── Action buttons ── */}
+        <div className="updates-actions">
+          <button className="updates-btn updates-btn--primary" onClick={handleCheck} disabled={working || status.checking}>
+            {status.checking ? (
+              <>
+                <span className="updates-spinner updates-spinner--small" /> Checking…
+              </>
             ) : (
               <>
-                <Icon name="search" size="14" color="accent" /> Check for Updates
+                <Icon name="search" size="14" /> Check for Updates
               </>
             )}
           </button>
 
-          {status.mode === "packaged" && status.updateAvailable && !status.updateDownloaded && (
-            <button className="btn-primary" onClick={handleDownload} disabled={working}>
+          {status.mode === "packaged" && hasUpdate && (
+            <button className="updates-btn updates-btn--primary" onClick={handleDownload} disabled={working}>
               {working ? (
-                "Downloading..."
+                <>
+                  <span className="updates-spinner updates-spinner--small" /> Downloading…
+                </>
               ) : (
                 <>
                   <Icon name="download" size="14" /> Download Update
@@ -1711,13 +1762,14 @@ function UpdatesTab() {
             </button>
           )}
 
-          {status.updateDownloaded && (
-            <button className="btn-primary" onClick={handleInstall} style={{ background: "#2ea043" }}>
+          {isDownloaded && (
+            <button className="updates-btn updates-btn--install" onClick={handleInstall}>
               <Icon name="restart_alt" size="14" /> Restart &amp; Install
             </button>
           )}
 
-          <label style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto", cursor: "pointer", fontSize: 13 }}>
+          {/* Auto-check toggle */}
+          <label className="updates-toggle">
             <input
               type="checkbox"
               checked={status.enabled}
@@ -1727,41 +1779,43 @@ function UpdatesTab() {
                 refresh();
               }}
             />
-            Auto-check periodically
+            <span className="updates-toggle-slider" />
+            <span className="updates-toggle-label">Auto-check periodically</span>
           </label>
         </div>
-
-        {status.error && (
-          <div className="error-box" style={{ marginTop: 12 }}>
-            {status.error}
-          </div>
-        )}
       </div>
 
-      {/* Info box */}
-      <div className="config-section" style={{ marginTop: 16 }}>
-        <h4 style={{ margin: "0 0 8px" }}>How it works</h4>
-        {status.mode === "dev" ? (
-          <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, lineHeight: 1.6 }}>
-            <li>Checks the Git repository every 12 hours for new commits</li>
-            <li>On finding updates: pulls, installs deps, rebuilds, and restarts</li>
-            <li>Only works in development mode (source code + git required)</li>
-          </ul>
-        ) : (
-          <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, lineHeight: 1.6 }}>
-            <li>Checks GitHub Releases every hour for new versions</li>
-            <li>
-              Click <strong>Download Update</strong> to download the new version
-            </li>
-            <li>
-              Click <strong>Restart &amp; Install</strong> to apply the update
-            </li>
-            <li>
-              Update source is configured in <code>electron/package.json → build.publish</code>
-            </li>
-          </ul>
-        )}
-      </div>
+      {/* ── How it works ── */}
+      <details className="updates-info">
+        <summary className="updates-info-summary">
+          <Icon name="info" size="14" color="accent" /> How updates work
+        </summary>
+        <div className="updates-info-body">
+          {status.mode === "dev" ? (
+            <ul>
+              <li>Checks the Git repository every 12 hours for new commits on your current branch</li>
+              <li>On finding updates: pulls changes, installs dependencies, rebuilds, then restarts</li>
+              <li>Only works in development mode where the source code and git are available</li>
+            </ul>
+          ) : (
+            <ul>
+              <li>Checks GitHub Releases every 12 hours for new versions of the app</li>
+              <li>When a new version is found, a notification appears in the app</li>
+              <li>
+                Click <strong>Download Update</strong> to download the new version in the background
+              </li>
+              <li>
+                Once downloaded, click <strong>Restart &amp; Install</strong> to apply the update and relaunch
+              </li>
+              {status.mode === "packaged" && (
+                <li>
+                  Update source: <code>{status.mode === "packaged" ? "afrogenesurvive/ai_transcription_agent" : "local git repository"}</code>
+                </li>
+              )}
+            </ul>
+          )}
+        </div>
+      </details>
     </div>
   );
 }

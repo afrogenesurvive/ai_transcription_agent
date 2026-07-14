@@ -1,53 +1,225 @@
 # 🎙️ Transcription Agent
 
-**Transcription Agent** is a desktop app that automatically turns your meeting recordings into written transcripts, identifies who said what, and summarizes the key takeaways — all powered by AI running on your own computer.
+**Turn your meeting recordings into searchable, summarized, actionable transcripts — powered by AI running on your own machine.**
+
+Transcription Agent is a full-stack desktop application that automatically transcribes meeting audio, identifies who said what, extracts action items and decisions, and delivers summaries to your email, Google Drive, or Trello. Everything processes locally — your audio never leaves your computer unless you choose to send it through an integration.
 
 ---
 
-## ✨ What It Does
+## ✨ Features
 
-No more manual note-taking during meetings. Just upload your audio file and let the app handle the rest.
-
-| Feature                     | What It Means For You                                                                                                   |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| **Automatic Transcription** | Upload a recording (MP3, WAV, M4A, and more) and get a full written transcript in minutes.                              |
-| **Speaker Identification**  | The app can tell different voices apart and label who said what — no more "who was that?"                               |
-| **Smart Summaries**         | Get an executive summary, key decisions, discussion points, and action items without re-listening to the whole meeting. |
-| **Semantic Memory**         | The app remembers past meetings. Ask it about previous discussions and it can connect the dots.                         |
-| **Action Item Extraction**  | Tasks and to-dos mentioned during the meeting are automatically pulled out and organized.                               |
-| **Integrations**            | Send summaries to Gmail, save transcripts to Google Drive, or create Trello cards — all automatically.                  |
-| **Job History**             | Every transcription is saved. Browse, search, and revisit past meetings anytime.                                        |
+| Feature                      | Description                                                                                          |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------- |
+| **Automatic Transcription**  | Upload MP3, WAV, M4A, FLAC, OGG, or WebM audio — get a full speaker-labeled transcript               |
+| **Speaker Identification**   | Uses voiceprint matching to recognize and label known speakers across meetings                       |
+| **Smart Summaries**          | Executive summary, key decisions, discussion points, and action items — no need to re-listen         |
+| **Semantic Memory**          | ChromaDB-powered vector search across past meetings — find related discussions instantly             |
+| **Cross-Meeting Context**    | Ephemeral memory tracks recurring action items, budgets, decisions, and contacts                     |
+| **Delivery Integrations**    | Send summaries via Gmail, save transcripts to Google Drive, create Trello cards                      |
+| **Job History**              | Every transcription is saved — browse, search, and revisit past meetings anytime                     |
+| **Visual Pipeline Progress** | Clear 8-stage stepper shows exactly what's happening at each step                                    |
+| **Manual Speaker Labeling**  | If speaker count doesn't match attendees, the pipeline pauses with playable audio clips for labeling |
+| **Self-Updating**            | Dev mode: git-based auto-updates. Packaged: electron-updater with GitHub Releases                    |
 
 ---
 
 ## 🖥️ How It Works
 
-1. **Record your meeting** — use Zoom, Teams, or any recording tool.
-2. **Upload the audio file** — drag and drop into the app, or use the file picker.
-3. **Let it process** — the app transcribes, identifies speakers, and generates a summary.
-4. **Review the results** — browse the full transcript, read the summary, and grab action items.
-5. **Take action** — send the summary via email, save it to Drive, or create Trello tasks.
+```mermaid
+graph LR
+    A[Upload Audio] --> B[Speaker Diarization]
+    A --> C[Speech Recognition]
+    B --> D[Voiceprint Matching]
+    C --> D
+    D --> E[LLM Pipeline]
+    E --> F[Refine Transcript]
+    F --> G[Summarize]
+    G --> H[Analyze]
+    H --> I[Save to Memory]
+    I --> J[Deliver via Email/Drive/Trello]
+```
 
-Everything runs locally on your machine — your audio and transcripts never leave your computer unless you choose to send them through an integration.
-
----
-
-## 🚀 Getting Started
-
-1. Download the latest release for your operating system (Windows or macOS).
-2. Install and open the app.
-3. Enter your API key (DeepSeek) or set up Ollama for local AI.
-4. Upload a recording and see the magic happen.
-
----
-
-## 📚 Learn More
-
-- [Architecture Overview](docs/architecture.md)
-- [API Endpoints](docs/api-endpoints.md)
-- [Platform Setup Guide](docs/platform-setup.md)
-- [Post-Transcription Guide](docs/post-transcription-guide.md)
+1. **Record your meeting** using Zoom, Teams, or any recording tool
+2. **Upload the audio file** via drag-and-drop or file picker
+3. **The ML pipeline processes the audio** — diarization detects who spoke when, ASR converts speech to text, voiceprints match known speakers
+4. **The LLM pipeline refines, summarizes, and analyzes** — filler words removed, PII redacted, structured summary generated
+5. **Review the results** — browse the transcript, read the summary, grab action items
+6. **Deliver automatically** — send via email, save to Drive, or create Trello cards
 
 ---
 
-_Built with ❤️ for people who have too many meetings and not enough time._
+## 🏗️ Architecture
+
+The system runs as **four independent services**:
+
+```
+┌────────────────────────────────────────────────────────┐
+│                   Electron Desktop App                  │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │  React UI  ◄── IPC ──►  Main Process             │  │
+│  │  (Vite)                 (spawns child processes)  │  │
+│  └──────────────────────────────────────────────────┘  │
+└──────────────────────┬─────────────────────────────────┘
+                       │
+         ┌─────────────┼─────────────┐
+         ▼             ▼             ▼
+   ┌──────────┐ ┌──────────┐ ┌──────────────────┐
+   │  Bridge  │ │  Agent   │ │  Python Backend   │
+   │  Server  │◄┤  Runner  │◄┤  (FastAPI :5001)  │
+   │  :5010   │ │ (fs.watch)│ │                   │
+   └────┬─────┘ └──────────┘ │  ┌─────────────┐  │
+        │                    │  │  Whisper ASR │  │
+        ▼                    │  ├─────────────┤  │
+  ┌──────────────┐           │  │  Pyannote    │  │
+  │  Gmail       │           │  │  Diarization │  │
+  │  Drive       │           │  ├─────────────┤  │
+  │  Trello      │           │  │  Voiceprint  │  │
+  └──────────────┘           │  │  Matching    │  │
+                             │  └─────────────┘  │
+                             └──────────────────┘
+```
+
+| Service            | Port          | Tech               | Purpose                                                          |
+| ------------------ | ------------- | ------------------ | ---------------------------------------------------------------- |
+| **Python Backend** | `:5001`       | FastAPI + PyTorch  | ML pipeline: ASR, diarization, voiceprints, memory               |
+| **Bridge Server**  | `:5010`       | Node.js HTTP       | REST proxy, sanitization, agent config management                |
+| **Agent Runner**   | —             | Node.js (fs.watch) | LLM pipeline: reads queue, calls DeepSeek/Ollama, executes tools |
+| **Electron App**   | `:5173` (dev) | React + Vite       | Desktop UI: upload, progress, results, config                    |
+
+### Memory Systems
+
+- **Semantic Memory** — ChromaDB vector search over past meeting transcripts and summaries
+- **Ephemeral Memory** — SQLite store for cross-meeting context (action items, contacts, budgets, decisions)
+- **Voiceprints** — SQLite database of speaker embedding vectors for automatic identification
+
+### Supported Platforms
+
+| Platform            | Whisper Variant | Accelerator         |
+| ------------------- | --------------- | ------------------- |
+| macOS Apple Silicon | mlx-whisper     | Apple Neural Engine |
+| macOS Intel         | faster-whisper  | CPU (CTranslate2)   |
+| Windows             | faster-whisper  | CPU / CUDA          |
+| Linux               | faster-whisper  | CPU / CUDA          |
+
+### LLM Providers
+
+- **DeepSeek** (default) — cloud API, DeepSeek V4
+- **Ollama** — local LLM, supports qwen3.6 and deepseekv2
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- **Python 3.10+**
+- **Node.js 20 LTS**
+- **FFmpeg** (auto-installed if missing)
+- **Hugging Face token** (free) — required for the speaker diarization model
+
+### Installation
+
+```bash
+# Clone the repository
+git clone <repo-url>
+cd ai_transcription_agent
+
+# Full setup (venv, pip, npm, platform Whisper)
+npm run transcribe:setup
+
+# Configure your API keys
+# Edit .env or use the app's ConfigPanel:
+#   DEEPSEEK_API_KEY=sk-your-key
+#   HUGGING_FACE_TOKEN=hf-your-token
+
+# Start all backend services
+npm run transcribe:all
+
+# In another terminal, start the UI
+npm run electron:dev
+```
+
+### First Run
+
+1. The app opens with the **Upload Panel** ready
+2. Click the gear icon ⚙️ in the status bar to open **ConfigPanel**
+3. Enter your **DeepSeek API Key** (or configure Ollama as the LLM provider)
+4. Enter your **Hugging Face Token** (required for speaker diarization)
+5. Drag an audio file onto the upload area or click to browse
+6. Watch the pipeline progress and review your results!
+
+---
+
+## 📚 Documentation
+
+| Document                                                                     | Description                                                 |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| [System Overview](docs/system_overview.md)                                   | High-level architecture, data flow, and design decisions    |
+| [Backend Architecture](docs/backend_architecture.md)                         | Python backend modules, ML pipeline, memory systems         |
+| [Electron Architecture](docs/electron_architecture.md)                       | Main process, renderer, IPC, component tree                 |
+| [Development Setup](docs/dev_setup_installation.md)                          | Step-by-step dev setup, build instructions, troubleshooting |
+| [API Endpoints](docs/api_endpoints.md)                                       | Full API reference for Python backend and bridge server     |
+| [Testing Checklist](docs/testing_checklist.md)                               | Manual and automated test cases for all features            |
+| [Windows Install/Uninstall/Update](docs/windows_install_uninstall_update.md) | Installer behavior, update mechanism, uninstall process     |
+| [End User Guide](docs/end_user_guide.md) | Non-technical guide for using the app — upload, pipeline, results, troubleshooting |
+---
+
+## 🛠️ Development Scripts
+
+| Script                        | Description                  |
+| ----------------------------- | ---------------------------- |
+| `npm run transcribe:setup`    | Full first-time setup        |
+| `npm run transcribe:all`      | Start all backend services   |
+| `npm run transcribe:backend`  | Start Python backend only    |
+| `npm run transcribe:bridge`   | Start bridge server only     |
+| `npm run transcribe:runner`   | Start agent runner only      |
+| `npm run electron:dev`        | Start Electron in dev mode   |
+| `npm run electron:build`      | TypeScript + Vite build      |
+| `npm run electron:dist:win`   | Build Windows NSIS installer |
+| `npm run electron:dist:mac`   | Build macOS DMG              |
+| `npm run electron:dist:linux` | Build Linux AppImage         |
+
+---
+
+## 🤝 Integrations
+
+| Service          | What It Does                                      | Setup Required         |
+| ---------------- | ------------------------------------------------- | ---------------------- |
+| **Gmail**        | Sends meeting summaries and transcripts via email | Gmail API credentials  |
+| **Google Drive** | Saves transcripts and summaries to a Drive folder | Drive API credentials  |
+| **Trello**       | Creates action items as Trello cards              | Trello API key + token |
+
+---
+
+## 📋 Pipeline Steps (Configurable)
+
+The agent pipeline is fully configurable via the **Agent Instructions** tab in ConfigPanel:
+
+1. **Fetch Memory Context** — retrieve past action items, decisions, and budgets
+2. **Refine Transcript** — remove filler words, redact PII
+3. **Read Transcript** — retrieve the refined speaker-labeled transcript
+4. **Summarize** — generate executive summary, key decisions, action items
+5. **Analyze** — extract topics, sentiment, entities, follow-ups
+6. **Save to Memory** — persist to semantic and ephemeral memory
+7. **Prepare Delivery** — package results for delivery (disabled by default)
+8. **Deliver via Email** — send summary to recipients (disabled by default)
+9. **Save to Drive** — save transcript to Google Drive (disabled by default)
+10. **Create Trello Cards** — create action items in Trello (disabled by default)
+
+Steps can be reordered, enabled/disabled, and customized without touching code.
+
+---
+
+## 🔒 Privacy
+
+- All audio processing (diarization + ASR) runs **locally** on your machine
+- LLM calls go to **DeepSeek API** (or your local **Ollama** instance)
+- Your audio files and transcripts **never leave your computer** unless you enable delivery integrations
+- Sensitive data is **redacted** by the refine step (emails, phone numbers, SSNs, etc.)
+- Delivery destinations are opt-in per job
+
+---
+
+## 📄 License
+
+Built with ❤️ for people who have too many meetings and not enough time.

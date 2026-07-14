@@ -1472,6 +1472,40 @@ The system provides existing memory context at the start of each pipeline run. U
                         </div>
                       </details>
                     </div>
+                  ) : sectionName === "Auto-Update" ? (
+                    <>
+                      {/* Compact update status card */}
+                      <UpdateStatusCard />
+
+                      {fields.map((field) => (
+                        <div key={field.key} className="config-field">
+                          <label className="config-label">
+                            {field.label}
+                            {field.required && <span className="config-required"> *</span>}
+                          </label>
+                          <div className="config-input-row">
+                            <input
+                              className="config-input"
+                              type={field.secret && !visibleKeys.has(field.key) ? "password" : "text"}
+                              value={values[field.key] || ""}
+                              onChange={(e) => handleChange(field.key, e.target.value)}
+                              placeholder={field.required ? "Enter your API key..." : "Optional"}
+                              disabled={activeJobs.length > 0}
+                            />
+                            {field.secret && (
+                              <button
+                                className="config-visibility-toggle"
+                                onClick={() => toggleVisible(field.key)}
+                                title={visibleKeys.has(field.key) ? "Hide value" : "Show value"}
+                                type="button"
+                                tabIndex={-1}>
+                                {visibleKeys.has(field.key) ? <Icon name="visibility" size="14" /> : <Icon name="visibility_off" size="14" />}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </>
                   ) : sectionName !== "LLM Provider" ? (
                     fields.map((field) => (
                       <div key={field.key} className="config-field">
@@ -2049,6 +2083,161 @@ The system provides existing memory context at the start of each pipeline run. U
             )}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ── Compact update status card for the Auto-Update config section ── */
+
+function UpdateStatusCard() {
+  const [status, setStatus] = useState<any>(null);
+  const [working, setWorking] = useState(false);
+
+  const refresh = useCallback(async () => {
+    const s = await window.electronAPI?.getUpdateStatus();
+    setStatus(s);
+  }, []);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const handleCheck = useCallback(async () => {
+    setWorking(true);
+    await window.electronAPI?.checkForUpdates();
+    const poll = setInterval(async () => {
+      const s = await window.electronAPI?.getUpdateStatus();
+      setStatus(s);
+      if (!s?.checking) {
+        clearInterval(poll);
+        setWorking(false);
+      }
+    }, 1000);
+  }, []);
+
+  const handleDownload = useCallback(async () => {
+    setWorking(true);
+    await window.electronAPI?.downloadUpdate();
+    const poll = setInterval(async () => {
+      const s = await window.electronAPI?.getUpdateStatus();
+      setStatus(s);
+      if (s?.updateDownloaded || s?.error) {
+        clearInterval(poll);
+        setWorking(false);
+      }
+    }, 1000);
+  }, []);
+
+  const handleInstall = useCallback(async () => {
+    await window.electronAPI?.installUpdate();
+  }, []);
+
+  if (!status) {
+    return (
+      <p className="config-field-hint" style={{ marginBottom: 12 }}>
+        Loading update status…
+      </p>
+    );
+  }
+
+  const isUpToDate = !status.checking && !status.updateAvailable && !status.updateDownloaded && !status.error;
+  const hasUpdate = status.updateAvailable && !status.updateDownloaded;
+  const isDownloaded = status.updateDownloaded;
+
+  const statusColor = status.error
+    ? "var(--red)"
+    : status.checking
+      ? "var(--accent)"
+      : isDownloaded
+        ? "var(--green)"
+        : hasUpdate
+          ? "var(--orange)"
+          : "var(--green)";
+  const statusIcon = status.error ? "error" : status.checking ? "sync" : isDownloaded ? "check_circle" : hasUpdate ? "system_update" : "check_circle";
+  const statusText = status.error
+    ? "Check failed"
+    : status.checking
+      ? "Checking…"
+      : isDownloaded
+        ? "Ready to install"
+        : hasUpdate
+          ? `v${status.updateAvailable} available`
+          : "Up to date";
+
+  const versionLabel = status.mode === "packaged" ? `v${status.currentVersion}` : status.currentVersion;
+
+  return (
+    <div className="config-update-status">
+      <div className="config-update-status-row">
+        <span className="config-update-status-icon" style={{ color: statusColor }}>
+          <Icon name={statusIcon} size="14" />
+        </span>
+        <span className="config-update-status-text" style={{ color: statusColor }}>
+          {statusText}
+        </span>
+        <span className="config-update-status-version">{versionLabel}</span>
+      </div>
+
+      {status.lastCheck && (
+        <p className="config-field-hint" style={{ margin: "2px 0 0 22px", fontSize: 11 }}>
+          Last checked: {new Date(status.lastCheck).toLocaleString()}
+        </p>
+      )}
+
+      {status.downloadProgress !== null && (
+        <div className="updates-progress-section" style={{ margin: "6px 0 6px 22px" }}>
+          <div className="updates-progress-header">
+            <span className="updates-progress-label" style={{ fontSize: 11 }}>
+              Downloading…
+            </span>
+            <span className="updates-progress-pct" style={{ fontSize: 11 }}>
+              {status.downloadProgress}%
+            </span>
+          </div>
+          <div className="updates-progress-track">
+            <div className="updates-progress-fill" style={{ width: `${status.downloadProgress}%` }} />
+          </div>
+        </div>
+      )}
+
+      <div className="config-update-status-actions">
+        <button className="config-update-status-btn" onClick={handleCheck} disabled={working || status.checking} title="Check for updates now">
+          {status.checking ? (
+            <>
+              <span className="updates-spinner updates-spinner--small" /> Checking
+            </>
+          ) : (
+            <>
+              <Icon name="search" size="12" /> Check
+            </>
+          )}
+        </button>
+        {status.mode === "packaged" && hasUpdate && (
+          <button
+            className="config-update-status-btn config-update-status-btn--accent"
+            onClick={handleDownload}
+            disabled={working}
+            title="Download the available update">
+            {working ? (
+              <>
+                <span className="updates-spinner updates-spinner--small" /> DL
+              </>
+            ) : (
+              <>
+                <Icon name="download" size="12" /> Download
+              </>
+            )}
+          </button>
+        )}
+        {isDownloaded && (
+          <button className="config-update-status-btn config-update-status-btn--install" onClick={handleInstall} title="Install update and restart">
+            <Icon name="restart_alt" size="12" /> Install
+          </button>
+        )}
+        <span className="config-update-status-mode">
+          {status.mode === "packaged" ? "Packaged" : "Dev"} · {status.enabled ? "Auto" : "Manual"}
+        </span>
       </div>
     </div>
   );

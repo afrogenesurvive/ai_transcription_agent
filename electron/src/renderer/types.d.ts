@@ -97,6 +97,7 @@ export interface ElectronAPI {
   getAppVersion: () => Promise<string>;
   getAppName: () => Promise<string>;
   getReadme: () => Promise<string>;
+  getGuide: () => Promise<string>;
   getActiveJobs: () => Promise<Array<{ job_id: string; status: string; progress: number; title: string }>>;
   onNotification: (cb: (msg: string) => void) => () => void;
   getLogs: () => Promise<LogEntry[]>;

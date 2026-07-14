@@ -8,7 +8,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import Icon from "./Icon";
-import { applyAppearance, saveAndApplyAppearance, readFontPreset, FONT_SIZE_PRESETS } from "../appearance";
+import { applyAppearance, saveAndApplyAppearance, readFontPreset, FONT_SIZE_PRESETS, watchSystemTheme, unwatchSystemTheme } from "../appearance";
 import type { FontSizePreset, AppearanceConfig } from "../appearance";
 
 interface Props {
@@ -69,10 +69,27 @@ export default function AppearancePanel({ onClose }: Props) {
     persistAppearance(config);
   }, [theme, accentColor, fontPreset, sidebarWidth, loaded, persistAppearance]);
 
-  // Cleanup timeout on unmount
+  // Watch OS color scheme changes when theme is "system"
+  useEffect(() => {
+    if (theme !== "system") {
+      unwatchSystemTheme();
+      return;
+    }
+    const config: AppearanceConfig = { theme, accentColor, fontSize: fontPreset, sidebarWidth };
+    watchSystemTheme(config, (effective) => {
+      // Re-apply theme variables when OS preference flips
+      applyAppearance({ ...config, theme: effective });
+    });
+    return () => {
+      unwatchSystemTheme();
+    };
+  }, [theme, accentColor, fontPreset, sidebarWidth]);
+
+  // Cleanup timeouts and listeners on unmount
   useEffect(() => {
     return () => {
       if (persistRef.current) clearTimeout(persistRef.current);
+      unwatchSystemTheme();
     };
   }, []);
 
@@ -115,6 +132,17 @@ export default function AppearancePanel({ onClose }: Props) {
                 <span className="appearance-theme-preview-dot" />
               </span>
               <span className="appearance-theme-card-label">Light</span>
+            </label>
+            <label
+              className={`appearance-theme-card ${theme === "system" ? "appearance-theme-card--selected" : ""}`}
+              title="System theme — follows your operating system's dark/light setting"
+              data-tooltip="System theme — automatically follows your OS dark/light preference">
+              <input type="radio" name="theme" value="system" checked={theme === "system"} onChange={() => setTheme("system")} />
+              <span className="appearance-theme-preview appearance-theme-preview--system">
+                <span className="appearance-theme-preview-dot" />
+                <span className="appearance-theme-preview-dot appearance-theme-preview-dot--alt" />
+              </span>
+              <span className="appearance-theme-card-label">System</span>
             </label>
           </div>
         </div>

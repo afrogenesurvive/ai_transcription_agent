@@ -86,6 +86,7 @@ function createWindow() {
     minWidth: 800,
     minHeight: 500,
     title: "Transcription Agent",
+    fullscreen: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -290,6 +291,34 @@ ipcMain.handle("app:readme", () => {
   if (readmePath) {
     try {
       return fs.readFileSync(readmePath, "utf8");
+    } catch {
+      return "";
+    }
+  }
+  return "";
+});
+
+ipcMain.handle("app:guide", () => {
+  // Load the end-user guide from docs/end_user_guide.md
+  const guidePath = (() => {
+    const candidates = [
+      path.join(__dirname, "..", "..", "..", "docs", "end_user_guide.md"),
+      path.join(app.getAppPath(), "..", "docs", "end_user_guide.md"),
+    ];
+    if (app.isPackaged) {
+      candidates.unshift(path.join(process.resourcesPath, "..", "docs", "end_user_guide.md"));
+    }
+    return candidates.find((p) => {
+      try {
+        return fs.statSync(p).isFile();
+      } catch {
+        return false;
+      }
+    });
+  })();
+  if (guidePath) {
+    try {
+      return fs.readFileSync(guidePath, "utf8");
     } catch {
       return "";
     }
