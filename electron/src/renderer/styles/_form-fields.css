@@ -1,0 +1,78 @@
+/* ═══════════════════════════════════════════════════════
+   Form Fields & Buttons
+   ═══════════════════════════════════════════════════════ */
+
+/* ── Form Fields ── */
+
+.form-fields {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-x: hidden;
+}
+
+.form-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.form-fields input {
+  background: var(--bg);
+  border: 1px solid var(--accent-border, var(--border));
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 8px 10px;
+  outline: none;
+}
+
+.form-fields input:focus {
+  border-color: var(--accent);
+}
+
+.form-fields .required {
+  color: #f85149;
+  font-weight: 600;
+}
+
+.form-fields .field-hint {
+  font-size: var(--fs-11);
+  color: var(--text-muted);
+  opacity: 0.8;
+}
+
+.form-fields .field-error {
+  font-size: var(--fs-11);
+  color: #f85149;
+  margin-top: 2px;
+}
+
+/* Red border on the attendees input when empty */
+.form-fields input:invalid {
+  border-color: #f85149;
+}
+
+.btn-primary {
+  width: 100%;
+  margin-top: 14px;
+  background: var(--accent);
+  color: #fff;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 10px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btn-primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

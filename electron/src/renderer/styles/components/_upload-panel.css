@@ -1,0 +1,449 @@
+/* ═══════════════════════════════════════════════════════
+   Upload Panel
+   ═══════════════════════════════════════════════════════ */
+
+/* ── Upload Panel ── */
+
+.drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 30px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    border-color 0.2s,
+    background 0.2s;
+}
+
+.drop-zone:hover,
+.drop-zone.drag-over {
+  border-color: var(--accent);
+  background: var(--surface-hover);
+}
+
+.drop-zone.has-file {
+  border-style: solid;
+  border-color: var(--green);
+}
+
+.drop-icon,
+.file-icon {
+  --icon-size: var(--fs-32);
+  display: block;
+  margin-bottom: 8px;
+}
+
+.drop-hint p {
+  margin-bottom: 4px;
+}
+
+.hint {
+  color: var(--text-muted);
+}
+
+.file-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.file-name {
+  font-weight: 500;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-size {
+  color: var(--text-muted);
+  font-size: var(--fs-12);
+}
+
+.btn-text {
+  background: none;
+  border: none;
+  color: var(--red);
+  cursor: pointer;
+  font-size: var(--fs-12);
+  text-decoration: underline;
+}
+
+/* ── Upload Panel Disabled State ── */
+
+.upload-panel--disabled {
+  opacity: 0.85;
+}
+
+.upload-disabled-notice {
+  background: rgba(210, 153, 34, 0.1);
+  border: 1px solid var(--orange);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  color: var(--orange);
+  font-size: var(--fs-12);
+  margin-bottom: 12px;
+  line-height: 1.4;
+}
+
+/* ── Skip Options ── */
+
+.skip-options {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.skip-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+}
+
+.skip-checkbox input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+.skip-hint {
+  font-size: var(--fs-11);
+  color: var(--text-muted);
+}
+
+/* ── Attendee list (UploadPanel) ── */
+
+.attendee-section {
+  margin-top: 8px;
+}
+
+.form-fields .attendee-section-label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 3px;
+  font-weight: 600;
+  font-size: var(--fs-14);
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.attendee-input-row {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  margin-top: 6px;
+}
+
+/* ── Attendee autocomplete wrapper (positions the dropdown) ── */
+
+.attendee-autocomplete-wrap {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.attendee-autocomplete-wrap .attendee-name-input,
+.attendee-autocomplete-wrap .attendee-email-input {
+  width: 100%;
+}
+
+.attendee-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0 0 var(--radius) var(--radius);
+  max-height: 200px;
+  overflow-y: auto;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  margin-top: -1px;
+}
+
+.attendee-suggestion-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: var(--fs-13);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+}
+
+.attendee-suggestion-item:hover,
+.attendee-suggestion-item--active {
+  background: var(--surface-hover);
+}
+
+.attendee-suggestion-item:first-child {
+  border-radius: 0;
+}
+
+.attendee-suggestion-name {
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attendee-suggestion-email {
+  font-size: var(--fs-11);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+  flex-shrink: 1;
+}
+
+.attendee-name-input {
+  flex: 2;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--fs-13);
+  font-family: var(--font);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.attendee-name-input:focus {
+  border-color: var(--accent);
+}
+
+.attendee-email-input {
+  flex: 3;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--fs-13);
+  font-family: var(--font);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.attendee-email-input:focus {
+  border-color: var(--accent);
+}
+
+.attendee-email-input--error,
+.attendee-email-input--error:focus {
+  border-color: var(--red) !important;
+}
+
+.btn-attendee-add {
+  padding: 8px 14px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: var(--fs-12);
+  font-weight: 500;
+  font-family: var(--font);
+  white-space: nowrap;
+  transition: opacity 0.15s;
+}
+
+.btn-attendee-add:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.btn-attendee-add:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.attendee-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.attendee-list-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: var(--fs-13);
+  overflow: hidden;
+  margin: 5px 0;
+}
+
+.attendee-list-name {
+  font-weight: 500;
+  color: var(--text);
+  min-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+}
+
+.attendee-list-email {
+  color: var(--text-muted);
+  font-size: var(--fs-12);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.attendee-remove-btn {
+  margin-left: auto;
+  color: var(--text-muted) !important;
+  font-size: var(--fs-11);
+  padding: 2px 6px;
+  border-radius: 3px;
+  transition: all 0.15s;
+}
+
+.attendee-remove-btn:hover {
+  color: var(--red) !important;
+  background: rgba(248, 81, 73, 0.1);
+}
+
+/* ── Registered attendee highlighted border ── */
+
+.attendee-list-item--registered {
+  border-color: var(--accent);
+  border-left: 3px solid var(--accent);
+}
+
+.attendee-list-badge {
+  font-size: var(--fs-10);
+  color: var(--accent);
+  background: rgba(var(--accent-rgb, 88, 166, 255), 0.1);
+  padding: 1px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Registered attendee quick-add list (column) ── */
+
+.registered-attendees {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.registered-attendees-label {
+  font-size: var(--fs-13);
+  font-weight: 600;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.registered-attendees-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 240px;
+}
+
+.registered-attendee-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--accent);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 12px;
+  margin: 5px 0;
+}
+
+.registered-attendee-name {
+  font-weight: 500;
+  color: var(--text);
+  min-width: 100px;
+}
+
+.registered-attendee-email {
+  color: var(--text-muted);
+  font-size: 11px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.registered-attendee-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.attendee-play-btn,
+.attendee-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.attendee-play-btn:hover {
+  background: rgba(var(--accent-rgb, 88, 166, 255), 0.12);
+  color: var(--accent);
+}
+
+.attendee-add-btn:hover {
+  background: rgba(35, 185, 100, 0.12);
+  color: #23b964;
+}
+
+.registered-attendees-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.registered-attendees-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.registered-attendees-list::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}

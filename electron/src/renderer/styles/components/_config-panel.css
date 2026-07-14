@@ -1,0 +1,1464 @@
+/* ── Config Panel ── */
+
+.config-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.config-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: 520px;
+  max-width: 90vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.config-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 8px 16px;
+  background: var(--surface);
+  gap: 8px;
+  flex-shrink: 0;
+  min-height: 40px;
+}
+
+.config-close-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--fs-18);
+  padding: 4px;
+}
+
+.config-close-btn:hover {
+  color: var(--text);
+}
+
+.config-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+.config-hint {
+  color: var(--text-muted);
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+
+.config-section {
+  margin-bottom: 20px;
+}
+
+.config-section-title {
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.config-field {
+  margin-bottom: 12px;
+}
+
+.config-label {
+  display: block;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.config-required {
+  color: var(--red);
+}
+
+.config-radio-group {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.config-radio {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.config-radio:hover {
+  border-color: var(--accent);
+  background: var(--surface-hover);
+}
+
+.config-radio--selected {
+  border-color: var(--accent);
+  background: rgba(88, 166, 255, 0.08);
+}
+
+.config-radio input {
+  display: none;
+}
+
+.config-radio-label {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.config-radio-desc {
+  font-size: var(--fs-11);
+  color: var(--text-muted);
+}
+
+.config-input {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.config-input:focus {
+  border-color: var(--accent);
+}
+
+.config-input--error {
+  border-color: var(--red) !important;
+}
+
+.config-input--error:focus {
+  border-color: var(--red) !important;
+  box-shadow: 0 0 0 1px var(--red);
+}
+
+.config-input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+.config-field-error {
+  display: block;
+  color: var(--red);
+  font-size: var(--fs-11);
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.config-select {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: inherit;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238b949e' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 30px;
+}
+
+.config-select:focus {
+  border-color: var(--accent);
+}
+
+.config-select option {
+  background: var(--surface);
+  color: var(--text);
+}
+
+/* ── Config Panel — compact update status card ── */
+
+.config-update-status {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-bottom: 14px;
+}
+
+.config-update-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.config-update-status-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.config-update-status-text {
+  font-size: var(--fs-12);
+  font-weight: 600;
+}
+
+.config-update-status-version {
+  margin-left: auto;
+  font-size: var(--fs-11);
+  color: var(--text-muted);
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  background: var(--surface);
+  padding: 1px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.config-update-status-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.config-update-status-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 3px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: var(--fs-11);
+  font-family: var(--font);
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.config-update-status-btn:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.config-update-status-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.config-update-status-btn--accent {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.config-update-status-btn--accent:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: #fff;
+}
+
+.config-update-status-btn--install {
+  background: #2ea043;
+  border-color: #2ea043;
+  color: #fff;
+}
+
+.config-update-status-btn--install:hover:not(:disabled) {
+  background: #3fb950;
+  border-color: #3fb950;
+  color: #fff;
+}
+
+.config-update-status-mode {
+  margin-left: auto;
+  font-size: var(--fs-10);
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+/* ── Config Panel — toggle switch ── */
+
+.config-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.config-toggle input {
+  display: none;
+}
+
+.config-toggle-slider {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  background: var(--border);
+  border-radius: 11px;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.config-toggle-slider::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  background: var(--text-muted);
+  border-radius: 50%;
+  transition:
+    transform 0.2s,
+    background 0.2s;
+}
+
+.config-toggle input:checked + .config-toggle-slider {
+  background: var(--accent);
+}
+
+.config-toggle input:checked + .config-toggle-slider::after {
+  transform: translateX(18px);
+  background: #fff;
+}
+
+.config-toggle-label {
+  color: var(--text);
+}
+
+.config-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  gap: 12px;
+}
+
+.config-error {
+  color: var(--red);
+  font-size: var(--fs-13);
+}
+
+.config-success {
+  color: var(--green);
+  font-size: var(--fs-13);
+}
+
+.config-save-btn {
+  background: var(--accent);
+  border: none;
+  color: #fff;
+  padding: 8px 20px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-weight: 500;
+  margin-left: auto;
+  transition: opacity 0.15s;
+}
+
+.config-save-btn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.config-save-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Config Panel — full view (non-modal) ── */
+
+.config-panel--full {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  max-width: none;
+  max-height: none;
+  background: var(--bg);
+}
+
+.config-panel--full .config-body {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.config-panel--full .config-header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+/* ── Config Panel — export / import buttons ── */
+
+.config-io-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.config-io-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 5px 10px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: var(--fs-11);
+  font-weight: 500;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.config-io-btn:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.config-io-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Config Panel — section sub-tabs ── */
+
+.config-section-tabs {
+  display: flex;
+  gap: 0;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  width: calc(100% + 40px);
+  margin: 0 -20px 12px;
+  padding: 0 20px;
+}
+
+.config-section-tabs--agent {
+  top: 0;
+}
+
+.config-section-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  padding: 6px 14px;
+  font-size: var(--fs-12);
+  font-family: var(--font);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+  margin-bottom: -1px;
+}
+
+.config-section-tab:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.config-section-tab--active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+  background: none;
+}
+
+.config-section-tab--active:hover {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+  background: var(--surface-hover);
+}
+
+/* Read-only tab style — muted, non-interactive appearance */
+.config-section-tab--readonly {
+  opacity: 0.7;
+  font-style: italic;
+  cursor: pointer;
+}
+
+.config-section-tab--readonly.config-section-tab--active {
+  opacity: 0.7;
+  border-bottom-color: var(--text-muted);
+}
+
+.config-section-tab--readonly:hover {
+  opacity: 0.9;
+  color: var(--text-muted);
+}
+
+/* Read-only badge shown in section headers */
+.config-section-badge--readonly {
+  font-size: var(--fs-11);
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+/* Read-only textarea (pre block replacement) */
+.config-textarea--readonly {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text-muted);
+  cursor: default;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  min-height: 250px;
+  padding: 10px;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  font-size: inherit;
+  line-height: 1.5;
+  border-radius: 4px;
+}
+
+/* ── Config Panel — input row with visibility toggle inside the input ── */
+
+.config-input-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.config-input-row .config-input {
+  flex: 1;
+  padding-right: 40px;
+}
+
+.config-visibility-toggle {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 6px;
+  font-size: var(--fs-14);
+  line-height: 1;
+  border-radius: 4px;
+  transition: all 0.15s;
+  z-index: 1;
+}
+
+.config-visibility-toggle:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.config-footer-hint {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ── Config Panel — tab bar (styled like dev-panel-tabs) ── */
+
+.config-tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  padding: 0 12px;
+}
+
+.config-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  padding: 10px 16px;
+  font-size: var(--fs-12);
+  font-family: var(--font);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+  margin-bottom: -1px;
+}
+
+.config-tab:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.config-tab--active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.config-tab--active:hover {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+/* ── Agent Config styles ── */
+
+.config-textarea {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px;
+  color: var(--text);
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  font-size: inherit;
+  outline: none;
+  resize: vertical;
+  transition: border-color 0.15s;
+  line-height: 1.5;
+}
+
+.config-textarea:focus {
+  border-color: var(--accent);
+}
+
+.config-textarea--large {
+  min-height: 250px;
+}
+
+.config-textarea--hint {
+  min-height: 52px;
+  font-size: var(--fs-12);
+}
+
+/* ── Config Panel — section header row with action button ── */
+
+.config-section-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.config-section-header-row .config-section-title {
+  margin-bottom: 0;
+}
+
+.config-regenerate-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--fs-11);
+  font-family: var(--font);
+  padding: 4px 10px;
+  white-space: nowrap;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.config-regenerate-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--accent);
+  background: rgba(88, 166, 255, 0.08);
+}
+
+.config-regenerate-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Config Panel — collapsible preview block ── */
+
+.config-preview-details {
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.config-preview-summary {
+  cursor: pointer;
+  padding: 6px 10px;
+  font-size: var(--fs-11);
+  color: var(--text-muted);
+  background: var(--surface);
+  user-select: none;
+  transition: color 0.15s;
+}
+
+.config-preview-summary:hover {
+  color: var(--text);
+}
+
+.config-preview-block {
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  padding: 10px 12px;
+  margin: 0;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  font-size: var(--fs-11);
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 300px;
+  overflow: auto;
+}
+
+/* ── Config Panel — hint badge (step number) ── */
+
+.config-label-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.config-hint-badge {
+  font-size: var(--fs-10);
+  color: var(--text-muted);
+  background: var(--bg);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+}
+
+/* ── Config Panel — footer context note ── */
+
+.config-footer-note {
+  font-size: var(--fs-11);
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.config-field-hint {
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+
+.config-field-hint code {
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  background: rgba(88, 166, 255, 0.1);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+/* ── Pipeline Steps (Draggable Checklist) ── */
+
+.pipeline-steps-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.pipeline-steps-header .config-section-title {
+  margin-bottom: 0;
+}
+
+.pipeline-steps-count {
+  font-size: var(--fs-12);
+  color: var(--text-muted);
+  background: var(--surface);
+  padding: 2px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.pipeline-steps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 12px;
+}
+
+.pipeline-step {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  transition: all 0.15s ease;
+  overflow: hidden;
+}
+
+.pipeline-step:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(88, 166, 255, 0.15);
+}
+
+.pipeline-step--disabled {
+  opacity: 0.55;
+}
+
+.pipeline-step--disabled:hover {
+  opacity: 0.75;
+}
+
+.pipeline-step--dragging {
+  opacity: 0.4;
+  border-style: dashed;
+  border-color: var(--accent);
+}
+
+.pipeline-step--drop-target {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.3);
+  transform: scale(1.01);
+}
+
+.pipeline-step--expanded {
+  border-color: var(--accent);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.2);
+}
+
+/* Step header — clickable row */
+.pipeline-step-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  user-select: none;
+  min-height: 36px;
+}
+
+.pipeline-step-header:hover {
+  background: var(--surface-hover);
+}
+
+/* Drag handle */
+.pipeline-step-drag {
+  color: var(--text-muted);
+  font-size: var(--fs-16);
+  line-height: 1;
+  cursor: grab;
+  padding: 2px 4px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  transition: color 0.15s;
+}
+
+.pipeline-step-drag:hover {
+  color: var(--text);
+  background: rgba(88, 166, 255, 0.1);
+}
+
+.pipeline-step-drag--disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+/* Custom checkbox */
+.pipeline-step-checkbox {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}
+
+.pipeline-step-checkbox input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.pipeline-step-checkmark {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  background: var(--bg);
+}
+
+.pipeline-step-checkbox input:checked + .pipeline-step-checkmark {
+  background: #2ea043;
+  border-color: #2ea043;
+}
+
+.pipeline-step-checkbox input:checked + .pipeline-step-checkmark::after {
+  content: "✓";
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.pipeline-step-checkbox input:focus-visible + .pipeline-step-checkmark {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Step info */
+.pipeline-step-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.pipeline-step-number {
+  color: var(--text-muted);
+  font-size: var(--fs-11);
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  background: var(--bg);
+  padding: 1px 6px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  min-width: 24px;
+  text-align: center;
+}
+
+.pipeline-step-label {
+  color: var(--text);
+  font-size: var(--fs-13);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pipeline-step-toolname {
+  color: var(--text-muted);
+  font-size: var(--fs-11);
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  background: rgba(88, 166, 255, 0.08);
+  padding: 1px 6px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pipeline-step-badge {
+  font-size: var(--fs-10);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.pipeline-step-badge--terminal {
+  background: rgba(210, 153, 34, 0.15);
+  color: #d29922;
+  border: 1px solid rgba(210, 153, 34, 0.3);
+}
+
+/* Expand/collapse arrow */
+.pipeline-step-arrow {
+  color: var(--text-muted);
+  font-size: var(--fs-10);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+  padding: 2px;
+}
+
+.pipeline-step-arrow--open {
+  transform: rotate(180deg);
+}
+
+/* Expanded editor pane */
+.pipeline-step-editor {
+  border-top: 1px solid var(--border);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--bg);
+}
+
+.pipeline-step-editor-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pipeline-step-editor-field .config-label {
+  font-size: var(--fs-11);
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+
+.pipeline-step-editor-field .config-input,
+.pipeline-step-editor-field .config-textarea {
+  font-size: var(--fs-12);
+}
+
+/* Empty state */
+.config-empty {
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 16px;
+  text-align: center;
+}
+
+.config-field-row {
+  display: flex;
+  gap: 12px;
+}
+
+.config-field--compact {
+  flex: 1;
+}
+
+.config-input--number {
+  width: 100%;
+}
+
+.config-label--mono {
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  color: var(--accent);
+}
+
+.config-empty {
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 8px 0;
+}
+
+.config-pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 300px;
+  overflow-y: auto;
+  line-height: 1.4;
+}
+
+.config-pre--inline {
+  max-height: 200px;
+  margin-top: 4px;
+}
+
+.config-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  color: var(--text-muted);
+}
+
+.config-error-banner {
+  background: rgba(248, 81, 73, 0.1);
+  border: 1px solid rgba(248, 81, 73, 0.3);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin: 16px 0;
+  color: var(--red);
+  line-height: 1.5;
+}
+
+.config-details {
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.config-details-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--bg);
+  cursor: pointer;
+  color: var(--accent);
+  user-select: none;
+}
+
+.config-details-summary:hover {
+  background: var(--surface-hover);
+}
+
+.config-details-summary code {
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  font-size: var(--fs-12);
+  flex: 1;
+}
+
+.config-details-body {
+  padding: 10px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.config-details-body p {
+  margin-bottom: 6px;
+}
+
+.config-badge {
+  font-size: var(--fs-10);
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.config-badge--terminal {
+  background: rgba(210, 153, 34, 0.15);
+  color: var(--orange);
+  border: 1px solid rgba(210, 153, 34, 0.3);
+}
+
+.config-badge--bridge {
+  background: rgba(88, 166, 255, 0.15);
+  color: var(--accent);
+  border: 1px solid rgba(88, 166, 255, 0.3);
+}
+
+.config-badge--direct {
+  background: rgba(63, 185, 80, 0.15);
+  color: var(--green);
+  border: 1px solid rgba(63, 185, 80, 0.3);
+}
+
+.config-warning {
+  color: var(--orange);
+}
+
+.config-footer-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-left: auto;
+}
+
+.config-restore-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: var(--fs-12);
+  font-family: var(--font);
+  transition: all 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.config-restore-btn:hover:not(:disabled) {
+  color: #f85149;
+  border-color: #f85149;
+  background: rgba(248, 81, 73, 0.08);
+}
+
+.config-restore-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.config-restart-btn {
+  background: var(--orange);
+  border: none;
+  color: #fff;
+  padding: 8px 20px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-weight: 500;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+}
+
+.config-restart-btn:hover {
+  opacity: 0.9;
+}
+
+/* ── Active jobs guard banner ── */
+
+.config-blocked-banner {
+  background: rgba(210, 153, 34, 0.12);
+  border: 1px solid rgba(210, 153, 34, 0.35);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  color: var(--orange);
+  line-height: 1.6;
+}
+
+.config-blocked-banner strong {
+  color: var(--orange);
+}
+
+.config-blocked-banner p {
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: var(--fs-12);
+}
+
+.config-blocked-list {
+  margin: 6px 0 4px 18px;
+  list-style: disc;
+  font-size: var(--fs-12);
+  color: var(--text-muted);
+}
+
+.config-blocked-list li {
+  margin-bottom: 2px;
+}
+
+/* ── Ollama Model Section (ConfigPanel) ── */
+
+/* ── Ollama Server Status Indicator ── */
+
+.config-ollama-status {
+  display: flex;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.config-ollama-status--section {
+  margin-bottom: 10px;
+  padding: 6px 0;
+}
+
+.config-ollama-status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+
+.config-ollama-status--up {
+  color: var(--green);
+  background: rgba(63, 185, 80, 0.1);
+  border: 1px solid rgba(63, 185, 80, 0.25);
+}
+
+.config-ollama-status--down {
+  color: var(--red);
+  background: rgba(248, 81, 73, 0.1);
+  border: 1px solid rgba(248, 81, 73, 0.25);
+}
+
+.config-ollama-status--checking {
+  color: var(--text-muted);
+  background: rgba(139, 148, 158, 0.08);
+  border: 1px solid var(--border);
+  animation: config-status-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes config-status-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.config-ollama-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.config-ollama-status-dot--up {
+  background: var(--green);
+  box-shadow: 0 0 4px rgba(63, 185, 80, 0.6);
+}
+
+.config-ollama-status-dot--down {
+  background: var(--red);
+  box-shadow: 0 0 4px rgba(248, 81, 73, 0.6);
+}
+
+.config-ollama-warning {
+  background: rgba(210, 153, 34, 0.12);
+  border: 1px solid rgba(210, 153, 34, 0.35);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  color: var(--orange);
+  line-height: 1.6;
+}
+
+.config-ollama-warning strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--orange);
+}
+
+.config-ollama-warning p {
+  color: var(--text-muted);
+  font-size: var(--fs-12);
+  margin: 0;
+}
+
+.config-llm-warning {
+  background: rgba(210, 153, 34, 0.12);
+  border: 1px solid rgba(210, 153, 34, 0.35);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  color: var(--orange);
+  line-height: 1.6;
+}
+.config-llm-warning strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--orange);
+}
+.config-llm-warning p {
+  color: var(--text-muted);
+  font-size: var(--fs-12);
+  margin: 4px 0 0;
+}
+
+.config-ollama-error {
+  background: rgba(248, 81, 73, 0.1);
+  border: 1px solid rgba(248, 81, 73, 0.3);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  color: var(--red);
+  line-height: 1.5;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.config-ollama-success {
+  background: rgba(63, 185, 80, 0.1);
+  border: 1px solid rgba(63, 185, 80, 0.3);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  color: var(--green);
+  line-height: 1.5;
+}
+
+.config-ollama-retry-btn {
+  background: none;
+  border: 1px solid var(--red);
+  color: var(--red);
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: var(--fs-11);
+  font-family: var(--font);
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.config-ollama-retry-btn:hover:not(:disabled) {
+  background: var(--red);
+  color: #fff;
+}
+
+.config-ollama-retry-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.config-ollama-model-list {
+  margin-bottom: 12px;
+}
+
+.config-ollama-model-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin-bottom: 4px;
+}
+
+.config-ollama-model-name {
+  font-weight: 500;
+  color: var(--text);
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+}
+
+.config-ollama-model-size {
+  color: var(--text-muted);
+  font-size: var(--fs-11);
+}
+
+.config-ollama-pull-section {
+  margin-top: 8px;
+}
+
+.config-ollama-pull-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.config-ollama-pull-btn {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-weight: 500;
+  font-family: var(--font);
+  transition: all 0.15s;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.config-ollama-pull-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--surface-hover);
+  color: var(--accent);
+}
+
+.config-ollama-pull-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

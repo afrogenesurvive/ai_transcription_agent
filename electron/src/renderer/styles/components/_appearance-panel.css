@@ -1,0 +1,371 @@
+/* ── Appearance Panel ── */
+
+.appearance-panel {
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow-y: auto;
+  padding: 32px 20px;
+  align-self: center;
+}
+
+.appearance-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.appearance-header h2 {
+  margin: 0;
+  font-size: var(--fs-20);
+}
+
+.appearance-close-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--fs-18);
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  transition: all 0.15s;
+}
+
+.appearance-close-btn:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.appearance-body {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.appearance-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.appearance-section-title {
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 0;
+}
+
+/* Theme cards */
+
+.appearance-theme-options {
+  display: flex;
+  gap: 12px;
+}
+
+.appearance-theme-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 12px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all 0.15s;
+  background: var(--bg);
+}
+
+.appearance-theme-card:hover {
+  border-color: var(--accent);
+}
+
+.appearance-theme-card--selected {
+  border-color: var(--accent);
+  background: rgba(88, 166, 255, 0.08);
+}
+
+.appearance-theme-card input {
+  display: none;
+}
+
+.appearance-theme-preview {
+  width: 100%;
+  height: 48px;
+  border-radius: 6px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 6px;
+  border: 1px solid var(--border);
+}
+
+.appearance-theme-preview--dark {
+  background: #0d1117;
+}
+
+.appearance-theme-preview--light {
+  background: #ffffff;
+}
+
+.appearance-theme-preview--system {
+  background: linear-gradient(135deg, #ffffff 50%, #0d1117 50%);
+}
+
+.appearance-theme-preview-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.8;
+}
+
+.appearance-theme-preview-dot--alt {
+  position: relative;
+  margin-left: -6px;
+  mix-blend-mode: difference;
+  opacity: 0.6;
+}
+
+.appearance-theme-card-label {
+  font-weight: 500;
+  color: var(--text);
+}
+
+/* Accent color grid */
+
+.appearance-accent-grid {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.appearance-accent-swatch {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s;
+  padding: 0;
+}
+
+.appearance-accent-swatch:hover {
+  transform: scale(1.15);
+}
+
+.appearance-accent-swatch--selected {
+  border-color: var(--text);
+  box-shadow:
+    0 0 0 2px var(--bg),
+    0 0 0 4px currentColor;
+}
+
+.appearance-accent-custom {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.appearance-accent-custom-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.appearance-accent-picker {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  background: none;
+}
+
+.appearance-accent-picker::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.appearance-accent-picker::-webkit-color-swatch {
+  border: none;
+  border-radius: 6px;
+}
+
+.appearance-accent-hex {
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  color: var(--text-muted);
+}
+
+/* Font size preset cards */
+
+.appearance-font-presets-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.appearance-font-preset-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 8px;
+  background: var(--bg);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  cursor: pointer;
+  font-family: var(--font);
+  transition: all 0.15s;
+}
+
+.appearance-font-preset-card:hover {
+  border-color: var(--accent);
+  background: var(--surface-hover);
+}
+
+.appearance-font-preset-card--selected {
+  border-color: var(--accent);
+  background: rgba(88, 166, 255, 0.1);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.appearance-font-preset-label {
+  font-weight: 600;
+  font-size: var(--fs-14);
+}
+
+.appearance-font-preset-desc {
+  font-size: var(--fs-11);
+  color: var(--text-muted);
+}
+
+.appearance-hint {
+  font-size: var(--fs-11);
+  color: var(--text-muted);
+  font-style: italic;
+  margin: 0;
+}
+
+/* Footer */
+
+.appearance-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.appearance-success {
+  color: var(--green);
+  font-weight: 500;
+}
+
+.appearance-save-btn {
+  background: var(--accent);
+  border: none;
+  color: #fff;
+  padding: 8px 20px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-weight: 500;
+  transition: opacity 0.15s;
+}
+
+.appearance-save-btn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.appearance-save-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Usage Tab — Bar Chart ── */
+
+.usage-bar-chart {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+
+.usage-bar-chart-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.usage-bar-chart-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  cursor: default;
+}
+
+.usage-bar-chart-row:hover {
+  background: rgba(88, 166, 255, 0.04);
+  border-radius: 4px;
+}
+
+.usage-bar-chart-label {
+  min-width: 140px;
+  max-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  line-height: 1.3;
+  overflow: hidden;
+}
+
+.usage-bar-chart-title {
+  font-size: var(--fs-11);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.usage-bar-chart-id {
+  font-size: var(--fs-9);
+  color: var(--text-muted);
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  opacity: 0.6;
+}
+
+.usage-bar-chart-track {
+  flex: 1;
+  height: 14px;
+  background: var(--bg);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.usage-bar-chart-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.4s ease;
+  min-width: 4px;
+}
+
+.usage-bar-chart-value {
+  font-size: var(--fs-10);
+  font-weight: 600;
+  color: var(--text-muted);
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  min-width: 45px;
+  text-align: right;
+}
