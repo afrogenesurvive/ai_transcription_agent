@@ -29,6 +29,7 @@ import { sanitizeTranscriptSegments, sanitizeContextString } from "./sanitize.js
 import {
   TOOLS,
   PIPELINE_HINTS,
+  PIPELINE_STEPS,
   TERMINAL_TOOLS,
   MAX_PIPELINE_STEPS,
   MAX_RETRIES,
@@ -207,12 +208,14 @@ async function processEvent(event) {
   const STORAGE_BASE = process.env.TRANSCRIPTION_STORAGE || path.resolve(__dirname, "..", "storage");
 
   // ── Configurable: Fetch existing memory context before the pipeline starts ──
-  // Controlled by USE_MEMORY_FOR_CONTEXT env var (set in ConfigPanel → Logging tab).
-  // When disabled, skips all ephemeral and semantic memory queries to reduce
-  // LLM context size and save tokens.
-  const useMemory = process.env.USE_MEMORY_FOR_CONTEXT !== "false";
+  // Controlled by the "_fetch_memory_context" pipeline step in pipeline.json.
+  // (ConfigPanel → Agent Instructions → Pipeline Steps). When the step is
+  // unchecked/disabled, skips all ephemeral and semantic memory queries to
+  // reduce LLM context size and save tokens.
+  const memoryStep = PIPELINE_STEPS.find((s) => s.toolName === "_fetch_memory_context");
+  const useMemory = memoryStep ? memoryStep.enabled : true;
   if (!useMemory) {
-    console.log(`   ⏭️  [RUNNER] Memory context disabled via USE_MEMORY_FOR_CONTEXT`);
+    console.log(`   ⏭️  [RUNNER] Memory context disabled via pipeline step (_fetch_memory_context)`);
   } else {
     try {
       // 1. Query ephemeral memory for existing action items, decisions, budgets

@@ -41,7 +41,6 @@ interface ConfigValues {
   WHISPER_MODEL_SIZE: string;
   KEEP_TRANSCRIPT_TIMESTAMPS: string;
   LOG_LLM_DATA: string;
-  USE_MEMORY_FOR_CONTEXT: string;
   DELIVERY_RECIPIENT_EMAILS: string;
   DELIVERY_EMAIL_SUBJECT: string;
   DELIVERY_EMAIL_ADDITIONAL_CONTENT: string;
@@ -149,6 +148,12 @@ function getDefaultPipelineSteps(cfg: AgentConfig): PipelineStep[] {
 
   // Canonical step order based on the system prompt numbering
   const defaultStepOrder = [
+    {
+      toolName: "_fetch_memory_context",
+      label: "Fetch Memory Context",
+      description: "Retrieve existing action items, decisions, budgets, and similar past meetings for LLM context",
+      isTerminal: false,
+    },
     { toolName: "transcribe_refine", label: "Refine Transcript", description: "Clean filler words and redact PII", isTerminal: false },
     {
       toolName: "transcribe_get_transcript",
@@ -178,9 +183,9 @@ function getDefaultPipelineSteps(cfg: AgentConfig): PipelineStep[] {
   const terminalToolsSet = new Set(cfg.pipeline?.terminal_tools || []);
 
   return defaultStepOrder
-    .filter((def) => tools.some((t: any) => t.name === def.toolName))
+    .filter((def) => def.toolName === "_fetch_memory_context" || tools.some((t: any) => t.name === def.toolName))
     .map((def, i) => ({
-      id: `step-${i + 1}`,
+      id: `step-${i}`,
       toolName: def.toolName,
       label: def.label,
       description: def.description,
@@ -469,7 +474,6 @@ export default function ConfigPanel({ onClose }: Props) {
         TRELLO_KEY: cfg.TRELLO_KEY?.value || "",
         TRELLO_TOKEN: cfg.TRELLO_TOKEN?.value || "",
         LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
-        USE_MEMORY_FOR_CONTEXT: cfg.USE_MEMORY_FOR_CONTEXT?.value || "true",
         DELIVERY_RECIPIENT_EMAILS: cfg.DELIVERY_RECIPIENT_EMAILS?.value || "",
         DELIVERY_EMAIL_SUBJECT: cfg.DELIVERY_EMAIL_SUBJECT?.value || "Meeting Summary: {title}",
         DELIVERY_EMAIL_ADDITIONAL_CONTENT: cfg.DELIVERY_EMAIL_ADDITIONAL_CONTENT?.value || "",
@@ -554,6 +558,10 @@ export default function ConfigPanel({ onClose }: Props) {
       const enabledSteps = steps.filter((s) => s.enabled);
       if (enabledSteps.length === 0) return editSystemPrompt;
 
+      // Exclude _fetch_memory_context from numbered pipeline rules — it's a
+      // pre-processing step (context injection), not an LLM-callable tool.
+      const pipelineSteps = enabledSteps.filter((s) => s.toolName !== "_fetch_memory_context");
+
       const header = `You are an AI meeting transcription assistant. Process completed transcription jobs through a multi-step pipeline: refine the transcript, extract action items, generate summaries, persist to memory, and deliver results.
 
 ## Available Tools
@@ -563,7 +571,7 @@ export default function ConfigPanel({ onClose }: Props) {
 ## Pipeline Rules (execute in this exact order)
 
 `;
-      const stepTexts = enabledSteps
+      const stepTexts = pipelineSteps
         .map((step, i) => {
           // #2: Enforce max template length at generation
           let template = (step.systemPromptTemplate || "").slice(0, MAX_TEMPLATE_LENGTH);
@@ -580,7 +588,11 @@ export default function ConfigPanel({ onClose }: Props) {
         })
         .join("\n\n");
 
-      const footer = `
+      // Conditionally include Memory Context section based on _fetch_memory_context step state
+      const memoryStep = steps.find((s) => s.toolName === "_fetch_memory_context");
+      const includeMemorySection = memoryStep ? memoryStep.enabled : true;
+
+      let footer = `
 
 ## General Rules
 
@@ -588,7 +600,10 @@ export default function ConfigPanel({ onClose }: Props) {
 - Never make up job IDs or speaker names — use the Job ID provided in the context
 - Use \`transcribe_search_memory\` to find past meetings by topic (e.g. "budget discussions")
 - Use \`transcribe_query_ephemeral\` to retrieve stored action items, contacts, budgets, or decisions
-- Use \`transcribe_save_ephemeral\` to store cross-meeting context like contact details or budget figures
+- Use \`transcribe_save_ephemeral\` to store cross-meeting context like contact details or budget figures`;
+
+      if (includeMemorySection) {
+        footer += `
 
 ## Memory Context & Continuity
 
@@ -597,7 +612,10 @@ The system provides existing memory context at the start of each pipeline run. U
 1. **Show continuity** — reference past decisions, recurring action items, and budget discussions in your summary. Repetition is valuable signal (e.g., "Alice to finish report" appearing 3 weeks in a row suggests a blocker).
 2. **Track resolution** — if an action item from a previous meeting is explicitly resolved in this transcript, generate a new action item noting "Completed: ..." with the resolved date.
 3. **Preserve history** — never skip or suppress entries. Every row in ephemeral memory has a \`created_at\` timestamp. The save functions preserve everything for audit.
-4. **Use past context for better summaries** — reference how topics evolved across meetings.
+4. **Use past context for better summaries** — reference how topics evolved across meetings.`;
+      }
+
+      footer += `
 
 - Respond only with a tool call
 - Respond only with a tool call`;
@@ -622,9 +640,12 @@ The system provides existing memory context at the start of each pipeline run. U
     const enabledToolNames = new Set(enabledSteps.map((s) => s.toolName));
     const hints: Record<string, string> = {};
 
-    for (let i = 0; i < enabledSteps.length; i++) {
-      const step = enabledSteps[i];
-      const nextStep = enabledSteps[i + 1];
+    // Skip _fetch_memory_context — it's a pre-processing step, not an LLM tool
+    const hintSteps = enabledSteps.filter((s) => s.toolName !== "_fetch_memory_context");
+
+    for (let i = 0; i < hintSteps.length; i++) {
+      const step = hintSteps[i];
+      const nextStep = hintSteps[i + 1];
 
       if (step.hintTemplate) {
         // #2: Enforce max template length
@@ -1872,30 +1893,6 @@ The system provides existing memory context at the start of each pipeline run. U
               All log entries from every source (Python backend, bridge server, agent runner, Electron main) are written to the per-job
               <code>pipeline.log</code> file while a job is active. The log is automatically closed when the pipeline completes or fails.
             </p>
-
-            {/* ── Memory Context Toggle ── */}
-            <div className="config-section">
-              <h3 className="config-section-title">
-                <Icon name="memory" size="16" color="accent" /> Memory Context
-              </h3>
-              <p className="config-field-hint">
-                When enabled, the agent runner fetches existing context from ephemeral memory (action items, decisions, budgets) and semantic memory
-                (similar past meetings) at the start of each pipeline run. Disable to reduce LLM context size and save tokens.
-              </p>
-              <div className="config-field">
-                <label className="config-toggle">
-                  <input
-                    type="checkbox"
-                    checked={values.USE_MEMORY_FOR_CONTEXT !== "false"}
-                    onChange={() => handleChange("USE_MEMORY_FOR_CONTEXT", values.USE_MEMORY_FOR_CONTEXT === "false" ? "true" : "false")}
-                  />
-                  <span className="config-toggle-slider" />
-                  <span className="config-toggle-label">
-                    <strong>Use memory for agent context</strong>
-                  </span>
-                </label>
-              </div>
-            </div>
 
             {/* LLM Data Logging */}
             <div className="config-section">

@@ -124,6 +124,16 @@ const FALLBACK_PIPELINE = {
   terminal_tools: ["send_delivery_email", "save_to_drive", "create_trello_action_items"],
   pipeline_steps: [
     {
+      id: "step-0",
+      toolName: "_fetch_memory_context",
+      label: "Fetch Memory Context",
+      description: "Retrieve existing action items, decisions, budgets, and similar past meetings for LLM context",
+      systemPromptTemplate: "",
+      hintTemplate: "",
+      enabled: true,
+      isTerminal: false,
+    },
+    {
       id: "step-1",
       toolName: "transcribe_refine",
       label: "Refine Transcript",

@@ -46,8 +46,8 @@ export interface AppConfig {
   KEEP_TRANSCRIPT_TIMESTAMPS: string;
   /** Log LLM input/output data to job storage directory */
   LOG_LLM_DATA: string;
-  /** Fetch memory context (action items, decisions, similar meetings) for each pipeline run */
-  USE_MEMORY_FOR_CONTEXT: string;
+  /** Fetch memory context — controlled via pipeline step _fetch_memory_context in pipeline.json */
+  /* USE_MEMORY_FOR_CONTEXT removed — now a pipeline step toggle in Agent Instructions */
   /** UI theme: "dark" or "light" */
   APPEARANCE_THEME: string;
   /** Accent color override (CSS color value, e.g. "#58a6ff") */
@@ -85,7 +85,6 @@ const DEFAULTS: AppConfig = {
   WHISPER_MODEL_SIZE: "medium",
   KEEP_TRANSCRIPT_TIMESTAMPS: "false",
   LOG_LLM_DATA: "false",
-  USE_MEMORY_FOR_CONTEXT: "true",
   APPEARANCE_THEME: "dark",
   APPEARANCE_ACCENT_COLOR: "#58a6ff",
   APPEARANCE_FONT_SIZE: "medium",
@@ -235,7 +234,6 @@ export function getChildEnv(): NodeJS.ProcessEnv {
     KEEP_TRANSCRIPT_TIMESTAMPS: config.KEEP_TRANSCRIPT_TIMESTAMPS || process.env.KEEP_TRANSCRIPT_TIMESTAMPS || "false",
 
     LOG_LLM_DATA: config.LOG_LLM_DATA || process.env.LOG_LLM_DATA || "false",
-    USE_MEMORY_FOR_CONTEXT: config.USE_MEMORY_FOR_CONTEXT || process.env.USE_MEMORY_FOR_CONTEXT || "true",
     APPEARANCE_THEME: config.APPEARANCE_THEME || process.env.APPEARANCE_THEME || "dark",
     APPEARANCE_ACCENT_COLOR: config.APPEARANCE_ACCENT_COLOR || process.env.APPEARANCE_ACCENT_COLOR || "#58a6ff",
     APPEARANCE_FONT_SIZE: config.APPEARANCE_FONT_SIZE || process.env.APPEARANCE_FONT_SIZE || "medium",
