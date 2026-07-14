@@ -86,8 +86,8 @@ export function getStorageBase(): string | null {
 function _detectPipelineEnd(message: string): boolean {
   // Python backend completion: "✅ [PIPELINE] Pipeline complete for job abc123..."
   if (/Pipeline complete for job|Resumed pipeline complete for job/i.test(message)) return true;
-  // Agent runner completion: "✅ [RUNNER] Job abc12345 marked as complete"
-  if (/Job [a-f0-9-]+ marked as complete/i.test(message)) return true;
+  // Agent runner completion/failure: "✅ [RUNNER] Job abc12345 marked as complete|failed"
+  if (/Job [a-f0-9-]+ marked as (complete|failed)/i.test(message)) return true;
   // Python backend failure: "❌ [pipeline] ERROR in job abc123: ..."
   if (/ERROR in job [a-f0-9-]+/i.test(message)) return true;
   // Agent runner failure: "❌ [RUNNER] Pipeline failed for job abc12345: ..."
@@ -241,8 +241,8 @@ export function addLog(
       const stream = _getOrCreateJobStream(logJobId);
       if (stream) {
         const timeStr = new Date(timestamp).toISOString();
-        const subTag = subSource ? `[${subSource}] ` : "";
-        _writeToJobLog(logJobId, `[${timeStr}] [${source}] [${subTag}] [${level}] ${message}`);
+        const subTag = subSource ? `[${subSource}]` : "";
+        _writeToJobLog(logJobId, `[${timeStr}] [${source}]${subTag} [${level}] ${message}`);
       }
       closeJobLog(logJobId);
       _currentJobId = null;
@@ -251,8 +251,8 @@ export function addLog(
       const stream = _getOrCreateJobStream(logJobId);
       if (stream) {
         const timeStr = new Date(timestamp).toISOString();
-        const subTag = subSource ? `[${subSource}] ` : "";
-        _writeToJobLog(logJobId, `[${timeStr}] [${source}] [${subTag}] [${level}] ${message}`);
+        const subTag = subSource ? `[${subSource}]` : "";
+        _writeToJobLog(logJobId, `[${timeStr}] [${source}]${subTag} [${level}] ${message}`);
       }
       // Track this as the current active job if we don't already have one
       // (ensures subsequent logs without explicit jobId still go to this job)

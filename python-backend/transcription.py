@@ -228,18 +228,20 @@ class TranscriptionEngine:
             if (i + 1) % log_interval == 0 or i == total_diar_segments - 1:
                 pct = (i + 1) / total_diar_segments * 100
                 speaker_count = len(set(sp["speaker"] for sp in segments))
-                print(f"[transcription]   📊 Diarization progress: {i+1}/{total_diar_segments} segments "
+                elapsed = time.time() - t0
+                print(f"[transcription]   📊 [{elapsed:>6.1f}s] Diarization progress: {i+1}/{total_diar_segments} segments "
                       f"({pct:.0f}%), {speaker_count} speaker(s) identified so far")
 
         # Log detailed results
         total_speech = sum(speaker_duration.values())
-        print(f"[transcription]   ✅ Diarization complete in {infer_elapsed:.1f}s — "
+        elapsed = time.time() - t0
+        print(f"[transcription]   ✅ [{elapsed:>6.1f}s] Diarization complete in {infer_elapsed:.1f}s — "
               f"{len(segments)} segments, {len(speaker_duration)} speakers, "
               f"{total_speech:.1f}s total speech")
         for spk, dur in sorted(speaker_duration.items()):
             pct = dur / total_speech * 100 if total_speech else 0
             seg_count = sum(1 for s in segments if s["speaker"] == spk)
-            print(f"[transcription]      {spk}: {dur:.1f}s ({pct:.0f}%) across {seg_count} segment(s)")
+            print(f"[transcription]      [{time.time() - t0:>6.1f}s] {spk}: {dur:.1f}s ({pct:.0f}%) across {seg_count} segment(s)")
         return segments
 
     # ── Step 2: ASR (what was said) ──

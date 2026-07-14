@@ -824,9 +824,10 @@ function ensurePerfSampler() {
 
       if (jobs.length > 0) {
         setCurrentJobId(jobs[0].job_id);
-      } else {
-        setCurrentJobId(null);
       }
+      // Don't clear _currentJobId here when no active ML jobs — the agent
+      // runner sets it via [JOB_START] markers, and _detectPipelineEnd()
+      // inside addLog() clears it when the job completes or fails.
 
       if (jobs.length === 0) return;
 

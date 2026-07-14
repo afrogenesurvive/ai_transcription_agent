@@ -39,7 +39,7 @@ from models import (
     RefineRequest, SummarizeRequest, LabelRequest, AnalysisRequest, Deliverable,
     MemorySearchRequest, MemorySearchResult,
     EphemeralMemoryItem, EphemeralMemoryQuery, EphemeralMemoryActionResult,
-    SaveMeetingContextRequest, UploadByPathRequest,
+    RegisterAttendeesRequest, SaveMeetingContextRequest, UploadByPathRequest,
 )
 from agent_bridge import AgentBridge
 from semantic_memory import SemanticMemory
@@ -1096,9 +1096,35 @@ async def label_and_resume(job_id: str, labels: list = Body(...)):
                 print(f"[api]   ⚠️  Could not extract embedding for '{name}': {e}")
                 vp_manager.save_voiceprint(name, email, None)
 
-    # Start the resumed pipeline in background
-    _start_resumed_pipeline(job_id, label_map)
-    return {"job_id": job_id, "status": "resuming", "applied_labels": len(label_map)}
+    # Determine how to proceed based on labeling phase
+    labeling_phase = s.get("labeling_phase", "pre_asr")
+
+    if labeling_phase == "post_asr":
+        # ASR + alignment already done — just remap speaker names in the
+        # existing transcript and enqueue for the agent runner.
+        p = os.path.join(config.STORAGE_PATH, job_id, "transcript.json")
+        if os.path.exists(p):
+            with open(p) as f:
+                transcript = json.load(f)
+            mapping = {spk: info["name"] for spk, info in label_map.items()}
+            for seg in transcript:
+                if seg["speaker"] in mapping:
+                    seg["speaker"] = mapping[seg["speaker"]]
+            uploader.save_transcript(job_id, transcript)
+            uploader.save_transcript_text(job_id, transcript)
+            aligned = transcript
+        else:
+            aligned = []
+
+        metadata = uploader.get_metadata(job_id)
+        skip = metadata.get("skip_steps")
+        _update_active(job_id, "ready_for_agent", 0.95)
+        agent_bridge.enqueue_ready(job_id, aligned, metadata, skip_steps=skip)
+        return {"job_id": job_id, "status": "ready_for_agent", "applied_labels": len(label_map)}
+    else:
+        # Pre-ASR (diarization only) — run full resumed pipeline (ASR → alignment → agent)
+        _start_resumed_pipeline(job_id, label_map)
+        return {"job_id": job_id, "status": "resuming", "applied_labels": len(label_map)}
 
 
 def _start_resumed_pipeline(job_id: str, label_map: dict):
@@ -1236,7 +1262,7 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
         jlog.log(f"      Alignment:       {align_elapsed*1000:>7.0f}ms")
         jlog.log(f"{'='*50}\n")
 
-        # ── Step 5: Enqueue for agent ──
+        # ── Step 5: Enqueue for agent or pause for labeling ──
         jlog.log(f"\n   📨 [PIPELINE] Step 5/5: Enqueueing for agent runner...")
         if _check_cancelled(job_id): return
         if unknown:
@@ -1245,9 +1271,28 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
                     if abs(seg["start"] - u["sample_segment"]["start"]) < 1.0:
                         u["sample_text"] = seg["text"][:200]
                         break
-            _update_active(job_id, "labeling_needed", 0.9, unknown_speakers=unknown)
-            jlog.log(f"[pipeline] {len(unknown)} unknown speaker(s) — enqueueing labeling_needed")
-            agent_bridge.enqueue_labeling_needed(job_id, unknown, aligned, metadata)
+            # Unknown speakers — pause for user labeling (saves real embeddings,
+            # unlike the agent-runner path which stores None)
+            jlog.log(f"\n   ⏸️  [PIPELINE] {len(unknown)} unknown speaker(s) — pausing for user labeling (post-ASR)")
+            # Build speaker info for the UI labeling modal
+            speaker_info = []
+            for u in unknown:
+                spk = u["speaker_id"]
+                segs = speaker_segments.get(spk, [])
+                longest = max(segs, key=lambda s: s["duration"]) if segs else {"start": 0, "end": 0}
+                speaker_info.append({
+                    "speaker_id": spk,
+                    "segment_count": len(segs),
+                    "total_duration": sum(s["duration"] for s in segs),
+                    "sample_start": longest.get("start", 0),
+                    "sample_end": longest.get("end", 0),
+                })
+            _update_active(job_id, "paused_for_labeling", 0.9,
+                          labeling_phase="post_asr", speakers=speaker_info,
+                          unknown_speakers=unknown)
+            jlog.log(f"[pipeline] ⏸️  Pipeline paused — waiting for speaker labels from user")
+            jlog.log(f"[pipeline]   Unknown speakers: {', '.join(u['speaker_id'] for u in unknown)}")
+            return  # Exit pipeline — resume via POST /transcribe/label_and_resume
         else:
             _update_active(job_id, "ready_for_agent", 0.95)
             skip = metadata.get("skip_steps")
@@ -1754,6 +1799,45 @@ EPHEMERAL_TABLES = {
     "decisions": {"label": "Decisions", "columns": ["id", "job_id", "description", "rationale", "made_by", "source_meeting", "created_at"]},
     "notes": {"label": "Notes", "columns": ["id", "job_id", "topic", "content", "created_at"]},
 }
+
+
+@app.post("/memory/ephemeral/register_attendees")
+async def memory_register_attendees(req: RegisterAttendeesRequest):
+    """Register one or more meeting attendees in ephemeral memory."""
+    print(f"[api] POST /memory/ephemeral/register_attendees names={req.names}")
+    try:
+        ephemeral_memory.register_attendees(
+            req.names, req.emails, source=req.source, job_id=req.job_id
+        )
+        print(f"[api] Registered {len(req.names)} attendee(s)")
+        return {"success": True, "count": len(req.names)}
+    except Exception as e:
+        print(f"[api] POST /memory/ephemeral/register_attendees ERROR: {e}")
+        raise HTTPException(500, f"Register attendees failed: {e}")
+
+
+@app.get("/memory/ephemeral/list_attendees")
+async def memory_list_attendees(limit: int = 100):
+    """List all registered attendees, newest first."""
+    print(f"[api] GET /memory/ephemeral/list_attendees limit={limit}")
+    try:
+        attendees = ephemeral_memory.list_attendees(limit=limit)
+        return {"attendees": attendees}
+    except Exception as e:
+        print(f"[api] GET /memory/ephemeral/list_attendees ERROR: {e}")
+        raise HTTPException(500, f"List attendees failed: {e}")
+
+
+@app.get("/memory/ephemeral/search_attendees")
+async def memory_search_attendees(name: str = "", limit: int = 50):
+    """Search registered attendees by name (substring match)."""
+    print(f"[api] GET /memory/ephemeral/search_attendees name='{name}' limit={limit}")
+    try:
+        attendees = ephemeral_memory.query_attendees(name=name, limit=limit)
+        return {"attendees": attendees}
+    except Exception as e:
+        print(f"[api] GET /memory/ephemeral/search_attendees ERROR: {e}")
+        raise HTTPException(500, f"Search attendees failed: {e}")
 
 
 @app.get("/memory/ephemeral/tables")
@@ -2319,7 +2403,7 @@ def _run_pipeline_sync(job_id: str):
         jlog.log(f"      Total (ML):      {pipeline_total:>7.1f}s")
         jlog.log(f"{'='*50}\n")
 
-        # ── Step 5: Enqueue for agent ──
+        # ── Step 5: Enqueue for agent or pause for labeling ──
         jlog.log(f"\n   📨 [PIPELINE] Step 5/5: Enqueueing for agent runner...")
         if _check_cancelled(job_id): return
         unknown = match_result.get("unknown", [])
@@ -2329,9 +2413,36 @@ def _run_pipeline_sync(job_id: str):
                     if abs(seg["start"] - u["sample_segment"]["start"]) < 1.0:
                         u["sample_text"] = seg["text"][:200]
                         break
-            _update_active(job_id, "labeling_needed", 0.9, unknown_speakers=unknown)
-            jlog.log(f"[pipeline] {len(unknown)} unknown speaker(s) — enqueueing labeling_needed")
-            agent_bridge.enqueue_labeling_needed(job_id, unknown, aligned, metadata)
+            # Unknown speakers after voiceprint matching — pause for user labeling
+            # so they can identify them (saves real embeddings, unlike agent path)
+            jlog.log(f"\n   ⏸️  [PIPELINE] {len(unknown)} unknown speaker(s) — pausing for user labeling (post-ASR)")
+            # Save diarization data if not already saved (won't exist if we didn't
+            # pause after diarization due to matching attendee count)
+            if not uploader.load_diarization(job_id).get("speaker_segments"):
+                uploader.save_diarization(job_id, {
+                    "speaker_segments": speaker_segments,
+                    "diarization": diarization,
+                    "total_speakers": len(speaker_segments),
+                })
+            # Build speaker info for the UI labeling modal
+            speaker_info = []
+            for u in unknown:
+                spk = u["speaker_id"]
+                segs = speaker_segments.get(spk, [])
+                longest = max(segs, key=lambda s: s["duration"]) if segs else {"start": 0, "end": 0}
+                speaker_info.append({
+                    "speaker_id": spk,
+                    "segment_count": len(segs),
+                    "total_duration": sum(s["duration"] for s in segs),
+                    "sample_start": longest.get("start", 0),
+                    "sample_end": longest.get("end", 0),
+                })
+            _update_active(job_id, "paused_for_labeling", 0.9,
+                          labeling_phase="post_asr", speakers=speaker_info,
+                          unknown_speakers=unknown)
+            jlog.log(f"[pipeline] ⏸️  Pipeline paused — waiting for speaker labels from user")
+            jlog.log(f"[pipeline]   Unknown speakers: {', '.join(u['speaker_id'] for u in unknown)}")
+            return  # Exit pipeline — resume via POST /transcribe/label_and_resume
         else:
             _update_active(job_id, "ready_for_agent", 0.95)
             skip = metadata.get("skip_steps")

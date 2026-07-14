@@ -506,29 +506,51 @@ const RV_SOURCE_COLORS: Record<string, string> = {
   ollama: "#7ee787",
 };
 
-/** Try to parse a raw log line into a structured LogEntry-like object. */
+/** Try to parse a raw log line into a structured LogEntry-like object.
+
+  Handles the pipeline.log format:
+    `[ISO timestamp] [source][subsource] [level] message`
+
+  Strips all structured tags so only the clean message text remains
+  (the UI renders timestamp, source, and level separately).
+*/
 function parseLogLine(raw: string): { timestamp: number; source: string; level: string; message: string } | null {
-  // Attempt to extract a leading ISO‑ish timestamp
-  const tsMatch = raw.match(/^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2})/);
+  // ── 1. Strip leading [ISO timestamp] ──
+  const tsMatch = raw.match(/^\[(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}\.\d{3}Z)\]\s*/);
   const timestamp = tsMatch ? new Date(tsMatch[1]).getTime() : Date.now();
+  let remainder = tsMatch ? raw.slice(tsMatch[0].length) : raw;
 
-  // Detect source
-  const srcMatch = raw.match(/\[(python|bridge|agent|main|transcription|usage|ollama)\]/i);
+  // ── 2. Strip [source] tag ──
+  const srcMatch = remainder.match(/^\[(python|bridge|agent|main|usage|ollama)\]\s*/i);
   let source = srcMatch ? srcMatch[1].toLowerCase() : "main";
-  // Also match the [USAGE] pattern
-  if (/💰\s*\[usage\]/i.test(raw)) source = "usage";
+  if (srcMatch) remainder = remainder.slice(srcMatch[0].length);
 
-  // Detect level
-  const lower = raw.toLowerCase();
+  // ── 3. Strip [level] tag (appears right after source/subsource) ──
+  const levelMatch = remainder.match(/^\[(info|error|warn(?:ing)?|debug)\]\s*/i);
   let level = "info";
-  if (/\berror\b/.test(lower)) level = "error";
-  else if (/\bwarn(ing)?\b/.test(lower)) level = "warn";
-  else if (/\bdebug\b/.test(lower)) level = "debug";
+  if (levelMatch) {
+    level = levelMatch[1].toLowerCase();
+    remainder = remainder.slice(levelMatch[0].length);
+  } else {
+    // ── 4. No level tag — try optional [subsource] tag ──
+    // After [source] there may be a [subsource] (e.g. [transcription], [pipeline])
+    const subMatch = remainder.match(/^\[(\w+)\]\s*/);
+    if (subMatch) {
+      source = subMatch[1].toLowerCase();
+      remainder = remainder.slice(subMatch[0].length);
+      // Now try to strip the [level] tag after subsource
+      const lvlMatch = remainder.match(/^\[(info|error|warn(?:ing)?|debug)\]\s*/i);
+      if (lvlMatch) {
+        level = lvlMatch[1].toLowerCase();
+        remainder = remainder.slice(lvlMatch[0].length);
+      }
+    }
+  }
 
-  // Build a cleaned message (strip the leading timestamp if present)
-  const message = tsMatch ? raw.slice(tsMatch[0].length).trim() : raw;
+  // Also match the [USAGE] pattern inside the remaining text
+  if (/💰\s*\[usage\]/i.test(remainder)) source = "usage";
 
-  return { timestamp, source, level, message };
+  return { timestamp, source, level, message: remainder.trim() };
 }
 
 function LogsTab({ jobId }: { jobId: string }) {

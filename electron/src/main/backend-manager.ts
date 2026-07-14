@@ -13,7 +13,7 @@ import { spawn, ChildProcess, execSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import { app } from "electron";
-import { addLog } from "./logger";
+import { addLog, setCurrentJobId } from "./logger";
 import { getChildEnv } from "./config";
 
 const isProd = app.isPackaged;
@@ -206,6 +206,7 @@ export async function startPythonBackend(port = 5001): Promise<void> {
       // like [01:21.560 --> ...] get a synthetic "transcription" subSource
       // but the message itself has no tag to strip.
       const cleanMsg = subSource && /^\[\w+\]/.test(msg) ? msg.replace(/^\[\w+\]\s*/, "") : msg;
+      console.log(`[python] ${cleanMsg}`);
       addLog("python", "info", cleanMsg, subSource);
     }
   });
@@ -216,6 +217,7 @@ export async function startPythonBackend(port = 5001): Promise<void> {
     if (remaining) {
       const subSource = extractSubSource(remaining);
       const cleanMsg = subSource && /^\[\w+\]/.test(remaining) ? remaining.replace(/^\[\w+\]\s*/, "") : remaining;
+      console.log(`[python] ${cleanMsg}`);
       addLog("python", "info", cleanMsg, subSource);
     }
     stdoutBuffer = "";
@@ -901,16 +903,66 @@ export async function startAgentRunner(): Promise<void> {
     stdio: ["pipe", "pipe", "pipe"],
   });
 
+  // ── Agent stdout handler (line-buffered) ──
+  // The OS pipe buffer can split at arbitrary byte boundaries, so we
+  // buffer chunks and split by newlines to guarantee each message is a
+  // complete line. This lets us reliably parse [JOB_START] markers.
+  let agentStdoutBuf = "";
   agentProcess.stdout?.on("data", (d: Buffer) => {
-    const msg = d.toString().trim();
-    console.log(`[agent] ${msg}`);
-    addLog("agent", "info", msg);
+    agentStdoutBuf += d.toString();
+    const lines = agentStdoutBuf.split("\n");
+    agentStdoutBuf = lines.pop() || "";
+
+    for (const line of lines) {
+      const msg = line.trim();
+      if (!msg) continue;
+
+      // Detect job-start marker emitted by agent-runner/index.js
+      //   [JOB_START] <full-uuid>
+      const jobStartMatch = msg.match(/^\[JOB_START\]\s*([a-f0-9-]+)/i);
+      if (jobStartMatch) {
+        setCurrentJobId(jobStartMatch[1]);
+        console.log(`[agent] Tracking job ${jobStartMatch[1].slice(0, 8)} for agent logs`);
+        continue; // don't log the marker itself
+      }
+
+      console.log(`[agent] ${msg}`);
+      addLog("agent", "info", msg);
+    }
   });
 
+  agentProcess.stdout?.on("end", () => {
+    // Flush any remaining data on stream end
+    const remaining = agentStdoutBuf.trim();
+    if (remaining) {
+      console.log(`[agent] ${remaining}`);
+      addLog("agent", "info", remaining);
+    }
+    agentStdoutBuf = "";
+  });
+
+  // ── Agent stderr handler (line-buffered, same approach) ──
+  let agentStderrBuf = "";
   agentProcess.stderr?.on("data", (d: Buffer) => {
-    const msg = d.toString().trim();
-    console.error(`[agent:err] ${msg}`);
-    addLog("agent", "error", msg);
+    agentStderrBuf += d.toString();
+    const lines = agentStderrBuf.split("\n");
+    agentStderrBuf = lines.pop() || "";
+
+    for (const line of lines) {
+      const msg = line.trim();
+      if (!msg) continue;
+      console.error(`[agent:err] ${msg}`);
+      addLog("agent", "error", msg);
+    }
+  });
+
+  agentProcess.stderr?.on("end", () => {
+    const remaining = agentStderrBuf.trim();
+    if (remaining) {
+      console.error(`[agent:err] ${remaining}`);
+      addLog("agent", "error", remaining);
+    }
+    agentStderrBuf = "";
   });
 
   agentProcess.on("exit", (code) => {

@@ -143,6 +143,11 @@ async function processEvent(event) {
   const eventId = event.id;
   const tag = eventId?.slice(0, 8) || "???";
 
+  // Emit a machine-parseable marker so the Electron main process can track
+  // which job the agent is currently processing and route log entries to the
+  // correct per-job pipeline.log file. The backend-manager.ts parses this.
+  console.log(`   [JOB_START] ${event.data?.jobId || eventId}`);
+
   console.log(`\n   ╔══════════════════════════════════════════╗`);
   console.log(`   ║   🔄 JOB ${tag.padEnd(27)}║`);
   console.log(`   ╚══════════════════════════════════════════╝`);

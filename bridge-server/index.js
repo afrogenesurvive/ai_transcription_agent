@@ -232,6 +232,20 @@ async function dispatch(tool, args) {
         limit: args.limit || 10,
       });
 
+    case "transcribe_register_attendees":
+      return await callPython("POST", "/memory/ephemeral/register_attendees", {
+        names: args.names || [],
+        emails: args.emails || [],
+        source: args.source || "agent_labeling",
+        job_id: args.jobId || "",
+      });
+
+    case "transcribe_list_attendees":
+      return await callPython("GET", `/memory/ephemeral/list_attendees?limit=${args.limit || 100}`);
+
+    case "transcribe_search_attendees":
+      return await callPython("GET", `/memory/ephemeral/search_attendees?name=${encodeURIComponent(args.name || "")}&limit=${args.limit || 50}`);
+
     case "transcribe_save_context":
       return await callPython("POST", "/memory/save_context", {
         job_id: args.jobId,
@@ -440,9 +454,9 @@ const server = http.createServer(async (req, res) => {
       const jobId = args?.jobId || args?.job_id || "?";
       console.log(`[bridge] → ${tool} (job=${jobId})`);
       const startTime = Date.now();
-      // Skip sanitization for pipeline_log — the lines array needs to be full
+      // Skip sanitization for log endpoints — the content arrays need to be full
       const raw = await dispatch(tool, args || {});
-      result = tool === "transcribe_get_pipeline_log" ? raw : sanitizeValue(raw);
+      result = ["transcribe_get_pipeline_log", "transcribe_get_job_logs"].includes(tool) ? raw : sanitizeValue(raw);
       const elapsed = Date.now() - startTime;
       console.log(`[bridge] ← ${tool} OK (${elapsed}ms)`);
       res.writeHead(200, { "Content-Type": "application/json" });

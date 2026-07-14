@@ -2315,17 +2315,26 @@ function LogFilesTab() {
   const resizingRef = useRef(false);
   const listRef = useRef<HTMLDivElement>(null);
 
+  const BRIDGE_URL = "http://127.0.0.1:5010";
+
+  /** Call a bridge tool and return the parsed JSON response. */
+  async function bridgeCall(tool: string, args: Record<string, unknown> = {}) {
+    const res = await fetch(`${BRIDGE_URL}/tools/call`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tool, args }),
+    });
+    if (!res.ok) throw new Error(`Bridge error: ${res.status}`);
+    return res.json();
+  }
+
   // Fetch job history on mount
   useEffect(() => {
-    const api = (window as any).useApi?.();
-    if (api?.getHistory) {
-      api
-        .getHistory()
-        .then((r: any) => {
-          if (r?.jobs) setJobs(r.jobs);
-        })
-        .catch(() => {});
-    }
+    bridgeCall("transcribe_history", {})
+      .then((r: any) => {
+        if (r?.jobs) setJobs(r.jobs);
+      })
+      .catch(() => {});
   }, []);
 
   // Fetch pipeline log when a job is selected
@@ -2333,26 +2342,25 @@ function LogFilesTab() {
     setLoading(true);
     setError(null);
     try {
-      const api = (window as any).useApi?.();
-      if (api?.getJobLogs) {
-        const result = await api.getJobLogs(jobId, 2000);
-        // Merge all log sources into a single sorted list
-        const allLines: string[] = [];
-        if (result.job_logs) {
-          for (const jl of result.job_logs) {
-            const content = jl.content;
-            if (content) {
-              const lines = content.split("\n").filter(Boolean);
-              allLines.push(...lines);
-            }
+      const result = await bridgeCall("transcribe_get_job_logs", { jobId, maxLines: 2000 });
+      // Merge all log sources into a single sorted list
+      const allLines: string[] = [];
+      if (result.job_logs) {
+        for (const jl of result.job_logs) {
+          const content = jl.content;
+          if (content) {
+            const lines = content.split("\n").filter(Boolean);
+            allLines.push(...lines);
           }
         }
-        if (result.logs) {
-          allLines.push(...result.logs);
-        }
-        setLogLines(allLines);
-      } else {
-        // Fallback: fetch directly from bridge
+      }
+      if (result.logs) {
+        allLines.push(...result.logs);
+      }
+      setLogLines(allLines);
+    } catch (err: any) {
+      // Fallback: fetch pipeline_log endpoint directly
+      try {
         const resp = await fetch(`http://127.0.0.1:5010/transcribe/pipeline_log/${jobId}?max_lines=2000`);
         if (resp.ok) {
           const data = await resp.json();
@@ -2360,9 +2368,9 @@ function LogFilesTab() {
         } else {
           setError(`Failed to load logs: ${resp.status}`);
         }
+      } catch (fallbackErr: any) {
+        setError(fallbackErr.message || "Failed to load logs");
       }
-    } catch (err: any) {
-      setError(err.message || "Failed to load logs");
     } finally {
       setLoading(false);
     }
