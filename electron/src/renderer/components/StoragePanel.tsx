@@ -65,7 +65,13 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
 
   // Developer section — generic clear actions
   const [showDevSection, setShowDevSection] = useState(false);
-  const [confirmAction, setConfirmAction] = useState<{ type: string; label: string; description: string; bridgeTool: string; bridgeArgs?: Record<string, any> } | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{
+    type: string;
+    label: string;
+    description: string;
+    bridgeTool: string;
+    bridgeArgs?: Record<string, any>;
+  } | null>(null);
   const [processingAction, setProcessingAction] = useState<string | null>(null);
   const [actionResult, setActionResult] = useState<string | null>(null);
 
@@ -99,6 +105,10 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
       setActionResult(null);
       try {
         const result = await callBridge(action.bridgeTool, action.bridgeArgs || {});
+        // For log clearing, also flush the in-memory live log buffer used by DevPanel
+        if (action.type === "logs" && window.electronAPI?.clearLogs) {
+          await window.electronAPI.clearLogs();
+        }
         const msg = result.message || "Cleared successfully";
         setActionResult(msg);
         onNotify?.(`${action.label}: ${msg}`);
@@ -299,9 +309,7 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
 
               {showDevSection && (
                 <div className="storage-dev-content">
-                  <p className="storage-dev-description">
-                    Destructive actions to clear stored data. These operations are irreversible.
-                  </p>
+                  <p className="storage-dev-description">Destructive actions to clear stored data. These operations are irreversible.</p>
 
                   {/* Clear all logs */}
                   <div className="storage-log-action">
@@ -335,9 +343,7 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
                       <strong>
                         <Icon name="history" size="14" color="accent" /> Clear All Job History
                       </strong>
-                      <p>
-                        Delete all transcription job directories and their associated data (transcripts, summaries, analyses, audio files).
-                      </p>
+                      <p>Delete all transcription job directories and their associated data (transcripts, summaries, analyses, audio files).</p>
                     </div>
                     <button
                       className="btn-warning"
@@ -360,9 +366,7 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
                       <strong>
                         <Icon name="memory" size="14" color="green" /> Clear Semantic DB Data
                       </strong>
-                      <p>
-                        Delete the ChromaDB vector store containing semantic memory (meeting summaries and searchable transcript embeddings).
-                      </p>
+                      <p>Delete the ChromaDB vector store containing semantic memory (meeting summaries and searchable transcript embeddings).</p>
                     </div>
                     <button
                       className="btn-warning"
@@ -370,7 +374,8 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
                         setConfirmAction({
                           type: "semantic",
                           label: "Clear Semantic DB Data",
-                          description: "This will permanently delete the ChromaDB vector store and all semantic memory data. This action cannot be undone.",
+                          description:
+                            "This will permanently delete the ChromaDB vector store and all semantic memory data. This action cannot be undone.",
                           bridgeTool: "storage_clear_semantic",
                         })
                       }
@@ -396,7 +401,8 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
                         setConfirmAction({
                           type: "ephemeral",
                           label: "Clear Ephemeral / Voiceprint Data",
-                          description: "This will permanently delete both the ephemeral memory and voiceprint databases. This action cannot be undone.",
+                          description:
+                            "This will permanently delete both the ephemeral memory and voiceprint databases. This action cannot be undone.",
                           bridgeTool: "storage_clear_ephemeral",
                         })
                       }
@@ -431,10 +437,7 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
               <button className="btn-secondary" onClick={() => setConfirmAction(null)}>
                 Cancel
               </button>
-              <button
-                className="btn-danger"
-                onClick={() => handleClearAction(confirmAction)}
-                disabled={!!processingAction}>
+              <button className="btn-danger" onClick={() => handleClearAction(confirmAction)} disabled={!!processingAction}>
                 {processingAction === confirmAction.type ? "Processing..." : "Confirm"}
               </button>
             </div>

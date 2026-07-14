@@ -223,6 +223,16 @@ export function addLog(
         subSource = "transcription";
       }
     }
+    // Fallback: detect uvicorn HTTP access logs (stderr)
+    if (!subSource) {
+      const httpMatch = message.match(/^(INFO|WARNING|ERROR):\s+\d+\.\d+\.\d+\.\d+:\d+\s+-\s+"(GET|POST|PUT|DELETE|PATCH)\s+\S+/);
+      if (httpMatch) subSource = "http";
+    }
+    // Fallback: scan for [tag] anywhere in the message (e.g. "✅ [pipeline] ...")
+    if (!subSource) {
+      const inlineTag = message.match(/\[([a-zA-Z0-9 _-]+)\]/);
+      if (inlineTag) subSource = inlineTag[1];
+    }
   }
 
   const entry: LogEntry = { timestamp, source, subSource, level, message };

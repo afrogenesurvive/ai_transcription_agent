@@ -22,8 +22,9 @@ type Tab = "live" | "database" | "performance" | "usage" | "updates" | "logfiles
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
-type SourceFilter = "all" | LogEntry["source"] | "transcription" | "usage" | "ollama";
+type SourceFilter = "all" | LogEntry["source"];
 type LevelFilter = "all" | LogEntry["level"];
+type SubSourceFilter = "all" | string;
 
 const SOURCE_COLORS: Record<string, string> = {
   python: "#58a6ff",
@@ -73,9 +74,6 @@ function savePersisted(key: string, value: string): void {
 
 /* ── Live Logs Tab ── */
 
-/** Extra "source" values that are really message tags, checked against entry.message. */
-const TAG_SOURCES = new Set(["transcription", "usage", "ollama"]);
-
 /** Extract a [tag] prefix from the start of a log message, e.g. "[transcription] hello" → "transcription" */
 function extractMessageTag(message: string): string | null {
   const match = message.match(/^\[(\w+)\]/);
@@ -86,6 +84,7 @@ function LiveLogsTab() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>(loadPersisted(LS_KEY_SOURCE, "all") as SourceFilter);
   const [levelFilter, setLevelFilter] = useState<LevelFilter>(loadPersisted(LS_KEY_LEVEL, "all") as LevelFilter);
+  const [subSourceFilter, setSubSourceFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [autoScroll, setAutoScroll] = useState(loadPersisted(LS_KEY_SCROLL, "true") === "true");
   const listRef = useRef<HTMLDivElement>(null);
@@ -145,15 +144,6 @@ function LiveLogsTab() {
     setLogs([]);
   }, []);
 
-  /** Check if a log entry's message contains a given tag like [transcription], [usage], [ollama]. */
-  function entryHasTag(entry: LogEntry, tag: string): boolean {
-    if (tag === "all") return true;
-    if (entry.message.includes(`[${tag}]`) || entry.message.includes(`[${tag.toUpperCase()}]`)) return true;
-    // Also match the [USAGE] format
-    if (tag === "usage" && /💰\s*\[usage\]/i.test(entry.message)) return true;
-    return false;
-  }
-
   /** Highlight search matches in text — returns React nodes with <em> wrappers. */
   const highlightText = useCallback(
     (text: string): React.ReactNode => {
@@ -175,14 +165,8 @@ function LiveLogsTab() {
   );
 
   const filtered = logs.filter((entry) => {
-    if (sourceFilter !== "all") {
-      // Tag-based "sources" (transcription, usage, ollama) are checked against message content
-      if (TAG_SOURCES.has(sourceFilter)) {
-        if (!entryHasTag(entry, sourceFilter)) return false;
-      } else if (entry.source !== sourceFilter) {
-        return false;
-      }
-    }
+    if (sourceFilter !== "all" && entry.source !== sourceFilter) return false;
+    if (subSourceFilter !== "all" && entry.subSource !== subSourceFilter) return false;
     if (levelFilter !== "all" && entry.level !== levelFilter) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -226,14 +210,30 @@ function LiveLogsTab() {
             className="dev-panel-select"
             value={sourceFilter}
             onChange={(e) => handleSourceFilterChange(e.target.value as SourceFilter)}
-            title="Filter logs by source service or message tag"
-            data-tooltip="Filter logs by source — Python, Bridge, Agent, Main, or by message tag">
+            title="Filter logs by source service"
+            data-tooltip="Filter logs by source — Python, Bridge, Agent, or Main">
             <option value="all">All sources</option>
             <option value="python">Python</option>
             <option value="bridge">Bridge</option>
             <option value="agent">Agent</option>
             <option value="main">Main</option>
+          </select>
+
+          <select
+            className="dev-panel-select"
+            value={subSourceFilter}
+            onChange={(e) => setSubSourceFilter(e.target.value)}
+            title="Filter by sub-source tag"
+            data-tooltip="Filter logs by sub-source — Runner, Model, Pipeline, etc.">
+            <option value="all">All sub-sources</option>
+            <option value="runner">Runner</option>
+            <option value="model">Model</option>
+            <option value="executor">Executor</option>
             <option value="transcription">Transcription</option>
+            <option value="pipeline">Pipeline</option>
+            <option value="voiceprint">Voiceprint</option>
+            <option value="upload">Upload</option>
+            <option value="http">HTTP</option>
             <option value="usage">Usage</option>
             <option value="ollama">Ollama</option>
           </select>
@@ -2304,6 +2304,13 @@ function parseLogSource(line: string): string {
   return m ? m[1].toLowerCase() : "main";
 }
 
+/** Extract a sub-source from a pipeline.log line like "[2026-...] [agent][runner] ..." → "runner" */
+function parseLogSubSource(line: string): string | undefined {
+  // Match [source][subsource] after the timestamp — e.g. "[2026-...] [agent][runner]"
+  const m = line.match(/^\[\d{4}.*?\]\s*\[\w+\]\[([a-z0-9_ ]+)\]/i);
+  return m ? m[1].toLowerCase() : undefined;
+}
+
 function LogFilesTab() {
   const [jobs, setJobs] = useState<any[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
@@ -2311,7 +2318,14 @@ function LogFilesTab() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [sidebarSearch, setSidebarSearch] = useState("");
+  const [logSourceFilter, setLogSourceFilter] = useState<string>("all");
+  const [logLevelFilter, setLogLevelFilter] = useState<string>("all");
+  const [logSubSourceFilter, setLogSubSourceFilter] = useState<string>("all");
   const [sidebarWidth, setSidebarWidth] = useState(280);
+  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
+  const [activeFile, setActiveFile] = useState<string | null>(null);
+  const MAX_COLLAPSED_CHARS = 10000;
   const resizingRef = useRef(false);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -2343,14 +2357,19 @@ function LogFilesTab() {
     setError(null);
     try {
       const result = await bridgeCall("transcribe_get_job_logs", { jobId, maxLines: 2000 });
-      // Merge all log sources into a single sorted list
+      // Separate pipeline.log lines from other job-specific files
       const allLines: string[] = [];
+      const otherFiles: { file: string; content: string }[] = [];
       if (result.job_logs) {
         for (const jl of result.job_logs) {
-          const content = jl.content;
-          if (content) {
+          const content = jl.content || "";
+          const fname = (jl.file || jl.name || "").toLowerCase();
+          // Only pipeline.log lines go through the parsed log view
+          if (fname.includes("pipeline.log") || fname.endsWith(".log")) {
             const lines = content.split("\n").filter(Boolean);
             allLines.push(...lines);
+          } else {
+            otherFiles.push({ file: jl.file || jl.name || "unknown", content });
           }
         }
       }
@@ -2358,6 +2377,7 @@ function LogFilesTab() {
         allLines.push(...result.logs);
       }
       setLogLines(allLines);
+      setJobSpecificFiles(otherFiles);
     } catch (err: any) {
       // Fallback: fetch pipeline_log endpoint directly
       try {
@@ -2374,6 +2394,21 @@ function LogFilesTab() {
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  const [jobSpecificFiles, setJobSpecificFiles] = useState<{ file: string; content: string }[]>([]);
+
+  const toggleFile = useCallback((fileName: string) => {
+    setExpandedFiles((prev) => {
+      const next = new Set(prev);
+      if (next.has(fileName)) next.delete(fileName);
+      else next.add(fileName);
+      return next;
+    });
+  }, []);
+
+  const selectFile = useCallback((fileName: string) => {
+    setActiveFile((prev) => (prev === fileName ? null : fileName));
   }, []);
 
   useEffect(() => {
@@ -2409,8 +2444,8 @@ function LogFilesTab() {
 
   // Filter jobs by search
   const filteredJobs = jobs.filter((j) => {
-    if (!searchQuery) return true;
-    const q = searchQuery.toLowerCase();
+    if (!sidebarSearch) return true;
+    const q = sidebarSearch.toLowerCase();
     return (
       j.job_id?.toLowerCase().includes(q) ||
       j.title?.toLowerCase().includes(q) ||
@@ -2420,13 +2455,40 @@ function LogFilesTab() {
 
   const selectedJob = jobs.find((j) => j.job_id === selectedJobId);
 
+  // Filter log lines by source, level, sub-source, and search text
+  const filteredLogLines = logLines.filter((line) => {
+    if (logSourceFilter !== "all") {
+      const src = parseLogSource(line);
+      if (src !== logSourceFilter) return false;
+    }
+    if (logSubSourceFilter !== "all") {
+      const sub = parseLogSubSource(line);
+      if (!sub || sub !== logSubSourceFilter) return false;
+    }
+    if (logLevelFilter !== "all" && !line.toLowerCase().includes(`[${logLevelFilter}]`)) {
+      // also check for level in message text
+      if (!new RegExp(`\\b${logLevelFilter}\\b`, "i").test(line)) return false;
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      if (!line.toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
+
   // Format log line like live log format
   const renderLogLine = (line: string, i: number) => {
     const ts = parseLogTimestamp(line);
     const source = parseLogSource(line);
+    const subSource = parseLogSubSource(line);
     const level = /\berror\b/i.test(line) ? "error" : /\bwarn\b/i.test(line) ? "warn" : /\bdebug\b/i.test(line) ? "debug" : "info";
     const sourceColor = SOURCE_COLORS[source] || SOURCE_COLORS.main;
-    const sourceLabel = source.replace(/_/g, " ").toUpperCase().slice(0, 8);
+    const sourceLabel = `[${source}]`;
+    // Strip the structured prefix so the message text doesn't duplicate the UI columns
+    const cleanMessage = line.replace(
+      /^\[\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}\.\d{3}Z\]\s*\[[a-z_]+\](?:\[[^\]]*\])?\s*\[(?:info|error|warn|debug)\]\s*/i,
+      "",
+    );
 
     return (
       <div key={i} className="rv-log-line--parsed">
@@ -2439,8 +2501,13 @@ function LogFilesTab() {
         <span className="rv-log-line-source" style={{ color: sourceColor }}>
           {sourceLabel}
         </span>
+        {subSource && (
+          <span className="rv-log-line-subsource" style={{ color: SOURCE_COLORS[subSource] || sourceColor }}>
+            [{subSource}]
+          </span>
+        )}
         <span className={`rv-log-line-level rv-log-line-level--${level}`}>{level === "error" ? "✖" : level === "warn" ? "⚠" : ""}</span>
-        <span className="rv-log-line-text">{line}</span>
+        <span className="rv-log-line-text">{cleanMessage}</span>
       </div>
     );
   };
@@ -2456,8 +2523,8 @@ function LogFilesTab() {
               className="dev-panel-search-input"
               type="text"
               placeholder="Filter jobs..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={sidebarSearch}
+              onChange={(e) => setSidebarSearch(e.target.value)}
             />
           </div>
           <span className="dev-panel-file-filter-count">
@@ -2465,7 +2532,7 @@ function LogFilesTab() {
           </span>
         </div>
         <div style={{ overflowY: "auto", flex: 1 }} ref={listRef}>
-          {filteredJobs.length === 0 && <div className="dev-panel-empty">{searchQuery ? "No matching jobs" : "No jobs yet"}</div>}
+          {filteredJobs.length === 0 && <div className="dev-panel-empty">{sidebarSearch ? "No matching jobs" : "No jobs yet"}</div>}
           {filteredJobs.map((job) => (
             <div
               key={job.job_id}
@@ -2499,8 +2566,51 @@ function LogFilesTab() {
           <>
             <div className="rv-logs-toolbar" style={{ flexShrink: 0 }}>
               <span className="rv-logs-toolbar-title">Logs: {selectedJob?.title || selectedJobId?.slice(0, 8)}</span>
+              <div className="rv-logs-toolbar-filters" style={{ flex: 1, justifyContent: "flex-end", gap: 6 }}>
+                <div className="rv-logs-search-wrap">
+                  <span className="rv-logs-search-icon">🔍</span>
+                  <input
+                    className="rv-logs-search-input"
+                    type="text"
+                    placeholder="Search log lines…"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                  {searchQuery && (
+                    <button className="rv-logs-search-clear" onClick={() => setSearchQuery("")} title="Clear search">
+                      <Icon name="close" size="12" />
+                    </button>
+                  )}
+                </div>
+                <select className="rv-logs-filter-select" value={logSourceFilter} onChange={(e) => setLogSourceFilter(e.target.value)}>
+                  <option value="all">All sources</option>
+                  <option value="python">Python</option>
+                  <option value="bridge">Bridge</option>
+                  <option value="agent">Agent</option>
+                  <option value="main">Main</option>
+                </select>
+                <select className="rv-logs-filter-select" value={logSubSourceFilter} onChange={(e) => setLogSubSourceFilter(e.target.value)}>
+                  <option value="all">All sub-sources</option>
+                  <option value="runner">Runner</option>
+                  <option value="model">Model</option>
+                  <option value="executor">Executor</option>
+                  <option value="transcription">Transcription</option>
+                  <option value="pipeline">Pipeline</option>
+                  <option value="voiceprint">Voiceprint</option>
+                  <option value="upload">Upload</option>
+                  <option value="http">HTTP</option>
+                  <option value="usage">Usage</option>
+                  <option value="ollama">Ollama</option>
+                </select>
+                <select className="rv-logs-filter-select" value={logLevelFilter} onChange={(e) => setLogLevelFilter(e.target.value)}>
+                  <option value="all">All levels</option>
+                  <option value="info">Info</option>
+                  <option value="warn">Warnings</option>
+                  <option value="error">Errors</option>
+                </select>
+              </div>
               <span className="rv-logs-filter-count">
-                {logLines.length} line{logLines.length !== 1 ? "s" : ""}
+                {filteredLogLines.length} / {logLines.length} line{logLines.length !== 1 ? "s" : ""}
               </span>
               {logLines.length > 0 && (
                 <button className="dev-panel-btn" onClick={() => setLogLines([])} title="Clear displayed logs">
@@ -2509,12 +2619,58 @@ function LogFilesTab() {
               )}
             </div>
             <div style={{ overflowY: "auto", flex: 1 }}>
-              {logLines.length === 0 && (
+              {/* Job-specific files (transcripts, summaries, etc.) */}
+              {jobSpecificFiles.length > 0 && (
+                <div className="rv-logs-section">
+                  <h4 className="rv-logs-section-title">
+                    <Icon name="folder" size="14" /> Job-Specific Files
+                  </h4>
+                  <div className="rv-logs-file-browser">
+                    {jobSpecificFiles.map((jf) => (
+                      <button
+                        key={jf.file}
+                        className={`rv-logs-file-btn ${activeFile === jf.file ? "rv-logs-file-btn--active" : ""}`}
+                        onClick={() => selectFile(jf.file)}
+                        title={`View ${jf.file} (${(jf.content.length / 1024).toFixed(1)} KB)`}>
+                        <span className="rv-logs-file-btn-name">{jf.file}</span>
+                        <span className="rv-logs-file-btn-meta">{(jf.content.length / 1024).toFixed(1)} KB</span>
+                      </button>
+                    ))}
+                  </div>
+                  {activeFile &&
+                    (() => {
+                      const jf = jobSpecificFiles.find((f) => f.file === activeFile);
+                      if (!jf) return null;
+                      const isExpanded = expandedFiles.has(jf.file);
+                      const isLarge = jf.content.length > MAX_COLLAPSED_CHARS;
+                      const displayContent =
+                        isExpanded || !isLarge
+                          ? jf.content
+                          : jf.content.slice(0, MAX_COLLAPSED_CHARS) + "\n\n... (truncated — click to expand)";
+                      return (
+                        <div className="rv-logs-file-item">
+                          <div className="rv-logs-file-header">
+                            <span className="rv-logs-file-name">{jf.file}</span>
+                            <span className="rv-logs-file-size">{(jf.content.length / 1024).toFixed(1)} KB</span>
+                            {isLarge && (
+                              <button className="rv-logs-expand-btn" onClick={() => toggleFile(jf.file)}>
+                                <Icon name={isExpanded ? "unfold_less" : "unfold_more"} size="14" />
+                                {isExpanded ? " Collapse" : " Expand full file"}
+                              </button>
+                            )}
+                          </div>
+                          <pre className="rv-logs-pre">{displayContent}</pre>
+                        </div>
+                      );
+                    })()}
+                </div>
+              )}
+              {filteredLogLines.length === 0 && (
                 <div className="dev-panel-empty">
                   <Icon name="info" size="14" color="muted" /> No log entries found for this job.
                 </div>
               )}
-              {logLines.map((line, i) => renderLogLine(line, i))}
+              {filteredLogLines.map((line, i) => renderLogLine(line, i))}
             </div>
           </>
         )}

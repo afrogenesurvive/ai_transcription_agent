@@ -6,6 +6,9 @@
  * must have a non-empty name — the Confirm button stays disabled until all
  * are filled in.
  * Once confirmed, voiceprints are saved and the pipeline resumes.
+ *
+ * When the user enters a name that already has a voiceprint enrolled, a
+ * conflict dialog appears asking whether to overwrite or keep the existing.
  */
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
@@ -21,6 +24,14 @@ interface SpeakerInfo {
   suggested_name: string;
 }
 
+interface ConflictInfo {
+  name: string;
+  email: string;
+  existing_name: string;
+  existing_email: string;
+  sample_job_id?: string;
+}
+
 interface Props {
   jobId: string;
   speakers: SpeakerInfo[];
@@ -32,6 +43,9 @@ interface Props {
 export default function SpeakerLabelModal({ jobId, speakers, onConfirm, onCancel, submitting }: Props) {
   const [labels, setLabels] = useState<Record<string, string>>({});
   const [playing, setPlaying] = useState<string | null>(null);
+  const [conflicts, setConflicts] = useState<ConflictInfo[]>([]);
+  const [overwriteSet, setOverwriteSet] = useState<Set<string>>(new Set());
+  const [checkingConflicts, setCheckingConflicts] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Initialize labels with suggested names from attendees list
@@ -76,12 +90,47 @@ export default function SpeakerLabelModal({ jobId, speakers, onConfirm, onCancel
   // Every speaker must have a non-empty name
   const allLabeled = speakers.every((s) => (labels[s.speaker_id]?.trim() ?? "").length > 0);
 
+  // ── Voiceprint conflict checking ──
   const handleConfirm = async () => {
-    // Build labels for ALL speakers — discard any extras beyond speaker count
+    // Build labels for ALL speakers
     const result = speakers.map((s) => ({
       speaker_id: s.speaker_id,
       name: labels[s.speaker_id]?.trim() || s.speaker_id,
     }));
+
+    // Check for existing voiceprints with these names
+    const namesToCheck = result.map((l) => ({ name: l.name }));
+    setCheckingConflicts(true);
+    try {
+      const response = await (window as any).electronAPI?.checkVoiceprintConflicts(namesToCheck);
+      const foundConflicts = response?.conflicts || [];
+      if (foundConflicts.length > 0) {
+        setConflicts(foundConflicts);
+        setOverwriteSet(new Set());
+        setCheckingConflicts(false);
+        return; // Show conflict dialog, don't submit yet
+      }
+    } catch {
+      // Backend unavailable — proceed without checking
+    }
+    setCheckingConflicts(false);
+    await onConfirm(result);
+  };
+
+  /** Toggle whether a conflicting voiceprint should be overwritten. */
+  const toggleOverwrite = (name: string) => {
+    setOverwriteSet((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
+  /** Not overwriting any entries → keep existing voiceprints, don't save new ones for those names. */
+  const handleConflictConfirm = async () => {
+    const result = speakers.map((s) => ({ speaker_id: s.speaker_id, name: labels[s.speaker_id]?.trim() || s.speaker_id }));
+    setConflicts([]);
     await onConfirm(result);
   };
 
@@ -141,6 +190,51 @@ export default function SpeakerLabelModal({ jobId, speakers, onConfirm, onCancel
             );
           })}
         </div>
+
+        {/* ── Voiceprint conflict dialog ── */}
+        {conflicts.length > 0 && (
+          <div className="vp-conflict-overlay">
+            <div className="vp-conflict-dialog">
+              <h3>
+                <Icon name="warning" size="16" color="orange" /> Voiceprint Conflicts
+              </h3>
+              <p className="vp-conflict-desc">
+                Some names you entered already have voiceprints from previous jobs. Choose whether to overwrite each one with this recording or keep
+                the existing voiceprint.
+              </p>
+              {conflicts.map((c) => (
+                <div key={c.name} className="vp-conflict-row">
+                  <div className="vp-conflict-row-info">
+                    <strong>{c.name}</strong>
+                    {c.existing_name !== c.name && (
+                      <span className="vp-conflict-existing">
+                        {" "}
+                        ← currently enrolled as <strong>{c.existing_name}</strong>
+                      </span>
+                    )}
+                  </div>
+                  {c.sample_job_id && (
+                    <span className="vp-conflict-hint">
+                      <Icon name="info" size="12" /> Existing sample from job {c.sample_job_id.slice(0, 8)}
+                    </span>
+                  )}
+                  <label className="vp-conflict-checkbox">
+                    <input type="checkbox" checked={overwriteSet.has(c.name)} onChange={() => toggleOverwrite(c.name)} />
+                    Overwrite with this recording
+                  </label>
+                </div>
+              ))}
+              <div className="modal-actions" style={{ marginTop: 12 }}>
+                <button className="btn-secondary" onClick={() => setConflicts([])}>
+                  Cancel
+                </button>
+                <button className="btn-primary" onClick={handleConflictConfirm}>
+                  Confirm Labels
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="modal-actions">
           <button

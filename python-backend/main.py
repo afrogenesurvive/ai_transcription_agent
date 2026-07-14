@@ -11,7 +11,6 @@ import os
 import json
 import time
 import asyncio
-import warnings
 from datetime import datetime
 
 # ── MPS memory limit workaround (Apple Silicon) ──
@@ -37,8 +36,8 @@ from voiceprint import VoiceprintManager
 from transcription import TranscriptionEngine, detect_device
 from models import (
     RefineRequest, SummarizeRequest, LabelRequest, AnalysisRequest, Deliverable,
-    MemorySearchRequest, MemorySearchResult,
-    EphemeralMemoryItem, EphemeralMemoryQuery, EphemeralMemoryActionResult,
+    MemorySearchRequest,
+    EphemeralMemoryItem, EphemeralMemoryQuery,
     RegisterAttendeesRequest, SaveMeetingContextRequest, UploadByPathRequest,
 )
 from agent_bridge import AgentBridge
@@ -527,18 +526,40 @@ async def get_token_usage(job_id: str):
 async def agent_label_speakers(req: LabelRequest):
     names = [f"{l.name} ({l.speaker_id})" for l in req.labels]
     print(f"[api] POST /agent/label_speakers job_id={req.job_id} labels={names}")
-    for label in req.labels:
-        vp_manager.save_voiceprint(label.name, label.email or "", None)
 
+    # Try to extract real embeddings from audio before saving voiceprints
+    audio_path = None
+    transcript_data = None
     p = os.path.join(config.STORAGE_PATH, req.job_id, "transcript.json")
     if os.path.exists(p):
         with open(p) as f:
-            transcript = json.load(f)
+            transcript_data = json.load(f)
+        try:
+            audio_path = uploader.get_audio_path(req.job_id)
+        except Exception:
+            audio_path = None
+
+    for label in req.labels:
+        emb = None
+        if audio_path and transcript_data:
+            speaker_segs = [s for s in transcript_data if s.get("speaker") == label.speaker_id]
+            if speaker_segs:
+                longest = max(speaker_segs, key=lambda s: s["end"] - s["start"])
+                try:
+                    emb = vp_manager.extract_embedding(
+                        audio_path, segment=(longest["start"], longest["end"])
+                    )
+                    print(f"[api]   ✅ Extracted embedding for '{label.name}' ({label.speaker_id})")
+                except Exception as e:
+                    print(f"[api]   ⚠️  Could not extract embedding for '{label.name}': {e}")
+        vp_manager.save_voiceprint(label.name, label.email or "", emb)
+
+    if transcript_data:
         mapping = {l.speaker_id: l.name for l in req.labels}
-        for seg in transcript:
+        for seg in transcript_data:
             if seg["speaker"] in mapping:
                 seg["speaker"] = mapping[seg["speaker"]]
-        uploader.save_transcript(req.job_id, transcript)
+        uploader.save_transcript(req.job_id, transcript_data)
         print(f"[api] Applied {len(names)} speaker label(s) to transcript")
 
     uploader.update_status(req.job_id, {"status": "labeled", "unknown_speakers": []})
@@ -551,6 +572,35 @@ async def agent_list_voiceprints():
     vps = vp_manager.list_voiceprints()
     print(f"[api] GET /agent/voiceprints → {len(vps)} enrolled")
     return {"voiceprints": vps}
+
+
+@app.post("/voiceprints/check-conflicts")
+async def check_voiceprint_conflicts(names: list = Body(...)):
+    """Check if any of the given attendee names/emails already have voiceprints enrolled.
+
+    Body: JSON array of {name, email?} objects
+    Returns: {conflicts: [{name, email, existing_name, existing_email, sample_job_id}]}
+    """
+    conflicts = []
+    for entry in names:
+        name = entry.get("name", "").strip()
+        email = entry.get("email", "").strip()
+        if not name:
+            continue
+        existing = vp_manager.get_voiceprint(name)
+        if not existing and email:
+            existing = vp_manager.get_voiceprint(email)
+        if existing:
+            if existing["name"] != name:
+                conflicts.append({
+                    "name": name,
+                    "email": email,
+                    "existing_name": existing["name"],
+                    "existing_email": existing["email"],
+                    "sample_job_id": existing.get("sample_job_id"),
+                })
+    print(f"[api] POST /voiceprints/check-conflicts → {len(conflicts)} conflict(s)")
+    return {"conflicts": conflicts}
 
 
 @app.delete("/agent/voiceprints/{email}")
@@ -2573,11 +2623,6 @@ def _redact_custom(text: str, rule: str) -> str:
     if "name" in rule_lower or "person" in rule_lower:
         text = re.sub(r'\b[A-Z][a-z]+ [A-Z][a-z]+\b', '[NAME REDACTED]', text)
     return text
-
-
-def _redact(text: str, rule: str) -> str:
-    """Legacy single-rule redaction (kept for backward compatibility)."""
-    return _redact_custom(text, rule)
 
 
 if __name__ == "__main__":

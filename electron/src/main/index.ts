@@ -1009,6 +1009,23 @@ ipcMain.handle("shell:openPath", async (_event, filePath: string) => {
   return { success: true };
 });
 
+// ── Voiceprint conflict checking ──
+
+ipcMain.handle("voiceprints:check-conflicts", async (_event, attendees: Array<{ name: string; email?: string }>) => {
+  try {
+    const res = await fetch("http://127.0.0.1:5010/tools/call", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tool: "voiceprint_check_conflicts", args: { attendees } }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) return await res.json();
+    return { conflicts: [] };
+  } catch {
+    return { conflicts: [] };
+  }
+});
+
 // ── Uninstall / Cleanup IPC ──
 
 ipcMain.handle("app:uninstall", async () => {

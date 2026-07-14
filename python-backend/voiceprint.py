@@ -297,19 +297,24 @@ class VoiceprintManager:
         Uses a single batched query (email IN (...) OR speaker_name IN (...))
         instead of N individual queries.
         """
-        if not attendees:
-            return {}
-
         conn = self._get_conn()
-        placeholders = ",".join("?" for _ in attendees)
-        rows = conn.execute(
-            f"""
-            SELECT DISTINCT speaker_name, email, embedding
-            FROM voiceprints
-            WHERE email IN ({placeholders}) OR speaker_name IN ({placeholders})
-            """,
-            (*attendees, *attendees),
-        ).fetchall()
+
+        if not attendees:
+            # No attendees provided — try loading ALL voiceprints so previously
+            # enrolled speakers can still be matched.
+            rows = conn.execute(
+                "SELECT DISTINCT speaker_name, email, embedding FROM voiceprints"
+            ).fetchall()
+        else:
+            placeholders = ",".join("?" for _ in attendees)
+            rows = conn.execute(
+                f"""
+                SELECT DISTINCT speaker_name, email, embedding
+                FROM voiceprints
+                WHERE email IN ({placeholders}) OR speaker_name IN ({placeholders})
+                """,
+                (*attendees, *attendees),
+            ).fetchall()
 
         # Build result set — deduplicate if email and name match different rows
         seen_names = set()
@@ -386,6 +391,22 @@ class VoiceprintManager:
             "created_at": r[2], "updated_at": r[3],
             "sample_job_id": r[4], "sample_start": r[5], "sample_end": r[6],
         } for r in rows]
+
+    def get_voiceprint(self, name_or_email: str) -> Optional[dict]:
+        """Fetch existing voiceprint by speaker_name or email."""
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT speaker_name, email, sample_job_id, sample_start, sample_end "
+            "FROM voiceprints WHERE speaker_name = ? OR email = ? LIMIT 1",
+            (name_or_email, name_or_email),
+        ).fetchone()
+        if not row:
+            return None
+        return {
+            "name": row[0], "email": row[1],
+            "sample_job_id": row[2],
+            "sample_start": row[3], "sample_end": row[4],
+        }
 
     def delete_voiceprint(self, email: str):
         conn = self._get_conn()

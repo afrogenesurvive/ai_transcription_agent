@@ -21,28 +21,11 @@ class UploadByPathRequest(BaseModel):
     skip_steps: Optional[List[str]] = Field(default=None, description="Tool names to skip in the agent pipeline. Defaults to skipping analysis and delivery.")
 
 
-class MeetingMetadata(BaseModel):
-    title: str
-    date: str = ""
-    attendees: List[str] = Field(default_factory=list)
-    event_type: str = "internal"
-    client: str = ""
-    notes: str = ""
-
-
 class TranscriptionSegment(BaseModel):
     speaker: str
     text: str
     start: float
     end: float
-
-
-class UnknownSpeaker(BaseModel):
-    speaker_id: str
-    segments: List[dict] = Field(default_factory=list)
-    sample_text: str = ""
-    sample_start: float = 0.0
-    sample_end: float = 0.0
 
 
 class SpeakerLabel(BaseModel):
@@ -54,13 +37,6 @@ class SpeakerLabel(BaseModel):
 class LabelRequest(BaseModel):
     job_id: str
     labels: List[SpeakerLabel]
-
-
-class SummaryResult(BaseModel):
-    executive_summary: str = ""
-    key_decisions: List[str] = Field(default_factory=list)
-    discussion_points: List[str] = Field(default_factory=list)
-    action_items: List[dict] = Field(default_factory=list)
 
 
 class RefineRequest(BaseModel):

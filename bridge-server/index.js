@@ -379,6 +379,9 @@ async function dispatch(tool, args) {
     case "storage_clear_ephemeral":
       return await callPython("DELETE", "/storage/ephemeral");
 
+    case "voiceprint_check_conflicts":
+      return await callPython("POST", "/voiceprints/check-conflicts", { names: args.attendees || [] });
+
     default:
       throw new Error(`Unknown tool: ${tool}`);
   }

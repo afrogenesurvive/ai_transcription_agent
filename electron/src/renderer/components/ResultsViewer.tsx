@@ -12,7 +12,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import Icon from "./Icon";
-import type { TranscriptionSegment, AnalysisData, LogEntry } from "../types";
+import type { TranscriptionSegment, AnalysisData } from "../types";
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
@@ -514,7 +514,7 @@ const RV_SOURCE_COLORS: Record<string, string> = {
   Strips all structured tags so only the clean message text remains
   (the UI renders timestamp, source, and level separately).
 */
-function parseLogLine(raw: string): { timestamp: number; source: string; level: string; message: string } | null {
+function parseLogLine(raw: string): { timestamp: number; source: string; subSource?: string; level: string; message: string } | null {
   // ── 1. Strip leading [ISO timestamp] ──
   const tsMatch = raw.match(/^\[(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}\.\d{3}Z)\]\s*/);
   const timestamp = tsMatch ? new Date(tsMatch[1]).getTime() : Date.now();
@@ -528,15 +528,16 @@ function parseLogLine(raw: string): { timestamp: number; source: string; level: 
   // ── 3. Strip [level] tag (appears right after source/subsource) ──
   const levelMatch = remainder.match(/^\[(info|error|warn(?:ing)?|debug)\]\s*/i);
   let level = "info";
+  let subSource: string | undefined;
   if (levelMatch) {
     level = levelMatch[1].toLowerCase();
     remainder = remainder.slice(levelMatch[0].length);
   } else {
-    // ── 4. No level tag — try optional [subsource] tag ──
-    // After [source] there may be a [subsource] (e.g. [transcription], [pipeline])
+    // ── 4. No level tag — strip optional [subsource] tag and capture it ──
+    // After [source] there may be a [subsource] (e.g. [transcription], [pipeline], [runner])
     const subMatch = remainder.match(/^\[(\w+)\]\s*/);
     if (subMatch) {
-      source = subMatch[1].toLowerCase();
+      subSource = subMatch[1].toLowerCase();
       remainder = remainder.slice(subMatch[0].length);
       // Now try to strip the [level] tag after subsource
       const lvlMatch = remainder.match(/^\[(info|error|warn(?:ing)?|debug)\]\s*/i);
@@ -550,7 +551,7 @@ function parseLogLine(raw: string): { timestamp: number; source: string; level: 
   // Also match the [USAGE] pattern inside the remaining text
   if (/💰\s*\[usage\]/i.test(remainder)) source = "usage";
 
-  return { timestamp, source, level, message: remainder.trim() };
+  return { timestamp, source, subSource, level, message: remainder.trim() };
 }
 
 function LogsTab({ jobId }: { jobId: string }) {
@@ -560,6 +561,7 @@ function LogsTab({ jobId }: { jobId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sourceFilter, setSourceFilter] = useState<string>("all");
+  const [subSourceFilter, setSubSourceFilter] = useState<string>("all");
   const [levelFilter, setLevelFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [autoScroll, setAutoScroll] = useState(true);
@@ -687,6 +689,7 @@ function LogsTab({ jobId }: { jobId: string }) {
   const searchMatchTotal = searchQuery.trim() ? nonNullEntries.filter((e) => e.message.toLowerCase().includes(searchQuery.toLowerCase())).length : 0;
   const filteredEntries = nonNullEntries.filter((entry) => {
     if (sourceFilter !== "all" && entry.source !== sourceFilter) return false;
+    if (subSourceFilter !== "all" && (!entry.subSource || entry.subSource !== subSourceFilter)) return false;
     if (levelFilter !== "all" && entry.level !== levelFilter) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -831,7 +834,17 @@ function LogsTab({ jobId }: { jobId: string }) {
               <option value="bridge">Bridge</option>
               <option value="agent">Agent</option>
               <option value="main">Main</option>
+            </select>
+            <select className="rv-logs-filter-select" value={subSourceFilter} onChange={(e) => setSubSourceFilter(e.target.value)}>
+              <option value="all">All sub-sources</option>
+              <option value="runner">Runner</option>
+              <option value="model">Model</option>
+              <option value="executor">Executor</option>
               <option value="transcription">Transcription</option>
+              <option value="pipeline">Pipeline</option>
+              <option value="voiceprint">Voiceprint</option>
+              <option value="upload">Upload</option>
+              <option value="http">HTTP</option>
               <option value="usage">Usage</option>
               <option value="ollama">Ollama</option>
             </select>
@@ -869,6 +882,11 @@ function LogsTab({ jobId }: { jobId: string }) {
                   <span className="rv-log-line-source" style={{ color: RV_SOURCE_COLORS[entry.source] || "#8b949e" }}>
                     [{entry.source}]
                   </span>
+                  {entry.subSource && (
+                    <span className="rv-log-line-subsource" style={{ color: RV_SOURCE_COLORS[entry.subSource] || "#8b949e" }}>
+                      [{entry.subSource}]
+                    </span>
+                  )}
                   <span className={`rv-log-line-level rv-log-line-level--${entry.level}`}>
                     {entry.level === "error" ? "!" : entry.level === "warn" ? "▲" : ""}
                   </span>

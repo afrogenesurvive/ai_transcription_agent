@@ -302,6 +302,7 @@ export default function PipelineProgress({
                 className="pp-confirm-stop-btn"
                 onClick={() => {
                   setShowConfirmCancel(false);
+                  onCancel?.();
                 }}
                 title="Confirm — cancel this job permanently"
                 data-tooltip="Permanently cancel the transcription job">

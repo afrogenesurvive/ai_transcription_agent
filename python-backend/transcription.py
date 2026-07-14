@@ -31,7 +31,6 @@ This module does two independent ML tasks and then merges them:
 import os
 import time
 import platform as sys_platform
-import warnings
 from typing import Optional
 from config import config
 from utils import is_network_error

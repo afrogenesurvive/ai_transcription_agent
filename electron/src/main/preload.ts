@@ -58,6 +58,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
     return () => ipcRenderer.removeAllListeners("log");
   },
 
+  // ── Voiceprint conflict checking ──
+  checkVoiceprintConflicts: (attendees: Array<{ name: string; email?: string }>): Promise<{ conflicts: Array<any> }> =>
+    ipcRenderer.invoke("voiceprints:check-conflicts", attendees),
+
   // ── Configuration ──
   getConfig: (): Promise<Record<string, string>> => ipcRenderer.invoke("config:get"),
   saveConfig: (values: Record<string, string>): Promise<Record<string, string>> => ipcRenderer.invoke("config:save", values),

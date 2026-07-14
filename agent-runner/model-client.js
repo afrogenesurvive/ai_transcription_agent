@@ -160,7 +160,11 @@ export async function callModel(context, toolDefs, systemMessageOverride) {
   const systemMessage =
     systemMessageOverride || SYSTEM_PROMPT_TEMPLATE.replace("{{TOOL_LIST}}", toolDefs.map((t) => `  - ${t.name}: ${t.description}`).join("\n"));
 
-  console.log(`   🤖 [MODEL] Calling ${PROVIDER}/${MODEL}... w/`, context);
+  if (process.env.LOG_LLM_DATA === "true") {
+    console.log(`   🤖 [MODEL] Calling ${PROVIDER}/${MODEL}... w/`, context);
+  } else {
+    console.log(`   🤖 [MODEL] Calling ${PROVIDER}/${MODEL} (context: ${context.length} chars, ${tools?.length || 0} tools)`);
+  }
 
   try {
     // Ollama-specific parameters (num_ctx is forwarded by Ollama's /v1 endpoint)
@@ -183,7 +187,10 @@ export async function callModel(context, toolDefs, systemMessageOverride) {
     const usage = response.usage || null;
 
     console.log(`   📊 [MODEL] Raw API — usage: ${JSON.stringify(usage)}`);
-    console.log(`   📊 [MODEL] Raw API — messages: ${JSON.stringify(response.choices?.[0]?.message)}`);
+    // Only dump full message content when LLM data logging is explicitly enabled
+    if (process.env.LOG_LLM_DATA === "true") {
+      console.log(`   📊 [MODEL] Raw API — messages: ${JSON.stringify(response.choices?.[0]?.message)}`);
+    }
 
     const toolCall = choice?.message?.tool_calls?.[0];
     if (!toolCall) {

@@ -93,6 +93,7 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
   const [emailError, setEmailError] = useState<string | null>(null);
   const [skipSteps, setSkipSteps] = useState<string[]>(initialSkipSteps ?? DEFAULT_SKIP_STEPS);
   const [savedAttendees, setSavedAttendees] = useState<AttendeeEntry[]>(loadSavedAttendees);
+  const [registeredAttendees, setRegisteredAttendees] = useState<AttendeeEntry[]>([]);
   const [showNameSuggestions, setShowNameSuggestions] = useState(false);
   const [showEmailSuggestions, setShowEmailSuggestions] = useState(false);
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
@@ -106,6 +107,34 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
     if (initialSkipSteps) setSkipSteps(initialSkipSteps);
   }, [initialSkipSteps]);
 
+  // ── Fetch registered attendees from bridge on mount ──
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("http://127.0.0.1:5010/tools/call", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tool: "transcribe_list_attendees", args: { limit: 100 } }),
+          signal: AbortSignal.timeout(3000),
+        });
+        if (!cancelled && res.ok) {
+          const data = await res.json();
+          const attendees: AttendeeEntry[] = ((data as any).attendees || (data as any).results || []).map((a: any) => ({
+            name: a.name || "",
+            email: a.email || "",
+          }));
+          setRegisteredAttendees(attendees.filter((a: AttendeeEntry) => a.name));
+        }
+      } catch {
+        // Bridge unavailable — use only saved attendees
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   /** Toggle a tool name in/out of the skip list. */
   const toggleSkip = useCallback((toolName: string) => {
     setSkipSteps((prev) => (prev.includes(toolName) ? prev.filter((t) => t !== toolName) : [...prev, toolName]));
@@ -116,10 +145,18 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
   const deliveryFullySkipped = deliveryTools.every((t) => skipSteps.includes(t));
   const anyDeliverySkipped = deliveryTools.some((t) => skipSteps.includes(t));
 
-  // Filter saved attendees that aren't already in the current list
+  // Merge saved attendees with registered attendees from bridge, deduped by name
+  const allKnownAttendees = useMemo(() => {
+    const map = new Map<string, AttendeeEntry>();
+    for (const a of savedAttendees) if (a.name) map.set(a.name.toLowerCase(), a);
+    for (const a of registeredAttendees) if (a.name && !map.has(a.name.toLowerCase())) map.set(a.name.toLowerCase(), a);
+    return Array.from(map.values());
+  }, [savedAttendees, registeredAttendees]);
+
+  // Filter known attendees that aren't already in the current list
   const unusedSaved = useMemo(
-    () => savedAttendees.filter((a) => !attendeeList.some((cur) => cur.name.toLowerCase() === a.name.toLowerCase())),
-    [savedAttendees, attendeeList],
+    () => allKnownAttendees.filter((a) => !attendeeList.some((cur) => cur.name.toLowerCase() === a.name.toLowerCase())),
+    [allKnownAttendees, attendeeList],
   );
 
   // Suggestions matching the current text input
@@ -173,19 +210,19 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
     [handleFile],
   );
 
-  const addAttendee = () => {
-    const name = attendeeName.trim();
-    if (!name) return;
+  const addAttendee = (name?: string, email?: string) => {
+    const resolvedName = (name || attendeeName).trim();
+    if (!resolvedName) return;
     // Prevent duplicate names
-    if (attendeeList.some((a) => a.name.toLowerCase() === name.toLowerCase())) return;
+    if (attendeeList.some((a) => a.name.toLowerCase() === resolvedName.toLowerCase())) return;
     // Validate email if provided
-    const email = attendeeEmail.trim();
-    if (email && !validateEmail(email)) {
-      setEmailError(`Invalid email address: "${email}"`);
+    const resolvedEmail = email !== undefined ? email : attendeeEmail.trim();
+    if (resolvedEmail && !validateEmail(resolvedEmail)) {
+      setEmailError(`Invalid email address: "${resolvedEmail}"`);
       return;
     }
     setEmailError(null);
-    const entry: AttendeeEntry = { name, email };
+    const entry: AttendeeEntry = { name: resolvedName, email: resolvedEmail };
     setAttendeeList([...attendeeList, entry]);
     setAttendeeName("");
     setAttendeeEmail("");
@@ -480,6 +517,31 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
                 </li>
               ))}
             </ul>
+          )}
+
+          {/* Registered attendee quick-add chips */}
+          {registeredAttendees.length > 0 && (
+            <div className="registered-attendees">
+              <span className="registered-attendees-label">
+                <Icon name="badge" size="12" color="accent" /> Registered attendees:
+              </span>
+              <div className="registered-attendees-chips">
+                {registeredAttendees
+                  .filter((ra) => !attendeeList.some((a) => a.name.toLowerCase() === ra.name.toLowerCase()))
+                  .map((ra) => (
+                    <button
+                      key={ra.name}
+                      className="attendee-chip"
+                      onClick={() => {
+                        addAttendee(ra.name, ra.email);
+                      }}
+                      title={`Add ${ra.name}${ra.email ? ` (${ra.email})` : ""}`}
+                      data-tooltip={`Click to add ${ra.name} to the attendee list`}>
+                      <Icon name="add" size="10" /> {ra.name}
+                    </button>
+                  ))}
+              </div>
+            </div>
           )}
         </div>
       </div>

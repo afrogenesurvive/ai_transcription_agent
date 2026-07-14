@@ -21,9 +21,9 @@ const IS_WIN = process.platform === "win32";
 
 /** Extract a [tag] prefix from the start of a message, e.g. "[transcription] ..." → "transcription"
  *
- *  Falls back to detecting Whisper's verbose timestamp format:
- *    [01:21.560 --> 01:25.380] text
- *  and treats those lines as sub-source "transcription".
+ *  Falls back to detecting:
+ *    - Whisper's verbose timestamp format: [01:21.560 --> 01:25.380] text → "transcription"
+ *    - Uvicorn HTTP access logs: INFO:     127.0.0.1:58029 - "GET /health" → "http"
  */
 function extractSubSource(msg: string): string | undefined {
   // Primary: match a word-only [tag] prefix like [transcription], [pipeline], [agent_bridge]
@@ -36,6 +36,17 @@ function extractSubSource(msg: string): string | undefined {
   // have a [transcription] prefix, but should be tagged as such.
   const tsMatch = msg.match(/^\[\d{1,2}:\d{2}\.\d{3}\s*-->/);
   if (tsMatch) return "transcription";
+
+  // Fallback: detect uvicorn HTTP access logs on stderr
+  //   e.g. INFO:     127.0.0.1:58029 - "GET /health HTTP/1.1" 200 OK
+  //   These come from uvicorn's default access logger and don't have a [tag] prefix.
+  const uvicornMatch = msg.match(/^(INFO|WARNING|ERROR):\s+\d+\.\d+\.\d+\.\d+:\d+\s+-\s+"(GET|POST|PUT|DELETE|PATCH)\s+(\S+)/);
+  if (uvicornMatch) return "http";
+
+  // Fallback: scan for [tag] anywhere in the message (not just position 0)
+  // Catches cases like "✅ [pipeline] Pipeline complete..." or "❌ [pipeline] ERROR..."
+  const inlineTagMatch = msg.match(/\[([a-zA-Z0-9 _-]+)\]/);
+  if (inlineTagMatch) return inlineTagMatch[1].toLowerCase();
 
   return undefined;
 }
@@ -206,7 +217,8 @@ export async function startPythonBackend(port = 5001): Promise<void> {
       // like [01:21.560 --> ...] get a synthetic "transcription" subSource
       // but the message itself has no tag to strip.
       const cleanMsg = subSource && /^\[\w+\]/.test(msg) ? msg.replace(/^\[\w+\]\s*/, "") : msg;
-      console.log(`[python] ${cleanMsg}`);
+      const subTag = subSource ? `[${subSource}] ` : "";
+      console.log(`[python] ${subTag}${cleanMsg}`);
       addLog("python", "info", cleanMsg, subSource);
     }
   });
@@ -217,7 +229,8 @@ export async function startPythonBackend(port = 5001): Promise<void> {
     if (remaining) {
       const subSource = extractSubSource(remaining);
       const cleanMsg = subSource && /^\[\w+\]/.test(remaining) ? remaining.replace(/^\[\w+\]\s*/, "") : remaining;
-      console.log(`[python] ${cleanMsg}`);
+      const subTag = subSource ? `[${subSource}] ` : "";
+      console.log(`[python] ${subTag}${cleanMsg}`);
       addLog("python", "info", cleanMsg, subSource);
     }
     stdoutBuffer = "";
@@ -236,7 +249,8 @@ export async function startPythonBackend(port = 5001): Promise<void> {
       if (!msg) continue;
       const subSource = extractSubSource(msg);
       const cleanMsg = subSource ? msg.replace(/^\[\w+\]\s*/, "") : msg;
-      console.error(`[python:err] ${msg}`);
+      const subTag = subSource ? `[${subSource}] ` : "";
+      console.error(`[python:err] ${subTag}${cleanMsg}`);
       addLog("python", "error", cleanMsg, subSource);
     }
   });
@@ -292,14 +306,49 @@ export async function startBridgeServer(bridgePort = 5010, pythonPort = 5001): P
     stdio: ["ignore", "pipe", "pipe"],
   });
 
+  // ── Line-buffered stdout handler (same approach as python) ──
+  let bridgeStdoutBuffer = "";
+
   bridgeProcess.stdout?.on("data", (d: Buffer) => {
-    const msg = d.toString().trim();
-    console.log(`[bridge] ${msg}`);
-    addLog("bridge", "info", msg);
+    bridgeStdoutBuffer += d.toString();
+    const lines = bridgeStdoutBuffer.split("\n");
+    bridgeStdoutBuffer = lines.pop() || "";
+
+    for (const line of lines) {
+      const msg = line.trim();
+      if (!msg) continue;
+      // Extract tool name from lines like "→ transcribe_models_status (job=?)" → "models_status"
+      const toolMatch = msg.match(/→ (?:transcribe_)?(\w+)/);
+      // Fallback: extract route from HTTP request lines like "GET /health" → "health"
+      const httpMatch = !toolMatch ? msg.match(/^(GET|POST|PUT|DELETE|PATCH)\s+\/(\S+)/) : null;
+      const subSource = toolMatch ? toolMatch[1] : httpMatch ? httpMatch[2].replace(/\//g, "_") : undefined;
+      // Strip any [bridge] prefix the bridge server itself writes (avoid double-label)
+      const cleanMsg = msg.replace(/^\[bridge\]\s*/, "");
+      const subTag = subSource ? `[${subSource}] ` : "";
+      console.log(`[bridge] ${subTag}${cleanMsg}`);
+      addLog("bridge", "info", cleanMsg, subSource);
+    }
+  });
+
+  bridgeProcess.stdout?.on("end", () => {
+    const remaining = bridgeStdoutBuffer.trim();
+    if (remaining) {
+      const msg = remaining;
+      const toolMatch = msg.match(/→ (?:transcribe_)?(\w+)/);
+      // Fallback: extract route from HTTP request lines like "GET /health" → "health"
+      const httpMatch = !toolMatch ? msg.match(/^(GET|POST|PUT|DELETE|PATCH)\s+\/(\S+)/) : null;
+      const subSource = toolMatch ? toolMatch[1] : httpMatch ? httpMatch[2].replace(/\//g, "_") : undefined;
+      const cleanMsg = msg.replace(/^\[bridge\]\s*/, "");
+      const subTag = subSource ? `[${subSource}] ` : "";
+      console.log(`[bridge] ${subTag}${cleanMsg}`);
+      addLog("bridge", "info", cleanMsg, subSource);
+    }
+    bridgeStdoutBuffer = "";
   });
 
   bridgeProcess.stderr?.on("data", (d: Buffer) => {
     const msg = d.toString().trim();
+    if (!msg) return;
     console.error(`[bridge:err] ${msg}`);
     addLog("bridge", "error", msg);
   });
@@ -926,8 +975,13 @@ export async function startAgentRunner(): Promise<void> {
         continue; // don't log the marker itself
       }
 
-      console.log(`[agent] ${msg}`);
-      addLog("agent", "info", msg);
+      // Extract sub-source from inline [TAG] patterns like "[RUNNER]", "[MODEL]", "[EXECUTOR]", "[Step 2 Complete]"
+      // These appear after emoji/whitespace, e.g. "   📊 [MODEL] Raw API — ..."
+      const tagMatch = msg.match(/\[([a-zA-Z0-9 _-]+)\]/);
+      const subSource = tagMatch ? tagMatch[1].toLowerCase() : undefined;
+      const subTag = subSource ? `[${subSource}] ` : "";
+      console.log(`[agent] ${subTag}${msg}`);
+      addLog("agent", "info", msg, subSource);
     }
   });
 
@@ -935,8 +989,11 @@ export async function startAgentRunner(): Promise<void> {
     // Flush any remaining data on stream end
     const remaining = agentStdoutBuf.trim();
     if (remaining) {
-      console.log(`[agent] ${remaining}`);
-      addLog("agent", "info", remaining);
+      const tagMatch = remaining.match(/\[([a-zA-Z0-9 _-]+)\]/);
+      const subSource = tagMatch ? tagMatch[1].toLowerCase() : undefined;
+      const subTag = subSource ? `[${subSource}] ` : "";
+      console.log(`[agent] ${subTag}${remaining}`);
+      addLog("agent", "info", remaining, subSource);
     }
     agentStdoutBuf = "";
   });
