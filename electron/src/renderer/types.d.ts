@@ -35,6 +35,7 @@ export interface JobStatus {
   metadata?: {
     title?: string;
     attendees?: string[];
+    attendeeEmails?: string[];
     event_type?: string;
   };
 }

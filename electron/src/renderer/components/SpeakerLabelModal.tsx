@@ -35,13 +35,15 @@ interface ConflictInfo {
 interface Props {
   jobId: string;
   speakers: SpeakerInfo[];
+  suggestedEmails?: string[];
   onConfirm: (labels: Array<{ speaker_id: string; name: string; email?: string }>) => Promise<void>;
   onCancel: () => void;
   submitting: boolean;
 }
 
-export default function SpeakerLabelModal({ jobId, speakers, onConfirm, onCancel, submitting }: Props) {
+export default function SpeakerLabelModal({ jobId, speakers, suggestedEmails = [], onConfirm, onCancel, submitting }: Props) {
   const [labels, setLabels] = useState<Record<string, string>>({});
+  const [emails, setEmails] = useState<Record<string, string>>({});
   const [playing, setPlaying] = useState<string | null>(null);
   const [conflicts, setConflicts] = useState<ConflictInfo[]>([]);
   const [overwriteSet, setOverwriteSet] = useState<Set<string>>(new Set());
@@ -50,14 +52,21 @@ export default function SpeakerLabelModal({ jobId, speakers, onConfirm, onCancel
 
   // Initialize labels with suggested names from attendees list
   useEffect(() => {
-    const initial: Record<string, string> = {};
-    for (const spk of speakers) {
+    const initialNames: Record<string, string> = {};
+    const initialEmails: Record<string, string> = {};
+    for (let i = 0; i < speakers.length; i++) {
+      const spk = speakers[i];
       if (spk.suggested_name) {
-        initial[spk.speaker_id] = spk.suggested_name;
+        initialNames[spk.speaker_id] = spk.suggested_name;
+      }
+      // Positional alignment: speaker[i] gets suggestedEmails[i]
+      if (i < suggestedEmails.length && suggestedEmails[i]) {
+        initialEmails[spk.speaker_id] = suggestedEmails[i];
       }
     }
-    setLabels(initial);
-  }, [speakers]);
+    setLabels(initialNames);
+    setEmails(initialEmails);
+  }, [speakers, suggestedEmails]);
 
   // Stop playback when switching speakers
   const playClip = useCallback(
@@ -92,10 +101,11 @@ export default function SpeakerLabelModal({ jobId, speakers, onConfirm, onCancel
 
   // ── Voiceprint conflict checking ──
   const handleConfirm = async () => {
-    // Build labels for ALL speakers
+    // Build labels for ALL speakers with email
     const result = speakers.map((s) => ({
       speaker_id: s.speaker_id,
       name: labels[s.speaker_id]?.trim() || s.speaker_id,
+      email: (emails[s.speaker_id]?.trim() || ""),
     }));
 
     // Check for existing voiceprints with these names
@@ -129,7 +139,11 @@ export default function SpeakerLabelModal({ jobId, speakers, onConfirm, onCancel
 
   /** Not overwriting any entries → keep existing voiceprints, don't save new ones for those names. */
   const handleConflictConfirm = async () => {
-    const result = speakers.map((s) => ({ speaker_id: s.speaker_id, name: labels[s.speaker_id]?.trim() || s.speaker_id }));
+    const result = speakers.map((s) => ({
+      speaker_id: s.speaker_id,
+      name: labels[s.speaker_id]?.trim() || s.speaker_id,
+      email: (emails[s.speaker_id]?.trim() || ""),
+    }));
     setConflicts([]);
     await onConfirm(result);
   };
@@ -139,6 +153,7 @@ export default function SpeakerLabelModal({ jobId, speakers, onConfirm, onCancel
     const defaultLabels = speakers.map((s) => ({
       speaker_id: s.speaker_id,
       name: labels[s.speaker_id]?.trim() || s.speaker_id,
+      email: (emails[s.speaker_id]?.trim() || ""),
     }));
     onConfirm(defaultLabels);
   };
@@ -185,6 +200,17 @@ export default function SpeakerLabelModal({ jobId, speakers, onConfirm, onCancel
                     data-tooltip="Type the speaker's name — this maps the detected voice to a person"
                   />
                   {hasName && <span className="speaker-label-check">✓</span>}
+                </div>
+                <div className="speaker-email-row">
+                  <input
+                    type="email"
+                    className="speaker-email-input"
+                    placeholder="Email (optional — enables voiceprint matching)"
+                    value={emails[spk.speaker_id] ?? ""}
+                    onChange={(e) => setEmails((prev) => ({ ...prev, [spk.speaker_id]: e.target.value }))}
+                    title="Enter an email for this speaker"
+                    data-tooltip="Optional email — used as the unique key for voiceprint storage and matching across meetings"
+                  />
                 </div>
               </div>
             );

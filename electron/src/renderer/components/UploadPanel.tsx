@@ -26,7 +26,7 @@ const SKIPPABLE_STEPS: Record<string, { label: string; hint: string }> = {
 };
 
 interface Props {
-  onUpload: (file: File, title: string, attendees: string[], emailRecipients: string[], skipSteps: string[]) => void;
+  onUpload: (file: File, title: string, attendees: string[], emailRecipients: string[], skipSteps: string[], attendeeEmails?: string[]) => void;
   uploading: boolean;
   disabled?: boolean;
   /** Initial set of tool names to skip, derived from disabled pipeline steps in agent config. */
@@ -90,7 +90,7 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
   const [attendeeList, setAttendeeList] = useState<AttendeeEntry[]>([]);
   const [attendeeName, setAttendeeName] = useState("");
   const [attendeeEmail, setAttendeeEmail] = useState("");
-  const [emailError, setEmailError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
   const [skipSteps, setSkipSteps] = useState<string[]>(initialSkipSteps ?? DEFAULT_SKIP_STEPS);
   const [savedAttendees, setSavedAttendees] = useState<AttendeeEntry[]>(loadSavedAttendees);
   const [registeredAttendees, setRegisteredAttendees] = useState<AttendeeEntry[]>([]);
@@ -102,7 +102,8 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
   const fileInputRef = useRef<HTMLInputElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const emailInputRef = useRef<HTMLInputElement>(null);
-  const suggestRef = useRef<HTMLDivElement>(null);
+  const nameSuggestRef = useRef<HTMLDivElement>(null);
+  const emailSuggestRef = useRef<HTMLDivElement>(null);
 
   // Sync skipSteps when initialSkipSteps changes (e.g. agent config loaded after mount)
   useEffect(() => {
@@ -148,10 +149,7 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
   const anyDeliverySkipped = deliveryTools.some((t) => skipSteps.includes(t));
 
   // Set of registered attendee names (lowercase) for UI highlighting
-  const registeredNames = useMemo(
-    () => new Set(registeredAttendees.map((ra) => ra.name.toLowerCase())),
-    [registeredAttendees],
-  );
+  const registeredNames = useMemo(() => new Set(registeredAttendees.map((ra) => ra.name.toLowerCase())), [registeredAttendees]);
 
   // Merge saved attendees with registered attendees from bridge, deduped by name
   const allKnownAttendees = useMemo(() => {
@@ -188,7 +186,12 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
   // Close suggestions when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (suggestRef.current && !suggestRef.current.contains(e.target as Node)) {
+      if (
+        nameSuggestRef.current &&
+        !nameSuggestRef.current.contains(e.target as Node) &&
+        emailSuggestRef.current &&
+        !emailSuggestRef.current.contains(e.target as Node)
+      ) {
         setShowNameSuggestions(false);
         setShowEmailSuggestions(false);
       }
@@ -218,40 +221,41 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
     [handleFile],
   );
 
-  const addAttendee = (name?: string, email?: string) => {
-    const isManualEntry = name === undefined;
-    const resolvedName = isManualEntry ? attendeeName.trim() : name.trim();
-    if (!resolvedName) return;
-    // Prevent duplicate names
-    if (attendeeList.some((a) => a.name.toLowerCase() === resolvedName.toLowerCase())) return;
-    // Only for manual entry: if this name matches a registered attendee, reject it
-    if (isManualEntry && registeredAttendees.some((ra) => ra.name.toLowerCase() === resolvedName.toLowerCase())) {
-      setEmailError(`"${resolvedName}" is a registered attendee — use the + Add button below to add them`);
+  const addAttendee = useCallback(
+    (name?: string, email?: string) => {
+      const isManualEntry = name === undefined;
+      const resolvedName = isManualEntry ? attendeeName.trim() : name.trim();
+      if (!resolvedName) return;
+      // Prevent duplicate names
+      if (attendeeList.some((a) => a.name.toLowerCase() === resolvedName.toLowerCase())) {
+        setFormError(`"${resolvedName}" is already in the attendee list.`);
+        return;
+      }
+      // Validate email if provided
+      const resolvedEmail = email !== undefined ? email : attendeeEmail.trim();
+      if (resolvedEmail && !validateEmail(resolvedEmail)) {
+        setFormError(`Invalid email address: "${resolvedEmail}"`);
+        return;
+      }
+      setFormError(null);
+      const entry: AttendeeEntry = { name: resolvedName, email: resolvedEmail };
+      setAttendeeList((prev) => [...prev, entry]);
       setAttendeeName("");
       setAttendeeEmail("");
       setShowNameSuggestions(false);
       setShowEmailSuggestions(false);
-      return;
-    }
-    // Validate email if provided
-    const resolvedEmail = email !== undefined ? email : attendeeEmail.trim();
-    if (resolvedEmail && !validateEmail(resolvedEmail)) {
-      setEmailError(`Invalid email address: "${resolvedEmail}"`);
-      return;
-    }
-    setEmailError(null);
-    const entry: AttendeeEntry = { name: resolvedName, email: resolvedEmail };
-    setAttendeeList([...attendeeList, entry]);
-    setAttendeeName("");
-    setAttendeeEmail("");
-    setShowNameSuggestions(false);
-    setShowEmailSuggestions(false);
 
-    // Persist this entry for future autocomplete
-    const updated = [entry, ...savedAttendees];
-    setSavedAttendees(updated);
-    saveAttendees(updated);
-  };
+      // Persist this entry for future autocomplete (skip for quick-add from registered attendees)
+      if (isManualEntry) {
+        setSavedAttendees((prev) => {
+          const updated = [entry, ...prev];
+          saveAttendees(updated);
+          return updated;
+        });
+      }
+    },
+    [attendeeName, attendeeEmail, attendeeList, registeredAttendees, savedAttendees],
+  );
 
   // Select a suggestion: fill name + email, then focus the email field
   const selectSuggestion = (entry: AttendeeEntry) => {
@@ -321,7 +325,7 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
 
   const removeAttendee = (index: number) => {
     setAttendeeList(attendeeList.filter((_, i) => i !== index));
-    setEmailError(null);
+    setFormError(null);
   };
 
   const handlePlayVoiceprint = useCallback(
@@ -348,7 +352,8 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
     if (!file) return;
     if (attendeeList.length === 0) return; // attendees is required
     const nameList = attendeeList.map((a) => a.name);
-    const emailList = attendeeList.map((a) => a.email).filter(Boolean);
+    const attendeeEmails = attendeeList.map((a) => a.email); // keep alignment with names (may include empties)
+    const deliveryRecipients = attendeeEmails.filter(Boolean);
     // Persist all submitted attendees for future autocomplete
     const updated = [...savedAttendees];
     for (const a of attendeeList) {
@@ -358,7 +363,7 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
     }
     setSavedAttendees(updated);
     saveAttendees(updated);
-    onUpload(file, title || file.name, nameList, emailList, skipSteps);
+    onUpload(file, title || file.name, nameList, deliveryRecipients, skipSteps, attendeeEmails);
   };
 
   const formatSize = (bytes: number) => {
@@ -469,7 +474,7 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
                 data-tooltip="Enter attendee name — maps positionally to a detected speaker"
               />
               {showNameSuggestions && nameSuggestions.length > 0 && !disabled && (
-                <div className="attendee-suggestions" ref={suggestRef}>
+                <div className="attendee-suggestions" ref={nameSuggestRef}>
                   {nameSuggestions.map((entry, i) => (
                     <button
                       key={entry.name}
@@ -490,7 +495,7 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
               <input
                 ref={emailInputRef}
                 type="email"
-                className={`attendee-email-input${emailError ? " attendee-email-input--error" : ""}`}
+                className={`attendee-email-input${formError ? " attendee-email-input--error" : ""}`}
                 value={attendeeEmail}
                 onChange={(e) => {
                   setAttendeeEmail(e.target.value);
@@ -505,7 +510,7 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
                 data-tooltip="Optional email address — used for sending delivery notifications"
               />
               {showEmailSuggestions && emailSuggestions.length > 0 && !disabled && (
-                <div className="attendee-suggestions" ref={suggestRef}>
+                <div className="attendee-suggestions" ref={emailSuggestRef}>
                   {emailSuggestions.map((entry, i) => (
                     <button
                       key={entry.name}
@@ -531,9 +536,9 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
               + Add
             </button>
           </div>
-          {emailError && (
+          {formError && (
             <span className="field-error" style={{ marginTop: 4 }}>
-              {emailError}
+              {formError}
             </span>
           )}
 
@@ -542,13 +547,13 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
           {attendeeList.length > 0 && (
             <ul className="attendee-list">
               {attendeeList.map((a, i) => (
-                <li
-                  key={i}
-                  className={`attendee-list-item${registeredNames.has(a.name.toLowerCase()) ? " attendee-list-item--registered" : ""}`}>
+                <li key={i} className={`attendee-list-item${registeredNames.has(a.name.toLowerCase()) ? " attendee-list-item--registered" : ""}`}>
                   <span className="attendee-list-name">{a.name}</span>
                   {a.email && <span className="attendee-list-email">{a.email}</span>}
                   {registeredNames.has(a.name.toLowerCase()) && (
-                    <span className="attendee-list-badge" data-tooltip="This attendee is in the registered attendees list">Registered</span>
+                    <span className="attendee-list-badge" data-tooltip="This attendee is in the registered attendees list">
+                      Registered
+                    </span>
                   )}
                   <button
                     className="btn-text attendee-remove-btn"

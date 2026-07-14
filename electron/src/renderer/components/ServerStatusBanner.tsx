@@ -113,26 +113,28 @@ export default function ServerStatusBanner({
     setRestarting((prev) => ({ ...prev, _all: false }));
   }, [onRestartAll]);
 
-  const offlineItems: { name: string; label: string; icon: string }[] = [];
+  type ItemInfo = { name: string; label: string; icon: string; status: boolean | null };
+  const allItems: ItemInfo[] = [];
   for (const svc of SERVICES) {
-    if (services[svc] !== true) {
-      offlineItems.push({ name: svc, label: SERVICE_LABELS[svc], icon: SERVICE_ICONS[svc] });
-    }
+    allItems.push({ name: svc, label: SERVICE_LABELS[svc], icon: SERVICE_ICONS[svc], status: services[svc] });
   }
-  if (diarizationOk !== true) {
-    offlineItems.push({
-      name: "diarization",
-      label: "Diarization Model",
-      icon: SERVICE_ICONS.diarization,
-    });
-  }
-  if (ollamaRequired && ollamaOk !== true) {
-    offlineItems.push({
+  allItems.push({
+    name: "diarization",
+    label: "Diarization Model",
+    icon: SERVICE_ICONS.diarization,
+    status: diarizationOk,
+  });
+  if (ollamaRequired) {
+    allItems.push({
       name: "ollama",
       label: "Ollama Server",
       icon: "psychology",
+      status: ollamaOk,
     });
   }
+
+  const onlineCount = allItems.filter((it) => it.status === true).length;
+  const offlineCount = allItems.length - onlineCount;
 
   const anyBusy = Object.values(restarting).some(Boolean) || checking;
 
@@ -177,17 +179,23 @@ export default function ServerStatusBanner({
           <summary className="ssb-details-summary">
             <Icon name="build" size="14" color="muted" />
             <span>Details</span>
-            <span className="ssb-details-count">{offlineItems.length} offline</span>
+            <span className="ssb-summary-dots">
+              <span className="ssb-mini-dot ssb-mini-dot--on" /> {onlineCount} online
+              <span className="ssb-mini-dot ssb-mini-dot--off" /> {offlineCount} offline
+            </span>
           </summary>
 
-          {/* Offline services list */}
+          {/* All services list with status */}
           <div className="ssb-services">
-            {offlineItems.map((item) => {
+            {allItems.map((item) => {
               const isDiarization = item.name === "diarization";
               const isOllama = item.name === "ollama";
-              const svcStatus = isDiarization ? diarizationOk : isOllama ? ollamaOk : services[item.name as ServiceName];
+              const isOnline = item.status === true;
+              const isChecking = item.status === null;
               return (
-                <div key={item.name} className={`ssb-service ${svcStatus === false ? "ssb-service--offline" : "ssb-service--unknown"}`}>
+                <div
+                  key={item.name}
+                  className={`ssb-service ${isOnline ? "ssb-service--online" : isChecking ? "ssb-service--unknown" : "ssb-service--offline"}`}>
                   <div className="ssb-service-info">
                     <span className="ssb-service-icon">
                       <Icon name={item.icon} size="18" color="accent" />
@@ -195,58 +203,62 @@ export default function ServerStatusBanner({
                     <div>
                       <span className="ssb-service-name">{item.label}</span>
                       <span className="ssb-service-status">
-                        {svcStatus === null
-                          ? "checking…"
-                          : isDiarization
-                            ? diarizationError
-                              ? `unavailable — ${diarizationError.slice(0, 80)}`
-                              : "unavailable"
-                            : isOllama
-                              ? "not running"
-                              : "offline"}
+                        {isOnline
+                          ? "running"
+                          : isChecking
+                            ? "checking…"
+                            : isDiarization
+                              ? diarizationError
+                                ? `unavailable — ${diarizationError.slice(0, 80)}`
+                                : "unavailable"
+                              : isOllama
+                                ? "not running"
+                                : "offline"}
                       </span>
                     </div>
                   </div>
-                  <button
-                    className={`ssb-restart-btn ${isDiarization ? "ssb-restart-btn--config" : isOllama ? "ssb-restart-btn--ollama" : ""}`}
-                    onClick={() => {
-                      if (isDiarization) {
-                        window.electronAPI?.getConfigWithSources();
-                      } else if (isOllama) {
-                        onStartOllama?.();
-                      } else {
-                        handleRestartService(item.name as ServiceName);
+                  {!isOnline && (
+                    <button
+                      className={`ssb-restart-btn ${isDiarization ? "ssb-restart-btn--config" : isOllama ? "ssb-restart-btn--ollama" : ""}`}
+                      onClick={() => {
+                        if (isDiarization) {
+                          window.electronAPI?.getConfigWithSources();
+                        } else if (isOllama) {
+                          onStartOllama?.();
+                        } else {
+                          handleRestartService(item.name as ServiceName);
+                        }
+                      }}
+                      disabled={countdownActive || anyBusy || isChecking}
+                      title={
+                        countdownActive
+                          ? `Auto-checking in ${countdown}s…`
+                          : isDiarization
+                            ? "Open config to set Hugging Face token"
+                            : `Start ${item.label}`
                       }
-                    }}
-                    disabled={countdownActive || anyBusy || svcStatus === null}
-                    title={
-                      countdownActive
-                        ? `Auto-checking in ${countdown}s…`
-                        : isDiarization
-                          ? "Open config to set Hugging Face token"
-                          : `Start ${item.label}`
-                    }
-                    data-tooltip={
-                      countdownActive
-                        ? `Waiting ${countdown}s before auto-check`
-                        : isDiarization
-                          ? "Configure a Hugging Face token to enable speaker diarization"
-                          : `Start the ${item.label} backend service`
-                    }>
-                    {isDiarization ? (
-                      <>
-                        <Icon name="settings" size="14" /> Config
-                      </>
-                    ) : restarting[item.name] ? (
-                      <>
-                        <Icon name="sync" size="14" /> Starting…
-                      </>
-                    ) : (
-                      <>
-                        <Icon name="play_arrow" size="14" /> Start
-                      </>
-                    )}
-                  </button>
+                      data-tooltip={
+                        countdownActive
+                          ? `Waiting ${countdown}s before auto-check`
+                          : isDiarization
+                            ? "Configure a Hugging Face token to enable speaker diarization"
+                            : `Start the ${item.label} backend service`
+                      }>
+                      {isDiarization ? (
+                        <>
+                          <Icon name="settings" size="14" /> Config
+                        </>
+                      ) : restarting[item.name] ? (
+                        <>
+                          <Icon name="sync" size="14" /> Starting…
+                        </>
+                      ) : (
+                        <>
+                          <Icon name="play_arrow" size="14" /> Start
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -300,23 +312,14 @@ export default function ServerStatusBanner({
           <div className="ssb-footer">
             {SERVICES.map((svc) => (
               <span key={svc} className="ssb-footer-dot">
-                <span
-                  className={`ssb-mini-dot ${services[svc] === true ? "ssb-mini-dot--ok" : services[svc] === false ? "ssb-mini-dot--err" : "ssb-mini-dot--unk"}`}
-                />{" "}
-                {SERVICE_LABELS[svc]}
+                <span className={`ssb-mini-dot ${services[svc] === true ? "ssb-mini-dot--on" : "ssb-mini-dot--off"}`} /> {SERVICE_LABELS[svc]}
               </span>
             ))}
             <span className="ssb-footer-dot">
-              <span
-                className={`ssb-mini-dot ${diarizationOk === true ? "ssb-mini-dot--ok" : diarizationOk === false ? "ssb-mini-dot--err" : "ssb-mini-dot--unk"}`}
-              />{" "}
-              Diarization
+              <span className={`ssb-mini-dot ${diarizationOk === true ? "ssb-mini-dot--on" : "ssb-mini-dot--off"}`} /> Diarization
             </span>
             <span className="ssb-footer-dot">
-              <span
-                className={`ssb-mini-dot ${ollamaOk === true ? "ssb-mini-dot--ok" : ollamaOk === false ? "ssb-mini-dot--err" : "ssb-mini-dot--unk"}`}
-              />{" "}
-              Ollama
+              <span className={`ssb-mini-dot ${ollamaOk === true ? "ssb-mini-dot--on" : "ssb-mini-dot--off"}`} /> Ollama
             </span>
           </div>
         </details>

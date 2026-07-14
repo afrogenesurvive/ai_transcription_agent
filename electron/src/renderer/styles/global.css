@@ -6771,6 +6771,11 @@ body {
   transition: border-color 0.2s;
 }
 
+.ssb-service--online {
+  border-color: rgba(52, 211, 153, 0.35);
+  background: rgba(52, 211, 153, 0.06);
+}
+
 .ssb-service--offline {
   border-color: rgba(248, 81, 73, 0.4);
   background: rgba(248, 81, 73, 0.05);
@@ -6911,15 +6916,11 @@ body {
   display: inline-block;
 }
 
-.ssb-mini-dot--ok {
+.ssb-mini-dot--on {
   background: var(--green);
 }
 
-.ssb-mini-dot--err {
-  background: var(--red);
-}
-
-.ssb-mini-dot--unk {
+.ssb-mini-dot--off {
   background: var(--text-muted);
   opacity: 0.4;
 }
@@ -6983,13 +6984,12 @@ body {
   color: var(--text);
 }
 
-.ssb-details-count {
-  margin-left: auto;
-  font-size: var(--fs-11);
+.ssb-summary-dots {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-12);
   color: var(--text-muted);
-  background: var(--bg);
-  padding: 2px 8px;
-  border-radius: 10px;
 }
 
 /* ── About Panel ── */

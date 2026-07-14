@@ -372,14 +372,14 @@ export default function App() {
   }, [jobId, api, statusHook]);
 
   // Handle upload submit
-  const handleUpload = async (file: File, title: string, attendees: string[], emailRecipients: string[], skipSteps: string[]) => {
-    console.log("handleUpload", { skipSteps, emailRecipients });
+  const handleUpload = async (file: File, title: string, attendees: string[], emailRecipients: string[], skipSteps: string[], attendeeEmails?: string[]) => {
+    console.log("handleUpload", { skipSteps, emailRecipients, attendeeEmails });
     setUploading(true);
     try {
       const result: any = await api.uploadAudio(file, title, attendees, emailRecipients, skipSteps);
       console.log("Upload result", result);
       setJobId(result.job_id);
-      setJobMetadata({ title, attendees });
+      setJobMetadata({ title, attendees, attendeeEmails: attendeeEmails || [] });
       setView("processing");
       setShowNewForm(false);
       // Polling starts automatically via useJobStatus when jobId changes
@@ -484,6 +484,7 @@ export default function App() {
         <SpeakerLabelModal
           jobId={jobId!}
           speakers={speakerClips.speakers}
+          suggestedEmails={jobMetadata?.attendeeEmails || []}
           onConfirm={handleLabelConfirm}
           onCancel={handleLabelCancel}
           submitting={labelingSubmitting}
