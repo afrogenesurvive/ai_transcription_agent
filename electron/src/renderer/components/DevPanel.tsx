@@ -2644,9 +2644,7 @@ function LogFilesTab() {
                       const isExpanded = expandedFiles.has(jf.file);
                       const isLarge = jf.content.length > MAX_COLLAPSED_CHARS;
                       const displayContent =
-                        isExpanded || !isLarge
-                          ? jf.content
-                          : jf.content.slice(0, MAX_COLLAPSED_CHARS) + "\n\n... (truncated — click to expand)";
+                        isExpanded || !isLarge ? jf.content : jf.content.slice(0, MAX_COLLAPSED_CHARS) + "\n\n... (truncated — click to expand)";
                       return (
                         <div className="rv-logs-file-item">
                           <div className="rv-logs-file-header">
