@@ -297,10 +297,10 @@ For advanced users: customize the AI pipeline steps, system prompt, and tool def
 
 Configure variables for the Playwright screenshot tests:
 
-| Field                    | Description                                                       |
-| ------------------------ | ----------------------------------------------------------------- |
-| **Audio File Path**      | Absolute path to an audio file (MP3/WAV) used by screenshot tests |
-| **Test Title Template**  | Meeting title template (`{autoNum}` auto-increments)              |
+| Field                    | Description                                                                                  |
+| ------------------------ | -------------------------------------------------------------------------------------------- |
+| **Audio File Path**      | Absolute path to an audio file (MP3/WAV) used by screenshot tests                            |
+| **Test Title Template**  | Meeting title template (`{autoNum}` auto-increments)                                         |
 | **Default Speaker Name** | Fallback name (used if >20 speakers detected) — see built-in 20-name list in the test source |
 
 These same variables are also editable in **Dev Tools → Testing** tab, where you can run the tests directly.
@@ -325,10 +325,11 @@ Click the **🖥️ Dev Tools** button in the status bar to open the developer p
 
 The Testing tab lets you:
 
-1. **Edit test variables** — audio file path, title template, default speaker name
-2. **Run Tests** — launches Playwright with the configured variables
-3. **View real-time output** — test output streams in as it runs
-4. **See pass/fail status** — exit code and result displayed after completion
+1. **Edit test variables** — audio file path (with native file picker), title template, 20 generic speaker names (editable textarea)
+2. **Live prerequisite checks** — backend services, audio file, and name count are monitored; Run button is disabled until all pass
+3. **Run Tests** — launches Playwright with the configured variables
+4. **View real-time output** — test output streams in as it runs
+5. **See pass/fail status** — exit code and result displayed after completion
 
 Variables are saved to `config.json` and persist across app restarts.
 

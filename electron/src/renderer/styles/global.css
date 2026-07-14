@@ -8325,6 +8325,31 @@ body {
   opacity: 0.5;
 }
 
+.dev-panel-testing-textarea {
+  width: 100%;
+  padding: 6px 10px;
+  font-size: var(--fs-13);
+  font-family: var(--font);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  outline: none;
+  resize: vertical;
+  min-height: 120px;
+  transition: border-color 0.15s;
+  line-height: 1.5;
+}
+
+.dev-panel-testing-textarea:focus {
+  border-color: var(--accent);
+}
+
+.dev-panel-testing-textarea::placeholder {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
 .dev-panel-testing-output {
   background: var(--bg);
   border: 1px solid var(--border);

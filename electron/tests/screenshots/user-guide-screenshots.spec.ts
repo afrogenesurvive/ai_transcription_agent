@@ -35,7 +35,7 @@ import fs from "fs";
  * When running from Dev Panel or with env vars set:
  *   PLAYWRIGHT_AUDIO_FILE_PATH
  *   PLAYWRIGHT_TITLE_TEMPLATE
- *   PLAYWRIGHT_DEFAULT_SPEAKER_NAME
+ *   PLAYWRIGHT_GENERIC_NAMES
  */
 
 /** Absolute path to a short audio file for upload testing (MP3, WAV, etc.) */
@@ -49,19 +49,13 @@ const BRIDGE_URL = "http://127.0.0.1:5010";
 
 /**
  * Generic speaker names used during the labeling modal.
- * The test assigns each detected speaker a unique name from this list.
- * If more speakers are detected than names available, the remainder use
- * the DEFAULT_SPEAKER_NAME fallback.
+ * Read from PLAYWRIGHT_GENERIC_NAMES env var (comma-separated, set by the
+ * DevPanel Testing tab from config.json). Must contain at least 20 names.
+ * Falls back to the default 20 if the env var is unset.
  */
-const GENERIC_NAMES = [
-  "Alex", "Blake", "Casey", "Drew", "Ellis",
-  "Finley", "Gray", "Harper", "Indigo", "Jade",
-  "Kai", "Logan", "Morgan", "Nico", "Oakley",
-  "Parker", "Quinn", "Reese", "Skyler", "Taylor",
-];
-
-/** Fallback name if more speakers than GENERIC_NAMES entries */
-const DEFAULT_SPEAKER_NAME = process.env.PLAYWRIGHT_DEFAULT_SPEAKER_NAME || "dave";
+const GENERIC_NAMES = (process.env.PLAYWRIGHT_GENERIC_NAMES || "Alex,Blake,Casey,Drew,Ellis,Finley,Gray,Harper,Indigo,Jade,Kai,Logan,Morgan,Nico,Oakley,Parker,Quinn,Reese,Skyler,Taylor")
+  .split(",")
+  .map((s) => s.trim());
 
 // ════════════════════════════════════════════════════════════════
 
@@ -431,13 +425,11 @@ test("12 - speaker labeling modal", async () => {
     return;
   }
 
-  // Fill each speaker name input with a unique generic name.
-  // Uses the GENERIC_NAMES list — if there are more speakers than names,
-  // the remainder get the DEFAULT_SPEAKER_NAME fallback.
+  // Fill each speaker name input with a unique generic name from the list.
   const nameInputs = modal.locator(".speaker-name-input");
   const inputCount = await nameInputs.count();
   for (let i = 0; i < inputCount; i++) {
-    const name = i < GENERIC_NAMES.length ? GENERIC_NAMES[i] : DEFAULT_SPEAKER_NAME;
+    const name = GENERIC_NAMES[i % GENERIC_NAMES.length];
     await nameInputs.nth(i).fill(name);
   }
 

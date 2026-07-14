@@ -47,7 +47,7 @@ interface ConfigValues {
   DELIVERY_DRIVE_FOLDER: string;
   PLAYWRIGHT_AUDIO_FILE_PATH: string;
   PLAYWRIGHT_TITLE_TEMPLATE: string;
-  PLAYWRIGHT_DEFAULT_SPEAKER_NAME: string;
+  PLAYWRIGHT_GENERIC_NAMES: string;
 }
 
 interface ConfigSourceInfo {
@@ -91,7 +91,7 @@ const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secre
   { key: "DELIVERY_DRIVE_FOLDER", label: "Drive Destination Folder", required: false, secret: false, section: "Delivery Config" },
   { key: "PLAYWRIGHT_AUDIO_FILE_PATH", label: "Audio File Path", required: false, secret: false, section: "Testing" },
   { key: "PLAYWRIGHT_TITLE_TEMPLATE", label: "Test Title Template", required: false, secret: false, section: "Testing" },
-  { key: "PLAYWRIGHT_DEFAULT_SPEAKER_NAME", label: "Speaker Fallback Name", required: false, secret: false, section: "Testing" },
+  { key: "PLAYWRIGHT_GENERIC_NAMES", label: "Generic Names (comma-sep, 20)", required: false, secret: false, section: "Testing" },
 ];
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -416,7 +416,7 @@ export default function ConfigPanel({ onClose }: Props) {
             DELIVERY_DRIVE_FOLDER: cfg.DELIVERY_DRIVE_FOLDER?.value || "Meeting Transcripts",
             PLAYWRIGHT_AUDIO_FILE_PATH: cfg.PLAYWRIGHT_AUDIO_FILE_PATH?.value || "",
             PLAYWRIGHT_TITLE_TEMPLATE: cfg.PLAYWRIGHT_TITLE_TEMPLATE?.value || "test {autoNum}",
-            PLAYWRIGHT_DEFAULT_SPEAKER_NAME: cfg.PLAYWRIGHT_DEFAULT_SPEAKER_NAME?.value || "dave",
+            PLAYWRIGHT_GENERIC_NAMES: cfg.PLAYWRIGHT_GENERIC_NAMES?.value || "Alex,Blake,Casey,Drew,Ellis,Finley,Gray,Harper,Indigo,Jade,Kai,Logan,Morgan,Nico,Oakley,Parker,Quinn,Reese,Skyler,Taylor",
           });
           setSourceInfo(cfg);
         });
@@ -489,7 +489,7 @@ export default function ConfigPanel({ onClose }: Props) {
         DELIVERY_DRIVE_FOLDER: cfg.DELIVERY_DRIVE_FOLDER?.value || "Meeting Transcripts",
         PLAYWRIGHT_AUDIO_FILE_PATH: cfg.PLAYWRIGHT_AUDIO_FILE_PATH?.value || "",
         PLAYWRIGHT_TITLE_TEMPLATE: cfg.PLAYWRIGHT_TITLE_TEMPLATE?.value || "test {autoNum}",
-        PLAYWRIGHT_DEFAULT_SPEAKER_NAME: cfg.PLAYWRIGHT_DEFAULT_SPEAKER_NAME?.value || "dave",
+        PLAYWRIGHT_GENERIC_NAMES: cfg.PLAYWRIGHT_GENERIC_NAMES?.value || "Alex,Blake,Casey,Drew,Ellis,Finley,Gray,Harper,Indigo,Jade,Kai,Logan,Morgan,Nico,Oakley,Parker,Quinn,Reese,Skyler,Taylor",
       });
       setSourceInfo(cfg);
     });

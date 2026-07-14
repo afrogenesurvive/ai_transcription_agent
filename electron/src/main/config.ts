@@ -68,8 +68,8 @@ export interface AppConfig {
   PLAYWRIGHT_AUDIO_FILE_PATH: string;
   /** Title template for test jobs (use {autoNum}) */
   PLAYWRIGHT_TITLE_TEMPLATE: string;
-  /** Default speaker name to assign during labeling modal */
-  PLAYWRIGHT_DEFAULT_SPEAKER_NAME: string;
+  /** Comma-separated list of 20 generic speaker names for labeling modal */
+  PLAYWRIGHT_GENERIC_NAMES: string;
 }
 
 const DEFAULTS: AppConfig = {
@@ -101,7 +101,7 @@ const DEFAULTS: AppConfig = {
   DELIVERY_DRIVE_FOLDER: "Meeting Transcripts",
   PLAYWRIGHT_AUDIO_FILE_PATH: "",
   PLAYWRIGHT_TITLE_TEMPLATE: "test {autoNum}",
-  PLAYWRIGHT_DEFAULT_SPEAKER_NAME: "dave",
+  PLAYWRIGHT_GENERIC_NAMES: "Alex,Blake,Casey,Drew,Ellis,Finley,Gray,Harper,Indigo,Jade,Kai,Logan,Morgan,Nico,Oakley,Parker,Quinn,Reese,Skyler,Taylor",
 };
 
 /** Keys the UI considers "required" before the pipeline can run. */
@@ -249,7 +249,7 @@ export function getChildEnv(): NodeJS.ProcessEnv {
     APPEARANCE_SIDEBAR_WIDTH: config.APPEARANCE_SIDEBAR_WIDTH || process.env.APPEARANCE_SIDEBAR_WIDTH || "48",
     PLAYWRIGHT_AUDIO_FILE_PATH: config.PLAYWRIGHT_AUDIO_FILE_PATH || process.env.PLAYWRIGHT_AUDIO_FILE_PATH || "",
     PLAYWRIGHT_TITLE_TEMPLATE: config.PLAYWRIGHT_TITLE_TEMPLATE || process.env.PLAYWRIGHT_TITLE_TEMPLATE || "test {autoNum}",
-    PLAYWRIGHT_DEFAULT_SPEAKER_NAME: config.PLAYWRIGHT_DEFAULT_SPEAKER_NAME || process.env.PLAYWRIGHT_DEFAULT_SPEAKER_NAME || "dave",
+    PLAYWRIGHT_GENERIC_NAMES: config.PLAYWRIGHT_GENERIC_NAMES || process.env.PLAYWRIGHT_GENERIC_NAMES || "Alex,Blake,Casey,Drew,Ellis,Finley,Gray,Harper,Indigo,Jade,Kai,Logan,Morgan,Nico,Oakley,Parker,Quinn,Reese,Skyler,Taylor",
     // Storage paths — only override in packaged (prod) mode so DBs land in a
     // writable location. In dev the Python backend defaults to the project-
     // relative storage/ dir, which is already writable.

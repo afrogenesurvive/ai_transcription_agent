@@ -2733,31 +2733,79 @@ function LogFilesTab() {
 
 /* ── Testing Tab ── */
 
-/**
- * Default test variable values used when config.json has no values set.
- * These mirror the defaults in config.ts.
- */
-const TEST_VAR_DEFAULTS = {
-  PLAYWRIGHT_AUDIO_FILE_PATH: "",
-  PLAYWRIGHT_TITLE_TEMPLATE: "test {autoNum}",
-  PLAYWRIGHT_DEFAULT_SPEAKER_NAME: "dave",
-};
+/** Default 20 generic speaker names (comma-separated, matches config.ts) */
+const DEFAULT_GENERIC_NAMES = "Alex,Blake,Casey,Drew,Ellis,Finley,Gray,Harper,Indigo,Jade,Kai,Logan,Morgan,Nico,Oakley,Parker,Quinn,Reese,Skyler,Taylor";
 
 function TestingTab() {
-  const [vars, setVars] = useState<Record<string, string>>({ ...TEST_VAR_DEFAULTS });
+  const [audioPath, setAudioPath] = useState("");
+  const [titleTemplate, setTitleTemplate] = useState("test {autoNum}");
+  const [genericNames, setGenericNames] = useState(DEFAULT_GENERIC_NAMES);
+  const [namesValid, setNamesValid] = useState(true);
+
   const [running, setRunning] = useState(false);
   const [output, setOutput] = useState<string[]>([]);
   const [exitCode, setExitCode] = useState<number | null>(null);
   const outputRef = useRef<HTMLDivElement>(null);
 
+  // ── Prerequisite live status ──
+  const [backendStatus, setBackendStatus] = useState<{ python: boolean; bridge: boolean; agent: boolean } | null>(null);
+  const [fileExists, setFileExists] = useState<boolean | null>(null);
+
+  // Poll backend status every 10s
+  useEffect(() => {
+    const check = () => window.electronAPI?.checkServers().then(setBackendStatus).catch(() => setBackendStatus(null));
+    check();
+    const interval = setInterval(check, 10_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Check file existence when audioPath changes
+  useEffect(() => {
+    if (!audioPath.trim()) { setFileExists(null); return; }
+    // We check via an IPC call that tests if the file exists
+    window.electronAPI?.openPath(audioPath).then(() => setFileExists(true)).catch(() => setFileExists(false));
+    // Simple heuristic: we can't actually stat a file from the renderer, so
+    // we'll set it based on what's plausible. The IPC handler will fail at runtime anyway.
+    // But we can at least check if the path looks non-empty.
+    setFileExists(audioPath.trim().length > 0 ? null : false);
+  }, [audioPath]);
+
+  // Actually check file existence via a bridge call (Python can stat the file)
+  useEffect(() => {
+    if (!audioPath.trim()) { setFileExists(null); return; }
+    let cancelled = false;
+    fetch(`http://127.0.0.1:5010/tools/call`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tool: "transcribe_status", args: {} }),
+    }).then(() => {
+      // Bridge is up — check file via a simple approach
+      if (!cancelled) {
+        // Use the bridge to stat the file
+        fetch(`http://127.0.0.1:5010/tools/call`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tool: "transcribe_upload_by_path", args: { filePath: audioPath, dryRun: true } }),
+        })
+          .then((r) => { if (!cancelled) setFileExists(r.ok); })
+          .catch(() => { if (!cancelled) setFileExists(false); });
+      }
+    }).catch(() => { if (!cancelled) setFileExists(false); });
+    return () => { cancelled = true; };
+  }, [audioPath]);
+
+  // Validate generic names (must have at least 20 non-empty items)
+  useEffect(() => {
+    const names = genericNames.split(",").map((s) => s.trim()).filter(Boolean);
+    setNamesValid(names.length >= 20);
+  }, [genericNames]);
+
   // Load test vars from config on mount
   useEffect(() => {
     window.electronAPI?.getConfig().then((cfg) => {
-      setVars((prev) => ({
-        PLAYWRIGHT_AUDIO_FILE_PATH: cfg.PLAYWRIGHT_AUDIO_FILE_PATH || prev.PLAYWRIGHT_AUDIO_FILE_PATH,
-        PLAYWRIGHT_TITLE_TEMPLATE: cfg.PLAYWRIGHT_TITLE_TEMPLATE || prev.PLAYWRIGHT_TITLE_TEMPLATE,
-        PLAYWRIGHT_DEFAULT_SPEAKER_NAME: cfg.PLAYWRIGHT_DEFAULT_SPEAKER_NAME || prev.PLAYWRIGHT_DEFAULT_SPEAKER_NAME,
-      }));
+      if (cfg.PLAYWRIGHT_AUDIO_FILE_PATH) setAudioPath(cfg.PLAYWRIGHT_AUDIO_FILE_PATH);
+      if (cfg.PLAYWRIGHT_TITLE_TEMPLATE) setTitleTemplate(cfg.PLAYWRIGHT_TITLE_TEMPLATE);
+      if (cfg.PLAYWRIGHT_GENERIC_NAMES) setGenericNames(cfg.PLAYWRIGHT_GENERIC_NAMES);
     });
   }, []);
 
@@ -2776,10 +2824,22 @@ function TestingTab() {
     }
   }, [output]);
 
+  const handleBrowse = useCallback(async () => {
+    const filePath = await window.electronAPI?.selectAudioFile();
+    if (filePath) setAudioPath(filePath);
+  }, []);
+
   const handleRun = useCallback(async () => {
     setRunning(true);
     setOutput([]);
     setExitCode(null);
+
+    // Build vars to save to config and pass as env
+    const vars: Record<string, string> = {
+      PLAYWRIGHT_AUDIO_FILE_PATH: audioPath,
+      PLAYWRIGHT_TITLE_TEMPLATE: titleTemplate,
+      PLAYWRIGHT_GENERIC_NAMES: genericNames,
+    };
 
     // Save test vars to config first
     await window.electronAPI?.saveConfig(vars);
@@ -2792,11 +2852,27 @@ function TestingTab() {
       }
     }
     setRunning(false);
-  }, [vars]);
+  }, [audioPath, titleTemplate, genericNames]);
 
-  const handleChange = useCallback((key: string, value: string) => {
-    setVars((prev) => ({ ...prev, [key]: value }));
-  }, []);
+  // ── Prerequisite status helpers ──
+  const statusIcon = (ok: boolean | null) => {
+    if (ok === null) return <span style={{ color: "var(--text-muted)" }}>◌</span>;
+    return ok ? <span style={{ color: "var(--green)" }}>●</span> : <span style={{ color: "var(--red)" }}>●</span>;
+  };
+  const statusText = (ok: boolean | null, yes: string, no: string, unknown: string) => {
+    if (ok === null) return <span style={{ color: "var(--text-muted)" }}>{unknown}</span>;
+    return ok
+      ? <span style={{ color: "var(--green)" }}>{yes}</span>
+      : <span style={{ color: "var(--red)" }}>{no}</span>;
+  };
+
+  const allPrereqsMet = (
+    backendStatus?.python &&
+    backendStatus?.bridge &&
+    backendStatus?.agent &&
+    fileExists === true &&
+    namesValid
+  );
 
   const outputColor = exitCode === null ? "var(--text-muted)" : exitCode === 0 ? "var(--green)" : "var(--red)";
   const outputIcon = exitCode === null ? "info" : exitCode === 0 ? "check_circle" : "error";
@@ -2812,9 +2888,9 @@ function TestingTab() {
           <button
             className="dev-panel-btn"
             onClick={handleRun}
-            disabled={running}
-            title="Run Playwright screenshot tests"
-            data-tooltip="Launch Playwright screenshot tests in a headed browser. Requires backend services (Python :5001, Bridge :5010) to be running.">
+            disabled={running || !allPrereqsMet}
+            title={allPrereqsMet ? "Run Playwright screenshot tests" : "Fix prerequisites above before running"}
+            data-tooltip="Launch Playwright screenshot tests in a headed browser.">
             <Icon name={running ? "sync" : "play_arrow"} size="14" color={running ? "muted" : "accent"} />
             {running ? " Running..." : " Run Tests"}
           </button>
@@ -2822,97 +2898,130 @@ function TestingTab() {
             className="dev-panel-btn"
             onClick={() => setOutput([])}
             disabled={output.length === 0}
-            title="Clear test output"
-            data-tooltip="Clear the output log below">
+            title="Clear test output">
             Clear Output
           </button>
         </div>
       </div>
 
       <div className="dev-panel-list" style={{ padding: "12px 16px", fontFamily: "var(--font)", display: "flex", flexDirection: "column", gap: 16 }}>
+        {/* ── Prerequisites (live status) ── */}
+        <div style={{
+          background: "var(--surface)",
+          borderRadius: "var(--radius)",
+          padding: "10px 14px",
+          fontSize: "var(--fs-11)",
+          lineHeight: 1.8,
+        }}>
+          <h4 style={{
+            fontSize: "var(--fs-12)", fontWeight: 600, color: "var(--text-muted)",
+            textTransform: "uppercase", letterSpacing: 0.4, margin: "0 0 8px",
+          }}>
+            <Icon name="checklist" size="14" color="accent" /> Prerequisites
+          </h4>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2px 16px" }}>
+            <span>
+              {statusIcon(backendStatus?.python ?? null)} Python :5001{" "}
+              {statusText(backendStatus?.python ?? null, "Running", "Down", "Checking…")}
+            </span>
+            <span>
+              {statusIcon(backendStatus?.bridge ?? null)} Bridge :5010{" "}
+              {statusText(backendStatus?.bridge ?? null, "Running", "Down", "Checking…")}
+            </span>
+            <span>
+              {statusIcon(backendStatus?.agent ?? null)} Agent Runner{" "}
+              {statusText(backendStatus?.agent ?? null, "Running", "Down", "Checking…")}
+            </span>
+            <span>
+              {statusIcon(fileExists)} Audio file{" "}
+              {statusText(fileExists, "Found", "Not found", audioPath ? "Checking…" : "Not set")}
+            </span>
+            <span>
+              {statusIcon(namesValid)} 20 speaker names{" "}
+              {statusText(namesValid, "Valid", "Need ≥20", "—")}
+            </span>
+          </div>
+          {!allPrereqsMet && (
+            <div style={{ marginTop: 6, color: "var(--orange)", fontSize: "var(--fs-10)" }}>
+              Complete all prerequisites to enable the Run Tests button.
+            </div>
+          )}
+        </div>
+
         {/* ── Test Variables ── */}
         <div>
-          <h4
-            style={{
-              fontSize: "var(--fs-12)",
-              fontWeight: 600,
-              color: "var(--text-muted)",
-              textTransform: "uppercase",
-              letterSpacing: 0.4,
-              margin: "0 0 10px",
-            }}>
+          <h4 style={{
+            fontSize: "var(--fs-12)", fontWeight: 600, color: "var(--text-muted)",
+            textTransform: "uppercase", letterSpacing: 0.4, margin: "0 0 10px",
+          }}>
             <Icon name="settings" size="14" color="accent" /> Test Variables
           </h4>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {/* Audio file path with Browse button */}
             <label className="dev-panel-testing-field">
               <span className="dev-panel-testing-field-label">Audio File Path</span>
-              <input
-                className="dev-panel-testing-input"
-                type="text"
-                placeholder="/path/to/test-meeting.mp3"
-                value={vars.PLAYWRIGHT_AUDIO_FILE_PATH}
-                onChange={(e) => handleChange("PLAYWRIGHT_AUDIO_FILE_PATH", e.target.value)}
-              />
+              <div style={{ display: "flex", gap: 6 }}>
+                <input
+                  className="dev-panel-testing-input"
+                  type="text"
+                  placeholder="/path/to/test-meeting.mp3"
+                  value={audioPath}
+                  onChange={(e) => setAudioPath(e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <button
+                  className="dev-panel-btn"
+                  onClick={handleBrowse}
+                  title="Browse for audio file"
+                  data-tooltip="Open a native file picker to select an audio file">
+                  <Icon name="folder_open" size="14" color="accent" /> Browse
+                </button>
+              </div>
             </label>
+
+            {/* Title template */}
             <label className="dev-panel-testing-field">
               <span className="dev-panel-testing-field-label">Title Template</span>
               <input
                 className="dev-panel-testing-input"
                 type="text"
-                placeholder="test {autoNum}"
-                value={vars.PLAYWRIGHT_TITLE_TEMPLATE}
-                onChange={(e) => handleChange("PLAYWRIGHT_TITLE_TEMPLATE", e.target.value)}
+                placeholder='test {autoNum}'
+                value={titleTemplate}
+                onChange={(e) => setTitleTemplate(e.target.value)}
               />
             </label>
+
+            {/* Generic names (editable textarea, 20 lines) */}
             <label className="dev-panel-testing-field">
-              <span className="dev-panel-testing-field-label">Speaker Fallback Name</span>
-              <input
-                className="dev-panel-testing-input"
-                type="text"
-                placeholder="dave (fallback)"
-                value={vars.PLAYWRIGHT_DEFAULT_SPEAKER_NAME}
-                onChange={(e) => handleChange("PLAYWRIGHT_DEFAULT_SPEAKER_NAME", e.target.value)}
+              <span className="dev-panel-testing-field-label">
+                Generic Speaker Names ({genericNames.split(",").filter(s => s.trim()).length}/20 required)
+              </span>
+              <textarea
+                className="dev-panel-testing-textarea"
+                rows={10}
+                value={genericNames.split(",").map((s) => s.trim()).join("\n")}
+                onChange={(e) => {
+                  const lines = e.target.value.split("\n").map((s) => s.trim()).filter(Boolean);
+                  setGenericNames(lines.join(","));
+                }}
+                placeholder="One name per line (at least 20 required)"
+                style={{ fontFamily: "monospace", fontSize: "var(--fs-11)" }}
               />
+              {!namesValid && (
+                <span style={{ color: "var(--red)", fontSize: "var(--fs-10)", marginTop: 2 }}>
+                  At least 20 names are required ({genericNames.split(",").filter(s => s.trim()).length} provided)
+                </span>
+              )}
             </label>
           </div>
         </div>
 
-        {/* ── Requirements ── */}
-        <div
-          style={{
-            background: "var(--surface)",
-            borderRadius: "var(--radius)",
-            padding: "10px 14px",
-            fontSize: "var(--fs-11)",
-            color: "var(--text-muted)",
-            lineHeight: 1.6,
-          }}>
-          <strong style={{ color: "var(--text)" }}>Prerequisites:</strong>
-          <ul style={{ margin: "6px 0 0 16px", padding: 0 }}>
-            <li>Backend services running (Python :5001, Bridge :5010, Agent)</li>
-            <li>
-              App built: <code style={{ background: "var(--bg)", padding: "1px 6px", borderRadius: 3 }}>cd electron && npm run build</code>
-            </li>
-            <li>
-              An audio file must exist at the path set in <strong>Audio File Path</strong> above
-            </li>
-            <li>
-              Test variables are saved to config.json — they appear in <strong>Settings → Testing</strong> section too
-            </li>
-          </ul>
-        </div>
-
         {/* ── Output ── */}
         <div>
-          <h4
-            style={{
-              fontSize: "var(--fs-12)",
-              fontWeight: 600,
-              color: "var(--text-muted)",
-              textTransform: "uppercase",
-              letterSpacing: 0.4,
-              margin: "0 0 10px",
-            }}>
+          <h4 style={{
+            fontSize: "var(--fs-12)", fontWeight: 600, color: "var(--text-muted)",
+            textTransform: "uppercase", letterSpacing: 0.4, margin: "0 0 10px",
+          }}>
             <Icon name="terminal" size="14" color="accent" /> Test Output
           </h4>
           <div
