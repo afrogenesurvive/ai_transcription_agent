@@ -777,7 +777,7 @@ function LogsTab({ jobId }: { jobId: string }) {
               <option value="error">Errors</option>
               <option value="debug">Debug</option>
             </select>
-            <label className="dev-panel-checkbox" data-tooltip="Automatically scroll to the bottom when entries are loaded">
+            {/* <label className="dev-panel-checkbox" data-tooltip="Automatically scroll to the bottom when entries are loaded">
               <input type="checkbox" checked={autoScroll} onChange={(e) => setAutoScroll(e.target.checked)} />
               Auto-scroll
             </label>
@@ -788,7 +788,7 @@ function LogsTab({ jobId }: { jobId: string }) {
             <span className="rv-logs-filter-count">
               {filteredEntries.length} / {rawLogs.length} entries
               {searchQuery.trim() && ` (${searchMatchTotal} matches)`}
-            </span>
+            </span> */}
           </div>
         </div>
       )}
@@ -826,7 +826,7 @@ function LogsTab({ jobId }: { jobId: string }) {
           )}
           {/* Footer */}
           <div className="dev-panel-footer">
-            <span>{filteredEntries.length} entries</span>
+            <span>{filteredEntries.length} matches</span>
             <span>{rawLogs.length} total</span>
           </div>
         </div>
