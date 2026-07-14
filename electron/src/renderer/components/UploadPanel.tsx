@@ -486,7 +486,7 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
             </div>
             <button
               className="btn-attendee-add"
-              onClick={addAttendee}
+              onClick={() => addAttendee()}
               disabled={disabled || !attendeeName.trim()}
               title="Add this attendee to the list"
               data-tooltip="Add this attendee to the meeting participant list">

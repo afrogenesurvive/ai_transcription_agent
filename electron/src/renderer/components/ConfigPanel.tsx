@@ -45,12 +45,11 @@ interface ConfigValues {
   DELIVERY_EMAIL_SUBJECT: string;
   DELIVERY_EMAIL_ADDITIONAL_CONTENT: string;
   DELIVERY_DRIVE_FOLDER: string;
-
 }
 
 interface ConfigSourceInfo {
   value: string;
-  source: "user_config" | "env_file" | "default";
+  source: "user_config" | "environment" | "default";
 }
 
 interface AgentConfig {
@@ -87,12 +86,11 @@ const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secre
   { key: "DELIVERY_EMAIL_SUBJECT", label: "Email Subject Template", required: false, secret: false, section: "Delivery Config" },
   { key: "DELIVERY_EMAIL_ADDITIONAL_CONTENT", label: "Additional Email Content", required: false, secret: false, section: "Delivery Config" },
   { key: "DELIVERY_DRIVE_FOLDER", label: "Drive Destination Folder", required: false, secret: false, section: "Delivery Config" },
-
 ];
 
 const SOURCE_LABELS: Record<string, string> = {
   user_config: "User Config (config.json)",
-  env_file: "Environment (.env)",
+  environment: "Environment (.env)",
   default: "Default value",
 };
 

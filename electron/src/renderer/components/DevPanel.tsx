@@ -2752,6 +2752,7 @@ function TestingTab() {
   const [backendStatus, setBackendStatus] = useState<{ python: boolean; bridge: boolean; agent: boolean } | null>(null);
   const [fileExists, setFileExists] = useState<boolean | null>(null);
   const [appBuilt, setAppBuilt] = useState<boolean | null>(null);
+  const [builtAt, setBuiltAt] = useState<string | null>(null);
 
   // Poll backend status and build check every 10s
   useEffect(() => {
@@ -2762,8 +2763,14 @@ function TestingTab() {
         .catch(() => setBackendStatus(null));
       window.electronAPI
         ?.checkPlaywrightBuild()
-        .then((r) => setAppBuilt(r.exists))
-        .catch(() => setAppBuilt(false));
+        .then((r) => {
+          setAppBuilt(r.exists);
+          setBuiltAt(r.builtAt);
+        })
+        .catch(() => {
+          setAppBuilt(false);
+          setBuiltAt(null);
+        });
     };
     check();
     const interval = setInterval(check, 10_000);
@@ -2865,7 +2872,13 @@ function TestingTab() {
   // All prerequisite checks must have resolved (not null) before the button enables
   const allChecksComplete = backendStatus !== null && appBuilt !== null && fileExists !== null;
   const allPrereqsMet =
-    allChecksComplete && backendStatus!.python && backendStatus!.bridge && backendStatus!.agent && appBuilt === true && fileExists === true && namesValid;
+    allChecksComplete &&
+    backendStatus!.python &&
+    backendStatus!.bridge &&
+    backendStatus!.agent &&
+    appBuilt === true &&
+    fileExists === true &&
+    namesValid;
 
   const outputColor = exitCode === null ? "var(--text-muted)" : exitCode === 0 ? "var(--green)" : "var(--red)";
   const outputIcon = exitCode === null ? "info" : exitCode === 0 ? "check_circle" : "error";
@@ -2925,7 +2938,10 @@ function TestingTab() {
               {statusIcon(backendStatus?.agent ?? null)} Agent Runner {statusText(backendStatus?.agent ?? null, "Running", "Down", "Checking…")}
             </span>
             <span>
-              {statusIcon(appBuilt)} App build {statusText(appBuilt, "Built", "Missing (run build)", "Checking…")}
+              {statusIcon(appBuilt)} App build{' '}
+              {appBuilt === true
+                ? <span style={{ color: "var(--green)" }}>Built{builtAt ? ` — ${new Date(builtAt).toLocaleString()}` : ''}</span>
+                : statusText(appBuilt, "Built", "Missing (run build)", "Checking…")}
             </span>
             <span>
               {statusIcon(fileExists)} Audio file {statusText(fileExists, "Found", "Not found", audioPath ? "Checking…" : "Not set")}

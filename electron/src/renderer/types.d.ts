@@ -143,7 +143,9 @@ export interface ElectronAPI {
   showNotification: (title: string, body: string, clickPayload?: Record<string, unknown>) => Promise<void>;
   onNotificationClick: (cb: (payload: Record<string, unknown>) => void) => () => void;
 
-  // ── Ollama Model Management ──
+  // ── Ollama Health & Server Management ──
+  checkOllamaHealth: () => Promise<{ healthy: boolean }>;
+  startOllamaServer: () => Promise<{ success: boolean; error?: string }>;
   listOllamaModels: () => Promise<{
     models: Array<{ name: string; size: number; modified_at: string }>;
     error: string | null;
@@ -200,7 +202,7 @@ export interface ElectronAPI {
   // ── Playwright Testing ──
   runPlaywrightTests: (vars: Record<string, string>) => Promise<{ exitCode: number; output: string }>;
   onPlaywrightOutput: (callback: (text: string) => void) => () => void;
-  checkPlaywrightBuild: () => Promise<{ exists: boolean }>;
+  checkPlaywrightBuild: () => Promise<{ exists: boolean; builtAt: string | null }>;
 
   platform: string;
 }

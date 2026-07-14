@@ -1132,10 +1132,15 @@ ipcMain.handle("testing:checkBuild", async () => {
   const buildPath = path.join(appPath, "dist", "main", "index.js");
   try {
     const exists = fs.existsSync(buildPath);
-    addLog("main", "debug", `[testing] Build check: ${buildPath} ${exists ? "found" : "missing"}`);
-    return { exists };
+    let builtAt: string | null = null;
+    if (exists) {
+      const stat = fs.statSync(buildPath);
+      builtAt = stat.mtime.toISOString();
+    }
+    addLog("main", "debug", `[testing] Build check: ${buildPath} ${exists ? "found (" + builtAt + ")" : "missing"}`);
+    return { exists, builtAt };
   } catch {
-    return { exists: false };
+    return { exists: false, builtAt: null };
   }
 });
 
