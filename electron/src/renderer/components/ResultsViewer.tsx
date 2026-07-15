@@ -529,7 +529,7 @@ function LogsTab({ jobId }: { jobId: string }) {
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [autoScroll, setAutoScroll] = useState(true);
   const [noTruncate, setNoTruncate] = useState(true);
-  const [logSubTab, setLogSubTab] = useState<"pipeline" | "transcript" | "raw">("pipeline");
+  const [logSubTab, setLogSubTab] = useState<"pipeline" | "agent" | "transcript" | "raw">("pipeline");
   const [collapseRepeated, setCollapseRepeated] = useState(true);
   const [prettifiedBlock, setPrettifiedBlock] = useState<string | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
@@ -609,11 +609,20 @@ function LogsTab({ jobId }: { jobId: string }) {
     }
   }, [entries, autoScroll]);
 
-  // Filter entries by source, level, and search query
   // Strip nulls first to keep TS happy
   const nonNullEntries = entries.filter((e): e is NonNullable<typeof e> => e !== null);
+
+  // ── Agent log pre-filter: agent source only, exclude poller/usage/raw I/O ──
+  const agentFilteredEntries = nonNullEntries.filter((entry) => {
+    if (entry.source !== "agent") return false;
+    if (entry.subSource === "poller" || entry.subSource === "usage") return false;
+    if (/\bRAW API\b/i.test(entry.message)) return false;
+    if (/\u2697\ufe0f.*\[usage\]/i.test(entry.message)) return false;
+    return true;
+  });
+
   const searchMatchTotal = searchQuery.trim() ? nonNullEntries.filter((e) => e.message.toLowerCase().includes(searchQuery.toLowerCase())).length : 0;
-  const filteredEntries = nonNullEntries.filter((entry) => {
+  const filteredEntries = (logSubTab === "agent" ? agentFilteredEntries : nonNullEntries).filter((entry) => {
     if (sourceFilter !== "all" && entry.source !== sourceFilter) return false;
     if (subSourceFilter !== "all" && (!entry.subSource || entry.subSource !== subSourceFilter)) return false;
     if (levelFilter !== "all" && entry.level !== levelFilter) return false;
@@ -827,6 +836,12 @@ function LogsTab({ jobId }: { jobId: string }) {
           <Icon name="terminal" size="14" /> Pipeline Log
         </button>
         <button
+          className={`rv-logs-sub-tab ${logSubTab === "agent" ? "rv-logs-sub-tab--active" : ""}`}
+          onClick={() => setLogSubTab("agent")}
+          title="View agent-only logs, excluding polling, usage, and raw I/O">
+          <Icon name="smart_toy" size="14" /> Agent Log
+        </button>
+        <button
           className={`rv-logs-sub-tab ${logSubTab === "transcript" ? "rv-logs-sub-tab--active" : ""}`}
           onClick={() => setLogSubTab("transcript")}
           title="View the formatted transcript text file">
@@ -840,14 +855,25 @@ function LogsTab({ jobId }: { jobId: string }) {
         </button>
       </div>
 
-      {/* ── Pipeline Log sub-tab ── */}
-      {logSubTab === "pipeline" && (
+      {/* ── Pipeline Log / Agent Log sub-tabs (share same renderer) ── */}
+      {(logSubTab === "pipeline" || logSubTab === "agent") && (
         <>
           {/* Filter toolbar */}
           {rawLogs.length > 0 && (
             <div className="rv-logs-toolbar" style={{ flexShrink: 0, flexWrap: "wrap" }}>
               <span className="rv-logs-toolbar-title">
-                <Icon name="terminal" size="14" color="accent" /> Pipeline Logs
+                {logSubTab === "agent" ? (
+                  <>
+                    <Icon name="smart_toy" size="14" color="accent" /> Agent Logs
+                    <span className="rv-logs-badge" style={{ marginLeft: 8, fontSize: 11, opacity: 0.6 }}>
+                      (agent only, no poller/usage/raw I/O)
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Icon name="terminal" size="14" color="accent" /> Pipeline Logs
+                  </>
+                )}
               </span>
               <div className="rv-logs-toolbar-filters">
                 <div className="rv-logs-search-wrap">
@@ -874,7 +900,11 @@ function LogsTab({ jobId }: { jobId: string }) {
                     </button>
                   )}
                 </div>
-                <select className="rv-logs-filter-select" value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
+                <select
+                  className="rv-logs-filter-select"
+                  value={sourceFilter}
+                  onChange={(e) => setSourceFilter(e.target.value)}
+                  style={logSubTab === "agent" ? { display: "none" } : undefined}>
                   <option value="all">All sources</option>
                   <option value="python">Python</option>
                   <option value="bridge">Bridge</option>
@@ -893,6 +923,12 @@ function LogsTab({ jobId }: { jobId: string }) {
                   <option value="http">HTTP</option>
                   <option value="usage">Usage</option>
                   <option value="ollama">Ollama</option>
+                  {logSubTab === "agent" && (
+                    <>
+                      <option value="poller">Poller</option>
+                      <option value="build-context">Build Context</option>
+                    </>
+                  )}
                 </select>
                 <select className="rv-logs-filter-select" value={levelFilter} onChange={(e) => setLevelFilter(e.target.value)}>
                   <option value="all">All levels</option>
@@ -1004,7 +1040,7 @@ function LogsTab({ jobId }: { jobId: string }) {
                   <span className="rv-logs-empty-filter-icon">
                     <Icon name="search_off" size="14" color="muted" />
                   </span>
-                  <span>No logs match the current filters.</span>
+                  <span>{logSubTab === "agent" ? "No agent logs match the current filters." : "No logs match the current filters."}</span>
                 </div>
               )}
               <div className="dev-panel-footer">
@@ -1015,10 +1051,19 @@ function LogsTab({ jobId }: { jobId: string }) {
           ) : (
             <div className="rv-empty-state">
               <span className="rv-empty-icon">
-                <Icon name="terminal" size="32" color="muted" />
+                <Icon name={logSubTab === "agent" ? "smart_toy" : "terminal"} size="32" color="muted" />
               </span>
-              <p>No pipeline log entries found for this job.</p>
-              <p className="rv-muted">Pipeline log will appear here as the pipeline runs.</p>
+              {logSubTab === "agent" ? (
+                <>
+                  <p>No agent log entries found for this job.</p>
+                  <p className="rv-muted">Agent logs will appear here as the agent runner processes the job.</p>
+                </>
+              ) : (
+                <>
+                  <p>No pipeline log entries found for this job.</p>
+                  <p className="rv-muted">Pipeline log will appear here as the pipeline runs.</p>
+                </>
+              )}
             </div>
           )}
         </>

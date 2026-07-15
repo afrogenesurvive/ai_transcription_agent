@@ -2381,7 +2381,7 @@ function LogFilesTab() {
   const [logLevelFilter, setLogLevelFilter] = useState<string>("all");
   const [logSubSourceFilter, setLogSubSourceFilter] = useState<string>("all");
   const [sidebarWidth, setSidebarWidth] = useState(280);
-  const [logSubTab, setLogSubTab] = useState<"pipeline" | "transcript" | "raw">("pipeline");
+  const [logSubTab, setLogSubTab] = useState<"pipeline" | "agent" | "transcript" | "raw">("pipeline");
   const [collapseRepeated, setCollapseRepeated] = useState(true);
   const [prettifiedBlock, setPrettifiedBlock] = useState<string | null>(null);
   const resizingRef = useRef(false);
@@ -2501,7 +2501,18 @@ function LogFilesTab() {
   const selectedJob = jobs.find((j) => j.job_id === selectedJobId);
 
   // Filter log lines by source, level, sub-source, and search text
-  const filteredLogLines = logLines.filter((line) => {
+  // ── Agent log pre-filter: agent source only, exclude poller/usage/raw I/O ──
+  const agentFilteredLogLines = logLines.filter((line) => {
+    const src = parseLogSource(line);
+    if (src !== "agent") return false;
+    const sub = parseLogSubSource(line);
+    if (sub === "poller" || sub === "usage") return false;
+    if (/\bRAW API\b/i.test(line)) return false;
+    if (/\u2697\ufe0f.*\[usage\]/i.test(line)) return false;
+    return true;
+  });
+
+  const filteredLogLines = (logSubTab === "agent" ? agentFilteredLogLines : logLines).filter((line) => {
     if (logSourceFilter !== "all") {
       const src = parseLogSource(line);
       if (src !== logSourceFilter) return false;
@@ -2721,6 +2732,12 @@ function LogFilesTab() {
                 <Icon name="terminal" size="14" /> Pipeline Log
               </button>
               <button
+                className={`rv-logs-sub-tab ${logSubTab === "agent" ? "rv-logs-sub-tab--active" : ""}`}
+                onClick={() => setLogSubTab("agent")}
+                title="View agent-only logs, excluding polling, usage, and raw I/O">
+                <Icon name="smart_toy" size="14" /> Agent Log
+              </button>
+              <button
                 className={`rv-logs-sub-tab ${logSubTab === "transcript" ? "rv-logs-sub-tab--active" : ""}`}
                 onClick={() => setLogSubTab("transcript")}
                 title="View the formatted transcript text file">
@@ -2734,11 +2751,22 @@ function LogFilesTab() {
               </button>
             </div>
 
-            {/* ── Pipeline Log sub-tab ── */}
-            {logSubTab === "pipeline" && (
+            {/* ── Pipeline Log / Agent Log sub-tabs (share same renderer) ── */}
+            {(logSubTab === "pipeline" || logSubTab === "agent") && (
               <>
                 <div className="rv-logs-toolbar" style={{ flexShrink: 0 }}>
-                  <span className="rv-logs-toolbar-title">Logs: {selectedJob?.title || selectedJobId?.slice(0, 8)}</span>
+                  <span className="rv-logs-toolbar-title">
+                    {logSubTab === "agent" ? (
+                      <>
+                        <Icon name="smart_toy" size="14" color="accent" /> Agent Logs
+                        <span className="rv-logs-badge" style={{ marginLeft: 8, fontSize: 11, opacity: 0.6 }}>
+                          (agent only, no poller/usage/raw I/O)
+                        </span>
+                      </>
+                    ) : (
+                      <>Logs: {selectedJob?.title || selectedJobId?.slice(0, 8)}</>
+                    )}
+                  </span>
                   <div className="rv-logs-toolbar-filters" style={{ flex: 1, justifyContent: "flex-end", gap: 6 }}>
                     <div className="rv-logs-search-wrap">
                       <span className="rv-logs-search-icon">🔍</span>
@@ -2755,7 +2783,11 @@ function LogFilesTab() {
                         </button>
                       )}
                     </div>
-                    <select className="rv-logs-filter-select" value={logSourceFilter} onChange={(e) => setLogSourceFilter(e.target.value)}>
+                    <select
+                      className="rv-logs-filter-select"
+                      value={logSourceFilter}
+                      onChange={(e) => setLogSourceFilter(e.target.value)}
+                      style={logSubTab === "agent" ? { display: "none" } : undefined}>
                       <option value="all">All sources</option>
                       <option value="python">Python</option>
                       <option value="bridge">Bridge</option>
@@ -2774,6 +2806,12 @@ function LogFilesTab() {
                       <option value="http">HTTP</option>
                       <option value="usage">Usage</option>
                       <option value="ollama">Ollama</option>
+                      {logSubTab === "agent" && (
+                        <>
+                          <option value="poller">Poller</option>
+                          <option value="build-context">Build Context</option>
+                        </>
+                      )}
                     </select>
                     <select className="rv-logs-filter-select" value={logLevelFilter} onChange={(e) => setLogLevelFilter(e.target.value)}>
                       <option value="all">All levels</option>
@@ -2790,13 +2828,15 @@ function LogFilesTab() {
                     </label>
                   </div>
                   <span className="rv-logs-filter-count">
-                    {filteredLogLines.length} / {logLines.length} line{logLines.length !== 1 ? "s" : ""}
+                    {filteredLogLines.length} / {(logSubTab === "agent" ? agentFilteredLogLines : logLines).length} line
+                    {(logSubTab === "agent" ? agentFilteredLogLines : logLines).length !== 1 ? "s" : ""}
                   </span>
                 </div>
                 <div style={{ overflowY: "auto", flex: 1 }}>
                   {groupedLogEntries.length === 0 && (
                     <div className="dev-panel-empty">
-                      <Icon name="info" size="14" color="muted" /> No log entries found for this job.
+                      <Icon name="info" size="14" color="muted" />{" "}
+                      {logSubTab === "agent" ? "No agent log entries found for this job." : "No log entries found for this job."}
                     </div>
                   )}
                   {groupedLogEntries.map((group, gi) => renderGroupedLog(group, gi))}
