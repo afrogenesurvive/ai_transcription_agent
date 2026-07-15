@@ -1458,6 +1458,7 @@ async def _run_resumed_pipeline_async(job_id: str, label_map: dict):
             _pipeline_tasks.pop(job_id, None)
             _pipeline_cancel.discard(job_id)
             _active_jobs.pop(job_id, None)
+            _cleanup_pipeline_resources()
 
 
 def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
@@ -2639,6 +2640,29 @@ def _reconcile_attendees(metadata_attendees: list, attendee_emails: list,
                 "email": att_email,
             })
 
+    # ── Positional fallback: no voiceprints exist, all attendees unmatched ──
+    # When there are no stored voiceprints, match_result["known"] is empty,
+    # so every attendee lands in non_speaking_attendees even though the
+    # detected speakers ARE those attendees. If the counts match, assign
+    # each unknown speaker positionally to its corresponding attendee.
+    if (not matched_speakers
+            and unknown_speakers
+            and len(metadata_attendees) == len(unknown_speakers)
+            and len(non_speaking_attendees) == len(metadata_attendees)):
+        for i, att_name in enumerate(metadata_attendees):
+            spk = unknown_speakers[i]
+            att_email = attendee_emails[i] if i < len(attendee_emails) else ""
+            matched_speakers.append({
+                "name": att_name,
+                "email": att_email,
+                "speaker_id": spk["speaker_id"],
+                "confidence": 0.0,
+            })
+        non_speaking_attendees.clear()
+        matched_ids = {s["speaker_id"] for s in matched_speakers}
+        unknown_speakers = [u for u in unknown_speakers
+                           if u["speaker_id"] not in matched_ids]
+
     return {
         "matched_speakers": matched_speakers,
         "non_speaking_attendees": non_speaking_attendees,
@@ -2748,6 +2772,46 @@ async def _run_pipeline_async(job_id: str):
             _pipeline_tasks.pop(job_id, None)
             _pipeline_cancel.discard(job_id)
             _active_jobs.pop(job_id, None)
+            _cleanup_pipeline_resources()
+
+
+def _cleanup_pipeline_resources():
+    """Free ML resources after a pipeline completes.
+
+    Call this when no jobs are active to reclaim MPS memory and unload
+    ML models. Safe to call even if models are already unloaded.
+    """
+    try:
+        import gc
+        import torch
+
+        # 1. Clear PyTorch MPS allocation cache
+        if hasattr(torch, "mps") and torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+            print(f"[pipeline]   \U0001f9f9 MPS cache cleared")
+
+        # 2. Unload models only when no jobs are active
+        #    (model stays loaded between sequential jobs for speed)
+        if len(_active_jobs) == 0:
+            global engine, vp_manager
+
+            # Unload diarization model from TranscriptionEngine
+            if engine is not None and hasattr(engine, "_diarization"):
+                engine._diarization = None
+                print(f"[pipeline]   \U0001f9f9 Diarization model unloaded")
+
+            # Unload embedding model from VoiceprintManager
+            if vp_manager is not None and hasattr(vp_manager, "_embedding_model"):
+                vp_manager._embedding_model = None
+                print(f"[pipeline]   \U0001f9f9 Embedding model unloaded")
+
+            # Force garbage collection + final MPS cache clear
+            gc.collect()
+            if hasattr(torch, "mps") and torch.backends.mps.is_available():
+                torch.mps.empty_cache()
+                print(f"[pipeline]   \U0001f9f9 MPS cache cleared after GC")
+    except Exception as e:
+        print(f"[pipeline]   \u26a0\ufe0f Cleanup warning: {e}")
 
 
 def _update_active(job_id: str, status: str, progress: float, **extra):

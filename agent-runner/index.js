@@ -575,7 +575,7 @@ async function processEvent(event) {
       }
     }
 
-    if (!decision) {
+    if (!decision || !decision.name) {
       console.log(`⏭️  [RUNNER] No decision — pipeline complete`);
       logAction({ eventId, eventType: event.type, action: "complete", detail: `ended at step ${step}, no LLM decision` });
       pipelineComplete = true;

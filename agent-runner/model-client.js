@@ -192,9 +192,18 @@ export async function callModel(context, toolDefs, systemMessageOverride) {
       console.log(`📊 [MODEL] Raw API — messages: ${JSON.stringify(response.choices?.[0]?.message)}`);
     }
 
-    const toolCall = choice?.message?.tool_calls?.[0];
+    const message = choice?.message;
+    const toolCall = message?.tool_calls?.[0];
+
+    // Some providers (DeepSeek) return tool_calls alongside empty content.
+    // If there IS a tool_call, process it even when content is empty.
     if (!toolCall) {
-      console.log(`⚠️  [MODEL] No tool call in response — usage from this call will NOT be tracked`);
+      // Only bail if there's genuinely no tool_call AND no content
+      if (!message?.content || message.content.trim().length === 0) {
+        console.log(`\u26a0\ufe0f  [MODEL] No tool call in response — returning null`);
+        return null;
+      }
+      console.log(`\u26a0\ufe0f  [MODEL] Content-only response (no tool call) — returning null`);
       return null;
     }
 
