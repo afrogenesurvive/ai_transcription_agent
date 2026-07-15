@@ -794,6 +794,9 @@ async function processEvent(event) {
       console.log(`📝 [RUNNER] Context growth at step ${step}: +${contextLengthDelta} chars (result only, no hint)`);
     }
 
+    // ── Log step completion for pipeline log visibility ──
+    console.log(`[STEP-COMPLETE] Step ${step}: ${decision.name}`);
+
     // ── Configurable context window ──
     // When LLM_CONTEXT_WINDOW > 0, keep only the last N step result blocks
     // plus the initial context (job metadata + memory). This bounds context

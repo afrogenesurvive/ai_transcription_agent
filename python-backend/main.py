@@ -46,6 +46,7 @@ from ephemeral_memory import EphemeralMemory
 
 uploader: AudioUploader = None
 vp_manager: VoiceprintManager = None
+engine: TranscriptionEngine = None
 agent_bridge: AgentBridge = None
 semantic_memory: SemanticMemory = None
 ephemeral_memory: EphemeralMemory = None

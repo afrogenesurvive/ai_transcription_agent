@@ -227,16 +227,30 @@ function LiveLogsTab() {
             title="Filter by sub-source tag"
             data-tooltip="Filter logs by sub-source — Runner, Model, Pipeline, etc.">
             <option value="all">All sub-sources</option>
-            <option value="runner">Runner</option>
-            <option value="model">Model</option>
+            <option value="agent_bridge">Agent Bridge</option>
+            <option value="api">API</option>
+            <option value="auto-update">Auto Update</option>
+            <option value="bridge">Bridge</option>
+            <option value="cleanup">Cleanup</option>
+            <option value="config">Config</option>
+            <option value="ephemeral">Ephemeral</option>
             <option value="executor">Executor</option>
-            <option value="transcription">Transcription</option>
-            <option value="pipeline">Pipeline</option>
-            <option value="voiceprint">Voiceprint</option>
-            <option value="upload">Upload</option>
             <option value="http">HTTP</option>
-            <option value="usage">Usage</option>
+            <option value="label_and_resume">Label & Resume</option>
+            <option value="memory">Memory</option>
+            <option value="model">Model</option>
+            <option value="models_status">Models Status</option>
             <option value="ollama">Ollama</option>
+            <option value="pipeline">Pipeline</option>
+            <option value="reconciliation">Reconciliation</option>
+            <option value="runner">Runner</option>
+            <option value="semantic_memory">Semantic Memory</option>
+            <option value="startup">Startup</option>
+            <option value="transcription">Transcription</option>
+            <option value="upload">Upload</option>
+            <option value="upload_by_path">Upload by Path</option>
+            <option value="usage">Usage</option>
+            <option value="voiceprint">Voiceprint</option>
           </select>
 
           <select
@@ -2365,7 +2379,7 @@ function parseLogSource(line: string): string {
 /** Extract a sub-source from a pipeline.log line like "[2026-...] [agent][runner] ..." → "runner" */
 function parseLogSubSource(line: string): string | undefined {
   // Match [source][subsource] after the timestamp — e.g. "[2026-...] [agent][runner]"
-  const m = line.match(/^\[\d{4}.*?\]\s*\[\w+\]\[([a-z0-9_ ]+)\]/i);
+  const m = line.match(/^\[\d{4}.*?\]\s*\[\w+\]\[([a-zA-Z0-9 _-]+)\]/i);
   return m ? m[1].toLowerCase() : undefined;
 }
 
@@ -2796,20 +2810,35 @@ function LogFilesTab() {
                     </select>
                     <select className="rv-logs-filter-select" value={logSubSourceFilter} onChange={(e) => setLogSubSourceFilter(e.target.value)}>
                       <option value="all">All sub-sources</option>
-                      <option value="runner">Runner</option>
-                      <option value="model">Model</option>
+                      <option value="agent_bridge">Agent Bridge</option>
+                      <option value="api">API</option>
+                      <option value="auto-update">Auto Update</option>
+                      <option value="bridge">Bridge</option>
+                      <option value="cleanup">Cleanup</option>
+                      <option value="config">Config</option>
+                      <option value="ephemeral">Ephemeral</option>
                       <option value="executor">Executor</option>
-                      <option value="transcription">Transcription</option>
-                      <option value="pipeline">Pipeline</option>
-                      <option value="voiceprint">Voiceprint</option>
-                      <option value="upload">Upload</option>
                       <option value="http">HTTP</option>
-                      <option value="usage">Usage</option>
+                      <option value="label_and_resume">Label & Resume</option>
+                      <option value="memory">Memory</option>
+                      <option value="model">Model</option>
+                      <option value="models_status">Models Status</option>
                       <option value="ollama">Ollama</option>
+                      <option value="pipeline">Pipeline</option>
+                      <option value="reconciliation">Reconciliation</option>
+                      <option value="runner">Runner</option>
+                      <option value="semantic_memory">Semantic Memory</option>
+                      <option value="startup">Startup</option>
+                      <option value="transcription">Transcription</option>
+                      <option value="upload">Upload</option>
+                      <option value="upload_by_path">Upload by Path</option>
+                      <option value="usage">Usage</option>
+                      <option value="voiceprint">Voiceprint</option>
                       {logSubTab === "agent" && (
                         <>
-                          <option value="poller">Poller</option>
                           <option value="build-context">Build Context</option>
+                          <option value="poller">Poller</option>
+                          <option value="step-complete">Step Complete</option>
                         </>
                       )}
                     </select>
