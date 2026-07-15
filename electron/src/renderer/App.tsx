@@ -78,6 +78,9 @@ export default function App() {
   const [showHistory, setShowHistory] = useState(false);
   const [storageRefreshTrigger, setStorageRefreshTrigger] = useState(0);
   const [showNewForm, setShowNewForm] = useState(false);
+  // Left-column collapse state for history view — collapsed hides the job list so
+  // the results viewer gets the full width.
+  const [leftColCollapsed, setLeftColCollapsed] = useState(() => localStorage.getItem("historyLeftColCollapsed") === "true");
   // Isolated state for history job data — prevents overwriting when the current job's
   // polling updates the shared transcript/metadata state.
   const [historyTranscript, setHistoryTranscript] = useState<any>(null);
@@ -148,6 +151,11 @@ export default function App() {
     loadAndApplyAppearance();
   }, []);
 
+  // Persist left-column collapse state across sessions
+  useEffect(() => {
+    localStorage.setItem("historyLeftColCollapsed", String(leftColCollapsed));
+  }, [leftColCollapsed]);
+
   // ── Sidebar drag-to-resize ──
   const sidebarRef = useRef<HTMLElement>(null);
   const [isResizing, setIsResizing] = useState(false);
@@ -186,6 +194,37 @@ export default function App() {
       document.body.classList.remove("sidebar-resizing");
     };
   }, [isResizing]);
+
+  // ── Left-col drag-to-resize ──
+  const leftColResizeStartRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  const handleLeftColMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const leftCol = document.getElementById("left-col");
+    if (!leftCol) return;
+    leftColResizeStartRef.current = {
+      startX: e.clientX,
+      startWidth: leftCol.offsetWidth,
+    };
+    document.body.classList.add("left-col-resizing");
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      if (!leftColResizeStartRef.current) return;
+      const { startX, startWidth } = leftColResizeStartRef.current;
+      const newWidth = Math.max(280, Math.min(800, startWidth + (moveEvent.clientX - startX)));
+      document.documentElement.style.setProperty("--left-col-width", `${newWidth}px`);
+    };
+
+    const handleMouseUp = () => {
+      leftColResizeStartRef.current = null;
+      document.body.classList.remove("left-col-resizing");
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  }, []);
 
   // Check config on mount — detect whether Ollama is the provider
   useEffect(() => {
@@ -530,6 +569,7 @@ export default function App() {
                 ? "A job is currently running — wait for it to finish"
                 : "Start a new transcription — upload audio and configure meeting details"
             }
+            data-tooltip-pos="right"
             data-tooltip={
               isJobRunning
                 ? "A transcription job is in progress — start a new one after it finishes"
@@ -549,6 +589,7 @@ export default function App() {
               setHistoryJobId(null);
             }}
             title="View active or most recent job — pipeline progress, transcript, and results"
+            data-tooltip-pos="right"
             data-tooltip="View active or most recent job — pipeline progress, transcript, and results">
             <span className="sidebar-btn-icon">
               <Icon name="home" size="16" />
@@ -566,6 +607,7 @@ export default function App() {
               setShowHistory((v) => !v);
             }}
             title="Browse past transcription jobs — reload or delete previous sessions"
+            data-tooltip-pos="right"
             data-tooltip="Browse past transcription jobs — reload or delete previous sessions">
             <span className="sidebar-btn-icon">
               <Icon name="history" size="16" />
@@ -580,6 +622,7 @@ export default function App() {
               setShowHistory(false);
             }}
             title="View disk usage breakdown — jobs, logs, databases, and models"
+            data-tooltip-pos="right"
             data-tooltip="View disk usage breakdown — jobs, logs, databases, and models">
             <span className="sidebar-btn-icon">
               <Icon name="storage" size="16" />
@@ -594,6 +637,7 @@ export default function App() {
               setShowHistory(false);
             }}
             title="Developer tools — live logs, database browser, performance metrics, and updates"
+            data-tooltip-pos="right"
             data-tooltip="Developer tools — live logs, database browser, performance metrics, and updates">
             <span className="sidebar-btn-icon">
               <Icon name="build" size="16" />
@@ -609,6 +653,7 @@ export default function App() {
               window.electronAPI?.getConfigWithSources();
             }}
             title="Configure API keys, LLM provider, delivery services, and agent pipeline settings"
+            data-tooltip-pos="right"
             data-tooltip="Configure API keys, LLM provider, delivery services, and agent pipeline settings">
             <span className="sidebar-btn-icon">
               <Icon name="settings" size="16" />
@@ -624,6 +669,7 @@ export default function App() {
               setShowHistory(false);
             }}
             title="Customize theme, accent color, font size, and sidebar width"
+            data-tooltip-pos="right"
             data-tooltip="Customize theme, accent color, font size, and sidebar width">
             <span className="sidebar-btn-icon">
               <Icon name="palette" size="16" />
@@ -638,6 +684,7 @@ export default function App() {
               setShowHistory(false);
             }}
             title="App version, name, and README — learn about the Transcription Agent"
+            data-tooltip-pos="right"
             data-tooltip="App version, name, and README — learn about the Transcription Agent">
             <span className="sidebar-btn-icon">
               <Icon name="info" size="16" />
@@ -678,13 +725,17 @@ export default function App() {
                     </div>
                   ) : (
                     <>
-                      <div className="left-col" id="left-col">
+                      <div className={"left-col" + (leftColCollapsed && showHistory ? " left-col--collapsed" : "")} id="left-col">
                         {showHistory ? (
                           <HistoryPanel
-                            onSelectJob={loadHistoryJob}
+                            onSelectJob={(jobId) => {
+                              loadHistoryJob(jobId);
+                            }}
+                            collapsed={leftColCollapsed}
                             currentJobId={historyJobId || jobId}
                             onNotify={notify}
                             onStorageChanged={onStorageChanged}
+                            onToggleCollapse={() => setLeftColCollapsed((v) => !v)}
                           />
                         ) : (
                           <>
@@ -732,6 +783,9 @@ export default function App() {
                           </>
                         )}
                       </div>
+
+                      {/* ── Left-col resize handle ── */}
+                      <div className="left-col-resize-handle" onMouseDown={handleLeftColMouseDown} />
 
                       <div className="right-col">
                         {/* Show results for a history job (history panel visible in left column) */}

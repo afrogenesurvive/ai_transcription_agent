@@ -132,6 +132,66 @@
 
 /* ── History Panel Tabs ── */
 
+.history-panel--collapsed {
+  gap: 4px;
+  align-items: center;
+}
+
+/* ── Collapsed header (icon + refresh + expand button) ── */
+
+.history-panel-collapsed-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+}
+
+.history-panel-refresh--compact {
+  width: 24px;
+  height: 24px;
+}
+
+/* ── Collapsed icon strip ── */
+
+.history-panel-collapsed-icons {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 0;
+}
+
+.history-panel-collapsed-icon {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.history-panel-collapsed-icon:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.history-panel-collapsed-icon--active {
+  color: var(--accent);
+  background: rgba(88, 166, 255, 0.12);
+  border-color: var(--accent);
+}
+
 .history-panel-tabs {
   display: flex;
   gap: 0;

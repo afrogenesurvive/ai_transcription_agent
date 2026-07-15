@@ -20,9 +20,11 @@ interface JobSummary {
 
 interface Props {
   onSelectJob: (jobId: string) => void;
+  collapsed?: boolean;
   currentJobId: string | null;
   onNotify?: (message: string) => void;
   onStorageChanged?: () => void;
+  onToggleCollapse?: () => void;
 }
 
 const STATUS_ICON: Record<string, string> = {
@@ -88,7 +90,7 @@ async function callBridge(tool: string, args: any = {}): Promise<any> {
   return res.json();
 }
 
-export default function HistoryPanel({ onSelectJob, currentJobId, onNotify, onStorageChanged }: Props) {
+export default function HistoryPanel({ onSelectJob, collapsed, currentJobId, onNotify, onStorageChanged, onToggleCollapse }: Props) {
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -132,96 +134,146 @@ export default function HistoryPanel({ onSelectJob, currentJobId, onNotify, onSt
   );
 
   return (
-    <div className="history-panel">
-      <div className="history-panel-header">
-        <h2 className="history-panel-title">
-          <Icon name="history" size="16" color="accent" /> History
-        </h2>
-        <div className="history-panel-tabs">
-          <span className="history-panel-tab history-panel-tab--active">Jobs</span>
+    <div className={"history-panel" + (collapsed ? " history-panel--collapsed" : "")}>
+      {/* ── Collapsed header: just icon + expand button ── */}
+      {collapsed ? (
+        <div className="history-panel-collapsed-header">
+          <Icon name="list_alt" size="16" color="accent" />
+          <button
+            className="history-panel-refresh history-panel-refresh--compact"
+            onClick={loadHistory}
+            title="Refresh the job history list"
+            data-tooltip="Refresh the job history list — check for newly completed jobs">
+            <Icon name="refresh" size="14" />
+          </button>
+          <button
+            className="left-col-collapse-btn"
+            onClick={onToggleCollapse}
+            title="Expand job list"
+            data-tooltip="Expand the job list to browse history entries">
+            <Icon name="chevron_right" size="10" />
+          </button>
         </div>
-        <button
-          className="history-panel-refresh"
-          onClick={loadHistory}
-          title="Refresh the job history list"
-          data-tooltip="Refresh the job history list — check for newly completed jobs">
-          <Icon name="refresh" size="14" />
-        </button>
-      </div>
+      ) : (
+        <div className="history-panel-header">
+          <h2 className="history-panel-title">
+            <Icon name="history" size="16" color="accent" /> History
+          </h2>
+          <div className="history-panel-tabs">
+            <span className="history-panel-tab history-panel-tab--active">Jobs</span>
+          </div>
+          <button
+            className="history-panel-refresh"
+            onClick={loadHistory}
+            title="Refresh the job history list"
+            data-tooltip="Refresh the job history list — check for newly completed jobs">
+            <Icon name="refresh" size="14" />
+          </button>
+          <button
+            className="left-col-collapse-btn"
+            onClick={onToggleCollapse}
+            title="Collapse job list"
+            data-tooltip="Collapse the job list to give the results viewer more space">
+            <Icon name="chevron_left" size="10" />
+          </button>
+        </div>
+      )}
 
-      <LoadingModal visible={loading} message="Loading job history…" />
-      {error && <div className="history-panel-status history-panel-status--error">Error: {error}</div>}
+      {/* ── Collapsed icon strip ── */}
+      {collapsed ? (
+        <div className="history-panel-collapsed-icons">
+          {loading && <Icon name="hourglass_top" size="14" color="muted" />}
+          {error && <Icon name="error" size="14" color="red" />}
+          {!loading && !error && jobs.length === 0 && <Icon name="inbox" size="14" color="muted" />}
+          {jobs.map((job) => (
+            <button
+              key={job.job_id}
+              className={"history-panel-collapsed-icon" + (currentJobId === job.job_id ? " history-panel-collapsed-icon--active" : "")}
+              onClick={() => onSelectJob(job.job_id)}
+              title={job.title}
+              data-tooltip={`${job.title} — ${STATUS_LABEL[job.status] || job.status}`}>
+              <Icon name={STATUS_ICON[job.status] || "description"} size="14" />
+            </button>
+          ))}
+        </div>
+      ) : (
+        /* ── Expanded job list ── */
+        <>
+          <LoadingModal visible={loading} message="Loading job history…" />
+          {error && <div className="history-panel-status history-panel-status--error">Error: {error}</div>}
 
-      {!loading && !error && jobs.length === 0 && <div className="history-panel-status">No jobs yet. Upload an audio file to get started.</div>}
+          {!loading && !error && jobs.length === 0 && <div className="history-panel-status">No jobs yet. Upload an audio file to get started.</div>}
 
-      <div className="history-panel-list">
-        {jobs.map((job) => {
-          return (
-            <div key={job.job_id} className="history-panel-item-wrapper">
-              <div
-                className={`history-panel-item ${currentJobId === job.job_id ? "history-panel-item--active" : ""}`}
-                onClick={() => {
-                  onSelectJob(job.job_id);
-                }}>
-                <div className="history-panel-item-top">
-                  <span className="history-panel-item-icon">
-                    <Icon name={STATUS_ICON[job.status] || "description"} size="14" />
-                  </span>
-                  <span className="history-panel-item-title">{job.title}</span>
-                </div>
-                <div className="history-panel-item-meta">
-                  <span className="history-panel-item-status">{STATUS_LABEL[job.status] || job.status}</span>
-                  <span className="history-panel-item-date">{formatDate(job.mtime)}</span>
-                </div>
-                {job.attendees && job.attendees.length > 0 && <div className="history-panel-item-attendees">{job.attendees.join(", ")}</div>}
-                {!job.has_transcript && job.status !== "failed" && <div className="history-panel-item-warning">No transcript data</div>}
-              </div>
-              <button
-                className="history-panel-delete-btn"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setConfirmDelete(job.job_id);
-                }}
-                disabled={deleting === job.job_id}
-                title="Permanently delete this job and all its data"
-                data-tooltip="Permanently delete this job — transcript, summary, audio, and all associated data">
-                {deleting === job.job_id ? <Icon name="hourglass_top" size="14" color="accent" /> : <Icon name="delete" size="14" color="red" />}
-              </button>
-
-              {/* Confirmation dialog */}
-              {confirmDelete === job.job_id && (
-                <div className="confirm-overlay" onClick={() => setConfirmDelete(null)}>
-                  <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
-                    <h3 className="confirm-dialog-title">Delete Job</h3>
-                    <p className="confirm-dialog-text">
-                      Are you sure you want to delete "<strong>{job.title}</strong>"?
-                      <br />
-                      This will permanently remove all associated data including transcript, summary, and audio.
-                    </p>
-                    <div className="confirm-dialog-actions">
-                      <button
-                        className="btn-secondary"
-                        onClick={() => setConfirmDelete(null)}
-                        title="Keep this job — do not delete"
-                        data-tooltip="Cancel deletion and keep the job">
-                        Cancel
-                      </button>
-                      <button
-                        className="btn-danger"
-                        onClick={() => handleDelete(job.job_id)}
-                        disabled={deleting === job.job_id}
-                        title="Confirm permanent deletion"
-                        data-tooltip="Permanently delete this job — this cannot be undone">
-                        {deleting === job.job_id ? "Deleting..." : "Delete"}
-                      </button>
+          <div className="history-panel-list">
+            {jobs.map((job) => {
+              return (
+                <div key={job.job_id} className="history-panel-item-wrapper">
+                  <div
+                    className={`history-panel-item ${currentJobId === job.job_id ? "history-panel-item--active" : ""}`}
+                    onClick={() => {
+                      onSelectJob(job.job_id);
+                    }}>
+                    <div className="history-panel-item-top">
+                      <span className="history-panel-item-icon">
+                        <Icon name={STATUS_ICON[job.status] || "description"} size="14" />
+                      </span>
+                      <span className="history-panel-item-title">{job.title}</span>
                     </div>
+                    <div className="history-panel-item-meta">
+                      <span className="history-panel-item-status">{STATUS_LABEL[job.status] || job.status}</span>
+                      <span className="history-panel-item-date">{formatDate(job.mtime)}</span>
+                    </div>
+                    {job.attendees && job.attendees.length > 0 && <div className="history-panel-item-attendees">{job.attendees.join(", ")}</div>}
+                    {!job.has_transcript && job.status !== "failed" && <div className="history-panel-item-warning">No transcript data</div>}
                   </div>
+                  <button
+                    className="history-panel-delete-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setConfirmDelete(job.job_id);
+                    }}
+                    disabled={deleting === job.job_id}
+                    title="Permanently delete this job and all its data"
+                    data-tooltip="Permanently delete this job — transcript, summary, audio, and all associated data">
+                    {deleting === job.job_id ? <Icon name="hourglass_top" size="14" color="accent" /> : <Icon name="delete" size="14" color="red" />}
+                  </button>
+
+                  {/* Confirmation dialog */}
+                  {confirmDelete === job.job_id && (
+                    <div className="confirm-overlay" onClick={() => setConfirmDelete(null)}>
+                      <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+                        <h3 className="confirm-dialog-title">Delete Job</h3>
+                        <p className="confirm-dialog-text">
+                          Are you sure you want to delete "<strong>{job.title}</strong>"?
+                          <br />
+                          This will permanently remove all associated data including transcript, summary, and audio.
+                        </p>
+                        <div className="confirm-dialog-actions">
+                          <button
+                            className="btn-secondary"
+                            onClick={() => setConfirmDelete(null)}
+                            title="Keep this job — do not delete"
+                            data-tooltip="Cancel deletion and keep the job">
+                            Cancel
+                          </button>
+                          <button
+                            className="btn-danger"
+                            onClick={() => handleDelete(job.job_id)}
+                            disabled={deleting === job.job_id}
+                            title="Confirm permanent deletion"
+                            data-tooltip="Permanently delete this job — this cannot be undone">
+                            {deleting === job.job_id ? "Deleting..." : "Delete"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+              );
+            })}
+          </div>
+        </>
+      )}
     </div>
   );
 }
