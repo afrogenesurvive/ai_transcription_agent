@@ -221,79 +221,118 @@ function renderMarkdown(md: string): string {
   return html;
 }
 
-/** Extract section headings from markdown for the table of contents. */
-function extractToc(md: string): Array<{ level: number; title: string; id: string }> {
-  const toc: Array<{ level: number; title: string; id: string }> = [];
+/** Split markdown into pages, one per ## heading, skipping the TOC section. */
+function splitIntoPages(md: string): Array<{ id: string; title: string; content: string }> {
   const lines = md.split("\n");
+  const pages: Array<{ id: string; title: string; content: string }> = [];
+  let current: { id: string; title: string; content: string[] } | null = null;
+  let pastToc = false;
+
   for (const line of lines) {
-    const match = line.match(/^(#{2,4})\s+(.+)/);
+    const match = line.match(/^##\s+(.+)/);
     if (match) {
-      const level = match[1].length;
-      const title = match[2].trim();
-      toc.push({ level, title, id: slugify(title) });
+      const title = match[1].trim();
+      // Skip the TOC section itself
+      if (title.startsWith("📖")) {
+        pastToc = true;
+        continue;
+      }
+      // Finalize previous page
+      if (current) {
+        pages.push({ id: current.id, title: current.title, content: current.content.join("\n") });
+      }
+      // Start new page (promote ## heading to # so it renders as page title)
+      current = { id: slugify(title), title, content: [`# ${title}`] };
+      pastToc = true;
+    } else if (current && pastToc) {
+      current.content.push(line);
     }
   }
-  return toc;
+  // Push the last page
+  if (current) {
+    pages.push({ id: current.id, title: current.title, content: current.content.join("\n") });
+  }
+  return pages;
 }
 
 function GuideTab({ markdown }: { markdown: string }) {
+  const [currentIndex, setCurrentIndex] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
-  const [showToc, setShowToc] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
-  const toc = useMemo(() => extractToc(markdown), [markdown]);
+  // Split into pages
+  const pages = useMemo(() => splitIntoPages(markdown), [markdown]);
 
-  // Render markdown to HTML with search highlighting
-  const renderedHtml = useMemo(() => {
-    let html = renderMarkdown(markdown);
-    if (searchQuery.trim()) {
-      const escaped = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const re = new RegExp(`(${escaped})`, "gi");
-      html = html.replace(re, '<mark class="guide-search-hl">$1</mark>');
-    }
-    return html;
-  }, [markdown, searchQuery]);
+  // TOC entries (all pages)
+  const toc = useMemo(
+    () => pages.map((p) => ({ id: p.id, title: p.title })),
+    [pages]
+  );
 
-  // Filter TOC based on search
+  // Filter TOC by search
   const filteredToc = useMemo(() => {
     if (!searchQuery.trim()) return toc;
     const q = searchQuery.toLowerCase();
     return toc.filter((s) => s.title.toLowerCase().includes(q));
   }, [toc, searchQuery]);
 
-  // Scroll to a heading when a TOC item is clicked
-  const handleTocClick = useCallback((id: string) => {
-    setShowToc(false);
-    // Small delay so the sidebar can collapse before scrolling
-    setTimeout(() => {
-      const el = document.getElementById(id);
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-    }, 100);
+  // When search changes, jump to first matching page
+  useEffect(() => {
+    if (searchQuery.trim() && filteredToc.length > 0) {
+      const idx = toc.findIndex((t) => t.id === filteredToc[0].id);
+      if (idx >= 0) setCurrentIndex(idx);
+    }
+  }, [searchQuery]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Render current page markdown with search highlighting
+  const renderedHtml = useMemo(() => {
+    if (pages.length === 0) return "";
+    let html = renderMarkdown(pages[currentIndex].content);
+    if (searchQuery.trim()) {
+      const escaped = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const re = new RegExp(`(${escaped})`, "gi");
+      html = html.replace(re, '<mark class="guide-search-hl">$1</mark>');
+    }
+    return html;
+  }, [pages, currentIndex, searchQuery]);
+
+  // Navigate helpers
+  const goTo = useCallback((idx: number) => {
+    setCurrentIndex(idx);
+    contentRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
-  // Wire up anchor clicks for internal navigation
+  const goPrev = useCallback(() => {
+    if (currentIndex > 0) goTo(currentIndex - 1);
+  }, [currentIndex, goTo]);
+
+  const goNext = useCallback(() => {
+    if (currentIndex < pages.length - 1) goTo(currentIndex + 1);
+  }, [currentIndex, pages.length, goTo]);
+
+  // Keyboard navigation (Arrow Left / Arrow Right)
   useEffect(() => {
-    const el = contentRef.current;
-    if (!el) return;
-    const handler = (e: MouseEvent) => {
-      const anchor = (e.target as HTMLElement).closest("a.guide-anchor");
-      if (anchor) {
-        e.preventDefault();
-        const href = anchor.getAttribute("href");
-        if (href && href.startsWith("#")) {
-          handleTocClick(href.slice(1));
-        }
-      }
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft") goPrev();
+      else if (e.key === "ArrowRight") goNext();
     };
-    el.addEventListener("click", handler);
-    return () => el.removeEventListener("click", handler);
-  }, [handleTocClick]);
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [goPrev, goNext]);
+
+  if (pages.length === 0) {
+    return (
+      <p className="about-md-content about-md-content--empty">
+        The user guide is not available. Make sure <code>docs/end_user_guide.md</code> exists in the application directory.
+      </p>
+    );
+  }
+
+  const currentPage = pages[currentIndex];
 
   return (
     <div className="guide-container">
-      {/* ── Toolbar: search + TOC toggle ── */}
+      {/* ── Toolbar: search + page counter ── */}
       <div className="guide-toolbar">
         <div className="guide-search-wrap">
           <Icon name="search" size="14" color="text-muted" />
@@ -310,50 +349,59 @@ function GuideTab({ markdown }: { markdown: string }) {
             </button>
           )}
         </div>
-        <button
-          className={`guide-toc-toggle ${showToc ? "guide-toc-toggle--open" : ""}`}
-          onClick={() => setShowToc((v) => !v)}
-          title="Table of contents">
-          <Icon name="list" size="14" /> {showToc ? "Hide" : "Sections"}
-        </button>
+        <span className="guide-page-indicator">
+          {currentIndex + 1} / {pages.length}
+        </span>
       </div>
 
-      {/* ── Table of contents sidebar ── */}
-      {showToc && (
-        <nav className="guide-toc">
-          {filteredToc.map((s, i) => (
-            <button
-              key={i}
-              className="guide-toc-item"
-              data-level={s.level}
-              onClick={() => handleTocClick(s.id)}
-              style={{ paddingLeft: `${12 + (s.level - 2) * 16}px` }}>
-              {s.title}
-            </button>
-          ))}
+      <div className="guide-layout">
+        {/* ── Sidebar TOC ── */}
+        <nav className="guide-sidebar">
+          <div className="guide-sidebar-title">Pages</div>
+          {filteredToc.map((s) => {
+            const idx = toc.findIndex((t) => t.id === s.id);
+            const isActive = idx === currentIndex;
+            return (
+              <button
+                key={s.id}
+                className={`guide-sidebar-item ${isActive ? "guide-sidebar-item--active" : ""}`}
+                onClick={() => goTo(idx)}
+                title={s.title}
+              >
+                <span className="guide-sidebar-num">{idx + 1}.</span>
+                <span className="guide-sidebar-label">{s.title}</span>
+              </button>
+            );
+          })}
           {filteredToc.length === 0 && searchQuery && (
-            <p className="guide-toc-empty">No sections match "{searchQuery}"</p>
+            <p className="guide-sidebar-empty">No pages match "{searchQuery}"</p>
           )}
         </nav>
-      )}
 
-      {/* ── Rendered content ── */}
-      {markdown ? (
-        <div className="about-md-content" ref={contentRef} dangerouslySetInnerHTML={{ __html: renderedHtml }} />
-      ) : (
-        <p className="about-md-content about-md-content--empty">
-          The user guide is not available. Make sure <code>docs/end_user_guide.md</code> exists in the application directory.
-        </p>
-      )}
+        {/* ── Page content ── */}
+        <div className="guide-page-area">
+          <div className="about-md-content" ref={contentRef} dangerouslySetInnerHTML={{ __html: renderedHtml }} />
 
-      {/* Search results count */}
-      {searchQuery.trim() && (
-        <div className="guide-results-count">
-          {filteredToc.length > 0
-            ? `${filteredToc.length} section(s) match "${searchQuery}"`
-            : `No sections match "${searchQuery}"`}
+          {/* ── Navigation bar ── */}
+          <div className="guide-nav">
+            <button
+              className="guide-nav-btn"
+              disabled={currentIndex === 0}
+              onClick={goPrev}
+            >
+              <Icon name="chevron_left" size="16" /> Previous
+            </button>
+            <span className="guide-nav-label">{currentPage.title}</span>
+            <button
+              className="guide-nav-btn guide-nav-btn--next"
+              disabled={currentIndex === pages.length - 1}
+              onClick={goNext}
+            >
+              Next <Icon name="chevron_right" size="16" />
+            </button>
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
