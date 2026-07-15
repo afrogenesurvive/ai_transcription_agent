@@ -52,6 +52,8 @@ export interface AppConfig {
   LOG_LLM_DATA: string;
   /** Collapse consecutive log lines with identical source/subsource/level in Results Viewer */
   LOG_COLLAPSE_REPEATED_PREFIXES: string;
+  /** LLM temperature (0.0–2.0). Lower = more deterministic, higher = more creative. Default 0.1 */
+  LLM_TEMPERATURE: string;
   /** Fetch memory context — controlled via pipeline step _fetch_memory_context in pipeline.json */
   /* USE_MEMORY_FOR_CONTEXT removed — now a pipeline step toggle in Agent Instructions */
   /** UI theme: "dark" or "light" */
@@ -100,6 +102,7 @@ const DEFAULTS: AppConfig = {
   WHISPER_INITIAL_PROMPT: "",
   LOG_LLM_DATA: "false",
   LOG_COLLAPSE_REPEATED_PREFIXES: "true",
+  LLM_TEMPERATURE: "0.1",
   APPEARANCE_THEME: "dark",
   APPEARANCE_ACCENT_COLOR: "#58a6ff",
   APPEARANCE_FONT_SIZE: "medium",
@@ -254,6 +257,7 @@ export function getChildEnv(): NodeJS.ProcessEnv {
     WHISPER_INITIAL_PROMPT_ENABLED: config.WHISPER_INITIAL_PROMPT_ENABLED || process.env.WHISPER_INITIAL_PROMPT_ENABLED || "false",
     WHISPER_INITIAL_PROMPT: config.WHISPER_INITIAL_PROMPT || process.env.WHISPER_INITIAL_PROMPT || "",
     LOG_LLM_DATA: config.LOG_LLM_DATA || process.env.LOG_LLM_DATA || "false",
+    LLM_TEMPERATURE: config.LLM_TEMPERATURE || process.env.LLM_TEMPERATURE || "0.1",
     APPEARANCE_THEME: config.APPEARANCE_THEME || process.env.APPEARANCE_THEME || "dark",
     APPEARANCE_ACCENT_COLOR: config.APPEARANCE_ACCENT_COLOR || process.env.APPEARANCE_ACCENT_COLOR || "#58a6ff",
     APPEARANCE_FONT_SIZE: config.APPEARANCE_FONT_SIZE || process.env.APPEARANCE_FONT_SIZE || "medium",

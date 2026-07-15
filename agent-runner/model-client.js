@@ -178,7 +178,7 @@ export async function callModel(context, toolDefs, systemMessageOverride) {
       ],
       tools,
       tool_choice: "auto",
-      temperature: 0.1,
+      temperature: parseFloat(process.env.LLM_TEMPERATURE || "0.1"),
       stream: false,
       ...ollamaParams,
     });

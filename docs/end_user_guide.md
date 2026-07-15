@@ -274,6 +274,13 @@ Choose your AI provider:
 
 **Hugging Face Token** — required for speaker identification. Get one free at huggingface.co
 
+**LLM Temperature** — controls randomness of the AI's outputs (range: 0.0–2.0).
+
+- `0.1` (default) — very deterministic, best for factual transcript processing
+- `0.3` — slightly more variation while staying on-task
+- `0.7` — creative; good for brainstorming or varied summarization styles
+- `1.0+` — increasingly random; may produce unexpected or less coherent results
+
 **Whisper Model Size** — affects transcription accuracy vs. speed:
 
 - `medium` (default) — good balance
