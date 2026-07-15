@@ -115,7 +115,8 @@ const FALLBACK_TOOLS = [
   },
   {
     name: "transcribe_upsert_job",
-    description: "Upsert a job record in the ephemeral jobs table. Accepts any subset of fields: token usage, pipeline steps, delivery results, content metrics, and terminal state.",
+    description:
+      "Upsert a job record in the ephemeral jobs table. Accepts any subset of fields: token usage, pipeline steps, delivery results, content metrics, and terminal state.",
     terminal: false,
     handler: "bridge",
     inputSchema: {

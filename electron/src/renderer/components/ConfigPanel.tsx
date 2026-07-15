@@ -1078,7 +1078,9 @@ The system provides existing memory context at the start of each pipeline run. U
                               f.key !== "OLLAMA_MODEL" &&
                               f.key !== "OLLAMA_NUM_CTX" &&
                               f.key !== "WHISPER_MODEL_SIZE" &&
-                              f.key !== "KEEP_TRANSCRIPT_TIMESTAMPS",
+                              f.key !== "KEEP_TRANSCRIPT_TIMESTAMPS" &&
+                              f.key !== "WHISPER_INITIAL_PROMPT_ENABLED" &&
+                              f.key !== "WHISPER_INITIAL_PROMPT",
                           )
                           .map((field) => (
                             <div key={field.key} className="config-field">

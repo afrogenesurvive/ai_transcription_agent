@@ -161,15 +161,25 @@ export default function ServerStatusBanner({
               <circle cx="28" cy="28" r={r} fill="none" stroke="var(--border)" strokeWidth="4" />
               {countdownDone ? (
                 <circle
-                  cx="28" cy="28" r={r}
-                  fill="none" stroke="var(--accent)" strokeWidth="4" strokeLinecap="round"
+                  cx="28"
+                  cy="28"
+                  r={r}
+                  fill="none"
+                  stroke="var(--accent)"
+                  strokeWidth="4"
+                  strokeLinecap="round"
                   strokeDasharray={`${circ * 0.75} ${circ * 0.25}`}
                   style={{ transform: "rotate(-90deg)", transformOrigin: "center" }}
                 />
               ) : (
                 <circle
-                  cx="28" cy="28" r={r}
-                  fill="none" stroke="var(--accent)" strokeWidth="4" strokeLinecap="round"
+                  cx="28"
+                  cy="28"
+                  r={r}
+                  fill="none"
+                  stroke="var(--accent)"
+                  strokeWidth="4"
+                  strokeLinecap="round"
                   strokeDasharray={circ}
                   strokeDashoffset={offset}
                   style={{ transform: "rotate(-90deg)", transformOrigin: "center", transition: "stroke-dashoffset 0.4s ease" }}

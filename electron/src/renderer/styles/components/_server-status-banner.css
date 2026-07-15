@@ -369,7 +369,9 @@
   cursor: pointer;
   border: 1px solid var(--border);
   white-space: nowrap;
-  transition: background 0.15s, border-color 0.15s;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
 }
 
 .ssb-retry-btn {

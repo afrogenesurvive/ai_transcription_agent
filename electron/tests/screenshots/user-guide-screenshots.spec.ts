@@ -53,7 +53,10 @@ const BRIDGE_URL = "http://127.0.0.1:5010";
  * DevPanel Testing tab from config.json). Must contain at least 20 names.
  * Falls back to the default 20 if the env var is unset.
  */
-const GENERIC_NAMES = (process.env.PLAYWRIGHT_GENERIC_NAMES || "Alex,Blake,Casey,Drew,Ellis,Finley,Gray,Harper,Indigo,Jade,Kai,Logan,Morgan,Nico,Oakley,Parker,Quinn,Reese,Skyler,Taylor")
+const GENERIC_NAMES = (
+  process.env.PLAYWRIGHT_GENERIC_NAMES ||
+  "Alex,Blake,Casey,Drew,Ellis,Finley,Gray,Harper,Indigo,Jade,Kai,Logan,Morgan,Nico,Oakley,Parker,Quinn,Reese,Skyler,Taylor"
+)
   .split(",")
   .map((s) => s.trim());
 
