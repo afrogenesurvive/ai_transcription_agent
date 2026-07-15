@@ -91,7 +91,11 @@ async function saveToDrive(folder, title, transcript, summary) {
     media: { mimeType: "text/plain", body: transcript || "" },
   });
 
-  return { ok: true, tool: "save_to_drive", result: sanitizeApiResponse({ folderId, folderName, summaryDocId: doc.data.id, transcriptFileId: txt.data.id }) };
+  return {
+    ok: true,
+    tool: "save_to_drive",
+    result: sanitizeApiResponse({ folderId, folderName, summaryDocId: doc.data.id, transcriptFileId: txt.data.id }),
+  };
 }
 
 // ── Handler registry ──

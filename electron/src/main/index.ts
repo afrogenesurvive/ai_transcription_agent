@@ -1088,6 +1088,9 @@ ipcMain.handle("testing:run", async (_event, vars: Record<string, string>) => {
     const cfg = getConfig();
     const testEnv: NodeJS.ProcessEnv = {
       ...process.env,
+      // Pass ts-node config so TypeScript test files can use import statements
+      TS_NODE_PROJECT: "tsconfig.playwright.json",
+      NODE_OPTIONS: "--require ts-node/register",
       PLAYWRIGHT_AUDIO_FILE_PATH: cfg.PLAYWRIGHT_AUDIO_FILE_PATH || "",
       PLAYWRIGHT_TITLE_TEMPLATE: cfg.PLAYWRIGHT_TITLE_TEMPLATE || "test {autoNum}",
       PLAYWRIGHT_GENERIC_NAMES:

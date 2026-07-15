@@ -48,6 +48,10 @@ mcp/agent-runner/.runner.pid
 # ── Generated version file (branch name) ──
 version.json
 
+# ── Test artifacts ──
+electron/test-results/
+electron/docs/
+
 # ── Transcription Agent Runtime ──
 storage/
 queue/transcription.jsonl
