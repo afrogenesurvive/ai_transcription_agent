@@ -147,6 +147,7 @@ async function dispatch(tool, args) {
         title: args.title || "Untitled Meeting",
         attendees: args.attendees || [],
         event_type: args.eventType || "internal",
+        skip_steps: args.skipSteps || args.skip_steps || undefined,
       });
 
     case "transcribe_status":

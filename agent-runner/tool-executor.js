@@ -43,7 +43,7 @@ async function sendEmail(to, subject, body, transcript) {
     userId: process.env.GMAIL_USER || "me",
     requestBody: { raw: Buffer.from(email).toString("base64url") },
   });
-  return { ok: true, tool: "send_delivery_email", result: sanitizeApiResponse({ id: res.data.id }) };
+  return { ok: true, tool: "send_delivery_email", result: sanitizeApiResponse({ id: res.data.id, to, subject }) };
 }
 
 async function createTrelloCards(listId, items) {
@@ -60,7 +60,8 @@ async function createTrelloCards(listId, items) {
     });
     if (resp.ok) cards.push(sanitizeApiResponse(await resp.json()));
   }
-  return { ok: true, tool: "create_trello_action_items", result: sanitizeApiResponse({ cardsCreated: cards.length }) };
+  const firstCardName = items.length > 0 ? (items[0].description || "").slice(0, 80) : "";
+  return { ok: true, tool: "create_trello_action_items", result: sanitizeApiResponse({ cardsCreated: cards.length, listId, firstCardName }) };
 }
 
 async function saveToDrive(folder, title, transcript, summary) {
@@ -90,7 +91,7 @@ async function saveToDrive(folder, title, transcript, summary) {
     media: { mimeType: "text/plain", body: transcript || "" },
   });
 
-  return { ok: true, tool: "save_to_drive", result: sanitizeApiResponse({ folderId, summaryDocId: doc.data.id, transcriptFileId: txt.data.id }) };
+  return { ok: true, tool: "save_to_drive", result: sanitizeApiResponse({ folderId, folderName, summaryDocId: doc.data.id, transcriptFileId: txt.data.id }) };
 }
 
 // ── Handler registry ──

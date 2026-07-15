@@ -140,6 +140,33 @@
   text-align: center;
 }
 
+.speaker-email-row {
+  margin-top: 8px;
+}
+
+.speaker-email-input {
+  flex: 1;
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+
+.speaker-email-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.15);
+}
+
+.speaker-email-input::placeholder {
+  color: var(--text-muted);
+}
+
 /* ── Voiceprint conflict dialog ── */
 
 .vp-conflict-overlay {

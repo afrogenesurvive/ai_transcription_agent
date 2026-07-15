@@ -44,6 +44,10 @@ export interface AppConfig {
   WHISPER_MODEL_SIZE: string;
   /** Keep start/end timestamps in refined transcript */
   KEEP_TRANSCRIPT_TIMESTAMPS: string;
+  /** Enable passing an initial prompt to Whisper for domain-specific vocabulary */
+  WHISPER_INITIAL_PROMPT_ENABLED: string;
+  /** Initial prompt text sent to Whisper before transcription (e.g. "Technical discussion about Kubernetes") */
+  WHISPER_INITIAL_PROMPT: string;
   /** Log LLM input/output data to job storage directory */
   LOG_LLM_DATA: string;
   /** Collapse consecutive log lines with identical source/subsource/level in Results Viewer */
@@ -92,6 +96,8 @@ const DEFAULTS: AppConfig = {
   CREDIT_POLL_INTERVAL: "60000",
   WHISPER_MODEL_SIZE: "medium",
   KEEP_TRANSCRIPT_TIMESTAMPS: "false",
+  WHISPER_INITIAL_PROMPT_ENABLED: "false",
+  WHISPER_INITIAL_PROMPT: "",
   LOG_LLM_DATA: "false",
   LOG_COLLAPSE_REPEATED_PREFIXES: "true",
   APPEARANCE_THEME: "dark",
@@ -245,7 +251,8 @@ export function getChildEnv(): NodeJS.ProcessEnv {
     CREDIT_POLL_INTERVAL: config.CREDIT_POLL_INTERVAL || process.env.CREDIT_POLL_INTERVAL || "60000",
     WHISPER_MODEL_SIZE: config.WHISPER_MODEL_SIZE || process.env.WHISPER_MODEL_SIZE || "medium",
     KEEP_TRANSCRIPT_TIMESTAMPS: config.KEEP_TRANSCRIPT_TIMESTAMPS || process.env.KEEP_TRANSCRIPT_TIMESTAMPS || "false",
-
+    WHISPER_INITIAL_PROMPT_ENABLED: config.WHISPER_INITIAL_PROMPT_ENABLED || process.env.WHISPER_INITIAL_PROMPT_ENABLED || "false",
+    WHISPER_INITIAL_PROMPT: config.WHISPER_INITIAL_PROMPT || process.env.WHISPER_INITIAL_PROMPT || "",
     LOG_LLM_DATA: config.LOG_LLM_DATA || process.env.LOG_LLM_DATA || "false",
     APPEARANCE_THEME: config.APPEARANCE_THEME || process.env.APPEARANCE_THEME || "dark",
     APPEARANCE_ACCENT_COLOR: config.APPEARANCE_ACCENT_COLOR || process.env.APPEARANCE_ACCENT_COLOR || "#58a6ff",

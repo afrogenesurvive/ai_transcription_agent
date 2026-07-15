@@ -499,6 +499,9 @@ async def get_job_attendees(job_id: str):
         email = attendee_emails[i] if i < len(attendee_emails) else ""
         key = email.lower() or name.lower()
         vp = vp_by_email.get(key) or vp_by_name.get(key)
+        # Fall back to voiceprint email if metadata had no email
+        if not email and vp and vp.get("email"):
+            email = vp["email"]
         attendees.append({
             "name": name,
             "email": email,

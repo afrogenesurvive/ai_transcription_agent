@@ -153,7 +153,7 @@ async function uploadAudioByPath(filePath: string, title: string, attendees: str
 test.beforeAll(async () => {
   // Launch the Electron app — point to the built main process
   app = await electron.launch({
-    args: [path.resolve(__dirname, "../dist/main/index.js")],
+    args: [path.resolve(__dirname, "../../dist/main/index.js")],
     env: {
       ...process.env,
       NODE_ENV: "test",

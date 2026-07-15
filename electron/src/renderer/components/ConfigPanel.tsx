@@ -41,6 +41,8 @@ interface ConfigValues {
   GITHUB_TOKEN: string;
   WHISPER_MODEL_SIZE: string;
   KEEP_TRANSCRIPT_TIMESTAMPS: string;
+  WHISPER_INITIAL_PROMPT_ENABLED: string;
+  WHISPER_INITIAL_PROMPT: string;
   LOG_LLM_DATA: string;
   LOG_COLLAPSE_REPEATED_PREFIXES: string;
   DELIVERY_RECIPIENT_EMAILS: string;
@@ -73,6 +75,8 @@ const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secre
   { key: "GITHUB_TOKEN", label: "GitHub PAT (for private repo auto-updates)", required: false, secret: true, section: "Auto-Update" },
   { key: "WHISPER_MODEL_SIZE", label: "Whisper Model Size", required: false, secret: false, section: "LLM Provider" },
   { key: "KEEP_TRANSCRIPT_TIMESTAMPS", label: "Keep Transcript Timestamps", required: false, secret: false, section: "LLM Provider" },
+  { key: "WHISPER_INITIAL_PROMPT_ENABLED", label: "Whisper Initial Prompt", required: false, secret: false, section: "LLM Provider" },
+  { key: "WHISPER_INITIAL_PROMPT", label: "Initial Prompt Text", required: false, secret: false, section: "LLM Provider" },
   { key: "GMAIL_CLIENT_ID", label: "Gmail Client ID", required: false, secret: true, section: "Services" },
   { key: "GMAIL_CLIENT_SECRET", label: "Gmail Client Secret", required: false, secret: true, section: "Services" },
   { key: "GMAIL_REFRESH_TOKEN", label: "Gmail Refresh Token", required: false, secret: true, section: "Services" },
@@ -401,6 +405,8 @@ export default function ConfigPanel({ onClose }: Props) {
             GITHUB_TOKEN: cfg.GITHUB_TOKEN?.value || "",
             WHISPER_MODEL_SIZE: cfg.WHISPER_MODEL_SIZE?.value || "medium",
             KEEP_TRANSCRIPT_TIMESTAMPS: cfg.KEEP_TRANSCRIPT_TIMESTAMPS?.value || "false",
+            WHISPER_INITIAL_PROMPT_ENABLED: cfg.WHISPER_INITIAL_PROMPT_ENABLED?.value || "false",
+            WHISPER_INITIAL_PROMPT: cfg.WHISPER_INITIAL_PROMPT?.value || "",
             GMAIL_CLIENT_ID: cfg.GMAIL_CLIENT_ID?.value || "",
             GMAIL_CLIENT_SECRET: cfg.GMAIL_CLIENT_SECRET?.value || "",
             GMAIL_REFRESH_TOKEN: cfg.GMAIL_REFRESH_TOKEN?.value || "",
@@ -472,6 +478,8 @@ export default function ConfigPanel({ onClose }: Props) {
         GITHUB_TOKEN: cfg.GITHUB_TOKEN?.value || "",
         WHISPER_MODEL_SIZE: cfg.WHISPER_MODEL_SIZE?.value || "medium",
         KEEP_TRANSCRIPT_TIMESTAMPS: cfg.KEEP_TRANSCRIPT_TIMESTAMPS?.value || "false",
+        WHISPER_INITIAL_PROMPT_ENABLED: cfg.WHISPER_INITIAL_PROMPT_ENABLED?.value || "false",
+        WHISPER_INITIAL_PROMPT: cfg.WHISPER_INITIAL_PROMPT?.value || "",
         GMAIL_CLIENT_ID: cfg.GMAIL_CLIENT_ID?.value || "",
         GMAIL_CLIENT_SECRET: cfg.GMAIL_CLIENT_SECRET?.value || "",
         GMAIL_REFRESH_TOKEN: cfg.GMAIL_REFRESH_TOKEN?.value || "",
@@ -1078,9 +1086,7 @@ The system provides existing memory context at the start of each pipeline run. U
                               f.key !== "OLLAMA_MODEL" &&
                               f.key !== "OLLAMA_NUM_CTX" &&
                               f.key !== "WHISPER_MODEL_SIZE" &&
-                              f.key !== "KEEP_TRANSCRIPT_TIMESTAMPS" &&
-                              f.key !== "WHISPER_INITIAL_PROMPT_ENABLED" &&
-                              f.key !== "WHISPER_INITIAL_PROMPT",
+                              f.key !== "KEEP_TRANSCRIPT_TIMESTAMPS",
                           )
                           .map((field) => (
                             <div key={field.key} className="config-field">
@@ -1332,6 +1338,45 @@ The system provides existing memory context at the start of each pipeline run. U
                           during refinement.
                         </p>
                       </div>
+
+                      {/* Whisper Initial Prompt — toggle */}
+                      <div className="config-field">
+                        <label className="config-label">Whisper Initial Prompt</label>
+                        <label className="config-toggle">
+                          <input
+                            type="checkbox"
+                            checked={values.WHISPER_INITIAL_PROMPT_ENABLED === "true"}
+                            onChange={(e) => handleChange("WHISPER_INITIAL_PROMPT_ENABLED", e.target.checked ? "true" : "false")}
+                            disabled={activeJobs.length > 0}
+                          />
+                          <span className="config-toggle-slider" />
+                          <span className="config-toggle-label">
+                            {values.WHISPER_INITIAL_PROMPT_ENABLED === "true" ? "Initial prompt enabled" : "Initial prompt disabled"}
+                          </span>
+                        </label>
+                        <p className="config-field-hint" style={{ marginTop: 4 }}>
+                          Pass a text description of the meeting topic to Whisper before transcription to bias the model toward domain-specific
+                          vocabulary (e.g. "This is a technical discussion about software architecture").
+                        </p>
+                      </div>
+
+                      {/* Whisper Initial Prompt Text — shown only when enabled */}
+                      {values.WHISPER_INITIAL_PROMPT_ENABLED === "true" && (
+                        <div className="config-field">
+                          <label className="config-label">Prompt Text</label>
+                          <textarea
+                            className="config-textarea"
+                            value={values.WHISPER_INITIAL_PROMPT || ""}
+                            onChange={(e) => handleChange("WHISPER_INITIAL_PROMPT", e.target.value)}
+                            disabled={activeJobs.length > 0}
+                            placeholder="e.g. This is a technical discussion about software architecture and Kubernetes deployment strategies."
+                            rows={3}
+                          />
+                          <p className="config-field-hint" style={{ marginTop: 4 }}>
+                            Describe the meeting topic or domain to help Whisper recognize specialized terminology.
+                          </p>
+                        </div>
+                      )}
                     </>
                   )}
 

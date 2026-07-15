@@ -5,9 +5,7 @@
   "ollama_max_retries": 5,
   "ollama_retry_base_delay_ms": 5000,
   "terminal_tools": [
-    "send_delivery_email",
-    "save_to_drive",
-    "create_trello_action_items"
+    "send_delivery_email"
   ],
   "pipeline_steps": [
     {
@@ -84,10 +82,10 @@
       "id": "step-7",
       "toolName": "send_delivery_email",
       "label": "Deliver via Email",
-      "description": "Send results via email",
+      "description": "Validate recipient emails. Send results via email",
       "systemPromptTemplate": "",
       "hintTemplate": "",
-      "enabled": false,
+      "enabled": true,
       "isTerminal": true
     },
     {
@@ -117,7 +115,8 @@
     "transcribe_summarize": "Next: Call `transcribe_analyze` to analyze topics, sentiment, entities, and follow-ups.",
     "transcribe_analyze": "Next: Call `transcribe_save_context` to persist meeting to semantic and ephemeral memory.",
     "transcribe_save_context": "Next: Call `transcribe_prepare_delivery` to package results for delivery destinations.",
-    "transcribe_prepare_delivery": "Pipeline complete. Call a delivery tool (send_delivery_email, save_to_drive, create_trello_action_items) or finish."
+    "transcribe_prepare_delivery": "Next: Call `send_delivery_email` to validate recipient emails. send results via email.",
+    "send_delivery_email": "Pipeline complete. Call a delivery tool (send_delivery_email, save_to_drive, create_trello_action_items) or finish."
   },
   "event_templates": {
     "ready_for_processing": "Actions: refine transcript (removes fillers and PII, preserves timestamps), extract action items, generate summary, generate analysis, prepare delivery.\nExisting memory context is provided below — use it for continuity and to identify recurring topics. Repetition is signal (e.g., same action item across weeks = blocker).\nIf an action item from a previous meeting is resolved here, note it as completed.\nNon-speaking attendees (present but did not speak): {{non_speaking_attendees}}\nTranscript ({{segment_count}} segments):\n{{transcript_preview}}",

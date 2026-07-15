@@ -368,6 +368,7 @@ export default function App() {
       await api.cancelJob(jobId);
       statusHook.stopPolling();
       setShowSpeakerModal(false);
+      setStatusData({ status: "failed", error: "Cancelled by user", progress: 0.0 });
       notify("Job cancelled");
     } catch (err: any) {
       notify(`Cancel failed: ${err.message}`);
@@ -409,6 +410,9 @@ export default function App() {
     try {
       await api.cancelJob(jobId);
       statusHook.stopPolling();
+      // Immediately update statusData so the UI reflects cancellation instead
+      // of showing the stale pre-cancel status (e.g. "processing_diarization").
+      setStatusData({ status: "failed", error: "Cancelled by user", progress: 0.0 });
       notify("Processing cancelled");
     } catch (err: any) {
       notify(`Cancel failed: ${err.message}`);

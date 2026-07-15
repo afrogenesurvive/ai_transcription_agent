@@ -181,14 +181,20 @@ class EphemeralMemory:
             CREATE INDEX IF NOT EXISTS idx_attendees_job ON attendees(job_id);
         """)
         # ── Schema migrations for existing databases ──
-        try:
-            conn.execute("ALTER TABLE attendees ADD COLUMN last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
-        except Exception:
-            pass  # Column already exists
-        try:
-            conn.execute("ALTER TABLE attendees ADD COLUMN last_job_id TEXT DEFAULT NULL")
-        except Exception:
-            pass  # Column already exists
+        # Check which columns the attendees table actually has before attempting ALTER.
+        existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(attendees)").fetchall()}
+        if "last_seen" not in existing_cols:
+            try:
+                conn.execute("ALTER TABLE attendees ADD COLUMN last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+                print(f"[ephemeral] Migration: added `last_seen` column to attendees table")
+            except Exception as e:
+                print(f"[ephemeral] ⚠️  Migration failed to add last_seen: {e}")
+        if "last_job_id" not in existing_cols:
+            try:
+                conn.execute("ALTER TABLE attendees ADD COLUMN last_job_id TEXT DEFAULT NULL")
+                print(f"[ephemeral] Migration: added `last_job_id` column to attendees table")
+            except Exception as e:
+                print(f"[ephemeral] ⚠️  Migration failed to add last_job_id: {e}")
         conn.commit()
         conn.close()
 

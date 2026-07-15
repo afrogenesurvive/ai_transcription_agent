@@ -1836,6 +1836,20 @@ const DELIVERY_TOOL_LABELS: Record<string, { icon: string; label: string }> = {
   create_trello_action_items: { icon: "dashboard", label: "Trello Cards" },
 };
 
+/** Human-readable labels for delivery result keys. */
+const DELIVERY_RESULT_KEY_LABELS: Record<string, string> = {
+  to: "Recipients",
+  subject: "Subject",
+  folderName: "Drive Folder",
+  listId: "Trello List ID",
+  firstCardName: "First Card",
+  cardsCreated: "Cards Created",
+  summaryDocId: "Summary Doc ID",
+  transcriptFileId: "Transcript File ID",
+  folderId: "Folder ID",
+  id: "Message ID",
+};
+
 function DeliveryTab({ jobId }: { jobId: string }) {
   const [data, setData] = useState<DeliveryResultsData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1953,7 +1967,7 @@ function DeliveryTab({ jobId }: { jobId: string }) {
                       .slice(0, 6)
                       .map(([k, v]) => (
                         <span key={k} className="rv-delivery-detail-item">
-                          <span className="rv-delivery-detail-key">{k}:</span>
+                          <span className="rv-delivery-detail-key">{DELIVERY_RESULT_KEY_LABELS[k] || k}:</span>
                           <span className="rv-delivery-detail-value">{String(v ?? "").slice(0, 80)}</span>
                         </span>
                       ))}
