@@ -47,7 +47,15 @@ interface Props {
   nonSpeakingAttendees?: NonSpeakingInfo[];
 }
 
-export default function SpeakerLabelModal({ jobId, speakers, suggestedEmails = [], onConfirm, onCancel, submitting, nonSpeakingAttendees = [] }: Props) {
+export default function SpeakerLabelModal({
+  jobId,
+  speakers,
+  suggestedEmails = [],
+  onConfirm,
+  onCancel,
+  submitting,
+  nonSpeakingAttendees = [],
+}: Props) {
   const [labels, setLabels] = useState<Record<string, string>>({});
   const [emails, setEmails] = useState<Record<string, string>>({});
   const [playing, setPlaying] = useState<string | null>(null);

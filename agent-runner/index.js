@@ -570,7 +570,8 @@ async function processEvent(event) {
           totalCompletionTokens,
           totalTokens,
           llmProvider: process.env.LLM_PROVIDER || "deepseek",
-          llmModel: process.env.LLM_PROVIDER === "ollama" ? process.env.OLLAMA_MODEL || "llama3.1:8b" : process.env.API_AGENT_MODEL || "deepseek-v4-flash",
+          llmModel:
+            process.env.LLM_PROVIDER === "ollama" ? process.env.OLLAMA_MODEL || "llama3.1:8b" : process.env.API_AGENT_MODEL || "deepseek-v4-flash",
           pipelineSteps: JSON.stringify([...existingSteps, ...tokenUsage]),
         });
       } catch (upsertErr) {

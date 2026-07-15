@@ -4,11 +4,7 @@
   "retry_base_delay_ms": 4000,
   "ollama_max_retries": 5,
   "ollama_retry_base_delay_ms": 5000,
-  "terminal_tools": [
-    "send_delivery_email",
-    "save_to_drive",
-    "create_trello_action_items"
-  ],
+  "terminal_tools": ["send_delivery_email", "save_to_drive", "create_trello_action_items"],
   "pipeline_steps": [
     {
       "id": "step-0",
