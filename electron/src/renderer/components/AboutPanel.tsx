@@ -49,14 +49,10 @@ export default function AboutPanel({ onClose }: { onClose: () => void }) {
 
       {/* ── Tab bar ── */}
       <div className="about-tab-bar">
-        <button
-          className={`about-tab ${activeTab === "about" ? "about-tab--active" : ""}`}
-          onClick={() => setActiveTab("about")}>
+        <button className={`about-tab ${activeTab === "about" ? "about-tab--active" : ""}`} onClick={() => setActiveTab("about")}>
           <Icon name="info" size="14" /> About
         </button>
-        <button
-          className={`about-tab ${activeTab === "guide" ? "about-tab--active" : ""}`}
-          onClick={() => setActiveTab("guide")}>
+        <button className={`about-tab ${activeTab === "guide" ? "about-tab--active" : ""}`} onClick={() => setActiveTab("guide")}>
           <Icon name="book" size="14" /> Guide
         </button>
       </div>
@@ -77,9 +73,9 @@ export default function AboutPanel({ onClose }: { onClose: () => void }) {
 function slugify(text: string): string {
   return text
     .toLowerCase()
-    .replace(/['"]/g, "")       // remove quotes
+    .replace(/['"]/g, "") // remove quotes
     .replace(/[^a-z0-9]+/g, "-") // replace non-alphanumeric with hyphens
-    .replace(/^-+|-+$/g, "");   // trim leading/trailing hyphens
+    .replace(/^-+|-+$/g, ""); // trim leading/trailing hyphens
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -102,8 +98,8 @@ function AboutTab({ version, readme }: { version: string; readme: string }) {
         <div className="about-md-content" dangerouslySetInnerHTML={{ __html: renderedHtml }} />
       ) : (
         <p className="about-md-content about-md-content--empty">
-          <strong>Transcription Agent</strong> is a desktop application that transcribes, diarizes, and summarizes meeting audio using AI. It
-          supports speaker identification, action item extraction, semantic memory, and integrates with Gmail, Google Drive, and Trello.
+          <strong>Transcription Agent</strong> is a desktop application that transcribes, diarizes, and summarizes meeting audio using AI. It supports
+          speaker identification, action item extraction, semantic memory, and integrates with Gmail, Google Drive, and Trello.
         </p>
       )}
     </>
@@ -124,10 +120,7 @@ function AboutTab({ version, readme }: { version: string; readme: string }) {
  */
 function renderMarkdown(md: string): string {
   // Escape HTML entities first
-  let html = md
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  let html = md.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
   // Horizontal rules
   html = html.replace(/^---+/gm, "<hr />");
@@ -158,8 +151,11 @@ function renderMarkdown(md: string): string {
 
   // Tables
   html = html.replace(/^\|(.+)\|$/gm, (line) => {
-    const cells = line.slice(1, -1).split("|").map((c) => c.trim());
-    if (cells.every((c) => /^[-]+$/.test(c))) return "<hr class=\"table-sep\" />";
+    const cells = line
+      .slice(1, -1)
+      .split("|")
+      .map((c) => c.trim());
+    if (cells.every((c) => /^[-]+$/.test(c))) return '<hr class="table-sep" />';
     const tag = line.includes("<hr") ? "" : "td";
     return `<tr>${cells.map((c) => `<${tag}>${c}</${tag}>`).join("")}</tr>`;
   });
@@ -202,7 +198,10 @@ function renderMarkdown(md: string): string {
   let inBlock = false;
   for (const line of lines) {
     const trimmed = line.trim();
-    if (!trimmed) { wrapped.push(""); continue; }
+    if (!trimmed) {
+      wrapped.push("");
+      continue;
+    }
     if (/^<(h[1-4]|ul|ol|li|table|tr|td|th|pre|code|blockquote|hr|div)/.test(trimmed) || trimmed.startsWith("---")) {
       wrapped.push(trimmed);
       inBlock = trimmed.startsWith("<pre") || trimmed.startsWith("<table") || trimmed.startsWith("<blockquote");
@@ -264,10 +263,7 @@ function GuideTab({ markdown }: { markdown: string }) {
   const pages = useMemo(() => splitIntoPages(markdown), [markdown]);
 
   // TOC entries (all pages)
-  const toc = useMemo(
-    () => pages.map((p) => ({ id: p.id, title: p.title })),
-    [pages]
-  );
+  const toc = useMemo(() => pages.map((p) => ({ id: p.id, title: p.title })), [pages]);
 
   // Filter TOC by search
   const filteredToc = useMemo(() => {
@@ -366,16 +362,13 @@ function GuideTab({ markdown }: { markdown: string }) {
                 key={s.id}
                 className={`guide-sidebar-item ${isActive ? "guide-sidebar-item--active" : ""}`}
                 onClick={() => goTo(idx)}
-                title={s.title}
-              >
+                title={s.title}>
                 <span className="guide-sidebar-num">{idx + 1}.</span>
                 <span className="guide-sidebar-label">{s.title}</span>
               </button>
             );
           })}
-          {filteredToc.length === 0 && searchQuery && (
-            <p className="guide-sidebar-empty">No pages match "{searchQuery}"</p>
-          )}
+          {filteredToc.length === 0 && searchQuery && <p className="guide-sidebar-empty">No pages match "{searchQuery}"</p>}
         </nav>
 
         {/* ── Page content ── */}
@@ -384,19 +377,11 @@ function GuideTab({ markdown }: { markdown: string }) {
 
           {/* ── Navigation bar ── */}
           <div className="guide-nav">
-            <button
-              className="guide-nav-btn"
-              disabled={currentIndex === 0}
-              onClick={goPrev}
-            >
+            <button className="guide-nav-btn" disabled={currentIndex === 0} onClick={goPrev}>
               <Icon name="chevron_left" size="16" /> Previous
             </button>
             <span className="guide-nav-label">{currentPage.title}</span>
-            <button
-              className="guide-nav-btn guide-nav-btn--next"
-              disabled={currentIndex === pages.length - 1}
-              onClick={goNext}
-            >
+            <button className="guide-nav-btn guide-nav-btn--next" disabled={currentIndex === pages.length - 1} onClick={goNext}>
               Next <Icon name="chevron_right" size="16" />
             </button>
           </div>
