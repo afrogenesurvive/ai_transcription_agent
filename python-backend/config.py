@@ -36,6 +36,7 @@ class Config:
         "DIARIZATION_MODEL", "pyannote/speaker-diarization-3.1"
     )
     EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "pyannote/embedding")
+    EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "pyannote")
 
     # Platform (auto-detect if not set)
     PLATFORM = os.getenv("PLATFORM", "auto")  # auto, mac, windows, cloud

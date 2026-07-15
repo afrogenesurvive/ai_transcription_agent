@@ -3,7 +3,7 @@ Voiceprint management — speaker embedding extraction, matching, and storage
 
 How it works:
 1. Each speaker has a unique "voiceprint" — a high-dimensional embedding vector
-   extracted from a short audio sample using pyannote's embedding model.
+   extracted from a short audio sample using a configurable embedding model.
 2. Voiceprints are stored in a local SQLite DB (voiceprints.db) keyed by email.
 3. When a new meeting is processed, the pipeline extracts embeddings from each
    diarization segment and compares them (via cosine similarity) against stored
@@ -11,11 +11,23 @@ How it works:
 4. Unmatched speakers are flagged as "unknown" for the agent to handle later via
    transcribe_label_speaker.
 
-The embedding model (default: pyannote/embedding) converts a variable-length audio
-segment into a fixed-size vector (~512 floats). Cosine similarity between two
-embeddings ranges from -1 (opposite) to 1 (identical). A threshold of 0.75 means
-two speakers are considered a match if their vectors point within ~41 degrees of
-each other.
+Embedding provider (set via EMBEDDING_PROVIDER env var):
+  pyannote (default)  — pyannote/embedding (ResNet-based, gated, needs HF token)
+  speechbrain          — speechbrain/spkrec-ecapa-voxceleb (ECAPA-TDNN, open)
+
+The embedding model converts a variable-length audio segment into a fixed-size
+vector (~512 floats). Multiple providers are supported:
+
+  Provider       | Model                          | Package       | Token?
+  ---------------|--------------------------------|---------------|-------
+  pyannote (def) | pyannote/embedding             | pyannote.audio | Yes (gated)
+  speechbrain    | speechbrain/spkrec-ecapa-voxceleb | speechbrain | No
+
+Set EMBEDDING_PROVIDER in .env or config.json to switch.
+
+Cosine similarity between two embeddings ranges from -1 (opposite) to 1
+(identical). A threshold of 0.75 means two speakers are considered a match if
+their vectors point within ~41 degrees of each other.
 
 ── Write & Overwrite Contract ──
 
@@ -68,11 +80,33 @@ from utils import is_network_error
 class VoiceprintManager:
     _thread_local = threading.local()
 
-    def __init__(self, db_path: Optional[str] = None, device: Optional[str] = None):
+    # ── Embedding model provider registry ──
+    # Each entry defines the HuggingFace model ID, the Python package required,
+    # and whether it needs a HuggingFace auth token for gated models.
+    EMBEDDING_PROVIDERS = {
+        "pyannote": {
+            "hf_id": "pyannote/embedding",
+            "description": "PyAnnote ResNet-based (default)",
+            "requires_token": True,
+        },
+        "speechbrain": {
+            "hf_id": "speechbrain/spkrec-ecapa-voxceleb",
+            "description": "SpeechBrain ECAPA-TDNN — better accent robustness",
+            "requires_token": False,
+        },
+    }
+
+    def __init__(self, db_path: Optional[str] = None,
+                 device: Optional[str] = None,
+                 provider: Optional[str] = None):
         self.db_path = db_path or config.VOICEPRINT_DB
         self._device = device  # Pass a device string ("mps", "cuda", "cpu") or None for auto-detect
+        self.provider = (provider or config.EMBEDDING_PROVIDER).lower()
+        if self.provider not in self.EMBEDDING_PROVIDERS:
+            raise ValueError(f"Unknown embedding provider '{self.provider}'. "
+                             f"Supported: {list(self.EMBEDDING_PROVIDERS.keys())}")
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-        self._embedding_model = None  # Lazy-loaded pyannote Inference model
+        self._embedding_model = None  # Lazy-loaded embedding model (provider-specific)
         self._init_db()
 
     def __enter__(self):
@@ -141,6 +175,97 @@ class VoiceprintManager:
         conn.commit()
         conn.close()
 
+    def reset_model(self):
+        """Explicitly unload the embedding model to free memory.
+
+        The model will be lazy-reloaded on the next call to extract_embedding().
+        Safe to call even if no model is loaded.
+        """
+        self._embedding_model = None
+
+    def _load_embedding_model(self):
+        """Load (or lazy-reload) the embedding model for the current provider.
+
+        Auto-downloads from HuggingFace on first use. Handles gated-model
+        auth, network fallback to local cache, and MPS→CPU device fallback.
+        Sets self._embedding_model to a provider-specific model object.
+        """
+        provider_cfg = self.EMBEDDING_PROVIDERS[self.provider]
+        hf_id = provider_cfg["hf_id"]
+        device = self._device
+        hf_token = config.HUGGING_FACE_TOKEN or None
+
+        print(f"[voiceprint] Loading {self.provider} embedding model "
+              f"({hf_id})...")
+
+        if self.provider == "pyannote":
+            from pyannote.audio import Inference, Model
+
+            # Pre-load the Model object ourselves so we can detect a None return
+            # (gated model / terms not accepted) before passing it to Inference.
+            try:
+                pyannote_model = Model.from_pretrained(
+                    hf_id,
+                    map_location=torch.device(device) if device else None,
+                    use_auth_token=hf_token,
+                )
+            except Exception as _first_err:
+                if is_network_error(_first_err):
+                    print(f"[voiceprint] ⚠️  HuggingFace unreachable ({_first_err}). "
+                          f"Falling back to local cache...")
+                    pyannote_model = Model.from_pretrained(
+                        hf_id,
+                        map_location=torch.device(device) if device else None,
+                        use_auth_token=hf_token,
+                        local_files_only=True,
+                    )
+                elif device and device != "cpu":
+                    print(f"[voiceprint] ⚠️  Model load failed on {device} ({_first_err}). "
+                          f"Retrying with CPU fallback...")
+                    device = "cpu"
+                    pyannote_model = Model.from_pretrained(
+                        hf_id,
+                        map_location=torch.device("cpu"),
+                        use_auth_token=hf_token,
+                    )
+                else:
+                    raise
+
+            if pyannote_model is None:
+                raise RuntimeError(
+                    f"Model '{hf_id}' could not be loaded. "
+                    "This is likely a gated model — make sure you have:\n"
+                    f"  1. Visited https://hf.co/{hf_id} "
+                    "and accepted the user conditions\n"
+                    "  2. Set HUGGING_FACE_TOKEN in your .env file"
+                )
+
+            self._embedding_model = Inference(
+                pyannote_model, window="whole",
+            )
+
+        elif self.provider == "speechbrain":
+            from speechbrain.inference.speaker import SpeakerRecognition
+
+            # SpeechBrain auto-downloads on first use; cache in storage dir
+            savedir = os.path.join(
+                os.path.dirname(config.VOICEPRINT_DB),
+                "models", "speechbrain",
+            )
+            self._embedding_model = SpeakerRecognition.from_hparams(
+                source=hf_id,
+                savedir=savedir,
+                run_opts={"device": device or "cpu"},
+            )
+            # Store the sample rate for use in extract_embedding
+            self._speechbrain_sr = 16000
+
+        else:
+            raise ValueError(f"Unsupported embedding provider: {self.provider}")
+
+        print(f"[voiceprint] ✅ {self.provider} embedding model loaded" +
+              (f" on device='{device}'" if device else ""))
+
     def extract_embedding(self, audio_path: str, segment: tuple = None) -> np.ndarray:
         """Extract a speaker embedding vector from an audio file.
 
@@ -152,90 +277,54 @@ class VoiceprintManager:
         Returns:
             A numpy array of floats — the speaker embedding.
 
-        The pyannote Inference model wraps a pre-trained speaker recognition
-        network (e.g., ResNet-based) that outputs a fixed-dimensional vector
-        representing vocal characteristics.
+        Dispatches to the provider-specific model loaded by _load_embedding_model().
         """
         if self._embedding_model is None:
-            from pyannote.audio import Inference, Model
-            print(f"[voiceprint] Loading embedding model ({config.EMBEDDING_MODEL})...")
+            self._load_embedding_model()
 
-            # Pre-load the Model object ourselves so we can detect a None return
-            # (gated model / terms not accepted) before passing it to Inference.
-            # Inference.__init__ calls Model.from_pretrained internally and then
-            # chain-calls self.model.eval() — if from_pretrained returns None,
-            # that crashes with AttributeError: 'NoneType' object has no attribute 'eval'.
-            device = self._device
+        # Minimum segment duration to avoid "kernel size > input size" errors
+        # in SincNet/CNN layers. Very short segments (<~1s) cause conv1d failures.
+        MIN_DURATION = 1.0
 
-            hf_token = config.HUGGING_FACE_TOKEN or None
-
-            # Attempt 1: configured device, online
-            try:
-                pyannote_model = Model.from_pretrained(
-                    config.EMBEDDING_MODEL,
-                    map_location=torch.device(device) if device else None,
-                    use_auth_token=hf_token,
-                )
-            except Exception as _first_err:
-                if is_network_error(_first_err):
-                    # Network issue — fall back to local cache on same device
-                    print(f"[voiceprint] ⚠️  HuggingFace unreachable ({_first_err}). "
-                          f"Falling back to local cache...")
-                    pyannote_model = Model.from_pretrained(
-                        config.EMBEDDING_MODEL,
-                        map_location=torch.device(device) if device else None,
-                        use_auth_token=hf_token,
-                        local_files_only=True,
-                    )
-                elif device and device != "cpu":
-                    # Device-level error (e.g. MPS op not supported) — retry on CPU
-                    print(f"[voiceprint] ⚠️  Model load failed on {device} ({_first_err}). "
-                          f"Retrying with CPU fallback...")
-                    device = "cpu"
-                    pyannote_model = Model.from_pretrained(
-                        config.EMBEDDING_MODEL,
-                        map_location=torch.device("cpu"),
-                        use_auth_token=hf_token,
-                    )
-                else:
-                    raise
-
-            if pyannote_model is None:
-                raise RuntimeError(
-                    f"Model '{config.EMBEDDING_MODEL}' could not be loaded. "
-                    "This is likely a gated model — make sure you have:\n"
-                    f"  1. Visited https://hf.co/{config.EMBEDDING_MODEL} "
-                    "and accepted the user conditions\n"
-                    "  2. Set HUGGING_FACE_TOKEN in your .env file"
-                )
-
-            self._embedding_model = Inference(
-                pyannote_model, window="whole",
-            )
-
-            print(f"[voiceprint] Embedding model loaded" +
-                  (f" on device='{device}'" if device else ""))
-
-        # Minimum segment duration required by the embedding model's SincNet
-        # layers. Very short segments (<~1s) cause "kernel size > input size"
-        # errors in conv1d. We expand short segments symmetrically.
-        MIN_DURATION = 1.0  # seconds — safe for all SincNet variants
-
-        if segment:
-            from pyannote.core import Segment
-            start, end = segment
-            duration = end - start
+        # Expand short segments symmetrically
+        start, end = (0.0, None) if segment is None else segment
+        if segment is not None:
+            seg_start, seg_end = segment
+            duration = seg_end - seg_start
             if duration < MIN_DURATION:
-                mid = (start + end) / 2.0
+                mid = (seg_start + seg_end) / 2.0
                 half = MIN_DURATION / 2.0
                 start = max(0.0, mid - half)
                 end = mid + half
-                print(f"[voiceprint] ⚠️  Segment ({segment[0]:.2f}s–{segment[1]:.2f}s, "
+                print(f"[voiceprint] ⚠️  Segment ({seg_start:.2f}s–{seg_end:.2f}s, "
                       f"{duration:.2f}s) too short for embedding model. "
                       f"Expanded to {start:.2f}s–{end:.2f}s ({MIN_DURATION:.1f}s)")
-            emb = self._embedding_model.crop(audio_path, Segment(start, end))
-            return emb
-        return self._embedding_model(audio_path)
+            else:
+                start, end = seg_start, seg_end
+
+        if self.provider == "pyannote":
+            from pyannote.core import Segment
+            if segment is None:
+                return self._embedding_model(audio_path)
+            return self._embedding_model.crop(audio_path, Segment(start, end))
+
+        elif self.provider == "speechbrain":
+            import soundfile as sf
+            # Load the audio segment
+            audio, sr = sf.read(audio_path)
+            if segment is not None:
+                s_start = int(start * sr)
+                s_end = int(end * sr)
+                audio_seg = audio[s_start:s_end]
+            else:
+                audio_seg = audio
+            # Convert to tensor and get embedding
+            waveform = torch.tensor(audio_seg, dtype=torch.float32).unsqueeze(0)
+            embedding = self._embedding_model.encode_batch(waveform)
+            return embedding.squeeze().cpu().numpy()
+
+        else:
+            raise ValueError(f"Unsupported embedding provider: {self.provider}")
 
     def match_against_attendees(
         self, audio_path: str, speaker_segments: dict,

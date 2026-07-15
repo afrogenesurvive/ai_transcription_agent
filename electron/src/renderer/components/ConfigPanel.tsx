@@ -39,6 +39,7 @@ interface ConfigValues {
   TRELLO_TOKEN: string;
   HUGGING_FACE_TOKEN: string;
   GITHUB_TOKEN: string;
+  EMBEDDING_PROVIDER: string;
   WHISPER_MODEL_SIZE: string;
   KEEP_TRANSCRIPT_TIMESTAMPS: string;
   WHISPER_INITIAL_PROMPT_ENABLED: string;
@@ -76,6 +77,7 @@ const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secre
   { key: "LLM_TEMPERATURE", label: "LLM Temperature (0.0–2.0)", required: false, secret: false, section: "LLM Provider" },
   { key: "HUGGING_FACE_TOKEN", label: "Hugging Face Token", required: false, secret: true, section: "LLM Provider" },
   { key: "GITHUB_TOKEN", label: "GitHub PAT (for private repo auto-updates)", required: false, secret: true, section: "Auto-Update" },
+  { key: "EMBEDDING_PROVIDER", label: "Speaker Embedding Model", required: false, secret: false, section: "LLM Provider" },
   { key: "WHISPER_MODEL_SIZE", label: "Whisper Model Size", required: false, secret: false, section: "LLM Provider" },
   { key: "KEEP_TRANSCRIPT_TIMESTAMPS", label: "Keep Transcript Timestamps", required: false, secret: false, section: "LLM Provider" },
   { key: "WHISPER_INITIAL_PROMPT_ENABLED", label: "Whisper Initial Prompt", required: false, secret: false, section: "LLM Provider" },
@@ -1093,6 +1095,7 @@ The system provides existing memory context at the start of each pipeline run. U
                           .filter(
                             (f) =>
                               f.key !== "DEEPSEEK_API_KEY" &&
+                              f.key !== "EMBEDDING_PROVIDER" &&
                               f.key !== "OLLAMA_MODEL" &&
                               f.key !== "OLLAMA_NUM_CTX" &&
                               f.key !== "WHISPER_MODEL_SIZE" &&
@@ -1314,6 +1317,22 @@ The system provides existing memory context at the start of each pipeline run. U
                           </div>
                         </div>
                       )}
+
+                      {/* Speaker Embedding Model — dropdown */}
+                      <div className="config-field">
+                        <label className="config-label">Speaker Embedding Model</label>
+                        <select
+                          className="config-select"
+                          value={values.EMBEDDING_PROVIDER || "pyannote"}
+                          onChange={(e) => handleChange("EMBEDDING_PROVIDER", e.target.value)}
+                          disabled={activeJobs.length > 0}>
+                          <option value="pyannote">pyannote/embedding — default (requires HF token)</option>
+                          <option value="speechbrain">SpeechBrain ECAPA-TDNN — better with accents</option>
+                        </select>
+                        <p className="config-field-hint">
+                          Switching requires a backend restart. speechbrain extra: <code>pip install speechbrain</code>
+                        </p>
+                      </div>
 
                       {/* Whisper Model Size — always shown */}
                       <div className="config-field">

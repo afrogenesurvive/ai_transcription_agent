@@ -17,7 +17,7 @@ import type { TranscriptionSegment, AnalysisData } from "../types";
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
-type TabId = "pipeline" | "audio" | "transcript" | "summary" | "analysis" | "tokens" | "performance" | "attendees" | "delivery" | "logs";
+type TabId = "pipeline" | "audio" | "transcript" | "summary" | "analysis" | "tokens" | "performance" | "attendees" | "delivery" | "config" | "logs";
 
 interface Tab {
   id: TabId;
@@ -35,6 +35,7 @@ const TABS: Tab[] = [
   { id: "performance", label: "Performance", icon: "speed" },
   { id: "attendees", label: "Attendees", icon: "group" },
   { id: "delivery", label: "Delivery", icon: "mail" },
+  { id: "config", label: "Config", icon: "settings" },
   { id: "logs", label: "Logs", icon: "terminal" },
 ];
 
@@ -2044,6 +2045,275 @@ function DeliveryTab({ jobId }: { jobId: string }) {
   );
 }
 
+/* ── Tab: Config ── */
+
+interface JobRecordData {
+  id: string;
+  title: string;
+  result: string;
+  config_snapshot?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  completed_at?: string | null;
+  [key: string]: unknown;
+}
+
+interface ConfigSnapshot {
+  // ── Python backend config ──
+  whisper_model_size?: string;
+  diarization_model?: string;
+  embedding_model?: string;
+  embedding_provider?: string;
+  device?: string;
+  platform?: string;
+  voiceprint_threshold?: number;
+  keep_transcript_timestamps?: boolean;
+  max_concurrent_pipelines?: number;
+  default_skip_steps?: string[];
+  hugging_face_token_set?: boolean;
+  whisper_initial_prompt_enabled?: boolean;
+
+  // ── Per-job metadata ──
+  title?: string;
+  attendees?: string[];
+  event_type?: string;
+  skip_steps?: string[];
+
+  // ── Agent runner config (Phase B) ──
+  llm_provider?: string;
+  llm_model?: string;
+  ollama_base_url?: string;
+  ollama_model?: string;
+  ollama_num_ctx?: string;
+  llm_temperature?: string;
+  agent_tools?: string[];
+  agent_pipeline_steps?: Array<{ id: string; toolName: string; label: string; enabled: boolean; isTerminal: boolean }>;
+  agent_terminal_tools?: string[];
+  agent_system_prompt_length?: number;
+  agent_pipeline_hints?: number;
+  agent_max_retries?: number;
+  agent_retry_base_delay_ms?: number;
+  gmail_user?: string;
+  delivery_recipient_emails?: string;
+  delivery_email_subject?: string;
+  delivery_drive_folder?: string;
+  log_llm_data?: string;
+  log_collapse_repeated_prefixes?: string;
+}
+
+/** Render a single config key-value row */
+function ConfigRow({ label, value, mono }: { label: string; value: React.ReactNode; mono?: boolean }) {
+  return (
+    <div className="rv-config-row">
+      <span className="rv-config-label">{label}</span>
+      <span className={`rv-config-value ${mono ? "rv-config-value--mono" : ""}`}>
+        {value ?? <span className="rv-config-null">—</span>}
+      </span>
+    </div>
+  );
+}
+
+/** Render a section header with icon */
+function ConfigSectionHeader({ icon, title }: { icon: string; title: string }) {
+  return (
+    <h4 className="rv-config-section-title">
+      <Icon name={icon} size="14" color="accent" /> {title}
+    </h4>
+  );
+}
+
+function ConfigTab({ jobId }: { jobId: string }) {
+  const [record, setRecord] = useState<JobRecordData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchConfig = async () => {
+      try {
+        const res = await fetch(`${BRIDGE_URL}/tools/call`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tool: "transcribe_get_job", args: { jobId } }),
+        });
+        if (!res.ok) {
+          let serverMsg = "";
+          try {
+            const body = await res.json();
+            serverMsg = body.error || "";
+          } catch { /* ignore */ }
+          if (res.status === 404) throw new Error(serverMsg || "Job record not found in ephemeral DB");
+          throw new Error(serverMsg || `Bridge error: ${res.status}`);
+        }
+        const data = await res.json();
+        if (!cancelled) setRecord(data?.job || null);
+      } catch (err: any) {
+        if (!cancelled) setError(err.message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    fetchConfig();
+    return () => { cancelled = true; };
+  }, [jobId]);
+
+  if (loading) {
+    return (
+      <div className="rv-tab-content">
+        <div className="rv-empty-state">
+          <p>Loading config snapshot…</p>
+        </div>
+      </div>
+    );
+  }
+
+  const rawSnapshot: string | null | undefined = record?.config_snapshot;
+  let snapshot: ConfigSnapshot | null = null;
+  if (rawSnapshot) {
+    try {
+      snapshot = JSON.parse(rawSnapshot) as ConfigSnapshot;
+    } catch {
+      snapshot = null;
+    }
+  }
+
+  if (error || !record) {
+    return (
+      <div className="rv-tab-content">
+        <div className="rv-empty-state">
+          <span className="rv-empty-icon">
+            <Icon name="settings" size="32" color="muted" />
+          </span>
+          <p>Config snapshot unavailable</p>
+          <p className="rv-muted">{error || "No job record found."}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!snapshot) {
+    return (
+      <div className="rv-tab-content">
+        <div className="rv-empty-state">
+          <span className="rv-empty-icon">
+            <Icon name="settings" size="32" color="muted" />
+          </span>
+          <p>Config snapshot not available for this job</p>
+          <p className="rv-muted">Config snapshots are captured at job creation time. Jobs created before this feature was added will not have a snapshot.</p>
+          <p className="rv-muted" style={{ marginTop: 4 }}>
+            Job result: <code className="rv-code">{record.result}</code>
+            {record.created_at && <> · Created: {new Date(record.created_at).toLocaleString()}</>}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Utility: render a boolean value nicely ──
+  const boolIcon = (val: boolean | undefined | null) => {
+    if (val === true) return <Icon name="check" size="14" color="green" />;
+    if (val === false) return <Icon name="close" size="14" color="muted" />;
+    return <span className="rv-config-null">—</span>;
+  };
+
+  // ── Helper: render enabled pipeline steps as a compact list ──
+  const pipelineStepsSummary = (steps: ConfigSnapshot["agent_pipeline_steps"]) => {
+    if (!steps || steps.length === 0) return null;
+    return (
+      <div className="rv-config-step-list">
+        {steps.map((s) => (
+          <span key={s.id} className={`rv-config-step-chip ${s.enabled ? "rv-config-step-chip--on" : "rv-config-step-chip--off"}`}>
+            {s.enabled ? <Icon name="check_circle" size="10" color="green" /> : <Icon name="remove_circle" size="10" color="muted" />}
+            {s.label || s.toolName}
+          </span>
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <div className="rv-tab-content rv-tab-content--config">
+      {/* ── Section 1: Job Metadata ── */}
+      <ConfigSectionHeader icon="badge" title="Job Metadata" />
+      <div className="rv-config-grid">
+        <ConfigRow label="Title" value={snapshot.title} />
+        <ConfigRow label="Event Type" value={snapshot.event_type} />
+        <ConfigRow label="Attendees" value={snapshot.attendees?.length ? snapshot.attendees.join(", ") : "None"} />
+        <ConfigRow label="Skip Steps" value={snapshot.skip_steps?.length ? snapshot.skip_steps.join(", ") : "None"} />
+        <ConfigRow label="Result" value={record.result} mono />
+        <ConfigRow label="Created" value={record.created_at ? new Date(record.created_at).toLocaleString() : null} />
+        {record.completed_at && <ConfigRow label="Completed" value={new Date(record.completed_at).toLocaleString()} />}
+      </div>
+
+      {/* ── Section 2: LLM & Model Config ── */}
+      <ConfigSectionHeader icon="smart_toy" title="LLM &amp; Model Config" />
+      <div className="rv-config-grid">
+        <ConfigRow label="LLM Provider" value={snapshot.llm_provider ?? "—"} mono />
+        <ConfigRow label="LLM Model" value={snapshot.llm_model ?? "—"} mono />
+        {snapshot.llm_temperature && <ConfigRow label="Temperature" value={snapshot.llm_temperature} />}
+        {snapshot.ollama_base_url && <ConfigRow label="Ollama Base URL" value={snapshot.ollama_base_url} mono />}
+        {snapshot.ollama_model && <ConfigRow label="Ollama Model" value={snapshot.ollama_model} mono />}
+        {snapshot.ollama_num_ctx && <ConfigRow label="Ollama Context Window" value={snapshot.ollama_num_ctx} />}
+        <ConfigRow label="Whisper Model" value={snapshot.whisper_model_size} mono />
+        <ConfigRow label="Diarization Model" value={snapshot.diarization_model} mono />
+        <ConfigRow label="Embedding Provider" value={snapshot.embedding_provider} mono />
+        <ConfigRow label="Embedding Model" value={snapshot.embedding_model} mono />
+        <ConfigRow label="Device" value={snapshot.device} mono />
+        <ConfigRow label="Platform" value={snapshot.platform} mono />
+        <ConfigRow label="Voiceprint Threshold" value={snapshot.voiceprint_threshold != null ? snapshot.voiceprint_threshold.toFixed(2) : null} />
+        <ConfigRow label="Keep Timestamps" value={boolIcon(snapshot.keep_transcript_timestamps)} />
+        <ConfigRow label="HF Token Set" value={snapshot.hugging_face_token_set ? <Icon name="check" size="14" color="green" /> : <Icon name="close" size="14" color="muted" />} />
+        <ConfigRow label="Whisper Initial Prompt" value={boolIcon(snapshot.whisper_initial_prompt_enabled)} />
+        <ConfigRow label="Max Concurrent Pipelines" value={snapshot.max_concurrent_pipelines != null ? String(snapshot.max_concurrent_pipelines) : null} />
+      </div>
+
+      {/* ── Section 3: Agent Instructions ── */}
+      <ConfigSectionHeader icon="menu_book" title="Agent Instructions" />
+      <div className="rv-config-grid">
+        <ConfigRow label="Available Tools" value={snapshot.agent_tools?.length != null ? `${snapshot.agent_tools.length} tool(s)` : null} />
+        {snapshot.agent_tools && snapshot.agent_tools.length > 0 && (
+          <ConfigRow label="Tool Names" value={snapshot.agent_tools.join(", ")} mono />
+        )}
+        <ConfigRow label="Terminal Tools" value={snapshot.agent_terminal_tools?.join(", ") || "None"} mono />
+        {snapshot.agent_system_prompt_length != null && (
+          <ConfigRow label="System Prompt Size" value={`${snapshot.agent_system_prompt_length.toLocaleString()} chars`} />
+        )}
+        {snapshot.agent_pipeline_hints != null && (
+          <ConfigRow label="Pipeline Hints" value={`${snapshot.agent_pipeline_hints} hint(s)`} />
+        )}
+        {snapshot.agent_max_retries != null && (
+          <ConfigRow label="Max Retries" value={String(snapshot.agent_max_retries)} />
+        )}
+        {snapshot.agent_retry_base_delay_ms != null && (
+          <ConfigRow label="Retry Base Delay" value={`${snapshot.agent_retry_base_delay_ms}ms`} />
+        )}
+      </div>
+
+      {/* Pipeline steps */}
+      {snapshot.agent_pipeline_steps && snapshot.agent_pipeline_steps.length > 0 && (
+        <>
+          <div style={{ marginTop: 8, marginBottom: 4, fontSize: "var(--fs-12)", color: "var(--text-muted)" }}>
+            <Icon name="checklist" size="12" color="muted" /> Pipeline Steps
+          </div>
+          {pipelineStepsSummary(snapshot.agent_pipeline_steps)}
+        </>
+      )}
+
+      {/* ── Section 4: Delivery & Logging Config ── */}
+      <ConfigSectionHeader icon="mail" title="Delivery &amp; Logging" />
+      <div className="rv-config-grid">
+        {snapshot.gmail_user && <ConfigRow label="Gmail User" value={snapshot.gmail_user} mono />}
+        {snapshot.delivery_recipient_emails && <ConfigRow label="Recipient Emails" value={snapshot.delivery_recipient_emails} mono />}
+        {snapshot.delivery_email_subject && <ConfigRow label="Email Subject" value={snapshot.delivery_email_subject} />}
+        {snapshot.delivery_drive_folder && <ConfigRow label="Drive Folder" value={snapshot.delivery_drive_folder} />}
+        <ConfigRow label="Log LLM Data" value={snapshot.log_llm_data ?? "false"} />
+        <ConfigRow label="Collapse Repeated" value={snapshot.log_collapse_repeated_prefixes ?? "true"} />
+        <ConfigRow label="Default Skip Steps" value={snapshot.default_skip_steps?.join(", ") || "None"} />
+      </div>
+    </div>
+  );
+}
+
 /* ── Main ResultsViewer ── */
 
 export default function ResultsViewer({ jobId, segments, summary, metadata, jobStatus, jobProgress, jobError }: Props) {
@@ -2101,6 +2371,7 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
             performance: "See performance metrics — stage durations and timing",
             attendees: "View registered attendees and their voiceprint status with playable audio samples",
             delivery: "Check delivery status — email, Trello, and Google Drive",
+            config: "View the full configuration snapshot used for this job — LLM provider, models, agent instructions, delivery & logging settings",
             logs: "View job-specific log files for debugging",
           };
           return (
@@ -2161,6 +2432,7 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
         {activeTab === "performance" && <PerformanceTab jobId={jobId} />}
         {activeTab === "attendees" && <AttendeesTab jobId={jobId} />}
         {activeTab === "delivery" && <DeliveryTab jobId={jobId} />}
+        {activeTab === "config" && <ConfigTab jobId={jobId} />}
         {activeTab === "logs" && <LogsTab jobId={jobId} />}
       </div>
     </div>

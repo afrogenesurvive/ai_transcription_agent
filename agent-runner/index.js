@@ -209,6 +209,61 @@ async function processEvent(event) {
   // Use TRANSCRIPTION_STORAGE env var if set (matches Python backend), otherwise fall back to project-relative path.
   const STORAGE_BASE = process.env.TRANSCRIPTION_STORAGE || path.resolve(__dirname, "..", "storage");
 
+  // ── Phase B: Enrich the job's config_snapshot with agent-runner config ──
+  // The Python backend captured its own config at upload time (Phase A).
+  // Now we add the agent runner's config: LLM provider, tools, pipeline steps,
+  // system prompt, delivery settings, and logging config.
+  {
+    const jobId = jobData.jobId || eventId;
+    const agentConfigSnapshot = {
+      // ── LLM / Agent config ──
+      llm_provider: process.env.LLM_PROVIDER || "deepseek",
+      llm_model:
+        process.env.LLM_PROVIDER === "ollama"
+          ? process.env.OLLAMA_MODEL || "llama3.1:8b"
+          : process.env.API_AGENT_MODEL || "deepseek-v4-flash",
+      ollama_base_url: process.env.OLLAMA_BASE_URL || "",
+      ollama_model: process.env.OLLAMA_MODEL || "",
+      ollama_num_ctx: process.env.OLLAMA_NUM_CTX || "",
+      llm_temperature: process.env.LLM_TEMPERATURE || "",
+
+      // ── Agent instructions (from agent-config/) ──
+      agent_tools: TOOLS.map((t) => t.name),
+      agent_pipeline_steps: PIPELINE_STEPS.map((s) => ({
+        id: s.id,
+        toolName: s.toolName,
+        label: s.label,
+        enabled: s.enabled,
+        isTerminal: s.isTerminal,
+      })),
+      agent_terminal_tools: [...TERMINAL_TOOLS],
+      agent_system_prompt_length: SYSTEM_PROMPT_TEMPLATE.length,
+      agent_pipeline_hints: Object.keys(PIPELINE_HINTS).length,
+      agent_max_retries: MAX_RETRIES,
+      agent_retry_base_delay_ms: RETRY_BASE_DELAY,
+
+      // ── Delivery config (redacted) ──
+      gmail_user: process.env.GMAIL_USER || "",
+      delivery_recipient_emails: process.env.DELIVERY_RECIPIENT_EMAILS || "",
+      delivery_email_subject: process.env.DELIVERY_EMAIL_SUBJECT || "",
+      delivery_drive_folder: process.env.DELIVERY_DRIVE_FOLDER || "",
+
+      // ── Logging config ──
+      log_llm_data: process.env.LOG_LLM_DATA || "false",
+      log_collapse_repeated_prefixes: process.env.LOG_COLLAPSE_REPEATED_PREFIXES || "true",
+    };
+
+    try {
+      await executeToolCall("transcribe_upsert_job", {
+        jobId,
+        configSnapshot: JSON.stringify(agentConfigSnapshot),
+      });
+      console.log(`📸 [RUNNER] Agent config snapshot upserted for job ${jobId.slice(0, 8)}`);
+    } catch (snapshotErr) {
+      console.log(`⚠️  [RUNNER] Failed to upsert agent config snapshot: ${snapshotErr.message}`);
+    }
+  }
+
   // ── Configurable: Fetch existing memory context before the pipeline starts ──
   // Controlled by the "_fetch_memory_context" pipeline step in pipeline.json.
   // (ConfigPanel → Agent Instructions → Pipeline Steps). When the step is

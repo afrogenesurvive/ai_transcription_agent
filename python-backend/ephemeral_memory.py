@@ -112,6 +112,7 @@ class EphemeralMemory:
                 whisper_model           TEXT DEFAULT 'medium',
                 diarization_available   INTEGER DEFAULT 0,
                 device                  TEXT DEFAULT 'mps',
+                config_snapshot         TEXT DEFAULT NULL,
                 created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 completed_at TIMESTAMP DEFAULT NULL
@@ -208,6 +209,15 @@ class EphemeralMemory:
                 print(f"[ephemeral] Migration: added `last_job_id` column to attendees table")
             except Exception as e:
                 print(f"[ephemeral] ⚠️  Migration failed to add last_job_id: {e}")
+
+        # Check for config_snapshot column on jobs table
+        jobs_cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()}
+        if "config_snapshot" not in jobs_cols:
+            try:
+                conn.execute("ALTER TABLE jobs ADD COLUMN config_snapshot TEXT DEFAULT NULL")
+                print(f"[ephemeral] Migration: added `config_snapshot` column to jobs table")
+            except Exception as e:
+                print(f"[ephemeral] ⚠️  Migration failed to add config_snapshot: {e}")
         conn.commit()
         conn.close()
 
@@ -229,6 +239,7 @@ class EphemeralMemory:
             "llm_provider", "llm_model", "input_cost", "output_cost", "total_cost",
             "delivery_attempted", "delivery_results",
             "event_type", "whisper_model", "diarization_available", "device",
+            "config_snapshot",
             "completed_at",
         }
         # Build SET clause + INSERT columns from provided updates

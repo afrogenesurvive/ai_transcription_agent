@@ -2407,3 +2407,102 @@
 .btn-primary--danger:hover:not(:disabled) {
   background: #e03a33;
 }
+
+/* ── Config Tab ── */
+
+.rv-tab-content--config {
+  padding: 12px 16px;
+  overflow-y: auto;
+}
+
+.rv-config-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-13);
+  font-weight: 600;
+  color: var(--text);
+  margin: 16px 0 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.rv-config-section-title:first-child {
+  margin-top: 0;
+}
+
+.rv-config-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.rv-config-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 6px 12px;
+  font-size: var(--fs-12);
+  line-height: 1.5;
+}
+
+.rv-config-row:nth-child(even) {
+  background: rgba(128, 128, 128, 0.04);
+}
+
+.rv-config-label {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  min-width: 140px;
+  padding-right: 12px;
+}
+
+.rv-config-value {
+  color: var(--text);
+  text-align: right;
+  word-break: break-all;
+}
+
+.rv-config-value--mono {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--fs-11);
+}
+
+.rv-config-null {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+.rv-config-step-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 4px 0 8px;
+}
+
+.rv-config-step-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  border-radius: var(--radius);
+  font-size: var(--fs-11);
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.rv-config-step-chip--on {
+  background: rgba(63, 185, 80, 0.1);
+  border: 1px solid rgba(63, 185, 80, 0.25);
+  color: var(--green);
+}
+
+.rv-config-step-chip--off {
+  background: rgba(139, 148, 158, 0.08);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}

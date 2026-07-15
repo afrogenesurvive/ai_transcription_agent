@@ -11,6 +11,7 @@ import os
 import json
 import time
 import asyncio
+import numpy as np
 from datetime import datetime
 
 # ── MPS memory limit workaround (Apple Silicon) ──
@@ -75,7 +76,7 @@ ML_PIPELINE_STATUSES = frozenset({
 async def lifespan(app: FastAPI):
     global uploader, vp_manager, agent_bridge, semantic_memory, ephemeral_memory
     uploader = AudioUploader()
-    vp_manager = VoiceprintManager()
+    vp_manager = VoiceprintManager(provider=config.EMBEDDING_PROVIDER)
     agent_bridge = AgentBridge()
     semantic_memory = SemanticMemory()
     ephemeral_memory = EphemeralMemory()
@@ -188,6 +189,7 @@ async def upload_audio(
 
     # Persist job record in ephemeral DB
     try:
+        config_snapshot = _build_config_snapshot(metadata)
         ephemeral_memory.upsert_job(job_id, {
             "title": title,
             "attendees": attendees,
@@ -196,13 +198,54 @@ async def upload_audio(
             "audio_size_bytes": len(content),
             "event_type": event_type,
             "result": "pending",
+            "config_snapshot": json.dumps(config_snapshot),
         })
-        print(f"[upload] Job record persisted to ephemeral DB")
+        print(f"[upload] Job record persisted to ephemeral DB (config_snapshot: {len(json.dumps(config_snapshot))} chars)")
     except Exception as e:
         print(f"[upload] Warning: could not persist job record: {e}")
 
     _start_pipeline_async(job_id)
     return {"job_id": job_id, "status": "uploaded"}
+
+
+# ── Config snapshot helper ──
+
+def _build_config_snapshot(metadata: dict) -> dict:
+    """Build a JSON-serializable config snapshot from current system config + per-job metadata.
+
+    Captures everything from the Config Panel at the time the job was created.
+    Sensitive values (API keys, tokens) are intentionally excluded — shown as
+    "[set]" / "[not set]" in the UI.
+    """
+    # Helper: check if an env var is set without revealing its value
+    def check(key: str) -> str:
+        val = os.getenv(key, "")
+        return "[set]" if val and val.strip() else "[not set]"
+
+    snapshot = {
+        # ── Python backend config (from config.py) ──
+        "whisper_model_size": config.WHISPER_MODEL_SIZE,
+        "diarization_model": config.DIARIZATION_MODEL,
+        "embedding_model": config.EMBEDDING_MODEL,
+        "embedding_provider": config.EMBEDDING_PROVIDER,
+        "device": config.DEVICE,
+        "platform": config.PLATFORM,
+        "voiceprint_threshold": config.VOICEPRINT_THRESHOLD,
+        "keep_transcript_timestamps": config.KEEP_TRANSCRIPT_TIMESTAMPS,
+        "max_concurrent_pipelines": config.MAX_CONCURRENT_PIPELINES,
+        "default_skip_steps": config.DEFAULT_SKIP_STEPS,
+
+        # ── Python env vars (config panel values, redacted) ──
+        "hugging_face_token_set": check("HUGGING_FACE_TOKEN") != "[not set]",
+        "whisper_initial_prompt_enabled": config.WHISPER_INITIAL_PROMPT_ENABLED,
+
+        # ── Per-job metadata ──
+        "title": metadata.get("title", ""),
+        "attendees": metadata.get("attendees", []),
+        "event_type": metadata.get("event_type", ""),
+        "skip_steps": metadata.get("skip_steps", []),
+    }
+    return snapshot
 
 
 @app.post("/transcribe/upload_by_path")
@@ -248,6 +291,7 @@ async def upload_audio_by_path(req: UploadByPathRequest):
 
     # Persist job record in ephemeral DB
     try:
+        config_snapshot = _build_config_snapshot(metadata)
         ephemeral_memory.upsert_job(job_id, {
             "title": req.title,
             "attendees": json.dumps(req.attendees),
@@ -256,8 +300,9 @@ async def upload_audio_by_path(req: UploadByPathRequest):
             "audio_size_bytes": file_size,
             "event_type": req.event_type,
             "result": "pending",
+            "config_snapshot": json.dumps(config_snapshot),
         })
-        print(f"[upload_by_path] Job record persisted to ephemeral DB")
+        print(f"[upload_by_path] Job record persisted to ephemeral DB (config_snapshot: {len(json.dumps(config_snapshot))} chars)")
     except Exception as e:
         print(f"[upload_by_path] Warning: could not persist job record: {e}")
 
@@ -635,16 +680,45 @@ async def agent_label_speakers(req: LabelRequest):
         if audio_path and transcript_data:
             speaker_segs = [s for s in transcript_data if s.get("speaker") == label.speaker_id]
             if speaker_segs:
-                longest = max(speaker_segs, key=lambda s: s["end"] - s["start"])
-                sample_start = longest["start"]
-                sample_end = longest["end"]
-                try:
-                    emb = vp_manager.extract_embedding(
-                        audio_path, segment=(sample_start, sample_end)
-                    )
-                    print(f"[api]   ✅ Extracted embedding for '{label.name}' ({label.speaker_id})")
-                except Exception as e:
-                    print(f"[api]   ⚠️  Could not extract embedding for '{label.name}': {e}")
+                # Multi-clip enrollment: average N evenly-spaced embeddings
+                MAX_ENROLL_SEGMENTS = 5
+                step = max(1, len(speaker_segs) // MAX_ENROLL_SEGMENTS)
+                sampled_embs = []
+                for i in range(0, len(speaker_segs), step):
+                    if len(sampled_embs) >= MAX_ENROLL_SEGMENTS:
+                        break
+                    s = speaker_segs[i]
+                    try:
+                        seg_emb = vp_manager.extract_embedding(
+                            audio_path, segment=(s["start"], s["end"])
+                        )
+                        sampled_embs.append(seg_emb)
+                    except Exception as e:
+                        print(f"[api]   ⚠️  Could not extract embedding from segment: {e}")
+                        continue
+                if sampled_embs:
+                    # Average and re-normalize
+                    emb = np.mean(sampled_embs, axis=0)
+                    emb = emb / np.linalg.norm(emb)
+                    # Reference the middle segment for playback
+                    mid_idx = len(sampled_embs) // 2
+                    mid_seg = speaker_segs[min(mid_idx * step, len(speaker_segs) - 1)]
+                    sample_start = mid_seg["start"]
+                    sample_end = min(mid_seg["end"], sample_start + 3.0)
+                    print(f"[api]   ✅ Extracted embedding for '{label.name}' ({label.speaker_id}) "
+                          f"— averaged over {len(sampled_embs)} segment(s)")
+                else:
+                    # Fallback: try the longest segment
+                    longest = max(speaker_segs, key=lambda s: s["end"] - s["start"])
+                    sample_start = longest["start"]
+                    sample_end = longest["end"]
+                    try:
+                        emb = vp_manager.extract_embedding(
+                            audio_path, segment=(sample_start, sample_end)
+                        )
+                        print(f"[api]   ✅ Extracted embedding (fallback) for '{label.name}' ({label.speaker_id})")
+                    except Exception as e:
+                        print(f"[api]   ⚠️  Could not extract embedding for '{label.name}': {e}")
         vp_manager.save_voiceprint(
             label.name, label.email or "", emb,
             sample_job_id=req.job_id,
@@ -1314,26 +1388,59 @@ async def label_and_resume(job_id: str, labels: list = Body(...)):
         # Extract an actual embedding from this speaker's audio
         if diar_data and spk in diar_data.get("speaker_segments", {}):
             segs = diar_data["speaker_segments"][spk]
-            # Use the longest segment for a clean embedding
-            longest = max(segs, key=lambda s: s["duration"])
-            try:
-                emb = vp_manager.extract_embedding(
-                    audio_path,
-                    segment=(longest["start"], longest["end"]),
-                )
-                # Calculate a short sample clip (up to 3s) for playback
-                sample_start = longest["start"]
-                sample_end = min(longest["end"], sample_start + 3.0)
+            # Multi-clip enrollment: average N evenly-spaced embeddings
+            MAX_ENROLL_SEGMENTS = 5
+            step = max(1, len(segs) // MAX_ENROLL_SEGMENTS)
+            sampled_embs = []
+            for i in range(0, len(segs), step):
+                if len(sampled_embs) >= MAX_ENROLL_SEGMENTS:
+                    break
+                s = segs[i]
+                try:
+                    seg_emb = vp_manager.extract_embedding(
+                        audio_path, segment=(s["start"], s["end"])
+                    )
+                    sampled_embs.append(seg_emb)
+                except Exception as e:
+                    print(f"[api]   ⚠️  Could not extract embedding from segment: {e}")
+                    continue
+            if sampled_embs:
+                # Average and re-normalize for a robust composite embedding
+                emb = np.mean(sampled_embs, axis=0)
+                emb = emb / np.linalg.norm(emb)
+                # Reference the middle segment for playback
+                mid_idx = len(sampled_embs) // 2
+                mid_seg = segs[min(mid_idx * step, len(segs) - 1)]
+                sample_start = mid_seg["start"]
+                sample_end = min(mid_seg["end"], sample_start + 3.0)
                 vp_manager.save_voiceprint(
                     name, email, emb,
                     sample_job_id=job_id,
                     sample_start=sample_start,
                     sample_end=sample_end,
                 )
-                print(f"[api]   ✅ Saved voiceprint for '{name}' ({spk})")
-            except Exception as e:
-                print(f"[api]   ⚠️  Could not extract embedding for '{name}': {e}")
-                vp_manager.save_voiceprint(name, email, None)
+                print(f"[api]   ✅ Saved voiceprint for '{name}' ({spk}) — "
+                      f"averaged over {len(sampled_embs)} segment(s)")
+            else:
+                # Fallback: use the longest segment
+                longest = max(segs, key=lambda s: s["duration"])
+                try:
+                    emb = vp_manager.extract_embedding(
+                        audio_path,
+                        segment=(longest["start"], longest["end"]),
+                    )
+                    sample_start = longest["start"]
+                    sample_end = min(longest["end"], sample_start + 3.0)
+                    vp_manager.save_voiceprint(
+                        name, email, emb,
+                        sample_job_id=job_id,
+                        sample_start=sample_start,
+                        sample_end=sample_end,
+                    )
+                    print(f"[api]   ✅ Saved voiceprint (fallback) for '{name}' ({spk})")
+                except Exception as e:
+                    print(f"[api]   ⚠️  Could not extract embedding for '{name}': {e}")
+                    vp_manager.save_voiceprint(name, email, None)
 
     # Determine how to proceed based on labeling phase
     labeling_phase = s.get("labeling_phase", "pre_asr")
@@ -1707,6 +1814,27 @@ async def upsert_job_record(data: dict = Body(...)):
     except Exception as e:
         print(f"[api] POST /transcribe/job/upsert ERROR: {e}")
         raise HTTPException(500, f"Job upsert failed: {e}")
+
+
+@app.get("/transcribe/job/{job_id}")
+async def get_job_record(job_id: str):
+    """Fetch the full ephemeral DB job record for a given job ID.
+
+    Returns the complete row from the jobs table, including config_snapshot,
+    token usage, delivery results, and all metadata. Returns 404 if not found.
+    """
+    try:
+        record = ephemeral_memory.get_job(job_id)
+    except Exception as e:
+        print(f"[api] GET /transcribe/job/{job_id} ERROR: {e}")
+        raise HTTPException(500, f"Failed to fetch job record: {e}")
+
+    if not record:
+        print(f"[api] GET /transcribe/job/{job_id} → not_found")
+        raise HTTPException(404, "Job record not found in ephemeral DB")
+
+    print(f"[api] GET /transcribe/job/{job_id} → OK ({len(record)} fields)")
+    return {"job": record}
 
 
 @app.post("/transcribe/cancel/{job_id}")
@@ -2802,8 +2930,8 @@ def _cleanup_pipeline_resources():
                 print(f"[pipeline]   \U0001f9f9 Diarization model unloaded")
 
             # Unload embedding model from VoiceprintManager
-            if vp_manager is not None and hasattr(vp_manager, "_embedding_model"):
-                vp_manager._embedding_model = None
+            if vp_manager is not None:
+                vp_manager.reset_model()
                 print(f"[pipeline]   \U0001f9f9 Embedding model unloaded")
 
             # Force garbage collection + final MPS cache clear

@@ -384,6 +384,9 @@ async function dispatch(tool, args) {
         throw pyErr;
       }
 
+    case "transcribe_get_job":
+      return await callPython("GET", `/transcribe/job/${args.jobId}`);
+
     case "transcribe_upsert_job":
       // CamelCase keys from JS are mapped to snake_case by the Python endpoint
       return await callPython("POST", "/transcribe/job/upsert", args);

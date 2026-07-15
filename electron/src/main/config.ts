@@ -40,6 +40,8 @@ export interface AppConfig {
   PERF_METRICS_POLL_INTERVAL: string;
   /** Credit balance polling interval (ms) for Usage tab */
   CREDIT_POLL_INTERVAL: string;
+  /** Speaker embedding model provider: "pyannote" or "speechbrain" */
+  EMBEDDING_PROVIDER: string;
   /** Whisper ASR model size: "medium" or "large" */
   WHISPER_MODEL_SIZE: string;
   /** Keep start/end timestamps in refined transcript */
@@ -97,6 +99,7 @@ const DEFAULTS: AppConfig = {
   PERF_METRICS_POLL_INTERVAL: "10000",
   CREDIT_POLL_INTERVAL: "60000",
   WHISPER_MODEL_SIZE: "medium",
+  EMBEDDING_PROVIDER: "pyannote",
   KEEP_TRANSCRIPT_TIMESTAMPS: "false",
   WHISPER_INITIAL_PROMPT_ENABLED: "false",
   WHISPER_INITIAL_PROMPT: "",
@@ -252,6 +255,7 @@ export function getChildEnv(): NodeJS.ProcessEnv {
     GITHUB_TOKEN: config.GITHUB_TOKEN || process.env.GITHUB_TOKEN || "",
     GH_TOKEN: config.GITHUB_TOKEN || process.env.GH_TOKEN || "", // electron-updater uses GH_TOKEN
     CREDIT_POLL_INTERVAL: config.CREDIT_POLL_INTERVAL || process.env.CREDIT_POLL_INTERVAL || "60000",
+    EMBEDDING_PROVIDER: config.EMBEDDING_PROVIDER || process.env.EMBEDDING_PROVIDER || "pyannote",
     WHISPER_MODEL_SIZE: config.WHISPER_MODEL_SIZE || process.env.WHISPER_MODEL_SIZE || "medium",
     KEEP_TRANSCRIPT_TIMESTAMPS: config.KEEP_TRANSCRIPT_TIMESTAMPS || process.env.KEEP_TRANSCRIPT_TIMESTAMPS || "false",
     WHISPER_INITIAL_PROMPT_ENABLED: config.WHISPER_INITIAL_PROMPT_ENABLED || process.env.WHISPER_INITIAL_PROMPT_ENABLED || "false",

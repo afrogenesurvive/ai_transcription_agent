@@ -36,3 +36,7 @@ python-dotenv~=0.21.0
 # mlx-whisper
 # faster-whisper
 # openai-whisper
+
+# ── Optional: Speaker embedding model providers ──
+# Install when EMBEDDING_PROVIDER=speechbrain:
+# speechbrain~=1.0.0

@@ -223,6 +223,17 @@ This helps you quickly see who the system can automatically identify in future m
 
 Shows delivery status if you configured email, Drive, or Trello.
 
+### ⚙️ Config Tab
+
+Shows the full configuration snapshot captured when the job was created and processed:
+
+- **Job Metadata** — title, event type, attendees, skipped pipeline steps
+- **LLM & Model Config** — LLM provider and model, Whisper model size, diarization model, embedding provider, compute device, platform, voiceprint threshold
+- **Agent Instructions** — list of enabled/disabled pipeline steps (green/grey chips), tool count, system prompt size, retry settings
+- **Delivery & Logging** — delivery email settings, log configuration
+
+This snapshot is frozen at job creation time, so you can see exactly what settings were active when the job ran — even if you've since changed them in the Settings panel.
+
 ### 📋 Logs Tab
 
 Technical log files for troubleshooting.
