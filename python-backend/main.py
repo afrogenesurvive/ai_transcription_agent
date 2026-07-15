@@ -494,9 +494,10 @@ async def get_job_attendees(job_id: str):
         email = attendee_emails[i] if i < len(attendee_emails) else ""
         key = email.lower() or name.lower()
         vp = vp_by_email.get(key) or vp_by_name.get(key)
-        # Fall back to voiceprint email if metadata had no email
-        if not email and vp and vp.get("email"):
-            email = vp["email"]
+        # Don't fall back to voiceprint email — registered attendee email
+        # from the upload form takes priority even when empty. Voiceprint
+        # emails are often @voiceprint.local placeholders that shouldn't
+        # appear in the UI for registered attendees.
         attendees.append({
             "name": name,
             "email": email,

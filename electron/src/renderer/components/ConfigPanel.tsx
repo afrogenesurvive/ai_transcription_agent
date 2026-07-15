@@ -59,6 +59,7 @@ interface AgentConfig {
     max_retries?: number;
     retry_base_delay_ms?: number;
     terminal_tools?: string[];
+    llm_context_window?: number;
     pipeline_hints?: Record<string, string>;
     event_templates?: Record<string, string>;
     /** Ordered pipeline steps for the draggable checklist UI */
@@ -352,6 +353,7 @@ export default function ConfigPanel({ onClose }: Props) {
   const [editMaxSteps, setEditMaxSteps] = useState(25);
   const [editMaxRetries, setEditMaxRetries] = useState(3);
   const [editRetryDelay, setEditRetryDelay] = useState(2000);
+  const [editContextWindow, setEditContextWindow] = useState(0);
   const [editTerminalTools, setEditTerminalTools] = useState("");
   const [restartNeeded, setRestartNeeded] = useState(false);
 
@@ -526,6 +528,7 @@ export default function ConfigPanel({ onClose }: Props) {
         setEditMaxSteps(cfg.pipeline?.max_pipeline_steps ?? 25);
         setEditMaxRetries(cfg.pipeline?.max_retries ?? 3);
         setEditRetryDelay(cfg.pipeline?.retry_base_delay_ms ?? 2000);
+        setEditContextWindow(cfg.pipeline?.llm_context_window ?? 0);
         setEditTerminalTools((cfg.pipeline?.terminal_tools || []).join(", "));
         setAgentConfigLoading(false);
       })
@@ -764,6 +767,7 @@ The system provides existing memory context at the start of each pipeline run. U
         max_pipeline_steps: editMaxSteps,
         max_retries: editMaxRetries,
         retry_base_delay_ms: editRetryDelay,
+        llm_context_window: editContextWindow,
         terminal_tools:
           terminalTools.length > 0
             ? terminalTools
@@ -803,6 +807,7 @@ The system provides existing memory context at the start of each pipeline run. U
     editMaxSteps,
     editMaxRetries,
     editRetryDelay,
+    editContextWindow,
     editTerminalTools,
     generateSystemPromptFromSteps,
     generateHintsFromSteps,
@@ -852,6 +857,7 @@ The system provides existing memory context at the start of each pipeline run. U
           setEditMaxSteps(freshConfig.pipeline?.max_pipeline_steps ?? 25);
           setEditMaxRetries(freshConfig.pipeline?.max_retries ?? 3);
           setEditRetryDelay(freshConfig.pipeline?.retry_base_delay_ms ?? 2000);
+          setEditContextWindow(freshConfig.pipeline?.llm_context_window ?? 0);
           setEditTerminalTools((freshConfig.pipeline?.terminal_tools || []).join(", "));
           setAgentConfig(freshConfig);
         } else {
@@ -2001,6 +2007,22 @@ The system provides existing memory context at the start of each pipeline run. U
                       }}
                       disabled={activeJobs.length > 0}
                     />
+                  </div>
+                  <div className="config-field config-field--compact">
+                    <label className="config-label">Context Window</label>
+                    <input
+                      className="config-input config-input--number"
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={editContextWindow}
+                      onChange={(e) => {
+                        setEditContextWindow(parseInt(e.target.value) || 0);
+                        setSaved(false);
+                      }}
+                      disabled={activeJobs.length > 0}
+                    />
+                    <p className="config-field-hint">Sliding window of step results sent to the LLM. 0 = send all steps (default).</p>
                   </div>
                 </div>
                 <div className="config-field">

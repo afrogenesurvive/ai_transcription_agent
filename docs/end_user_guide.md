@@ -318,6 +318,7 @@ For advanced users: customize the AI pipeline behavior by editing the underlying
 - **Pipeline Steps** — reorder, enable/disable, or add new pipeline stages (refine, summarize, analyze, etc.)
 - **System Prompt** — customize the instructions given to the AI for each pipeline step
 - **Tool Definitions** — define how each tool (email, Drive, Trello) operates
+- **Context Window** — sliding window of step results sent to the LLM. 0 = send all steps (default). Higher values limit context to the last N step blocks, reducing token usage on long pipelines.
 
 Changes take effect the next time a meeting is processed. Use **Restore Defaults** to reset to the original configuration.
 
