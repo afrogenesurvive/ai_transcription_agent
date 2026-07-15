@@ -119,7 +119,7 @@
     "transcribe_save_context": "Pipeline complete. Call a delivery tool (send_delivery_email, save_to_drive, create_trello_action_items) or finish."
   },
   "event_templates": {
-    "ready_for_processing": "Actions: refine transcript (removes fillers and PII, preserves timestamps), extract action items, generate summary, generate analysis, prepare delivery.\nExisting memory context is provided below — use it for continuity and to identify recurring topics. Repetition is signal (e.g., same action item across weeks = blocker).\nIf an action item from a previous meeting is resolved here, note it as completed.\nTranscript ({{segment_count}} segments):\n{{transcript_preview}}",
+    "ready_for_processing": "Actions: refine transcript (removes fillers and PII, preserves timestamps), extract action items, generate summary, generate analysis, prepare delivery.\nExisting memory context is provided below — use it for continuity and to identify recurring topics. Repetition is signal (e.g., same action item across weeks = blocker).\nIf an action item from a previous meeting is resolved here, note it as completed.\nNon-speaking attendees (present but did not speak): {{non_speaking_attendees}}\nTranscript ({{segment_count}} segments):\n{{transcript_preview}}",
     "labeling_needed": "Unknown speakers detected. List voiceprints, notify user, or apply labels if info available.\n{{speaker_details}}",
     "failed": "Processing failed. Notify the user. Error: {{error}}"
   }

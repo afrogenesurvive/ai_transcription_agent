@@ -245,7 +245,7 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
   );
 
   const addAttendee = useCallback(
-    (name?: string, email?: string) => {
+    async (name?: string, email?: string) => {
       const isManualEntry = name === undefined;
       const resolvedName = isManualEntry ? attendeeName.trim() : name.trim();
       if (!resolvedName) return;
@@ -260,6 +260,33 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
         setFormError(`Invalid email address: "${resolvedEmail}"`);
         return;
       }
+
+      // Server-side conflict check: verify name+email against attendee registry + voiceprints
+      if (isManualEntry) {
+        try {
+          const conflictRes = await fetch("http://127.0.0.1:5010/tools/call", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              tool: "attendees_check_conflicts",
+              args: { entries: [{ name: resolvedName, email: resolvedEmail }] },
+            }),
+            signal: AbortSignal.timeout(3000),
+          });
+          if (conflictRes.ok) {
+            const conflictData = await conflictRes.json();
+            const conflicts = (conflictData as any).conflicts || [];
+            if (conflicts.length > 0) {
+              const messages = conflicts.map((c: any) => c.message).join(" ");
+              setFormError(messages);
+              return; // Don't add — conflicts need user attention
+            }
+          }
+        } catch {
+          // Backend unavailable — proceed without conflict check (fail-open)
+        }
+      }
+
       setFormError(null);
       const entry: AttendeeEntry = { name: resolvedName, email: resolvedEmail };
       setAttendeeList((prev) => [...prev, entry]);
@@ -277,7 +304,7 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
         });
       }
     },
-    [attendeeName, attendeeEmail, attendeeList, registeredAttendees, savedAttendees],
+    [attendeeName, attendeeEmail, attendeeList, savedAttendees],
   );
 
   // Select a suggestion: fill name + email, then focus the email field

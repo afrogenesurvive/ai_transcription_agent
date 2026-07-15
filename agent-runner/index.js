@@ -987,10 +987,12 @@ function buildInitialContext(event, transcript, safeTitle, safeAttendees, eventI
       substitutions.push({ var: "{{speaker_details}}", value: `${(jobData.unknownSpeakers || []).length} unknown speakers` });
     console.log(`📝 [BUILD-CONTEXT]   Variable substitutions: ${substitutions.map((s) => `${s.var} → ${s.value}`).join(", ")}`);
 
+    const nonSpeakingList = (jobData.nonSpeakingAttendees || []).join(", ") || "none";
     const rendered = template
       .replace("{{segment_count}}", String(transcript.length))
       .replace("{{error}}", jobData.error || "unknown")
-      .replace("{{error_message}}", jobData.error || "unknown");
+      .replace("{{error_message}}", jobData.error || "unknown")
+      .replace("{{non_speaking_attendees}}", nonSpeakingList);
 
     // Build transcript preview for ready_for_processing
     if (event.type === "ready_for_processing") {

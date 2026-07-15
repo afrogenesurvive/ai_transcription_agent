@@ -4,7 +4,7 @@ Voiceprint management — speaker embedding extraction, matching, and storage
 How it works:
 1. Each speaker has a unique "voiceprint" — a high-dimensional embedding vector
    extracted from a short audio sample using pyannote's embedding model.
-2. Voiceprints are stored in a local SQLite DB (voiceprints.db) keyed by name + email.
+2. Voiceprints are stored in a local SQLite DB (voiceprints.db) keyed by email.
 3. When a new meeting is processed, the pipeline extracts embeddings from each
    diarization segment and compares them (via cosine similarity) against stored
    voiceprints to identify known speakers.
@@ -16,6 +16,42 @@ segment into a fixed-size vector (~512 floats). Cosine similarity between two
 embeddings ranges from -1 (opposite) to 1 (identical). A threshold of 0.75 means
 two speakers are considered a match if their vectors point within ~41 degrees of
 each other.
+
+── Write & Overwrite Contract ──
+
+Storage schema (voiceprints table):
+  id            INTEGER PRIMARY KEY AUTOINCREMENT
+  speaker_name  TEXT UNIQUE          — human-readable label
+  email         TEXT UNIQUE          — THE upsert key (unique constraint)
+  embedding     BLOB                 — pickle-dumped numpy array
+  sample_job_id TEXT / start / end   — reference to the audio clip used
+  created_at / updated_at            — timestamps
+
+Upsert rule (ON CONFLICT(email) DO UPDATE SET):
+  • Same email → OVERWRITE embedding, speaker_name, sample ref, updated_at
+  • New email  → INSERT new row
+
+Email resolution (_make_email):
+  • Real email provided → used as-is (the join key across meetings)
+  • No email provided   → derives "{slugified_name}@voiceprint.local"
+    so each named speaker always gets a unique, deterministic email key.
+    This prevents the historic bug where multiple speakers all passed "",
+    collided on the same empty key, and silently overwrote each other.
+
+Three save paths:
+  1. label_and_resume (user via SpeakerLabelModal)
+     └─ Real embedding extracted from speaker's longest audio segment
+     └─ Email from user input (or empty → @voiceprint.local fallback)
+  2. agent_label_speakers (LLM in agent pipeline)
+     └─ Real embedding extracted from audio (if available)
+     └─ Email empty → @voiceprint.local fallback
+  3. transcribe_label_speaker tool (agent bridge)
+     └─ Same as #2 — proxies through to agent_label_speakers
+
+Conflict checking (POST /voiceprints/check-conflicts):
+  Before saving, the SpeakerLabelModal checks whether any entered name or email
+  already has an enrolled voiceprint under a DIFFERENT name. If so, a conflict
+  dialog asks the user whether to overwrite or keep the existing record.
 """
 
 import os
@@ -240,6 +276,16 @@ class VoiceprintManager:
         # How many segments to sample per speaker cluster for averaging
         MAX_SAMPLE_SEGMENTS = 5
 
+        # Cap the attendee list to prevent performance degradation from
+        # extremely large registries. The first N names are used; the rest
+        # are logged as skipped so the pipeline log is auditable.
+        MAX_ATTENDEES_FOR_MATCHING = 50
+        if len(attendees) > MAX_ATTENDEES_FOR_MATCHING:
+            print(f"[voiceprint] ⚠️  Attendee list ({len(attendees)}) exceeds cap "
+                  f"({MAX_ATTENDEES_FOR_MATCHING}). Truncating to first {MAX_ATTENDEES_FOR_MATCHING} "
+                  f"for matching. Skipped: {attendees[MAX_ATTENDEES_FOR_MATCHING:]}")
+            attendees = attendees[:MAX_ATTENDEES_FOR_MATCHING]
+
         # Step 1: Load stored embeddings for attendees who have voiceprints enrolled
         known_embeddings = self._get_known_embeddings(attendees)
         print(f"[voiceprint] Found {len(known_embeddings)} stored voiceprints for attendees: {list(known_embeddings.keys())}")
@@ -316,10 +362,21 @@ class VoiceprintManager:
                 (*attendees, *attendees),
             ).fetchall()
 
-        # Build result set — deduplicate if email and name match different rows
+        # Build result set — deduplicate by email (primary key), then by name.
+        # The SQL query may return the same row twice if an attendee matches
+        # both the email IN (...) and speaker_name IN (...) clauses. Also handle
+        # the edge case where different names map to the same email alias.
+        seen_emails = set()
         seen_names = set()
         known = {}
         for name, email, blob in rows:
+            # Dedup by email first (most reliable — it's the unique key)
+            email_key = (email or "").lower()
+            if email_key and email_key in seen_emails:
+                continue
+            if email_key:
+                seen_emails.add(email_key)
+            # Also dedup by name (for rows without email)
             if name in seen_names:
                 continue
             seen_names.add(name)

@@ -17,11 +17,12 @@ async function bridgeCall(tool: string, args: Record<string, unknown> = {}) {
 export function useApi() {
   return {
     /** Upload an audio file (via bridge server to avoid CORS issues) */
-    uploadAudio: async (file: File, title: string, attendees: string[], emailRecipients: string[] = [], skipSteps: string[] = []) => {
+    uploadAudio: async (file: File, title: string, attendees: string[], emailRecipients: string[] = [], skipSteps: string[] = [], attendeeEmails?: string[]) => {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("title", title);
       formData.append("attendees", JSON.stringify(attendees));
+      formData.append("attendee_emails", JSON.stringify(attendeeEmails || []));
       formData.append("email_recipients", JSON.stringify(emailRecipients));
       formData.append("event_type", "internal");
       formData.append("skip_steps", JSON.stringify(skipSteps));

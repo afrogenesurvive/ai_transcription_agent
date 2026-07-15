@@ -134,7 +134,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   installUpdate: (): Promise<{ success: boolean }> => ipcRenderer.invoke("auto-update:install"),
 
   // ── Native Notifications ──
-  showNotification: (title: string, body: string): Promise<void> => ipcRenderer.invoke("notification:show", title, body),
+  showNotification: (title: string, body: string, clickPayload?: Record<string, unknown>): Promise<void> =>
+    ipcRenderer.invoke("notification:show", title, body, clickPayload),
 
   // ── Ollama Model Management ──
   listOllamaModels: (): Promise<{

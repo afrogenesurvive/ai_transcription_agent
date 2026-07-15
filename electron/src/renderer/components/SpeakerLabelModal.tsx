@@ -32,6 +32,11 @@ interface ConflictInfo {
   sample_job_id?: string;
 }
 
+interface NonSpeakingInfo {
+  name: string;
+  email?: string;
+}
+
 interface Props {
   jobId: string;
   speakers: SpeakerInfo[];
@@ -39,9 +44,10 @@ interface Props {
   onConfirm: (labels: Array<{ speaker_id: string; name: string; email?: string }>) => Promise<void>;
   onCancel: () => void;
   submitting: boolean;
+  nonSpeakingAttendees?: NonSpeakingInfo[];
 }
 
-export default function SpeakerLabelModal({ jobId, speakers, suggestedEmails = [], onConfirm, onCancel, submitting }: Props) {
+export default function SpeakerLabelModal({ jobId, speakers, suggestedEmails = [], onConfirm, onCancel, submitting, nonSpeakingAttendees = [] }: Props) {
   const [labels, setLabels] = useState<Record<string, string>>({});
   const [emails, setEmails] = useState<Record<string, string>>({});
   const [playing, setPlaying] = useState<string | null>(null);
@@ -216,6 +222,26 @@ export default function SpeakerLabelModal({ jobId, speakers, suggestedEmails = [
             );
           })}
         </div>
+
+        {/* ── Non-speaking attendees ── */}
+        {nonSpeakingAttendees.length > 0 && (
+          <div className="speaker-non-speaking-section">
+            <h3 className="speaker-non-speaking-heading">
+              <Icon name="visibility_off" size="14" color="muted" /> Also present but did not speak
+            </h3>
+            <p className="speaker-non-speaking-desc">
+              These registered attendees had no detected speech segments. No voiceprint is needed — they are included in the meeting record.
+            </p>
+            <ul className="speaker-non-speaking-list">
+              {nonSpeakingAttendees.map((ns, i) => (
+                <li key={i} className="speaker-non-speaking-item">
+                  <span className="speaker-non-speaking-name">{ns.name}</span>
+                  {ns.email && <span className="speaker-non-speaking-email">{ns.email}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {/* ── Voiceprint conflict dialog ── */}
         {conflicts.length > 0 && (

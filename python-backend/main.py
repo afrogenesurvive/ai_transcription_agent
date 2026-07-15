@@ -137,6 +137,7 @@ async def upload_audio(
     file: UploadFile = File(...),
     title: str = Form("Untitled Meeting"),
     attendees: str = Form("[]"),
+    attendee_emails: str = Form("[]"),
     email_recipients: str = Form("[]"),
     event_type: str = Form("internal"),
     skip_steps: str = Form(""),
@@ -161,9 +162,11 @@ async def upload_audio(
 
     parsed_skip = json.loads(skip_steps) if skip_steps else config.DEFAULT_SKIP_STEPS
     parsed_emails = json.loads(email_recipients) if email_recipients else []
+    parsed_attendee_emails = json.loads(attendee_emails) if attendee_emails else []
     metadata = {
         "title": title,
         "attendees": json.loads(attendees),
+        "attendeeEmails": parsed_attendee_emails,
         "email_recipients": parsed_emails,
         "event_type": event_type,
         "skip_steps": parsed_skip,
@@ -698,6 +701,74 @@ async def check_voiceprint_conflicts(names: list = Body(...)):
     return {"conflicts": conflicts}
 
 
+@app.post("/attendees/check-conflicts")
+async def check_attendee_conflicts(entries: list = Body(...)):
+    """Check if any of the given attendee name/email combos conflict with
+    existing entries in the attendee registry or voiceprint table.
+
+    Body: JSON array of {name, email?} objects
+    Returns: {conflicts: [{type, name, email, existing_name, existing_email, message}]}
+
+    Conflict types detected:
+      - attendee_name_mismatch: email exists under a different name
+      - attendee_email_mismatch: name exists with a different email
+      - voiceprint_name_mismatch: voiceprint exists under a different name (delegated)
+    """
+    conflicts = []
+    for entry in entries:
+        name = entry.get("name", "").strip()
+        email = entry.get("email", "").strip()
+        if not name:
+            continue
+
+        # 1. Check attendee registry for email collisions
+        if email:
+            existing_atts = ephemeral_memory.query_attendees(name=email, limit=5)
+            for att in existing_atts:
+                if att["name"].lower() != name.lower() and att["email"].lower() == email.lower():
+                    conflicts.append({
+                        "type": "attendee_name_mismatch",
+                        "name": name,
+                        "email": email,
+                        "existing_name": att["name"],
+                        "existing_email": att["email"],
+                        "message": f"Email {email} is registered under '{att['name']}', not '{name}'.",
+                    })
+
+        # 2. Check attendee registry for name with different email
+        if name:
+            existing_atts = ephemeral_memory.query_attendees(name=name, limit=5)
+            for att in existing_atts:
+                if att["name"].lower() == name.lower() and att["email"] and att["email"].lower() != email.lower():
+                    # Only flag if they're entering a different email
+                    if email and att["email"].lower() != email.lower():
+                        conflicts.append({
+                            "type": "attendee_email_mismatch",
+                            "name": name,
+                            "email": email,
+                            "existing_name": att["name"],
+                            "existing_email": att["email"],
+                            "message": f"'{name}' is already registered with email '{att['email']}', not '{email}'.",
+                        })
+
+        # 3. Check voiceprint table (delegate to existing logic)
+        existing_vp = vp_manager.get_voiceprint(name)
+        if not existing_vp and email:
+            existing_vp = vp_manager.get_voiceprint(email)
+        if existing_vp and existing_vp["name"] != name:
+            conflicts.append({
+                "type": "voiceprint_name_mismatch",
+                "name": name,
+                "email": email,
+                "existing_name": existing_vp["name"],
+                "existing_email": existing_vp["email"],
+                "message": f"Voiceprint for '{existing_vp['name']}' already exists with email '{existing_vp['email'] or 'none'}'. Entering as '{name}' will create a new voiceprint record.",
+            })
+
+    print(f"[api] POST /attendees/check-conflicts → {len(conflicts)} conflict(s)")
+    return {"conflicts": conflicts}
+
+
 @app.delete("/agent/voiceprints/{email}")
 async def agent_delete_voiceprint(email: str):
     """Delete a voiceprint by email. Returns success even if not found."""
@@ -1128,7 +1199,30 @@ async def get_speaker_clips(job_id: str):
             "suggested_name": attendee_names[len(speakers)] if len(speakers) < len(attendee_names) else "",
         })
 
-    return {"job_id": job_id, "speakers": speakers, "total_speakers": len(speakers)}
+    # Include non-speaking attendees from reconciliation data (if available)
+    reconciliation = s.get("reconciliation", {})
+    non_speaking = reconciliation.get("non_speaking_attendees", [])
+    attendee_emails = metadata.get("attendeeEmails", [])
+
+    # Build full non-speaking attendee info with emails
+    non_speaking_full = []
+    for ns in non_speaking:
+        ns_name = ns.get("name", ns) if isinstance(ns, dict) else ns
+        ns_email = ""
+        if isinstance(ns, dict):
+            ns_email = ns.get("email", "")
+        elif metadata.get("attendees"):
+            idx = metadata["attendees"].index(ns_name) if ns_name in metadata["attendees"] else -1
+            if idx >= 0 and idx < len(attendee_emails):
+                ns_email = attendee_emails[idx]
+        non_speaking_full.append({"name": ns_name, "email": ns_email})
+
+    return {
+        "job_id": job_id,
+        "speakers": speakers,
+        "total_speakers": len(speakers),
+        "non_speaking_attendees": non_speaking_full,
+    }
 
 
 @app.get("/transcribe/audio/speaker_clip/{job_id}/{speaker_id}/{clip_index}")
@@ -1265,6 +1359,45 @@ async def label_and_resume(job_id: str, labels: list = Body(...)):
         skip = metadata.get("skip_steps")
         _update_active(job_id, "ready_for_agent", 0.95)
 
+        # Build reconciliation from user labels + saved pre-labeling state
+        # At this point all speakers should be known (user labeled them all)
+        saved_reconciliation = s.get("reconciliation", {})
+        matched_speakers = saved_reconciliation.get("matched_speakers", [])
+        non_speaking = saved_reconciliation.get("non_speaking_attendees", [])
+
+        # Add newly labeled speakers to the matched list
+        for spk, info in label_map.items():
+            matched_speakers.append({
+                "name": info["name"],
+                "email": info.get("email", ""),
+                "speaker_id": spk,
+                "confidence": 1.0,  # User-confirmed
+            })
+
+        # Register ALL attendees in ephemeral DB after full reconciliation
+        all_attendee_names = list(dict.fromkeys(
+            [s["name"] for s in matched_speakers] +
+            [ns["name"] for ns in non_speaking]
+        ))
+        all_attendee_emails = []
+        for name in all_attendee_names:
+            email = next(
+                (s.get("email", "") for s in matched_speakers if s["name"] == name),
+                next((ns.get("email", "") for ns in non_speaking if ns["name"] == name), "")
+            )
+            all_attendee_emails.append(email)
+
+        try:
+            ephemeral_memory.register_attendees(
+                all_attendee_names, all_attendee_emails,
+                source="manual_labeling", job_id=job_id,
+            )
+            print(f"[label_and_resume] Registered {len(all_attendee_names)} attendee(s) "
+                  f"({len(matched_speakers)} spoke, {len(non_speaking)} non-speaking) "
+                  f"after labeling")
+        except Exception as e:
+            print(f"[label_and_resume] ⚠️  Could not register attendees: {e}")
+
         # Persist ML pipeline completion stats
         try:
             total_chars = sum(len(s.get("text", "")) for s in aligned)
@@ -1276,7 +1409,11 @@ async def label_and_resume(job_id: str, labels: list = Body(...)):
         except Exception as e:
             print(f"[label_and_resume] Warning: could not update job record: {e}")
 
-        agent_bridge.enqueue_ready(job_id, aligned, metadata, skip_steps=skip)
+        non_speaking_names = [ns["name"] for ns in non_speaking]
+        agent_bridge.enqueue_ready(
+            job_id, aligned, metadata, skip_steps=skip,
+            non_speaking_attendees=non_speaking_names,
+        )
         return {"job_id": job_id, "status": "ready_for_agent", "applied_labels": len(label_map)}
     else:
         # Pre-ASR (diarization only) — run full resumed pipeline (ASR → alignment → agent)
@@ -1364,6 +1501,24 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
         match_result = {"known": known, "unknown": unknown}
         jlog.log(f"[pipeline] User labels applied: {len(known)} known, {len(unknown)} unknown")
 
+        # ── Attendee reconciliation after labeling ──
+        metadata_attendees = metadata.get("attendees", [])
+        metadata_attendee_emails = metadata.get("attendeeEmails", [])
+        reconciliation = _reconcile_attendees(
+            metadata_attendees, metadata_attendee_emails,
+            match_result, speaker_segments,
+        )
+        matched_names = [s["name"] for s in reconciliation["matched_speakers"]]
+        non_speaking_names = [s["name"] for s in reconciliation["non_speaking_attendees"]]
+        unknown_ids = [u["speaker_id"] for u in reconciliation["unknown_speakers"]]
+        jlog.log(f"[reconciliation] Attendee reconciliation (resumed): "
+              f"{len(matched_names)} matched speaker(s), "
+              f"{len(non_speaking_names)} non-speaking, "
+              f"{len(unknown_ids)} unknown")
+        if non_speaking_names:
+            jlog.log(f"[reconciliation]   Non-speaking attendees "
+                  f"(present but did not speak): {non_speaking_names}")
+
         # ── Step 3: ASR Transcription ──
         jlog.log(f"\n   🎤 [PIPELINE] Step 3/5: ASR transcription (Whisper)...")
         _update_active(job_id, "processing_transcription", 0.5)
@@ -1446,14 +1601,28 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
                 })
             _update_active(job_id, "paused_for_labeling", 0.9,
                           labeling_phase="post_asr", speakers=speaker_info,
-                          unknown_speakers=unknown)
+                          unknown_speakers=unknown,
+                          reconciliation={
+                              "matched_speakers": reconciliation["matched_speakers"],
+                              "non_speaking_attendees": reconciliation["non_speaking_attendees"],
+                          })
             jlog.log(f"[pipeline] ⏸️  Pipeline paused — waiting for speaker labels from user")
             jlog.log(f"[pipeline]   Unknown speakers: {', '.join(u['speaker_id'] for u in unknown)}")
+
+            # Register matched speakers and non-speaking attendees now
+            _register_attendees_after_reconciliation(
+                job_id, metadata, reconciliation, source="manual_labeling"
+            )
             return  # Exit pipeline — resume via POST /transcribe/label_and_resume
         else:
             _update_active(job_id, "ready_for_agent", 0.95)
             skip = metadata.get("skip_steps")
             jlog.log(f"[pipeline] All speakers known — enqueueing ready_for_processing")
+
+            # Register attendees in ephemeral DB AFTER full reconciliation
+            _register_attendees_after_reconciliation(
+                job_id, metadata, reconciliation, source="manual_labeling"
+            )
 
             # Persist ML pipeline completion stats
             try:
@@ -1466,7 +1635,10 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
             except Exception as e:
                 jlog.log(f"[pipeline] Warning: could not update job record: {e}")
 
-            agent_bridge.enqueue_ready(job_id, aligned, metadata, skip_steps=skip)
+            agent_bridge.enqueue_ready(
+                job_id, aligned, metadata, skip_steps=skip,
+                non_speaking_attendees=non_speaking_names,
+            )
 
     except Exception as e:
         jlog.log(f"\n   ❌ [pipeline] ERROR in resumed job {job_id}: {e}")
@@ -2400,6 +2572,122 @@ def _setup_job_logger(job_id: str):
         return _NullLogger()
 
 
+# ── Attendee reconciliation helper ──
+
+def _reconcile_attendees(metadata_attendees: list, attendee_emails: list,
+                         match_result: dict,
+                         speaker_segments: dict) -> dict:
+    """Cross-reference registered attendees against voiceprint matching results
+    to determine who spoke, who didn't, and who is entirely new.
+
+    Returns a dict:
+      matched_speakers: [{name, email, speaker_id, confidence}]
+      non_speaking_attendees: [{name, email}] — registered but never detected as speakers
+      unknown_speakers: [{speaker_id, ...}] — detected speakers not matched to any attendee
+    """
+    matched_speakers = []
+    non_speaking_attendees = []
+    unknown_speakers = list(match_result.get("unknown", []))
+
+    # Build set of all detected speaker IDs (from diarization)
+    all_detected_speaker_ids = set(speaker_segments.keys())
+
+    # Build reverse map: speaker_id → matched name from known results
+    speaker_to_name = {}
+    scores = match_result.get("scores", {})
+    for name, segs in match_result.get("known", {}).items():
+        # Find which speaker_id(s) map to this name by checking segment overlap
+        for spk_id, spk_segs in speaker_segments.items():
+            for s in spk_segs[:5]:  # Check first few segments
+                for ks in segs[:5]:
+                    if abs(s.get("start", 0) - ks.get("start", 0)) < 0.5:
+                        speaker_to_name[spk_id] = name
+                        break
+                if spk_id in speaker_to_name:
+                    break
+            if spk_id in speaker_to_name:
+                break
+        # If no speaker_id found, associate with any unmatched speaker
+        if name not in speaker_to_name.values():
+            for spk_id in all_detected_speaker_ids:
+                if spk_id not in speaker_to_name:
+                    speaker_to_name[spk_id] = name
+                    break
+
+    # For each registered attendee, check if they were detected as a speaker
+    for i, att_name in enumerate(metadata_attendees):
+        att_email = attendee_emails[i] if i < len(attendee_emails) else ""
+
+        # Check if this attendee appears in matched known speakers
+        matched = False
+        for name in match_result.get("known", {}):
+            if name.lower() == att_name.lower():
+                matched = True
+                confidence = scores.get(name, 0)
+                # Find which speaker_id
+                spk_id = next((sid for sid, n in speaker_to_name.items() if n == name), "?")
+                matched_speakers.append({
+                    "name": att_name,
+                    "email": att_email,
+                    "speaker_id": spk_id,
+                    "confidence": round(confidence, 3),
+                })
+                break
+
+        if not matched:
+            non_speaking_attendees.append({
+                "name": att_name,
+                "email": att_email,
+            })
+
+    return {
+        "matched_speakers": matched_speakers,
+        "non_speaking_attendees": non_speaking_attendees,
+        "unknown_speakers": unknown_speakers,
+    }
+
+
+def _register_attendees_after_reconciliation(
+    job_id: str, metadata: dict,
+    reconciliation: dict, source: str = "new_job_form"
+):
+    """Persist reconciled attendees to the ephemeral DB attendee registry.
+
+    Only called AFTER voiceprint matching / labeling reconciliation is
+    complete, never during upload. This ensures the attendee registry
+    accurately reflects who actually participated in the meeting.
+
+    Registered:
+      - matched_speakers (they spoke)
+      - non_speaking_attendees (they were present but silent)
+    """
+    all_attendees = []
+    all_emails = []
+
+    for s in reconciliation.get("matched_speakers", []):
+        all_attendees.append(s["name"])
+        all_emails.append(s.get("email", ""))
+
+    for ns in reconciliation.get("non_speaking_attendees", []):
+        all_attendees.append(ns["name"])
+        all_emails.append(ns.get("email", ""))
+
+    if not all_attendees:
+        return
+
+    try:
+        ephemeral_memory.register_attendees(
+            all_attendees, all_emails,
+            source=source, job_id=job_id,
+        )
+        print(f"[reconciliation] Registered {len(all_attendees)} attendee(s) "
+              f"({len(reconciliation.get('matched_speakers', []))} spoke, "
+              f"{len(reconciliation.get('non_speaking_attendees', []))} non-speaking) "
+              f"for job {job_id[:8]} in ephemeral DB")
+    except Exception as e:
+        print(f"[reconciliation] ⚠️  Could not register attendees for job {job_id}: {e}")
+
+
 # ── Pipeline management ──
 
 def _start_pipeline_async(job_id: str):
@@ -2603,6 +2891,26 @@ def _run_pipeline_sync(job_id: str):
                       f"({len(u['segments'])} segment(s), sample at {u['sample_segment']['start']:.1f}s)")
             jlog.log(f"[voiceprint] ────────────────────────────")
 
+        # ── Attendee reconciliation ──
+        metadata_attendees = metadata.get("attendees", [])
+        metadata_attendee_emails = metadata.get("attendeeEmails", [])
+        reconciliation = _reconcile_attendees(
+            metadata_attendees, metadata_attendee_emails,
+            match_result, speaker_segments,
+        )
+        matched_names = [s["name"] for s in reconciliation["matched_speakers"]]
+        non_speaking_names = [s["name"] for s in reconciliation["non_speaking_attendees"]]
+        unknown_ids = [u["speaker_id"] for u in reconciliation["unknown_speakers"]]
+        jlog.log(f"[reconciliation] Attendee reconciliation: "
+              f"{len(matched_names)} matched speaker(s), "
+              f"{len(non_speaking_names)} non-speaking, "
+              f"{len(unknown_ids)} unknown")
+        if non_speaking_names:
+            jlog.log(f"[reconciliation]   Non-speaking attendees "
+                  f"(present but did not speak): {non_speaking_names}")
+        if matched_names:
+            jlog.log(f"[reconciliation]   Matched speakers: {matched_names}")
+
         # ── Step 3: ASR Transcription ──
         jlog.log(f"\n   🎤 [PIPELINE] Step 3/5: ASR transcription (Whisper)...")
         _update_active(job_id, "processing_transcription", 0.5)
@@ -2704,14 +3012,29 @@ def _run_pipeline_sync(job_id: str):
                 })
             _update_active(job_id, "paused_for_labeling", 0.9,
                           labeling_phase="post_asr", speakers=speaker_info,
-                          unknown_speakers=unknown)
+                          unknown_speakers=unknown,
+                          reconciliation={
+                              "matched_speakers": reconciliation["matched_speakers"],
+                              "non_speaking_attendees": reconciliation["non_speaking_attendees"],
+                          })
             jlog.log(f"[pipeline] ⏸️  Pipeline paused — waiting for speaker labels from user")
             jlog.log(f"[pipeline]   Unknown speakers: {', '.join(u['speaker_id'] for u in unknown)}")
+
+            # Register matched speakers and non-speaking attendees now
+            # (unknown speakers will be registered after the user labels them)
+            _register_attendees_after_reconciliation(
+                job_id, metadata, reconciliation, source="new_job_form"
+            )
             return  # Exit pipeline — resume via POST /transcribe/label_and_resume
         else:
             _update_active(job_id, "ready_for_agent", 0.95)
             skip = metadata.get("skip_steps")
             jlog.log(f"[pipeline] All speakers known — enqueueing ready_for_processing (skip_steps={skip})")
+
+            # Register attendees in ephemeral DB AFTER full reconciliation
+            _register_attendees_after_reconciliation(
+                job_id, metadata, reconciliation, source="new_job_form"
+            )
 
             # Persist ML pipeline completion stats
             try:
@@ -2724,7 +3047,10 @@ def _run_pipeline_sync(job_id: str):
             except Exception as e:
                 jlog.log(f"[pipeline] Warning: could not update job record: {e}")
 
-            agent_bridge.enqueue_ready(job_id, aligned, metadata, skip_steps=skip)
+            agent_bridge.enqueue_ready(
+                job_id, aligned, metadata, skip_steps=skip,
+                non_speaking_attendees=non_speaking_names,
+            )
 
     except Exception as e:
         jlog.log(f"\n   ❌ [pipeline] ERROR in job {job_id}: {e}")

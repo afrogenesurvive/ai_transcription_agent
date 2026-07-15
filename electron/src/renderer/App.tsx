@@ -297,8 +297,9 @@ export default function App() {
       const stateSnapshot = statusHook.state;
       const jobTitle = jobMetadata?.title || "Untitled Meeting";
 
-      // Show top-level OS notification (macOS / Windows)
-      // If the user clicks the notification, they'll be taken to the results view
+      // Show in-app toast and top-level OS notification (macOS / Windows)
+      // If the user clicks the OS notification, they'll be taken to the results view
+      notify(`"${jobTitle}" — transcription complete`);
       window.electronAPI?.showNotification("Transcription Complete", `"${jobTitle}" — click to view results`, { action: "view_results", jobId });
 
       Promise.all([
@@ -386,7 +387,7 @@ export default function App() {
     setUploading(true);
     setLoadingMessage("Uploading audio file…");
     try {
-      const result: any = await api.uploadAudio(file, title, attendees, emailRecipients, skipSteps);
+      const result: any = await api.uploadAudio(file, title, attendees, emailRecipients, skipSteps, attendeeEmails);
       console.log("Upload result", result);
       setJobId(result.job_id);
       setJobMetadata({ title, attendees, attendeeEmails: attendeeEmails || [] });
@@ -499,6 +500,7 @@ export default function App() {
           jobId={jobId!}
           speakers={speakerClips.speakers}
           suggestedEmails={jobMetadata?.attendeeEmails || []}
+          nonSpeakingAttendees={speakerClips.non_speaking_attendees || []}
           onConfirm={handleLabelConfirm}
           onCancel={handleLabelCancel}
           submitting={labelingSubmitting}

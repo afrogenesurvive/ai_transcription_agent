@@ -393,6 +393,9 @@ async function dispatch(tool, args) {
     case "voiceprint_check_conflicts":
       return await callPython("POST", "/voiceprints/check-conflicts", { names: args.attendees || [] });
 
+    case "attendees_check_conflicts":
+      return await callPython("POST", "/attendees/check-conflicts", args.entries || []);
+
     default:
       throw new Error(`Unknown tool: ${tool}`);
   }

@@ -113,7 +113,8 @@ class EphemeralMemory:
                 email TEXT DEFAULT '',
                 source TEXT NOT NULL DEFAULT 'new_job_form',
                 job_id TEXT DEFAULT NULL REFERENCES jobs(id) ON DELETE SET NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
             CREATE TABLE IF NOT EXISTS action_items (
@@ -179,6 +180,15 @@ class EphemeralMemory:
             CREATE INDEX IF NOT EXISTS idx_attendees_name ON attendees(name);
             CREATE INDEX IF NOT EXISTS idx_attendees_job ON attendees(job_id);
         """)
+        # ── Schema migrations for existing databases ──
+        try:
+            conn.execute("ALTER TABLE attendees ADD COLUMN last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+        except Exception:
+            pass  # Column already exists
+        try:
+            conn.execute("ALTER TABLE attendees ADD COLUMN last_job_id TEXT DEFAULT NULL")
+        except Exception:
+            pass  # Column already exists
         conn.commit()
         conn.close()
 
@@ -267,25 +277,41 @@ class EphemeralMemory:
         *source* indicates how the attendee was entered:
           - ``"new_job_form"``   — from the UploadPanel at job creation
           - ``"manual_labeling"`` — from the SpeakerLabelModal mid-pipeline
+
+        Dedup strategy (widened key):
+          - When a real email is provided → upsert on ``(name, email)``.
+            Same person entered from different sources → single row.
+          - When email is empty → fall back to ``(name, source)`` as before.
+          - ``last_seen`` is always bumped so the registry tracks recency.
+          - ``last_job_id`` is always updated to the most recent job.
         """
         conn = self._get_conn()
-        # Upsert on name + source so the same person entered via different
-        # paths gets updated rather than duplicated.
-        existing = conn.execute(
-            "SELECT id FROM attendees WHERE name=? AND source=?",
-            (name, source),
-        ).fetchone()
+
+        if email and email.strip():
+            # Real email: upsert on (name, email) — strongest dedup
+            existing = conn.execute(
+                "SELECT id FROM attendees WHERE name=? AND email=?",
+                (name, email.strip()),
+            ).fetchone()
+        else:
+            # No email: fall back to (name, source)
+            existing = conn.execute(
+                "SELECT id FROM attendees WHERE name=? AND source=?",
+                (name, source),
+            ).fetchone()
+
+        now = datetime.utcnow().isoformat()
         if existing:
             conn.execute(
-                "UPDATE attendees SET email=?, job_id=?, "
-                "created_at=CURRENT_TIMESTAMP WHERE id=?",
-                (email, job_id, existing[0]),
+                "UPDATE attendees SET email=?, source=?, job_id=?, "
+                "last_job_id=?, last_seen=CURRENT_TIMESTAMP WHERE id=?",
+                (email, source, job_id, job_id, existing[0]),
             )
         else:
             conn.execute(
-                "INSERT INTO attendees (name, email, source, job_id) "
-                "VALUES (?, ?, ?, ?)",
-                (name, email, source, job_id),
+                "INSERT INTO attendees (name, email, source, job_id, last_job_id, created_at, last_seen) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (name, email, source, job_id, job_id, now, now),
             )
         conn.commit()
 
