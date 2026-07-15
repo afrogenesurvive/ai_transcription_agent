@@ -306,6 +306,16 @@ export const EVENT_TEMPLATES = PIPELINE_CONFIG.event_templates || FALLBACK_PIPEL
 /** Path to the config directory (for the bridge server to know where to write) */
 export const CONFIG_DIR_PATH = CONFIG_DIR;
 
+/** Delivery tool names — used to track delivery results in the pipeline loop. */
+export const DELIVERY_TOOL_NAMES = new Set(["send_delivery_email", "save_to_drive", "create_trello_action_items"]);
+
+/**
+ * LLM context window size (number of step result blocks to keep).
+ * 0 = disabled (keep all accumulated context).
+ * When > 0, only the last N step result blocks are retained to bound context growth.
+ */
+export const LLM_CONTEXT_WINDOW = PIPELINE_CONFIG.llm_context_window ?? 0;
+
 console.log(`   📋 [agent-config] Loaded from ${CONFIG_DIR}`);
 console.log(`   📋 [agent-config]   ${TOOLS.length} tools, ${Object.keys(PIPELINE_HINTS).length} pipeline hints`);
 console.log(

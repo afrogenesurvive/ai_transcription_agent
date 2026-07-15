@@ -38,6 +38,8 @@ import {
   OLLAMA_RETRY_BASE_DELAY,
   EVENT_TEMPLATES,
   SYSTEM_PROMPT_TEMPLATE,
+  DELIVERY_TOOL_NAMES,
+  LLM_CONTEXT_WINDOW,
 } from "./agent-config.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -365,12 +367,6 @@ async function processEvent(event) {
       console.log(`📝 [RUNNER] | ${line}`);
     }
     console.log(`${promptDivider}\n`);
-
-    // Record the initial context composition
-    const contextSections = [
-      { name: "job_metadata", length: initialContextLength, source: "buildInitialContext()" },
-      { name: "memory_context", length: context.length - initialContextLength, source: "ephemeral + semantic memory queries" },
-    ];
   }
 
   // Dynamically resolve the next non-skipped pipeline hint.
@@ -632,8 +628,7 @@ async function processEvent(event) {
 
     if (!ok) {
       // Record failed delivery result and update terminal steps immediately
-      const DELIVERY_TOOLS = new Set(["send_delivery_email", "save_to_drive", "create_trello_action_items"]);
-      if (DELIVERY_TOOLS.has(decision.name)) {
+      if (DELIVERY_TOOL_NAMES.has(decision.name)) {
         recordDeliveryResult(decision.name, false, null, errorMsg);
         console.log(`📬 [RUNNER] Delivery failure recorded for ${decision.name}: ${errorMsg}`);
         // Save delivery results and mark job failed immediately (within the delivery step)
@@ -687,8 +682,7 @@ async function processEvent(event) {
     }
 
     // ── Record delivery tool results ──
-    const DELIVERY_TOOLS = new Set(["send_delivery_email", "save_to_drive", "create_trello_action_items"]);
-    if (DELIVERY_TOOLS.has(decision.name)) {
+    if (DELIVERY_TOOL_NAMES.has(decision.name)) {
       const resultData = result?.result || null;
       recordDeliveryResult(decision.name, true, resultData, null);
       console.log(`📬 [RUNNER] Delivery result recorded for ${decision.name}`);
@@ -798,6 +792,32 @@ async function processEvent(event) {
       const contextLengthDelta = context.length - contextBeforeUpdate;
       console.log(`🧭 [RUNNER] No pipeline hint for "${decision.name}" — LLM will decide next step autonomously`);
       console.log(`📝 [RUNNER] Context growth at step ${step}: +${contextLengthDelta} chars (result only, no hint)`);
+    }
+
+    // ── Configurable context window ──
+    // When LLM_CONTEXT_WINDOW > 0, keep only the last N step result blocks
+    // plus the initial context (job metadata + memory). This bounds context
+    // growth for long pipelines.
+    if (LLM_CONTEXT_WINDOW > 0) {
+      const stepMarker = "\n\n[Step ";
+      const headerEnd = context.indexOf(stepMarker);
+      if (headerEnd !== -1) {
+        const afterHeader = context.slice(headerEnd);
+        const stepBlocks = afterHeader.split(stepMarker);
+        if (stepBlocks.length > LLM_CONTEXT_WINDOW + 1) {
+          const keptBlocks = stepBlocks.slice(-LLM_CONTEXT_WINDOW);
+          const beforeLen = context.length;
+          context = context.slice(0, headerEnd) + keptBlocks.join(stepMarker);
+          // Ensure the first kept block's [Step marker is not preceded by a dangling newline
+          if (!context.endsWith("\n\n")) {
+            context = context.replace(/\n{2,}$/, "\n\n");
+          }
+          console.log(
+            `📝 [RUNNER] Context window trimmed: ${beforeLen} → ${context.length} chars ` +
+              `(keeping last ${LLM_CONTEXT_WINDOW} of ${stepBlocks.length - 1} step blocks)`,
+          );
+        }
+      }
     }
   }
 

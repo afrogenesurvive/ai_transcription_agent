@@ -54,7 +54,7 @@
         "to": "bridge-server",
         "filter": [
           "**/*",
-          "!node_modules/**"
+          "!node_modules/**/.cache/**"
         ]
       },
       {
@@ -62,7 +62,7 @@
         "to": "agent-runner",
         "filter": [
           "**/*",
-          "!node_modules/**"
+          "!node_modules/**/.cache/**"
         ]
       },
       {

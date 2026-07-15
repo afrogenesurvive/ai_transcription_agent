@@ -62,6 +62,13 @@ _pipeline_semaphore = asyncio.Semaphore(config.MAX_CONCURRENT_PIPELINES)
 # Keyed by job_id; values are {status, progress, title}
 _active_jobs: dict[str, dict] = {}
 
+# ML pipeline statuses that indicate a job is actively running in the pipeline.
+# Shared across upload endpoints, active job listing, and cleanup logic.
+ML_PIPELINE_STATUSES = frozenset({
+    "uploaded", "initializing", "processing_diarization",
+    "matching_voiceprints", "processing_transcription", "aligning",
+})
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -84,10 +91,6 @@ async def lifespan(app: FastAPI):
     # incorrectly report them as running. Reset any in-flight status
     # to "failed" so the system starts with a clean slate and users
     # aren't blocked by "active jobs" guards.
-    ml_inflight_statuses = {
-        "uploaded", "initializing", "processing_diarization",
-        "matching_voiceprints", "processing_transcription", "aligning",
-    }
     cleaned = 0
     for entry in os.scandir(config.STORAGE_PATH):
         if not entry.is_dir() or entry.name in ("chroma", "logs", "uploads"):
@@ -99,7 +102,7 @@ async def lifespan(app: FastAPI):
             with open(status_path) as f:
                 status = json.load(f)
             job_status = status.get("status", "")
-            if job_status in ml_inflight_statuses:
+            if job_status in ML_PIPELINE_STATUSES:
                 status["status"] = "failed"
                 status["error"] = "Processing interrupted by restart — job was in-flight when the backend shut down"
                 status["progress"] = 0.0
@@ -116,6 +119,10 @@ async def lifespan(app: FastAPI):
     else:
         print(f"   ✅ [startup] No orphaned jobs found")
     yield
+
+    # ── Shutdown: close SQLite connections to prevent leaks ──
+    vp_manager.close()
+    ephemeral_memory.close()
 
 
 app = FastAPI(title="Meeting Transcription Backend", version="1.0.0", lifespan=lifespan)
@@ -143,12 +150,8 @@ async def upload_audio(
     skip_steps: str = Form(""),
 ):
     # Reject new uploads while ML pipeline jobs are actively running
-    ml_pipeline_statuses = {
-        "uploaded", "initializing", "processing_diarization",
-        "matching_voiceprints", "processing_transcription", "aligning",
-    }
     for info in _active_jobs.values():
-        if info.get("status") in ml_pipeline_statuses:
+        if info.get("status") in ML_PIPELINE_STATUSES:
             raise HTTPException(409, "A transcription job is already running — wait for it to finish before starting a new one")
 
     ext = os.path.splitext(file.filename or "audio.wav")[1] or ".wav"
@@ -209,12 +212,8 @@ async def upload_audio_by_path(req: UploadByPathRequest):
     POSIX (macOS/Linux) and Windows paths via os.path.
     """
     # Reject new uploads while ML pipeline jobs are actively running
-    ml_pipeline_statuses = {
-        "uploaded", "initializing", "processing_diarization",
-        "matching_voiceprints", "processing_transcription", "aligning",
-    }
     for info in _active_jobs.values():
-        if info.get("status") in ml_pipeline_statuses:
+        if info.get("status") in ML_PIPELINE_STATUSES:
             raise HTTPException(409, "A transcription job is already running — wait for it to finish before starting a new one")
 
     file_path = os.path.abspath(os.path.expanduser(req.file_path))
@@ -286,10 +285,6 @@ async def get_active_jobs():
     are not returned — they're handled by the agent runner separately.
     """
     """List jobs actively running in the ML pipeline (uses in-memory tracking)."""
-    ml_pipeline_statuses = {
-        "uploaded", "initializing", "processing_diarization",
-        "matching_voiceprints", "processing_transcription", "aligning",
-    }
     active = [
         {
             "job_id": job_id,
@@ -298,7 +293,7 @@ async def get_active_jobs():
             "title": info.get("title", "Untitled"),
         }
         for job_id, info in _active_jobs.items()
-        if info.get("status") in ml_pipeline_statuses
+        if info.get("status") in ML_PIPELINE_STATUSES
     ]
     active.sort(key=lambda j: j.get("progress", 0), reverse=True)
     print(f"[api] GET /transcribe/active → {len(active)} active ML job(s) (in-memory)")

@@ -4,9 +4,8 @@
   "retry_base_delay_ms": 4000,
   "ollama_max_retries": 5,
   "ollama_retry_base_delay_ms": 5000,
-  "terminal_tools": [
-    "send_delivery_email"
-  ],
+  "llm_context_window": 0,
+  "terminal_tools": ["send_delivery_email"],
   "pipeline_steps": [
     {
       "id": "step-0",

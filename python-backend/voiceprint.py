@@ -75,6 +75,13 @@ class VoiceprintManager:
         self._embedding_model = None  # Lazy-loaded pyannote Inference model
         self._init_db()
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
+
     def _get_conn(self) -> sqlite3.Connection:
         """Get a thread-local SQLite connection. Reused across operations to
         avoid the overhead of open/close per call."""
@@ -160,65 +167,51 @@ class VoiceprintManager:
             # that crashes with AttributeError: 'NoneType' object has no attribute 'eval'.
             device = self._device
 
-            # PyTorch 2.6+ defaults torch.load() to weights_only=True for
-            # security, but pyannote's models were saved with pickle and
-            # require full deserialization. Temporarily relax this.
-            import torch as _torch
-            _orig_load = _torch.load
+            hf_token = config.HUGGING_FACE_TOKEN or None
+
+            # Attempt 1: configured device, online
             try:
-                def _permissive_load(f, *a, **kw):
-                    kw["weights_only"] = False
-                    return _orig_load(f, *a, **kw)
-                _torch.load = _permissive_load
-
-                hf_token = config.HUGGING_FACE_TOKEN or None
-
-                # Attempt 1: configured device, online
-                try:
+                pyannote_model = Model.from_pretrained(
+                    config.EMBEDDING_MODEL,
+                    map_location=torch.device(device) if device else None,
+                    use_auth_token=hf_token,
+                )
+            except Exception as _first_err:
+                if is_network_error(_first_err):
+                    # Network issue — fall back to local cache on same device
+                    print(f"[voiceprint] ⚠️  HuggingFace unreachable ({_first_err}). "
+                          f"Falling back to local cache...")
                     pyannote_model = Model.from_pretrained(
                         config.EMBEDDING_MODEL,
                         map_location=torch.device(device) if device else None,
                         use_auth_token=hf_token,
+                        local_files_only=True,
                     )
-                except Exception as _first_err:
-                    if is_network_error(_first_err):
-                        # Network issue — fall back to local cache on same device
-                        print(f"[voiceprint] ⚠️  HuggingFace unreachable ({_first_err}). "
-                              f"Falling back to local cache...")
-                        pyannote_model = Model.from_pretrained(
-                            config.EMBEDDING_MODEL,
-                            map_location=torch.device(device) if device else None,
-                            use_auth_token=hf_token,
-                            local_files_only=True,
-                        )
-                    elif device and device != "cpu":
-                        # Device-level error (e.g. MPS op not supported) — retry on CPU
-                        print(f"[voiceprint] ⚠️  Model load failed on {device} ({_first_err}). "
-                              f"Retrying with CPU fallback...")
-                        device = "cpu"
-                        pyannote_model = Model.from_pretrained(
-                            config.EMBEDDING_MODEL,
-                            map_location=torch.device("cpu"),
-                            use_auth_token=hf_token,
-                        )
-                    else:
-                        raise
-
-                if pyannote_model is None:
-                    raise RuntimeError(
-                        f"Model '{config.EMBEDDING_MODEL}' could not be loaded. "
-                        "This is likely a gated model — make sure you have:\n"
-                        f"  1. Visited https://hf.co/{config.EMBEDDING_MODEL} "
-                        "and accepted the user conditions\n"
-                        "  2. Set HUGGING_FACE_TOKEN in your .env file"
+                elif device and device != "cpu":
+                    # Device-level error (e.g. MPS op not supported) — retry on CPU
+                    print(f"[voiceprint] ⚠️  Model load failed on {device} ({_first_err}). "
+                          f"Retrying with CPU fallback...")
+                    device = "cpu"
+                    pyannote_model = Model.from_pretrained(
+                        config.EMBEDDING_MODEL,
+                        map_location=torch.device("cpu"),
+                        use_auth_token=hf_token,
                     )
+                else:
+                    raise
 
-                self._embedding_model = Inference(
-                    pyannote_model, window="whole",
+            if pyannote_model is None:
+                raise RuntimeError(
+                    f"Model '{config.EMBEDDING_MODEL}' could not be loaded. "
+                    "This is likely a gated model — make sure you have:\n"
+                    f"  1. Visited https://hf.co/{config.EMBEDDING_MODEL} "
+                    "and accepted the user conditions\n"
+                    "  2. Set HUGGING_FACE_TOKEN in your .env file"
                 )
 
-            finally:
-                _torch.load = _orig_load
+            self._embedding_model = Inference(
+                pyannote_model, window="whole",
+            )
 
             print(f"[voiceprint] Embedding model loaded" +
                   (f" on device='{device}'" if device else ""))

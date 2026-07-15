@@ -77,6 +77,23 @@ const SENSITIVE_PATTERNS = [
   /<script[\s>][\s\S]*?<\/script\s*>/gi,
 ];
 
+/** Keys redacted from API responses — never expose credentials. */
+const REDACT_KEYS = new Set([
+  "access_token",
+  "refresh_token",
+  "api_key",
+  "secret",
+  "password",
+  "passwd",
+  "token",
+  "authorization",
+  "auth",
+  "credentials",
+  "client_secret",
+  "client_id",
+  "private_key",
+]);
+
 function sanitizeValue(data, depth = 0) {
   if (depth > MAX_NESTING_DEPTH) return "[truncated]";
   if (typeof data === "string") {
@@ -89,6 +106,10 @@ function sanitizeValue(data, depth = 0) {
   if (typeof data === "object") {
     const result = {};
     for (const [k, v] of Object.entries(data).slice(0, 200)) {
+      if (REDACT_KEYS.has(k.toLowerCase())) {
+        result[k] = "[REDACTED]";
+        continue;
+      }
       result[k] = sanitizeValue(v, depth + 1);
     }
     return result;
@@ -98,14 +119,23 @@ function sanitizeValue(data, depth = 0) {
 
 // ── Python API proxy ──
 
+const FETCH_TIMEOUT_MS = parseInt(process.env.BRIDGE_FETCH_TIMEOUT || "30000", 10);
+
 async function callPython(method, path, body = null) {
   const url = `${PYTHON_API}${path}`;
-  const opts = { method, headers: { "Content-Type": "application/json" } };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const opts = { method, headers: { "Content-Type": "application/json" }, signal: controller.signal };
   if (body) opts.body = JSON.stringify(body);
 
-  console.log(`[bridge]   → Python ${method} ${path}`);
+  console.log(`[bridge]   → Python ${method} ${path} (timeout: ${FETCH_TIMEOUT_MS}ms)`);
   const startTime = Date.now();
-  const resp = await fetch(url, opts);
+  let resp;
+  try {
+    resp = await fetch(url, opts);
+  } finally {
+    clearTimeout(timeout);
+  }
   const text = await resp.text();
   const elapsed = Date.now() - startTime;
 

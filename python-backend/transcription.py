@@ -110,20 +110,8 @@ class TranscriptionEngine:
                 # Return empty diarization — the pipeline continues without speaker labels
                 return []
 
-            # PyTorch 2.6+ defaults torch.load() to weights_only=True for
-            # security, but pyannote's models were saved with pickle and
-            # require full deserialization. Temporarily relax this.
-            import torch as _torch
-            _orig_load = _torch.load
+            device_for_model = torch.device(self.device)
             try:
-                # Force weights_only=False — lightning_fabric (used by pyannote)
-                # explicitly passes weights_only=True, so setdefault is not enough.
-                def _permissive_load(f, *a, **kw):
-                    kw["weights_only"] = False
-                    return _orig_load(f, *a, **kw)
-                _torch.load = _permissive_load
-
-                device_for_model = _torch.device(self.device)
                 # Try online first so pyannote can check for model updates.
                 # Falls back to local cache on network errors (DNS, timeout, etc.).
                 try:
@@ -153,8 +141,6 @@ class TranscriptionEngine:
                 if self.device == "mps" and ("mps" in str(e).lower() or "metal" in str(e).lower()):
                     print(f"[transcription] ⚠️  MPS device error, falling back to CPU: {e}")
                     try:
-                        # Re-apply patch (finally block restores original)
-                        _torch.load = _permissive_load
                         t_cpu = time.time()
                         # Try online first; fall back to local cache on network error
                         try:
@@ -172,7 +158,7 @@ class TranscriptionEngine:
                             else:
                                 raise
                         if pipeline_cpu:
-                            pipeline_cpu.to(_torch.device("cpu"))
+                            pipeline_cpu.to(torch.device("cpu"))
                             self._diarization = pipeline_cpu
                             self.device = "cpu"
                             print(f"[transcription] ✅ Diarization model loaded on CPU (fallback) in {time.time()-t_cpu:.1f}s")
@@ -196,9 +182,6 @@ class TranscriptionEngine:
                 print(f"[transcription] ❌ Failed to load diarization model: {e}")
                 print(f"[transcription]    ⚠️  Speaker identification unavailable.")
                 return []
-            finally:
-                # Always restore original torch.load to avoid side effects
-                _torch.load = _orig_load
 
         # ── Run diarization inference with timing ──
         t0 = time.time()

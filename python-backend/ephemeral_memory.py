@@ -32,6 +32,12 @@ class EphemeralMemory:
     avoiding the overhead of open/close per operation. Each thread gets
     its own connection, which is safe since SQLite in WAL mode supports
     concurrent readers.
+
+    Can be used as a context manager::
+
+        with EphemeralMemory() as mem:
+            mem.save_note(...)
+        # connection automatically closed on exit
     """
 
     _thread_local = threading.local()
@@ -40,6 +46,13 @@ class EphemeralMemory:
         self.db_path = db_path or os.path.join(config.STORAGE_PATH, "ephemeral_memory.db")
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self._init_db()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
 
     def _get_conn(self) -> sqlite3.Connection:
         """Get a thread-local SQLite connection. Creates one if this thread
