@@ -219,9 +219,7 @@ async function processEvent(event) {
       // ── LLM / Agent config ──
       llm_provider: process.env.LLM_PROVIDER || "deepseek",
       llm_model:
-        process.env.LLM_PROVIDER === "ollama"
-          ? process.env.OLLAMA_MODEL || "llama3.1:8b"
-          : process.env.API_AGENT_MODEL || "deepseek-v4-flash",
+        process.env.LLM_PROVIDER === "ollama" ? process.env.OLLAMA_MODEL || "llama3.1:8b" : process.env.API_AGENT_MODEL || "deepseek-v4-flash",
       ollama_base_url: process.env.OLLAMA_BASE_URL || "",
       ollama_model: process.env.OLLAMA_MODEL || "",
       ollama_num_ctx: process.env.OLLAMA_NUM_CTX || "",

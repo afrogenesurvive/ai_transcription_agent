@@ -2106,9 +2106,7 @@ function ConfigRow({ label, value, mono }: { label: string; value: React.ReactNo
   return (
     <div className="rv-config-row">
       <span className="rv-config-label">{label}</span>
-      <span className={`rv-config-value ${mono ? "rv-config-value--mono" : ""}`}>
-        {value ?? <span className="rv-config-null">—</span>}
-      </span>
+      <span className={`rv-config-value ${mono ? "rv-config-value--mono" : ""}`}>{value ?? <span className="rv-config-null">—</span>}</span>
     </div>
   );
 }
@@ -2141,7 +2139,9 @@ function ConfigTab({ jobId }: { jobId: string }) {
           try {
             const body = await res.json();
             serverMsg = body.error || "";
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
           if (res.status === 404) throw new Error(serverMsg || "Job record not found in ephemeral DB");
           throw new Error(serverMsg || `Bridge error: ${res.status}`);
         }
@@ -2154,7 +2154,9 @@ function ConfigTab({ jobId }: { jobId: string }) {
       }
     };
     fetchConfig();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [jobId]);
 
   if (loading) {
@@ -2199,7 +2201,9 @@ function ConfigTab({ jobId }: { jobId: string }) {
             <Icon name="settings" size="32" color="muted" />
           </span>
           <p>Config snapshot not available for this job</p>
-          <p className="rv-muted">Config snapshots are captured at job creation time. Jobs created before this feature was added will not have a snapshot.</p>
+          <p className="rv-muted">
+            Config snapshots are captured at job creation time. Jobs created before this feature was added will not have a snapshot.
+          </p>
           <p className="rv-muted" style={{ marginTop: 4 }}>
             Job result: <code className="rv-code">{record.result}</code>
             {record.created_at && <> · Created: {new Date(record.created_at).toLocaleString()}</>}
@@ -2262,31 +2266,29 @@ function ConfigTab({ jobId }: { jobId: string }) {
         <ConfigRow label="Platform" value={snapshot.platform} mono />
         <ConfigRow label="Voiceprint Threshold" value={snapshot.voiceprint_threshold != null ? snapshot.voiceprint_threshold.toFixed(2) : null} />
         <ConfigRow label="Keep Timestamps" value={boolIcon(snapshot.keep_transcript_timestamps)} />
-        <ConfigRow label="HF Token Set" value={snapshot.hugging_face_token_set ? <Icon name="check" size="14" color="green" /> : <Icon name="close" size="14" color="muted" />} />
+        <ConfigRow
+          label="HF Token Set"
+          value={snapshot.hugging_face_token_set ? <Icon name="check" size="14" color="green" /> : <Icon name="close" size="14" color="muted" />}
+        />
         <ConfigRow label="Whisper Initial Prompt" value={boolIcon(snapshot.whisper_initial_prompt_enabled)} />
-        <ConfigRow label="Max Concurrent Pipelines" value={snapshot.max_concurrent_pipelines != null ? String(snapshot.max_concurrent_pipelines) : null} />
+        <ConfigRow
+          label="Max Concurrent Pipelines"
+          value={snapshot.max_concurrent_pipelines != null ? String(snapshot.max_concurrent_pipelines) : null}
+        />
       </div>
 
       {/* ── Section 3: Agent Instructions ── */}
       <ConfigSectionHeader icon="menu_book" title="Agent Instructions" />
       <div className="rv-config-grid">
         <ConfigRow label="Available Tools" value={snapshot.agent_tools?.length != null ? `${snapshot.agent_tools.length} tool(s)` : null} />
-        {snapshot.agent_tools && snapshot.agent_tools.length > 0 && (
-          <ConfigRow label="Tool Names" value={snapshot.agent_tools.join(", ")} mono />
-        )}
+        {snapshot.agent_tools && snapshot.agent_tools.length > 0 && <ConfigRow label="Tool Names" value={snapshot.agent_tools.join(", ")} mono />}
         <ConfigRow label="Terminal Tools" value={snapshot.agent_terminal_tools?.join(", ") || "None"} mono />
         {snapshot.agent_system_prompt_length != null && (
           <ConfigRow label="System Prompt Size" value={`${snapshot.agent_system_prompt_length.toLocaleString()} chars`} />
         )}
-        {snapshot.agent_pipeline_hints != null && (
-          <ConfigRow label="Pipeline Hints" value={`${snapshot.agent_pipeline_hints} hint(s)`} />
-        )}
-        {snapshot.agent_max_retries != null && (
-          <ConfigRow label="Max Retries" value={String(snapshot.agent_max_retries)} />
-        )}
-        {snapshot.agent_retry_base_delay_ms != null && (
-          <ConfigRow label="Retry Base Delay" value={`${snapshot.agent_retry_base_delay_ms}ms`} />
-        )}
+        {snapshot.agent_pipeline_hints != null && <ConfigRow label="Pipeline Hints" value={`${snapshot.agent_pipeline_hints} hint(s)`} />}
+        {snapshot.agent_max_retries != null && <ConfigRow label="Max Retries" value={String(snapshot.agent_max_retries)} />}
+        {snapshot.agent_retry_base_delay_ms != null && <ConfigRow label="Retry Base Delay" value={`${snapshot.agent_retry_base_delay_ms}ms`} />}
       </div>
 
       {/* Pipeline steps */}
