@@ -237,10 +237,7 @@ export function addLog(
 
   // ── Strip emoji characters from message ──
   // Removes Unicode emoji ranges so logs are clean and grep-friendly
-  message = message.replace(
-    /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{200D}\u{FE0F}]/gu,
-    "",
-  ).trim();
+  message = message.replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{200D}\u{FE0F}]/gu, "").trim();
 
   const entry: LogEntry = { timestamp, source, subSource, level, message };
   buffer.push(entry);

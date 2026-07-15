@@ -684,8 +684,18 @@ async function processEvent(event) {
     // ── Record delivery tool results ──
     if (DELIVERY_TOOL_NAMES.has(decision.name)) {
       const resultData = result?.result || null;
-      recordDeliveryResult(decision.name, true, resultData, null);
-      console.log(`📬 [RUNNER] Delivery result recorded for ${decision.name}`);
+      // send_delivery_email now returns per-recipient results when multiple recipients
+      if (decision.name === "send_delivery_email" && resultData?.recipients) {
+        for (const r of resultData.recipients) {
+          recordDeliveryResult(decision.name, r.success, { id: r.id, to: r.email, subject: resultData.subject }, r.error);
+        }
+        console.log(
+          `📬 [RUNNER] Delivery results recorded for send_delivery_email: ${resultData.recipients.filter((r) => r.success).length} success, ${resultData.recipients.filter((r) => !r.success).length} failed`,
+        );
+      } else {
+        recordDeliveryResult(decision.name, true, resultData, null);
+        console.log(`📬 [RUNNER] Delivery result recorded for ${decision.name}`);
+      }
     }
 
     // ── One-shot tool removal ──

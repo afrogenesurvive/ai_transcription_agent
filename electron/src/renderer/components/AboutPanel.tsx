@@ -345,15 +345,17 @@ function GuideTab({ markdown }: { markdown: string }) {
             </button>
           )}
         </div>
-        <span className="guide-page-indicator">
-          {currentIndex + 1} / {pages.length}
-        </span>
       </div>
 
       <div className="guide-layout">
         {/* ── Sidebar TOC ── */}
         <nav className="guide-sidebar">
-          <div className="guide-sidebar-title">Pages</div>
+          <div className="guide-sidebar-title">
+            Pages
+            <span className="guide-sidebar-page-count">
+              {currentIndex + 1} / {pages.length}
+            </span>
+          </div>
           {filteredToc.map((s) => {
             const idx = toc.findIndex((t) => t.id === s.id);
             const isActive = idx === currentIndex;
