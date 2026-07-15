@@ -1504,6 +1504,139 @@
   overflow-y: auto;
 }
 
+/* ── Attendees Tab ── */
+
+.rv-tab-content--attendees {
+  padding: 16px 20px;
+  overflow-y: auto;
+}
+
+.rv-attendee-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.rv-attendee-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  transition: border-color 0.15s;
+}
+
+.rv-attendee-card:hover {
+  border-color: rgba(88, 166, 255, 0.3);
+}
+
+.rv-attendee-card--vp {
+  border-left: 3px solid var(--green);
+}
+
+.rv-attendee-avatar--unregistered {
+  opacity: 0.55;
+}
+
+.rv-attendee-section-title {
+  margin-top: 16px;
+}
+
+.rv-attendee-section-desc {
+  font-size: var(--fs-11);
+  margin-bottom: 8px;
+}
+
+.rv-attendee-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--fs-14);
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+  letter-spacing: 0;
+}
+
+.rv-attendee-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rv-attendee-name {
+  font-size: var(--fs-13);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.rv-attendee-email {
+  font-size: var(--fs-11);
+  color: var(--text-muted);
+}
+
+.rv-attendee-meta {
+  font-size: var(--fs-11);
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 1px;
+}
+
+.rv-attendee-meta-sep {
+  opacity: 0.4;
+  margin: 0 2px;
+}
+
+.rv-attendee-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.rv-attendee-play-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  color: var(--accent);
+}
+
+.rv-attendee-play-btn:hover {
+  background: rgba(88, 166, 255, 0.1);
+  border-color: var(--accent);
+}
+
+.rv-attendee-play-btn--playing {
+  background: rgba(88, 166, 255, 0.15);
+  border-color: var(--accent);
+  color: var(--red);
+}
+
+.rv-attendee-no-sample {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  opacity: 0.5;
+}
+
 .rv-tokens-summary {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -1527,6 +1660,14 @@
   font-weight: 700;
   color: var(--accent);
   line-height: 1.2;
+}
+
+.rv-tokens-card--green .rv-tokens-card-value {
+  color: var(--green);
+}
+
+.rv-tokens-card--muted .rv-tokens-card-value {
+  color: var(--text-muted);
 }
 
 .rv-tokens-card-label {

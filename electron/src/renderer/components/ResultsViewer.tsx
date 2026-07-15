@@ -1640,35 +1640,32 @@ function AttendeesTab({ jobId }: { jobId: string }) {
   }, [jobId]);
 
   /** Play or stop a voiceprint sample. Only one sample plays at a time. */
-  const handlePlaySample = useCallback(
-    (email: string) => {
-      if (playingEmail === email) {
-        if (audioRef.current) {
-          audioRef.current.pause();
-          audioRef.current.currentTime = 0;
-        }
-        setPlayingEmail(null);
-        return;
-      }
-
+  const handlePlaySample = useCallback((email: string) => {
+    if (playingEmail === email) {
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current.currentTime = 0;
       }
+      setPlayingEmail(null);
+      return;
+    }
 
-      const sampleUrl = `${BRIDGE_URL}/agent/voiceprints/sample/${encodeURIComponent(email)}`;
-      const audio = new Audio(sampleUrl);
-      audio.addEventListener("ended", () => setPlayingEmail(null));
-      audio.addEventListener("error", () => {
-        setPlayingEmail(null);
-        console.warn(`[Attendees] Failed to play sample for ${email}`);
-      });
-      audio.play().catch(() => setPlayingEmail(null));
-      audioRef.current = audio;
-      setPlayingEmail(email);
-    },
-    [playingEmail],
-  );
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+
+    const sampleUrl = `${BRIDGE_URL}/agent/voiceprints/sample/${encodeURIComponent(email)}`;
+    const audio = new Audio(sampleUrl);
+    audio.addEventListener("ended", () => setPlayingEmail(null));
+    audio.addEventListener("error", () => {
+      setPlayingEmail(null);
+      console.warn(`[Attendees] Failed to play sample for ${email}`);
+    });
+    audio.play().catch(() => setPlayingEmail(null));
+    audioRef.current = audio;
+    setPlayingEmail(email);
+  }, [playingEmail]);
 
   // Cleanup audio on unmount
   useEffect(() => {
@@ -1720,16 +1717,12 @@ function AttendeesTab({ jobId }: { jobId: string }) {
           <span className="rv-tokens-card-value">{attendees.length}</span>
           <span className="rv-tokens-card-label">Total Attendees</span>
         </div>
-        <div className="rv-tokens-card">
-          <span className="rv-tokens-card-value" style={{ color: "var(--green)" }}>
-            {withVoiceprint.length}
-          </span>
+        <div className="rv-tokens-card rv-tokens-card--green">
+          <span className="rv-tokens-card-value">{withVoiceprint.length}</span>
           <span className="rv-tokens-card-label">Voiceprint Matched</span>
         </div>
-        <div className="rv-tokens-card">
-          <span className="rv-tokens-card-value" style={{ color: "var(--text-muted)" }}>
-            {withoutVoiceprint.length}
-          </span>
+        <div className="rv-tokens-card rv-tokens-card--muted">
+          <span className="rv-tokens-card-value">{withoutVoiceprint.length}</span>
           <span className="rv-tokens-card-label">Registered Only</span>
         </div>
       </div>
@@ -1766,13 +1759,14 @@ function AttendeesTab({ jobId }: { jobId: string }) {
                       onClick={() => handlePlaySample(att.email)}
                       title={playingEmail === att.email ? "Stop playback" : "Play voice sample"}
                       data-tooltip={playingEmail === att.email ? "Click to stop playback" : "Play this attendee's voice sample"}>
-                      {playingEmail === att.email ? <Icon name="stop" size="16" /> : <Icon name="play_arrow" size="16" />}
+                      {playingEmail === att.email ? (
+                        <Icon name="stop" size="16" />
+                      ) : (
+                        <Icon name="play_arrow" size="16" />
+                      )}
                     </button>
                   ) : (
-                    <span
-                      className="rv-attendee-no-sample"
-                      title="No audio sample available"
-                      data-tooltip="This voiceprint was enrolled without an audio sample">
+                    <span className="rv-attendee-no-sample" title="No audio sample available" data-tooltip="This voiceprint was enrolled without an audio sample">
                       <Icon name="volume_off" size="14" color="muted" />
                     </span>
                   )}
@@ -1786,16 +1780,16 @@ function AttendeesTab({ jobId }: { jobId: string }) {
       {/* Registered-only attendees (no voiceprint) */}
       {withoutVoiceprint.length > 0 && (
         <>
-          <h4 className="rv-tokens-steps-title" style={{ marginTop: 16 }}>
+          <h4 className="rv-tokens-steps-title rv-attendee-section-title">
             <Icon name="person" size="14" color="muted" /> Registered Attendees
           </h4>
-          <p className="rv-muted" style={{ fontSize: 11, marginBottom: 8 }}>
+          <p className="rv-muted rv-attendee-section-desc">
             These attendees were registered for this meeting but do not have voiceprints enrolled.
           </p>
           <div className="rv-attendee-list">
             {withoutVoiceprint.map((att, i) => (
               <div key={i} className="rv-attendee-card">
-                <div className="rv-attendee-avatar" style={{ backgroundColor: speakerColor(att.name), opacity: 0.6 }}>
+                <div className="rv-attendee-avatar rv-attendee-avatar--unregistered" style={{ backgroundColor: speakerColor(att.name) }}>
                   {att.name.charAt(0).toUpperCase()}
                 </div>
                 <div className="rv-attendee-info">
