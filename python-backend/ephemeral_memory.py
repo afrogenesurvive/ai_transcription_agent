@@ -511,11 +511,16 @@ class EphemeralMemory:
     def query_all(self, table: str, q: str = "", limit: int = 10) -> List[dict]:
         """Unified search across any table by keyword."""
         table = table.lower()
-        if table not in ("attendees", "action_items", "contacts", "budgets", "decisions", "notes"):
+        if table not in ("jobs", "attendees", "action_items", "contacts", "budgets", "decisions", "notes"):
             return []
         conn = self._get_conn()
         conn.row_factory = sqlite3.Row
-        if q and table == "attendees":
+        if q and table == "jobs":
+            rows = conn.execute(
+                "SELECT * FROM jobs WHERE title LIKE ? OR id LIKE ? ORDER BY created_at DESC LIMIT ?",
+                (f"%{q}%", f"%{q}%", limit),
+            ).fetchall()
+        elif q and table == "attendees":
             rows = conn.execute(
                 "SELECT * FROM attendees WHERE name LIKE ? OR email LIKE ? ORDER BY created_at DESC LIMIT ?",
                 (f"%{q}%", f"%{q}%", limit),
@@ -542,7 +547,7 @@ class EphemeralMemory:
         Avoids fetching all rows into memory (unlike query_all with a large limit).
         """
         table = table.lower()
-        if table not in ("attendees", "action_items", "contacts", "budgets", "decisions", "notes"):
+        if table not in ("jobs", "attendees", "action_items", "contacts", "budgets", "decisions", "notes"):
             return 0
         conn = self._get_conn()
         row = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()

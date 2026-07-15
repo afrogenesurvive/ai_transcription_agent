@@ -2056,6 +2056,8 @@ async def storage_usage():
 # ── Database browsing (for DevPanel) ──
 
 EPHEMERAL_TABLES = {
+    "jobs": {"label": "Jobs", "columns": ["id", "title", "result", "attendees", "total_tokens", "total_cost", "llm_provider", "llm_model", "transcript_segment_count", "transcript_char_count", "has_analysis", "audio_duration_sec", "delivery_attempted", "error_message", "created_at", "updated_at", "completed_at"]},
+    "attendees": {"label": "Attendees", "columns": ["id", "name", "email", "source", "job_id", "first_seen", "last_seen"]},
     "action_items": {"label": "Action Items", "columns": ["id", "job_id", "description", "assignee", "deadline", "status", "priority", "source_meeting", "created_at"]},
     "contacts": {"label": "Contacts", "columns": ["id", "name", "email", "organization", "role", "phone", "source_meeting", "first_mentioned", "last_mentioned"]},
     "budgets": {"label": "Budgets", "columns": ["id", "job_id", "description", "amount", "currency", "category", "source_meeting", "created_at"]},
