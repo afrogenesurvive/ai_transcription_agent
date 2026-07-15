@@ -113,6 +113,10 @@ export default function ServerStatusBanner({
     setRestarting((prev) => ({ ...prev, _all: false }));
   }, [onRestartAll]);
 
+  const handleCloseApp = useCallback(async () => {
+    await window.electronAPI?.closeApp();
+  }, []);
+
   type ItemInfo = { name: string; label: string; icon: string; status: boolean | null };
   const allItems: ItemInfo[] = [];
   for (const svc of SERVICES) {
@@ -137,6 +141,7 @@ export default function ServerStatusBanner({
   const offlineCount = allItems.length - onlineCount;
 
   const anyBusy = Object.values(restarting).some(Boolean) || checking;
+  const countdownDone = countdown === 0 && !countdownActive && !allReady;
 
   if (!visible) return null;
 
@@ -152,25 +157,39 @@ export default function ServerStatusBanner({
         {/* Spinner header with circular progress tied to countdown */}
         <div className="ssb-header ssb-header--center">
           <div className="ssb-spinner-wrap">
-            <svg className="ssb-spinner-ring" width="56" height="56" viewBox="0 0 56 56">
+            <svg className={`ssb-spinner-ring ${countdownDone ? "ssb-spinner-ring--done" : ""}`} width="56" height="56" viewBox="0 0 56 56">
               <circle cx="28" cy="28" r={r} fill="none" stroke="var(--border)" strokeWidth="4" />
-              <circle
-                cx="28"
-                cy="28"
-                r={r}
-                fill="none"
-                stroke="var(--accent)"
-                strokeWidth="4"
-                strokeLinecap="round"
-                strokeDasharray={circ}
-                strokeDashoffset={offset}
-                style={{ transform: "rotate(-90deg)", transformOrigin: "center", transition: "stroke-dashoffset 0.4s ease" }}
-              />
+              {countdownDone ? (
+                <circle
+                  cx="28" cy="28" r={r}
+                  fill="none" stroke="var(--accent)" strokeWidth="4" strokeLinecap="round"
+                  strokeDasharray={`${circ * 0.75} ${circ * 0.25}`}
+                  style={{ transform: "rotate(-90deg)", transformOrigin: "center" }}
+                />
+              ) : (
+                <circle
+                  cx="28" cy="28" r={r}
+                  fill="none" stroke="var(--accent)" strokeWidth="4" strokeLinecap="round"
+                  strokeDasharray={circ}
+                  strokeDashoffset={offset}
+                  style={{ transform: "rotate(-90deg)", transformOrigin: "center", transition: "stroke-dashoffset 0.4s ease" }}
+                />
+              )}
             </svg>
-            <span className="ssb-spinner-label">{progressPct}%</span>
+            {!countdownDone && <span className="ssb-spinner-label">{progressPct}%</span>}
           </div>
-          <div>
+          <div className="ssb-header-text">
             <h2 className="ssb-title">Setting Up&hellip;</h2>
+            {countdownDone && (
+              <div className="ssb-retry-actions">
+                <button className="ssb-retry-btn" onClick={handleRestartAll} disabled={anyBusy}>
+                  <Icon name="refresh" size="14" /> Retry
+                </button>
+                <button className="ssb-close-btn" onClick={handleCloseApp}>
+                  <Icon name="close" size="14" /> Close App
+                </button>
+              </div>
+            )}
           </div>
         </div>
 

@@ -208,6 +208,17 @@ Shows how much AI processing was used (token count per pipeline step). Useful if
 
 Technical performance metrics showing processing times.
 
+### � Attendees Tab
+
+Shows per-job attendee information with voiceprint enrollment status:
+
+- **Name and email** — registered attendees for the meeting
+- **Voiceprint status** — ✅ green checkmark if a voiceprint is enrolled, ❌ if not
+- **Sample availability** — whether an audio sample exists for voiceprint matching
+- **Linked job** — which previous job the voiceprint was captured from
+
+This helps you quickly see who the system can automatically identify in future meetings based on previously stored voiceprints.
+
 ### 📬 Delivery Tab
 
 Shows delivery status if you configured email, Drive, or Trello.
@@ -215,6 +226,8 @@ Shows delivery status if you configured email, Drive, or Trello.
 ### 📋 Logs Tab
 
 Technical log files for troubleshooting.
+
+The Logs tab supports **collapsible log groups** — consecutive lines with the same source and level are grouped into expandable entries to reduce visual noise during streaming output. Toggle this behavior on/off in **Settings → Logging** via the "Collapse Repeated Log Lines" option.
 
 ---
 
@@ -266,6 +279,8 @@ Choose your AI provider:
 - `medium` (default) — good balance
 - `large` — most accurate but slower
 
+**Whisper Initial Prompt** (advanced) — optionally pass a text description of the meeting topic (e.g. "This is a technical discussion about software architecture") to Whisper before transcription begins. This helps bias the AI toward domain-specific vocabulary. Enable it in **Settings → Logging** via the "Whisper Initial Prompt" toggle and enter your prompt text.
+
 ### Services Tab
 
 Configure integrations:
@@ -291,7 +306,20 @@ Default settings for delivery:
 
 ### Agent Instructions Tab
 
-For advanced users: customize the AI pipeline steps, system prompt, and tool definitions.
+For advanced users: customize the AI pipeline behavior by editing the underlying configuration files:
+
+- **Pipeline Steps** — reorder, enable/disable, or add new pipeline stages (refine, summarize, analyze, etc.)
+- **System Prompt** — customize the instructions given to the AI for each pipeline step
+- **Tool Definitions** — define how each tool (email, Drive, Trello) operates
+
+Changes take effect the next time a meeting is processed. Use **Restore Defaults** to reset to the original configuration.
+
+### Logging Tab
+
+Fine-tune how logs are recorded and displayed:
+
+- **LLM Data Logging** — when enabled, the full AI prompt and response for each pipeline step are saved to the job's storage directory. Useful for debugging AI behavior, but can produce large log files.
+- **Collapse Repeated Log Lines** — when enabled, consecutive log entries with the same source and level are grouped into collapsible entries in the Results Viewer's Logs tab, reducing visual noise.
 
 ### Testing Tab (in Settings)
 

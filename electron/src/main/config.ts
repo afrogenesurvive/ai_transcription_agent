@@ -46,6 +46,8 @@ export interface AppConfig {
   KEEP_TRANSCRIPT_TIMESTAMPS: string;
   /** Log LLM input/output data to job storage directory */
   LOG_LLM_DATA: string;
+  /** Collapse consecutive log lines with identical source/subsource/level in Results Viewer */
+  LOG_COLLAPSE_REPEATED_PREFIXES: string;
   /** Fetch memory context — controlled via pipeline step _fetch_memory_context in pipeline.json */
   /* USE_MEMORY_FOR_CONTEXT removed — now a pipeline step toggle in Agent Instructions */
   /** UI theme: "dark" or "light" */
@@ -91,6 +93,7 @@ const DEFAULTS: AppConfig = {
   WHISPER_MODEL_SIZE: "medium",
   KEEP_TRANSCRIPT_TIMESTAMPS: "false",
   LOG_LLM_DATA: "false",
+  LOG_COLLAPSE_REPEATED_PREFIXES: "true",
   APPEARANCE_THEME: "dark",
   APPEARANCE_ACCENT_COLOR: "#58a6ff",
   APPEARANCE_FONT_SIZE: "medium",
@@ -101,7 +104,8 @@ const DEFAULTS: AppConfig = {
   DELIVERY_DRIVE_FOLDER: "Meeting Transcripts",
   PLAYWRIGHT_AUDIO_FILE_PATH: "",
   PLAYWRIGHT_TITLE_TEMPLATE: "test {autoNum}",
-  PLAYWRIGHT_GENERIC_NAMES: "Alex,Blake,Casey,Drew,Ellis,Finley,Gray,Harper,Indigo,Jade,Kai,Logan,Morgan,Nico,Oakley,Parker,Quinn,Reese,Skyler,Taylor",
+  PLAYWRIGHT_GENERIC_NAMES:
+    "Alex,Blake,Casey,Drew,Ellis,Finley,Gray,Harper,Indigo,Jade,Kai,Logan,Morgan,Nico,Oakley,Parker,Quinn,Reese,Skyler,Taylor",
 };
 
 /** Keys the UI considers "required" before the pipeline can run. */
@@ -249,7 +253,10 @@ export function getChildEnv(): NodeJS.ProcessEnv {
     APPEARANCE_SIDEBAR_WIDTH: config.APPEARANCE_SIDEBAR_WIDTH || process.env.APPEARANCE_SIDEBAR_WIDTH || "48",
     PLAYWRIGHT_AUDIO_FILE_PATH: config.PLAYWRIGHT_AUDIO_FILE_PATH || process.env.PLAYWRIGHT_AUDIO_FILE_PATH || "",
     PLAYWRIGHT_TITLE_TEMPLATE: config.PLAYWRIGHT_TITLE_TEMPLATE || process.env.PLAYWRIGHT_TITLE_TEMPLATE || "test {autoNum}",
-    PLAYWRIGHT_GENERIC_NAMES: config.PLAYWRIGHT_GENERIC_NAMES || process.env.PLAYWRIGHT_GENERIC_NAMES || "Alex,Blake,Casey,Drew,Ellis,Finley,Gray,Harper,Indigo,Jade,Kai,Logan,Morgan,Nico,Oakley,Parker,Quinn,Reese,Skyler,Taylor",
+    PLAYWRIGHT_GENERIC_NAMES:
+      config.PLAYWRIGHT_GENERIC_NAMES ||
+      process.env.PLAYWRIGHT_GENERIC_NAMES ||
+      "Alex,Blake,Casey,Drew,Ellis,Finley,Gray,Harper,Indigo,Jade,Kai,Logan,Morgan,Nico,Oakley,Parker,Quinn,Reese,Skyler,Taylor",
     // Storage paths — only override in packaged (prod) mode so DBs land in a
     // writable location. In dev the Python backend defaults to the project-
     // relative storage/ dir, which is already writable.

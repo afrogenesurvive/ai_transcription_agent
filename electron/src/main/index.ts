@@ -365,6 +365,12 @@ ipcMain.handle("services:restart", async () => {
   return { success: true };
 });
 
+ipcMain.handle("app:close", async () => {
+  console.log("[ipc] Closing app via user request...");
+  app.quit();
+  return { success: true };
+});
+
 // ── Per-service management ──
 
 const stopFn: Record<string, () => Promise<void>> = {

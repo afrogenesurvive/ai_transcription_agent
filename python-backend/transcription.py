@@ -74,6 +74,8 @@ class TranscriptionEngine:
         self.platform = detect_platform()
         self._whisper = None
         self._diarization = None
+        self._initial_prompt_enabled = config.WHISPER_INITIAL_PROMPT_ENABLED
+        self._initial_prompt = config.WHISPER_INITIAL_PROMPT
 
     # ── Step 1: Diarization (who spoke when) ──
 
@@ -279,6 +281,13 @@ class TranscriptionEngine:
             print(f"[transcription] 🎤 ASR starting — platform={self.platform}, "
                   f"model={self.model_size}, device={self.device}")
 
+        # Log initial prompt configuration
+        if self._initial_prompt_enabled:
+            prompt_preview = self._initial_prompt[:120] + ("..." if len(self._initial_prompt) > 120 else "")
+            print(f"[transcription]   🧠 Initial prompt ENABLED ({len(self._initial_prompt)} chars): \"{prompt_preview}\"")
+        else:
+            print(f"[transcription]   🧠 Initial prompt DISABLED — no context passed to Whisper")
+
         if self.platform == "mac":
             result = self._transcribe_mac(audio_path)
         elif self.platform == "windows":
@@ -304,7 +313,14 @@ class TranscriptionEngine:
             print(f"[transcription]   ✅ Model loaded in {time.time()-t_load:.1f}s")
         t_infer = time.time()
         print(f"[transcription]   ⏳ Transcribing (openai-whisper, verbose)...")
-        result = self._whisper.transcribe(audio_path, word_timestamps=True, verbose=True)
+        transcribe_kwargs = {
+            "word_timestamps": True,
+            "verbose": True,
+        }
+        if self._initial_prompt_enabled and self._initial_prompt:
+            transcribe_kwargs["initial_prompt"] = self._initial_prompt
+            print(f"[transcription]   🧠 Using initial_prompt ({len(self._initial_prompt)} chars)")
+        result = self._whisper.transcribe(audio_path, **transcribe_kwargs)
         print(f"[transcription]   ⏱️  Inference done in {time.time()-t_infer:.1f}s")
         return self._extract_words(result)
 
@@ -313,12 +329,15 @@ class TranscriptionEngine:
         t_infer = time.time()
         print(f"[transcription]   📦 Using mlx-whisper (Apple Silicon) model 'mlx-community/whisper-{self.model_size}'...")
         import mlx_whisper
-        result = mlx_whisper.transcribe(
-            audio_path,
-            path_or_hf_repo=f"mlx-community/whisper-{self.model_size}",
-            word_timestamps=True,
-            verbose=True,
-        )
+        transcribe_kwargs = {
+            "path_or_hf_repo": f"mlx-community/whisper-{self.model_size}",
+            "word_timestamps": True,
+            "verbose": True,
+        }
+        if self._initial_prompt_enabled and self._initial_prompt:
+            transcribe_kwargs["initial_prompt"] = self._initial_prompt
+            print(f"[transcription]   🧠 Using initial_prompt ({len(self._initial_prompt)} chars)")
+        result = mlx_whisper.transcribe(audio_path, **transcribe_kwargs)
         elapsed = time.time() - t_infer
         print(f"[transcription]   ⏱️  mlx-whisper done in {elapsed:.1f}s")
         return self._extract_words(result)
@@ -337,7 +356,14 @@ class TranscriptionEngine:
 
         t_infer = time.time()
         print(f"[transcription]   ⏳ Transcribing (faster-whisper, beam_size=5)...")
-        segs, info = model.transcribe(audio_path, beam_size=5, word_timestamps=True)
+        transcribe_kwargs = {
+            "beam_size": 5,
+            "word_timestamps": True,
+        }
+        if self._initial_prompt_enabled and self._initial_prompt:
+            transcribe_kwargs["initial_prompt"] = self._initial_prompt
+            print(f"[transcription]   🧠 Using initial_prompt ({len(self._initial_prompt)} chars)")
+        segs, info = self._whisper.transcribe(audio_path, **transcribe_kwargs)
         elapsed = time.time() - t_infer
 
         words = []

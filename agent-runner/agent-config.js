@@ -113,6 +113,33 @@ const FALLBACK_TOOLS = [
       required: ["name"],
     },
   },
+  {
+    name: "transcribe_upsert_job",
+    description: "Upsert a job record in the ephemeral jobs table. Accepts any subset of fields: token usage, pipeline steps, delivery results, content metrics, and terminal state.",
+    terminal: false,
+    handler: "bridge",
+    inputSchema: {
+      type: "object",
+      properties: {
+        jobId: { type: "string" },
+        result: { type: "string", enum: ["pending", "success", "failed", "cancelled"] },
+        totalPromptTokens: { type: "integer" },
+        totalCompletionTokens: { type: "integer" },
+        totalTokens: { type: "integer" },
+        llmProvider: { type: "string" },
+        llmModel: { type: "string" },
+        inputCost: { type: "number" },
+        outputCost: { type: "number" },
+        totalCost: { type: "number" },
+        pipelineSteps: { type: "string" },
+        deliveryAttempted: { type: "boolean" },
+        deliveryResults: { type: "string" },
+        errorMessage: { type: "string" },
+        completedAt: { type: "string" },
+      },
+      required: ["jobId"],
+    },
+  },
 ];
 
 const FALLBACK_PIPELINE = {

@@ -11,7 +11,7 @@ import os
 import json
 import sqlite3
 import threading
-from typing import List, Optional
+from typing import List, Optional, Union
 from datetime import datetime
 from config import config
 
@@ -20,7 +20,8 @@ class EphemeralMemory:
     """Lightweight SQLite store for cross-meeting context.
 
     Tables:
-      - attendees:      people registered as meeting attendees (name, email, source, job_id)
+      - jobs:           job metadata (title, result, tokens, costs, delivery, etc.)
+      - attendees:      people registered as meeting attendees (name, email, source, job_id → jobs)
       - action_items:   extracted to-dos with assignee, deadline, status
       - contacts:       people mentioned across meetings (name, email, org, role)
       - budgets:        financial figures mentioned (amount, currency, context)
@@ -68,12 +69,50 @@ class EphemeralMemory:
         conn.execute("PRAGMA foreign_keys=ON")
 
         conn.executescript("""
+            CREATE TABLE IF NOT EXISTS jobs (
+                id              TEXT PRIMARY KEY,
+                title           TEXT NOT NULL DEFAULT 'Untitled Meeting',
+                result          TEXT NOT NULL DEFAULT 'pending',
+                attendees       TEXT NOT NULL DEFAULT '[]',
+                email_recipients TEXT NOT NULL DEFAULT '[]',
+                pipeline_steps  TEXT NOT NULL DEFAULT '[]',
+                audio_url       TEXT DEFAULT NULL,
+                audio_size_bytes INTEGER DEFAULT NULL,
+                audio_duration_sec REAL DEFAULT NULL,
+                error_message   TEXT DEFAULT NULL,
+                transcript_segment_count  INTEGER DEFAULT 0,
+                transcript_char_count     INTEGER DEFAULT 0,
+                summary_char_count        INTEGER DEFAULT 0,
+                has_analysis              INTEGER DEFAULT 0,
+                analysis_char_count       INTEGER DEFAULT 0,
+                total_prompt_tokens      INTEGER DEFAULT 0,
+                total_completion_tokens  INTEGER DEFAULT 0,
+                total_tokens             INTEGER DEFAULT 0,
+                llm_provider             TEXT DEFAULT 'deepseek',
+                llm_model                TEXT DEFAULT 'deepseek-v4-flash',
+                input_cost               REAL DEFAULT 0.0,
+                output_cost              REAL DEFAULT 0.0,
+                total_cost               REAL DEFAULT 0.0,
+                delivery_attempted       INTEGER DEFAULT 0,
+                delivery_results         TEXT DEFAULT '[]',
+                event_type              TEXT DEFAULT 'internal',
+                whisper_model           TEXT DEFAULT 'medium',
+                diarization_available   INTEGER DEFAULT 0,
+                device                  TEXT DEFAULT 'mps',
+                created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMP DEFAULT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_jobs_result      ON jobs(result);
+            CREATE INDEX IF NOT EXISTS idx_jobs_created_at  ON jobs(created_at);
+
             CREATE TABLE IF NOT EXISTS attendees (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
                 email TEXT DEFAULT '',
                 source TEXT NOT NULL DEFAULT 'new_job_form',
-                job_id TEXT DEFAULT '',
+                job_id TEXT DEFAULT NULL REFERENCES jobs(id) ON DELETE SET NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -143,11 +182,86 @@ class EphemeralMemory:
         conn.commit()
         conn.close()
 
+    # ── Jobs (meeting job metadata) ──
+
+    def upsert_job(self, job_id: str, updates: dict) -> dict:
+        """Insert or update a job record. Only columns present in *updates*
+        are changed — safe for partial updates from multiple touchpoints.
+        Always bumps ``updated_at = CURRENT_TIMESTAMP``.
+
+        Returns the full row after the upsert.
+        """
+        allowed = {
+            "title", "result", "attendees", "email_recipients", "pipeline_steps",
+            "audio_url", "audio_size_bytes", "audio_duration_sec", "error_message",
+            "transcript_segment_count", "transcript_char_count",
+            "summary_char_count", "has_analysis", "analysis_char_count",
+            "total_prompt_tokens", "total_completion_tokens", "total_tokens",
+            "llm_provider", "llm_model", "input_cost", "output_cost", "total_cost",
+            "delivery_attempted", "delivery_results",
+            "event_type", "whisper_model", "diarization_available", "device",
+            "completed_at",
+        }
+        # Build SET clause + INSERT columns from provided updates
+        set_parts = []
+        all_params = [job_id]  # ? for id in INSERT
+        insert_cols_list = ["id"]
+        for key, value in updates.items():
+            if key in allowed:
+                set_parts.append(f"{key} = ?")
+                all_params.append(value)
+                insert_cols_list.append(key)
+        if not set_parts:
+            return self.get_job(job_id) or {}
+
+        # updated_at is always bumped (literal SQL — no parameter)
+        set_parts.append("updated_at = CURRENT_TIMESTAMP")
+
+        conn = self._get_conn()
+        insert_cols = ", ".join(insert_cols_list)
+        insert_placeholders = ", ".join("?" for _ in insert_cols_list)
+        # SET params = all values except the initial job_id (reused from INSERT)
+        set_clause = ", ".join(set_parts)
+        conn.execute(
+            f"""INSERT INTO jobs ({insert_cols})
+                VALUES ({insert_placeholders})
+                ON CONFLICT(id) DO UPDATE SET {set_clause}""",
+            all_params + all_params[1:],  # [job_id, vals...] + [vals...]
+        )
+        conn.commit()
+        return self.get_job(job_id) or {}
+
+    def get_job(self, job_id: str) -> Optional[dict]:
+        """Fetch a single job by ID. Returns None if not found."""
+        conn = self._get_conn()
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM jobs WHERE id = ?", (job_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def query_jobs(self, limit: int = 100, offset: int = 0,
+                   result_filter: Optional[str] = None) -> List[dict]:
+        """List jobs, newest first. Optionally filter by result."""
+        conn = self._get_conn()
+        conn.row_factory = sqlite3.Row
+        if result_filter:
+            rows = conn.execute(
+                "SELECT * FROM jobs WHERE result = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                (result_filter, limit, offset),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM jobs ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                (limit, offset),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     # ── Attendees (registered meeting participants) ──
 
     def register_attendee(self, name: str, email: str = "",
                           source: str = "new_job_form",
-                          job_id: str = ""):
+                          job_id: Optional[str] = None):
         """Insert or update an attendee record.
 
         *source* indicates how the attendee was entered:
@@ -177,7 +291,7 @@ class EphemeralMemory:
 
     def register_attendees(self, names: List[str], emails: List[str] = None,
                            source: str = "new_job_form",
-                           job_id: str = ""):
+                           job_id: Optional[str] = None):
         """Bulk-register multiple attendees at once."""
         emails = emails or []
         for i, name in enumerate(names):

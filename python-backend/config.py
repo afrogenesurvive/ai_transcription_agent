@@ -30,6 +30,8 @@ class Config:
 
     # Models
     WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "medium")
+    WHISPER_INITIAL_PROMPT_ENABLED = os.getenv("WHISPER_INITIAL_PROMPT_ENABLED", "false").lower() in ("true", "1", "yes")
+    WHISPER_INITIAL_PROMPT = os.getenv("WHISPER_INITIAL_PROMPT", "")
     DIARIZATION_MODEL = os.getenv(
         "DIARIZATION_MODEL", "pyannote/speaker-diarization-3.1"
     )

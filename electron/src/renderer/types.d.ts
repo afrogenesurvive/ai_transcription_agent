@@ -48,6 +48,18 @@ export interface LogEntry {
   message: string;
 }
 
+/** A group of consecutive log entries sharing the same source/subsource/level */
+export interface LogGroupEntry {
+  timestamp: number;
+  source: string;
+  subSource?: string;
+  level: string;
+  lines: Array<{
+    timestamp: number;
+    message: string;
+  }>;
+}
+
 export interface AnalysisData {
   topics?: string[];
   sentiment?: string;
@@ -93,6 +105,7 @@ export interface ElectronAPI {
   checkServers: () => Promise<{ python: boolean; bridge: boolean; agent: boolean }>;
   stopServices: () => Promise<{ success: boolean }>;
   restartServices: () => Promise<{ success: boolean }>;
+  closeApp: () => Promise<{ success: boolean }>;
   stopService: (service: string) => Promise<{ success: boolean }>;
   restartService: (service: string) => Promise<{ success: boolean }>;
   getAppVersion: () => Promise<string>;

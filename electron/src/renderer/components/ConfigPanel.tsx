@@ -15,6 +15,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import Icon from "./Icon";
+import LoadingModal from "./LoadingModal";
 import type { PipelineStep, ConfigValueSource } from "../types";
 
 interface Props {
@@ -41,6 +42,7 @@ interface ConfigValues {
   WHISPER_MODEL_SIZE: string;
   KEEP_TRANSCRIPT_TIMESTAMPS: string;
   LOG_LLM_DATA: string;
+  LOG_COLLAPSE_REPEATED_PREFIXES: string;
   DELIVERY_RECIPIENT_EMAILS: string;
   DELIVERY_EMAIL_SUBJECT: string;
   DELIVERY_EMAIL_ADDITIONAL_CONTENT: string;
@@ -406,6 +408,7 @@ export default function ConfigPanel({ onClose }: Props) {
             TRELLO_KEY: cfg.TRELLO_KEY?.value || "",
             TRELLO_TOKEN: cfg.TRELLO_TOKEN?.value || "",
             LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
+            LOG_COLLAPSE_REPEATED_PREFIXES: cfg.LOG_COLLAPSE_REPEATED_PREFIXES?.value || "true",
             DELIVERY_RECIPIENT_EMAILS: cfg.DELIVERY_RECIPIENT_EMAILS?.value || "",
             DELIVERY_EMAIL_SUBJECT: cfg.DELIVERY_EMAIL_SUBJECT?.value || "Meeting Summary: {title}",
             DELIVERY_EMAIL_ADDITIONAL_CONTENT: cfg.DELIVERY_EMAIL_ADDITIONAL_CONTENT?.value || "",
@@ -476,6 +479,7 @@ export default function ConfigPanel({ onClose }: Props) {
         TRELLO_KEY: cfg.TRELLO_KEY?.value || "",
         TRELLO_TOKEN: cfg.TRELLO_TOKEN?.value || "",
         LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
+        LOG_COLLAPSE_REPEATED_PREFIXES: cfg.LOG_COLLAPSE_REPEATED_PREFIXES?.value || "true",
         DELIVERY_RECIPIENT_EMAILS: cfg.DELIVERY_RECIPIENT_EMAILS?.value || "",
         DELIVERY_EMAIL_SUBJECT: cfg.DELIVERY_EMAIL_SUBJECT?.value || "Meeting Summary: {title}",
         DELIVERY_EMAIL_ADDITIONAL_CONTENT: cfg.DELIVERY_EMAIL_ADDITIONAL_CONTENT?.value || "",
@@ -696,8 +700,23 @@ The system provides existing memory context at the start of each pipeline run. U
   }, []);
 
   // ── Agent sub-tab state (must be declared before handleSaveAgentConfig which uses it) ──
-  type AgentSubTab = "pipeline-steps" | "system-prompt" | "pipeline-hints" | "pipeline-constants";
+  type AgentSubTab = "pipeline-steps" | "system-prompt" | "pipeline-hints" | "pipeline-constants" | "defaults";
   const [agentSubTab, setAgentSubTab] = useState<AgentSubTab>("pipeline-steps");
+
+  // ── Defaults viewer state (after agentSubTab to avoid hoisting issues) ──
+  const [defaultAgentConfig, setDefaultAgentConfig] = useState<{ tools?: any; pipeline?: any; systemPrompt?: string } | null>(null);
+  const [defaultsLoading, setDefaultsLoading] = useState(false);
+
+  // Fetch defaults when the sub-tab is activated
+  useEffect(() => {
+    if (agentSubTab !== "defaults") return;
+    if (defaultAgentConfig) return; // already fetched
+    setDefaultsLoading(true);
+    window.electronAPI?.getDefaultAgentConfig().then((cfg) => {
+      if (cfg && !cfg.error) setDefaultAgentConfig(cfg);
+      setDefaultsLoading(false);
+    });
+  }, [agentSubTab, defaultAgentConfig]);
 
   const handleSaveAgentConfig = useCallback(async () => {
     if (!agentConfig) return;
@@ -1583,6 +1602,11 @@ The system provides existing memory context at the start of each pipeline run. U
                 onClick={() => setAgentSubTab("system-prompt")}>
                 <Icon name="edit_note" size="14" /> System Prompt
               </button>
+              <button
+                className={`config-section-tab config-section-tab--readonly ${agentSubTab === "defaults" ? "config-section-tab--active" : ""}`}
+                onClick={() => setAgentSubTab("defaults")}>
+                <Icon name="restore" size="14" /> Defaults
+              </button>
             </div>
 
             {/* Pipeline Steps (draggable checklist) */}
@@ -1946,6 +1970,52 @@ The system provides existing memory context at the start of each pipeline run. U
                 </div>
               </div>
             )}
+            {/* Factory Defaults — read-only viewer */}
+            {agentSubTab === "defaults" && (
+              <div className="config-section">
+                <div className="config-section-header-row">
+                  <h3 className="config-section-title">
+                    <Icon name="restore" size="16" color="accent" /> Factory Defaults
+                  </h3>
+                  <span className="config-section-badge config-section-badge--readonly">
+                    <Icon name="lock" size="12" /> Read-only
+                  </span>
+                </div>
+                <p className="config-field-hint">These are the original shipped configuration files. Editable copies live in the other tabs above.</p>
+
+                {defaultsLoading ? (
+                  <div className="config-loading">Loading defaults…</div>
+                ) : !defaultAgentConfig ? (
+                  <div className="config-empty">No defaults found. Run a job first to generate the snapshot.</div>
+                ) : (
+                  <>
+                    {/* System Prompt */}
+                    <details className="config-preview-details" open>
+                      <summary className="config-preview-summary">
+                        <Icon name="edit_note" size="14" color="muted" /> system-prompt.md
+                      </summary>
+                      <pre className="config-preview-block">{defaultAgentConfig.systemPrompt}</pre>
+                    </details>
+
+                    {/* Pipeline */}
+                    <details className="config-preview-details">
+                      <summary className="config-preview-summary">
+                        <Icon name="checklist" size="14" color="muted" /> pipeline.json
+                      </summary>
+                      <pre className="config-preview-block">{JSON.stringify(defaultAgentConfig.pipeline, null, 2)}</pre>
+                    </details>
+
+                    {/* Tools */}
+                    <details className="config-preview-details">
+                      <summary className="config-preview-summary">
+                        <Icon name="build" size="14" color="muted" /> tools.json
+                      </summary>
+                      <pre className="config-preview-block">{JSON.stringify(defaultAgentConfig.tools, null, 2)}</pre>
+                    </details>
+                  </>
+                )}
+              </div>
+            )}
           </>
         )}
 
@@ -1981,9 +2051,39 @@ The system provides existing memory context at the start of each pipeline run. U
                 </label>
               </div>
             </div>
+
+            {/* ── Log Display Options ── */}
+            <div className="config-section" style={{ marginTop: 16 }}>
+              <h3 className="config-section-title">
+                <Icon name="visibility" size="16" color="accent" /> Log Display
+              </h3>
+              <p className="config-field-hint">Controls how log entries are displayed in the Results Viewer Logs tab.</p>
+              <div className="config-field">
+                <label className="config-toggle">
+                  <input
+                    type="checkbox"
+                    checked={values.LOG_COLLAPSE_REPEATED_PREFIXES === "true"}
+                    onChange={() =>
+                      handleChange("LOG_COLLAPSE_REPEATED_PREFIXES", values.LOG_COLLAPSE_REPEATED_PREFIXES === "true" ? "false" : "true")
+                    }
+                  />
+                  <span className="config-toggle-slider" />
+                  <span className="config-toggle-label">
+                    <strong>Collapse repeated prefixes</strong>
+                    <br />
+                    <span className="config-toggle-desc" style={{ fontSize: 11, opacity: 0.7, fontWeight: 400 }}>
+                      Groups consecutive log lines with the same source, sub-source, and level into a single collapsible block.
+                    </span>
+                  </span>
+                </label>
+              </div>
+            </div>
           </>
         )}
       </div>
+
+      {/* ── Saving overlay ── */}
+      <LoadingModal visible={saving} message="Saving configuration…" />
 
       <div className="config-footer">
         {exportResult && <span className="config-success">{exportResult}</span>}

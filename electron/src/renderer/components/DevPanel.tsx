@@ -2382,6 +2382,8 @@ function LogFilesTab() {
   const [logSubSourceFilter, setLogSubSourceFilter] = useState<string>("all");
   const [sidebarWidth, setSidebarWidth] = useState(280);
   const [logSubTab, setLogSubTab] = useState<"pipeline" | "transcript" | "raw">("pipeline");
+  const [collapseRepeated, setCollapseRepeated] = useState(true);
+  const [prettifiedBlock, setPrettifiedBlock] = useState<string | null>(null);
   const resizingRef = useRef(false);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -2519,38 +2521,141 @@ function LogFilesTab() {
     return true;
   });
 
-  // Format log line like live log format
-  const renderLogLine = (line: string, i: number) => {
+  // Build structured entries from raw log lines for grouping
+  const logEntries = filteredLogLines.map((line) => {
     const ts = parseLogTimestamp(line);
     const source = parseLogSource(line);
     const subSource = parseLogSubSource(line);
     const level = /\berror\b/i.test(line) ? "error" : /\bwarn\b/i.test(line) ? "warn" : /\bdebug\b/i.test(line) ? "debug" : "info";
-    const sourceColor = SOURCE_COLORS[source] || SOURCE_COLORS.main;
-    const sourceLabel = `[${source}]`;
-    // Strip the structured prefix so the message text doesn't duplicate the UI columns
     const cleanMessage = line.replace(
       /^\[\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}\.\d{3}Z\]\s*\[[a-z_]+\](?:\[[^\]]*\])?\s*\[(?:info|error|warn|debug)\]\s*/i,
       "",
     );
+    return { ts: ts || "──", source, subSource, level, cleanMessage, sourceColor: SOURCE_COLORS[source] || SOURCE_COLORS.main };
+  });
 
+  // Group consecutive entries with same source+subSource+level when collapse is on
+  const groupedLogEntries = collapseRepeated
+    ? logEntries.reduce(
+        (
+          acc: Array<{
+            ts: string;
+            source: string;
+            subSource?: string;
+            level: string;
+            sourceColor: string;
+            lines: Array<{ ts: string; message: string }>;
+          }>,
+          e,
+        ) => {
+          const last = acc[acc.length - 1];
+          if (last && last.source === e.source && last.subSource === e.subSource && last.level === e.level) {
+            last.lines.push({ ts: e.ts, message: e.cleanMessage });
+          } else {
+            acc.push({
+              ts: e.ts,
+              source: e.source,
+              subSource: e.subSource,
+              level: e.level,
+              sourceColor: e.sourceColor,
+              lines: [{ ts: e.ts, message: e.cleanMessage }],
+            });
+          }
+          return acc;
+        },
+        [],
+      )
+    : logEntries.map((e) => ({
+        ts: e.ts,
+        source: e.source,
+        subSource: e.subSource,
+        level: e.level,
+        sourceColor: e.sourceColor,
+        lines: [{ ts: e.ts, message: e.cleanMessage }],
+      }));
+
+  /** Detect section-header decoration lines */
+  const isSectionHeader = (msg: string): boolean => /^[═=]{3,}|^[─━]{3,}|^━━━/.test(msg);
+
+  /** Render a single log entry or group */
+  const renderGroupedLog = (
+    group: { ts: string; source: string; subSource?: string; level: string; sourceColor: string; lines: Array<{ ts: string; message: string }> },
+    gi: number,
+  ) => {
+    const isGroup = group.lines.length > 1;
+    const isHeader = isSectionHeader(group.lines[0]?.message || "");
     return (
-      <div key={i} className="rv-log-line--parsed">
-        {ts && <span className="rv-log-line-time">{ts}</span>}
-        {!ts && (
-          <span className="rv-log-line-time" style={{ opacity: 0.2 }}>
-            ──
-          </span>
+      <div key={gi} className={`rv-log-group ${isGroup ? "rv-log-group--multi" : ""} ${isHeader ? "rv-log-group--header" : ""}`}>
+        {/* ── Single line ── */}
+        {!isGroup && (
+          <div className="rv-log-line rv-log-line--parsed">
+            <span className="rv-log-line-time">{group.ts}</span>
+            <span className="rv-log-line-source" style={{ color: group.sourceColor }}>
+              [{group.source}]
+            </span>
+            {group.subSource && (
+              <span className="rv-log-line-subsource" style={{ color: SOURCE_COLORS[group.subSource] || group.sourceColor }}>
+                [{group.subSource}]
+              </span>
+            )}
+            <span className={`rv-log-line-level rv-log-line-level--${group.level}`}>
+              {group.level === "error" ? "✖" : group.level === "warn" ? "⚠" : ""}
+            </span>
+            <span className="rv-log-line-text">{group.lines[0].message}</span>
+            <button
+              className="rv-log-prettify-btn"
+              onClick={() => setPrettifiedBlock(group.lines[0].message)}
+              title="View prettified"
+              data-tooltip="Open this log entry in the prettified viewer">
+              <Icon name="open_in_new" size="10" />
+            </button>
+          </div>
         )}
-        <span className="rv-log-line-source" style={{ color: sourceColor }}>
-          {sourceLabel}
-        </span>
-        {subSource && (
-          <span className="rv-log-line-subsource" style={{ color: SOURCE_COLORS[subSource] || sourceColor }}>
-            [{subSource}]
-          </span>
+        {/* ── Multi-line group ── */}
+        {isGroup && (
+          <details className="rv-log-details" open={isHeader ? true : undefined}>
+            <summary className="rv-log-summary">
+              <span className="rv-log-summary-line">
+                <span className="rv-log-line-time">{group.ts}</span>
+                <span className="rv-log-line-source" style={{ color: group.sourceColor }}>
+                  [{group.source}]
+                </span>
+                {group.subSource && (
+                  <span className="rv-log-line-subsource" style={{ color: SOURCE_COLORS[group.subSource] || group.sourceColor }}>
+                    [{group.subSource}]
+                  </span>
+                )}
+                <span className={`rv-log-line-level rv-log-line-level--${group.level}`}>
+                  {group.level === "error" ? "✖" : group.level === "warn" ? "⚠" : ""}
+                </span>
+                <span className="rv-log-summary-msg">{group.lines[0].message}</span>
+              </span>
+              <button
+                className="rv-log-prettify-btn rv-log-prettify-btn--group"
+                onClick={() => setPrettifiedBlock(group.lines.map((l) => l.message).join("\n"))}
+                title="View all lines prettified"
+                data-tooltip="Open the entire group content in the prettified viewer">
+                <Icon name="open_in_new" size="10" />
+              </button>
+              <span className="rv-log-group-badge">{group.lines.length} lines</span>
+            </summary>
+            <div className="rv-log-group-lines">
+              {group.lines.map((line, li) => (
+                <div key={li} className="rv-log-line rv-log-line--nested">
+                  <span className="rv-log-gutter">│</span>
+                  <span className="rv-log-line-text">{line.message}</span>
+                  <button
+                    className="rv-log-prettify-btn"
+                    onClick={() => setPrettifiedBlock(line.message)}
+                    title="View prettified"
+                    data-tooltip="Open this log entry in the prettified viewer">
+                    <Icon name="open_in_new" size="10" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </details>
         )}
-        <span className={`rv-log-line-level rv-log-line-level--${level}`}>{level === "error" ? "✖" : level === "warn" ? "⚠" : ""}</span>
-        <span className="rv-log-line-text">{cleanMessage}</span>
       </div>
     );
   };
@@ -2599,7 +2704,7 @@ function LogFilesTab() {
       {/* Right panel — log details */}
       <div className="dev-panel-file-content" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {!selectedJobId && <div className="dev-panel-empty">Select a job from the list to view its log files</div>}
-        {selectedJobId && loading && <div className="dev-panel-empty">Loading log files…</div>}
+        <LoadingModal visible={!!selectedJobId && loading} message="Loading log files…" />
         {selectedJobId && error && (
           <div className="dev-panel-empty" style={{ color: "var(--red)" }}>
             <Icon name="warning" size="14" color="red" /> {error}
@@ -2676,18 +2781,25 @@ function LogFilesTab() {
                       <option value="warn">Warnings</option>
                       <option value="error">Errors</option>
                     </select>
+                    <label
+                      className="rv-logs-toggle"
+                      title="Collapse consecutive log entries with identical source/sub-source/level"
+                      data-tooltip="Collapse repeated prefix groups">
+                      <input type="checkbox" checked={collapseRepeated} onChange={(e) => setCollapseRepeated(e.target.checked)} />
+                      <Icon name="compress" size="12" /> Group
+                    </label>
                   </div>
                   <span className="rv-logs-filter-count">
                     {filteredLogLines.length} / {logLines.length} line{logLines.length !== 1 ? "s" : ""}
                   </span>
                 </div>
                 <div style={{ overflowY: "auto", flex: 1 }}>
-                  {filteredLogLines.length === 0 && (
+                  {groupedLogEntries.length === 0 && (
                     <div className="dev-panel-empty">
                       <Icon name="info" size="14" color="muted" /> No log entries found for this job.
                     </div>
                   )}
-                  {filteredLogLines.map((line, i) => renderLogLine(line, i))}
+                  {groupedLogEntries.map((group, gi) => renderGroupedLog(group, gi))}
                 </div>
               </>
             )}
@@ -2739,6 +2851,37 @@ function LogFilesTab() {
                     </div>
                   );
                 })()}
+              </div>
+            )}
+
+            {/* ── Prettified View Modal ── */}
+            {prettifiedBlock !== null && (
+              <div className="rv-prettify-overlay" onClick={() => setPrettifiedBlock(null)}>
+                <div className="rv-prettify-panel" onClick={(e) => e.stopPropagation()}>
+                  <div className="rv-prettify-header">
+                    <h3 className="rv-prettify-title">
+                      <Icon name="open_in_new" size="14" color="accent" /> Prettified View
+                    </h3>
+                    <button className="rv-prettify-close" onClick={() => setPrettifiedBlock(null)} title="Close" data-tooltip="Close prettified view">
+                      <Icon name="close" size="14" />
+                    </button>
+                  </div>
+                  <div className="rv-prettify-tabs">
+                    <button className="rv-prettify-tab rv-prettify-tab--active">Text</button>
+                  </div>
+                  <div className="rv-prettify-body">
+                    <pre className="rv-prettify-content">{prettifiedBlock}</pre>
+                  </div>
+                  <div className="rv-prettify-footer">
+                    <button
+                      className="rv-prettify-copy-btn"
+                      onClick={() => navigator.clipboard.writeText(prettifiedBlock)}
+                      title="Copy to clipboard"
+                      data-tooltip="Copy the prettified content to your clipboard">
+                      <Icon name="content_copy" size="12" /> Copy
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </>

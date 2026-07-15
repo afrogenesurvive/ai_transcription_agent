@@ -290,6 +290,9 @@ async function dispatch(tool, args) {
     case "transcribe_get_analysis":
       return await callPython("GET", `/transcribe/analysis/${args.jobId}`);
 
+    case "transcribe_get_job_attendees":
+      return await callPython("GET", `/transcribe/attendees/${args.jobId}`);
+
     case "transcribe_get_delivery_results":
       return await callPython("GET", `/transcribe/delivery/${args.jobId}`);
 
@@ -349,6 +352,10 @@ async function dispatch(tool, args) {
         // Re-throw if we can't fall back
         throw pyErr;
       }
+
+    case "transcribe_upsert_job":
+      // CamelCase keys from JS are mapped to snake_case by the Python endpoint
+      return await callPython("POST", "/transcribe/job/upsert", args);
 
     case "transcribe_fail_job":
       return await callPython("POST", `/transcribe/fail/${args.jobId}?error=${encodeURIComponent(args.error || "Processing failed")}`);

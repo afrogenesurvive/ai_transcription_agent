@@ -559,6 +559,25 @@ async function processEvent(event) {
       console.log(`⚠️  [RUNNER] No usage data from LLM at step ${step} — decision.usage is ${JSON.stringify(decision?.usage)}`);
     }
 
+    // ── Touchpoint C: Persist cumulative LLM progress ──
+    // After each step, upsert the running token total so the jobs table
+    // has a record of LLM progress even if the pipeline is interrupted.
+    if (tokenUsage.length > 0 || totalTokens > 0) {
+      try {
+        await executeToolCall("transcribe_upsert_job", {
+          jobId,
+          totalPromptTokens,
+          totalCompletionTokens,
+          totalTokens,
+          llmProvider: process.env.LLM_PROVIDER || "deepseek",
+          llmModel: process.env.LLM_PROVIDER === "ollama" ? process.env.OLLAMA_MODEL || "llama3.1:8b" : process.env.API_AGENT_MODEL || "deepseek-v4-flash",
+          pipelineSteps: JSON.stringify([...existingSteps, ...tokenUsage]),
+        });
+      } catch (upsertErr) {
+        console.log(`⚠️  [RUNNER] Failed to upsert job usage at step ${step}: ${upsertErr.message}`);
+      }
+    }
+
     if (!decision) {
       console.log(`⏭️  [RUNNER] No decision — pipeline complete`);
       logAction({ eventId, eventType: event.type, action: "complete", detail: `ended at step ${step}, no LLM decision` });
@@ -618,6 +637,19 @@ async function processEvent(event) {
         console.log(`📬 [RUNNER] Delivery failure recorded for ${decision.name}: ${errorMsg}`);
         // Save delivery results and mark job failed immediately (within the delivery step)
         saveDeliveryResults();
+
+        // ── Touchpoint D: Persist delivery failure to jobs table ──
+        try {
+          await executeToolCall("transcribe_upsert_job", {
+            jobId,
+            deliveryAttempted: true,
+            deliveryResults: JSON.stringify(deliveryResults),
+            errorMessage: errorMsg,
+          });
+        } catch (upsertErr) {
+          console.log(`⚠️  [RUNNER] Failed to upsert delivery failure: ${upsertErr.message}`);
+        }
+
         try {
           await executeToolCall("transcribe_fail_job", { jobId, error: errorMsg });
           console.log(`✅ [RUNNER] Job ${jobId.slice(0, 8)} marked as failed by delivery tool`);
@@ -682,6 +714,17 @@ async function processEvent(event) {
       logAction({ eventId, eventType: event.type, action: "complete", detail: `delivered via ${decision.name}` });
       // Save delivery results and mark job complete immediately (within the delivery step)
       saveDeliveryResults();
+
+      // ── Touchpoint D: Persist delivery results to jobs table ──
+      try {
+        await executeToolCall("transcribe_upsert_job", {
+          jobId,
+          deliveryAttempted: true,
+          deliveryResults: JSON.stringify(deliveryResults),
+        });
+      } catch (upsertErr) {
+        console.log(`⚠️  [RUNNER] Failed to upsert delivery results: ${upsertErr.message}`);
+      }
       try {
         await executeToolCall("transcribe_complete_job", { jobId });
         console.log(`✅ [RUNNER] Job ${jobId.slice(0, 8)} marked as complete by delivery tool`);

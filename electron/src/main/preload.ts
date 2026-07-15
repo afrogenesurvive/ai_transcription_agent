@@ -29,6 +29,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // ── Service management ──
   stopServices: (): Promise<{ success: boolean }> => ipcRenderer.invoke("services:stop"),
   restartServices: (): Promise<{ success: boolean }> => ipcRenderer.invoke("services:restart"),
+
+  // ── App lifecycle ──
+  closeApp: (): Promise<{ success: boolean }> => ipcRenderer.invoke("app:close"),
   stopService: (service: string): Promise<{ success: boolean }> => ipcRenderer.invoke("service:stop", service),
   restartService: (service: string): Promise<{ success: boolean }> => ipcRenderer.invoke("service:restart", service),
 

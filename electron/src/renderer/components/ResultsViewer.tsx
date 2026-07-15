@@ -12,11 +12,12 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import Icon from "./Icon";
+import LoadingModal from "./LoadingModal";
 import type { TranscriptionSegment, AnalysisData } from "../types";
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
-type TabId = "pipeline" | "audio" | "transcript" | "summary" | "analysis" | "tokens" | "performance" | "logs" | "delivery";
+type TabId = "pipeline" | "audio" | "transcript" | "summary" | "analysis" | "tokens" | "performance" | "attendees" | "delivery" | "logs";
 
 interface Tab {
   id: TabId;
@@ -32,6 +33,7 @@ const TABS: Tab[] = [
   { id: "analysis", label: "Analysis", icon: "analytics" },
   { id: "tokens", label: "Tokens", icon: "token" },
   { id: "performance", label: "Performance", icon: "speed" },
+  { id: "attendees", label: "Attendees", icon: "group" },
   { id: "delivery", label: "Delivery", icon: "mail" },
   { id: "logs", label: "Logs", icon: "terminal" },
 ];
@@ -476,6 +478,45 @@ function parseLogLine(raw: string): { timestamp: number; source: string; subSour
   return { timestamp, source, subSource, level, message: remainder.trim() };
 }
 
+/* ── Log grouping helpers ── */
+
+interface LogGroupEntry {
+  timestamp: number;
+  source: string;
+  subSource?: string;
+  level: string;
+  lines: Array<{
+    timestamp: number;
+    message: string;
+  }>;
+}
+
+function groupConsecutiveEntries(
+  entries: Array<{ timestamp: number; source: string; subSource?: string; level: string; message: string }>,
+): LogGroupEntry[] {
+  const groups: LogGroupEntry[] = [];
+  for (const entry of entries) {
+    const last = groups[groups.length - 1];
+    if (last && last.source === entry.source && last.subSource === entry.subSource && last.level === entry.level) {
+      last.lines.push({ timestamp: entry.timestamp, message: entry.message });
+    } else {
+      groups.push({
+        timestamp: entry.timestamp,
+        source: entry.source,
+        subSource: entry.subSource,
+        level: entry.level,
+        lines: [{ timestamp: entry.timestamp, message: entry.message }],
+      });
+    }
+  }
+  return groups;
+}
+
+/** Detect section-header decoration lines like ═══ ... ═══ or ===== */
+function isSectionHeader(msg: string): boolean {
+  return /^[═=]{3,}|^[─━]{3,}|^━━━/.test(msg);
+}
+
 function LogsTab({ jobId }: { jobId: string }) {
   const [rawLogs, setRawLogs] = useState<string[]>([]);
   const [entries, setEntries] = useState<ReturnType<typeof parseLogLine>[]>([]);
@@ -489,7 +530,18 @@ function LogsTab({ jobId }: { jobId: string }) {
   const [autoScroll, setAutoScroll] = useState(true);
   const [noTruncate, setNoTruncate] = useState(true);
   const [logSubTab, setLogSubTab] = useState<"pipeline" | "transcript" | "raw">("pipeline");
+  const [collapseRepeated, setCollapseRepeated] = useState(true);
+  const [prettifiedBlock, setPrettifiedBlock] = useState<string | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
+
+  // Read LOG_COLLAPSE_REPEATED_PREFIXES from config on mount
+  useEffect(() => {
+    window.electronAPI?.getConfig().then((cfg) => {
+      if (cfg?.LOG_COLLAPSE_REPEATED_PREFIXES === "false") {
+        setCollapseRepeated(false);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -575,6 +627,17 @@ function LogsTab({ jobId }: { jobId: string }) {
     return true;
   });
 
+  // Group consecutive entries when collapse mode is on
+  const groupedEntries: LogGroupEntry[] = collapseRepeated
+    ? groupConsecutiveEntries(filteredEntries)
+    : filteredEntries.map((e) => ({
+        timestamp: e.timestamp,
+        source: e.source,
+        subSource: e.subSource,
+        level: e.level,
+        lines: [{ timestamp: e.timestamp, message: e.message }],
+      }));
+
   /** Highlight search matches in text */
   const highlightText = useCallback(
     (text: string): React.ReactNode => {
@@ -595,16 +658,6 @@ function LogsTab({ jobId }: { jobId: string }) {
     [searchQuery],
   );
 
-  if (loading) {
-    return (
-      <div className="rv-tab-content">
-        <div className="rv-empty-state">
-          <p>Loading logs…</p>
-        </div>
-      </div>
-    );
-  }
-
   if (error) {
     return (
       <div className="rv-tab-content">
@@ -621,6 +674,121 @@ function LogsTab({ jobId }: { jobId: string }) {
   // Find transcript and raw transcript file content
   const transcriptFile = jobLogFiles.find((jf) => jf.file === "transcript.txt");
   const rawTranscriptFile = jobLogFiles.find((jf) => jf.file === "raw_transcript.txt");
+  const pipelineLogFile = jobLogFiles.find((jf) => jf.file === "pipeline.log");
+
+  /** Render a collapsed log viewer for a raw log file content */
+  const renderCollapsedLogViewer = (jf: { file: string; content: string } | undefined) => {
+    if (!jf || !jf.content) {
+      return (
+        <div className="rv-empty-state" style={{ padding: 24 }}>
+          <span className="rv-empty-icon">
+            <Icon name="terminal" size="24" color="muted" />
+          </span>
+          <p>No pipeline log file available for this job.</p>
+          <p className="rv-muted">The file will appear here once generated by the pipeline.</p>
+        </div>
+      );
+    }
+
+    const lines = jf.content.split("\n").filter(Boolean);
+    const parsed = lines.map((l) => parseLogLine(l)).filter(Boolean) as NonNullable<ReturnType<typeof parseLogLine>>[];
+    const grouped = collapseRepeated
+      ? groupConsecutiveEntries(parsed)
+      : parsed.map((e) => ({
+          timestamp: e.timestamp,
+          source: e.source,
+          subSource: e.subSource,
+          level: e.level,
+          lines: [{ timestamp: e.timestamp, message: e.message }],
+        }));
+
+    return (
+      <div className="rv-logs-file-item" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div className="rv-logs-file-header">
+          <span className="rv-logs-file-name">{jf.file}</span>
+          <span className="rv-logs-file-size">{(jf.content.length / 1024).toFixed(1)} KB</span>
+        </div>
+        <div className="rv-logs-list" style={{ flex: 1, maxHeight: "none" }}>
+          {grouped.map((group, gi) => {
+            const isGroup = group.lines.length > 1;
+            const isHeader = isSectionHeader(group.lines[0]?.message || "");
+            return (
+              <div key={gi} className={`rv-log-group ${isGroup ? "rv-log-group--multi" : ""} ${isHeader ? "rv-log-group--header" : ""}`}>
+                {!isGroup && (
+                  <div className="rv-log-line rv-log-line--parsed">
+                    <span className="rv-log-line-time">{new Date(group.timestamp).toLocaleTimeString()}</span>
+                    <span className="rv-log-line-source" style={{ color: RV_SOURCE_COLORS[group.source] || "#8b949e" }}>
+                      [{group.source}]
+                    </span>
+                    {group.subSource && (
+                      <span className="rv-log-line-subsource" style={{ color: RV_SOURCE_COLORS[group.subSource] || "#8b949e" }}>
+                        [{group.subSource}]
+                      </span>
+                    )}
+                    <span className={`rv-log-line-level rv-log-line-level--${group.level}`}>
+                      {group.level === "error" ? "!" : group.level === "warn" ? "▲" : ""}
+                    </span>
+                    <span className="rv-log-line-text">{group.lines[0].message}</span>
+                    <button
+                      className="rv-log-prettify-btn"
+                      onClick={() => setPrettifiedBlock(group.lines[0].message)}
+                      title="View prettified"
+                      data-tooltip="Open this log entry in the prettified viewer">
+                      <Icon name="open_in_new" size="10" />
+                    </button>
+                  </div>
+                )}
+                {isGroup && (
+                  <details className="rv-log-details" open={isHeader ? true : undefined}>
+                    <summary className="rv-log-summary">
+                      <span className="rv-log-summary-line">
+                        <span className="rv-log-line-time">{new Date(group.timestamp).toLocaleTimeString()}</span>
+                        <span className="rv-log-line-source" style={{ color: RV_SOURCE_COLORS[group.source] || "#8b949e" }}>
+                          [{group.source}]
+                        </span>
+                        {group.subSource && (
+                          <span className="rv-log-line-subsource" style={{ color: RV_SOURCE_COLORS[group.subSource] || "#8b949e" }}>
+                            [{group.subSource}]
+                          </span>
+                        )}
+                        <span className={`rv-log-line-level rv-log-line-level--${group.level}`}>
+                          {group.level === "error" ? "!" : group.level === "warn" ? "▲" : ""}
+                        </span>
+                        <span className="rv-log-summary-msg">{group.lines[0].message}</span>
+                      </span>
+                      <button
+                        className="rv-log-prettify-btn rv-log-prettify-btn--group"
+                        onClick={() => setPrettifiedBlock(group.lines.map((l) => l.message).join("\n"))}
+                        title="View all lines prettified"
+                        data-tooltip="Open the entire group content in the prettified viewer">
+                        <Icon name="open_in_new" size="10" />
+                      </button>
+                      <span className="rv-log-group-badge">{group.lines.length} lines</span>
+                    </summary>
+                    <div className="rv-log-group-lines">
+                      {group.lines.map((line, li) => (
+                        <div key={li} className="rv-log-line rv-log-line--nested">
+                          <span className="rv-log-gutter">│</span>
+                          <span className="rv-log-line-text">{line.message}</span>
+                          <button
+                            className="rv-log-prettify-btn"
+                            onClick={() => setPrettifiedBlock(line.message)}
+                            title="View prettified"
+                            data-tooltip="Open this log entry in the prettified viewer">
+                            <Icon name="open_in_new" size="10" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
 
   /** Render a file viewer for a given job file */
   const renderFileViewer = (jf: { file: string; content: string } | undefined, label: string) => {
@@ -648,6 +816,8 @@ function LogsTab({ jobId }: { jobId: string }) {
 
   return (
     <div className="rv-tab-content rv-tab-content--logs" style={{ display: "flex", flexDirection: "column", overflow: "hidden", height: "100%" }}>
+      <LoadingModal visible={loading} message="Loading log files…" />
+
       {/* Sub-tab navigation */}
       <div className="rv-logs-sub-tabs">
         <button
@@ -731,6 +901,13 @@ function LogsTab({ jobId }: { jobId: string }) {
                   <option value="error">Errors</option>
                   <option value="debug">Debug</option>
                 </select>
+                <label
+                  className="rv-logs-toggle"
+                  title="Collapse consecutive log entries with identical source/sub-source/level"
+                  data-tooltip="Collapse repeated prefix groups">
+                  <input type="checkbox" checked={collapseRepeated} onChange={(e) => setCollapseRepeated(e.target.checked)} />
+                  <Icon name="compress" size="12" /> Group
+                </label>
               </div>
               <span className="rv-logs-filter-count">
                 {filteredEntries.length} / {rawLogs.length} entry{rawLogs.length !== 1 ? "ies" : "y"}
@@ -743,23 +920,84 @@ function LogsTab({ jobId }: { jobId: string }) {
             <div className="rv-logs-section" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
               {filteredEntries.length > 0 ? (
                 <div className="rv-logs-list" ref={logRef} style={{ maxHeight: "none", flex: 1 }}>
-                  {filteredEntries.map((entry, i) => (
-                    <div key={i} className="rv-log-line rv-log-line--parsed">
-                      <span className="rv-log-line-time">{new Date(entry.timestamp).toLocaleTimeString()}</span>
-                      <span className="rv-log-line-source" style={{ color: RV_SOURCE_COLORS[entry.source] || "#8b949e" }}>
-                        [{entry.source}]
-                      </span>
-                      {entry.subSource && (
-                        <span className="rv-log-line-subsource" style={{ color: RV_SOURCE_COLORS[entry.subSource] || "#8b949e" }}>
-                          [{entry.subSource}]
-                        </span>
-                      )}
-                      <span className={`rv-log-line-level rv-log-line-level--${entry.level}`}>
-                        {entry.level === "error" ? "!" : entry.level === "warn" ? "▲" : ""}
-                      </span>
-                      <span className="rv-log-line-text">{highlightText(entry.message)}</span>
-                    </div>
-                  ))}
+                  {groupedEntries.map((group, gi) => {
+                    const isGroup = group.lines.length > 1;
+                    const isHeader = isSectionHeader(group.lines[0]?.message || "");
+                    return (
+                      <div key={gi} className={`rv-log-group ${isGroup ? "rv-log-group--multi" : ""} ${isHeader ? "rv-log-group--header" : ""}`}>
+                        {/* ── Single line: render normally ── */}
+                        {!isGroup && (
+                          <div className="rv-log-line rv-log-line--parsed">
+                            <span className="rv-log-line-time">{new Date(group.timestamp).toLocaleTimeString()}</span>
+                            <span className="rv-log-line-source" style={{ color: RV_SOURCE_COLORS[group.source] || "#8b949e" }}>
+                              [{group.source}]
+                            </span>
+                            {group.subSource && (
+                              <span className="rv-log-line-subsource" style={{ color: RV_SOURCE_COLORS[group.subSource] || "#8b949e" }}>
+                                [{group.subSource}]
+                              </span>
+                            )}
+                            <span className={`rv-log-line-level rv-log-line-level--${group.level}`}>
+                              {group.level === "error" ? "!" : group.level === "warn" ? "▲" : ""}
+                            </span>
+                            <span className="rv-log-line-text">{highlightText(group.lines[0].message)}</span>
+                            <button
+                              className="rv-log-prettify-btn"
+                              onClick={() => setPrettifiedBlock(group.lines[0].message)}
+                              title="View prettified"
+                              data-tooltip="Open this log entry in the prettified viewer">
+                              <Icon name="open_in_new" size="10" />
+                            </button>
+                          </div>
+                        )}
+                        {/* ── Multi-line group: collapsible ── */}
+                        {isGroup && (
+                          <details className="rv-log-details" open={isHeader ? true : undefined}>
+                            <summary className="rv-log-summary">
+                              <span className="rv-log-summary-line">
+                                <span className="rv-log-line-time">{new Date(group.timestamp).toLocaleTimeString()}</span>
+                                <span className="rv-log-line-source" style={{ color: RV_SOURCE_COLORS[group.source] || "#8b949e" }}>
+                                  [{group.source}]
+                                </span>
+                                {group.subSource && (
+                                  <span className="rv-log-line-subsource" style={{ color: RV_SOURCE_COLORS[group.subSource] || "#8b949e" }}>
+                                    [{group.subSource}]
+                                  </span>
+                                )}
+                                <span className={`rv-log-line-level rv-log-line-level--${group.level}`}>
+                                  {group.level === "error" ? "!" : group.level === "warn" ? "▲" : ""}
+                                </span>
+                                <span className="rv-log-summary-msg">{group.lines[0].message}</span>
+                              </span>
+                              <button
+                                className="rv-log-prettify-btn rv-log-prettify-btn--group"
+                                onClick={() => setPrettifiedBlock(group.lines.map((l) => l.message).join("\n"))}
+                                title="View all lines prettified"
+                                data-tooltip="Open the entire group content in the prettified viewer">
+                                <Icon name="open_in_new" size="10" />
+                              </button>
+                              <span className="rv-log-group-badge">{group.lines.length} lines</span>
+                            </summary>
+                            <div className="rv-log-group-lines">
+                              {group.lines.map((line, li) => (
+                                <div key={li} className="rv-log-line rv-log-line--nested">
+                                  <span className="rv-log-gutter">│</span>
+                                  <span className="rv-log-line-text">{highlightText(line.message)}</span>
+                                  <button
+                                    className="rv-log-prettify-btn"
+                                    onClick={() => setPrettifiedBlock(line.message)}
+                                    title="View prettified"
+                                    data-tooltip="Open this log entry in the prettified viewer">
+                                    <Icon name="open_in_new" size="10" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          </details>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="rv-logs-empty-filter">
@@ -784,6 +1022,37 @@ function LogsTab({ jobId }: { jobId: string }) {
             </div>
           )}
         </>
+      )}
+
+      {/* ── Prettified View Modal ── */}
+      {prettifiedBlock !== null && (
+        <div className="rv-prettify-overlay" onClick={() => setPrettifiedBlock(null)}>
+          <div className="rv-prettify-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="rv-prettify-header">
+              <h3 className="rv-prettify-title">
+                <Icon name="open_in_new" size="14" color="accent" /> Prettified View
+              </h3>
+              <button className="rv-prettify-close" onClick={() => setPrettifiedBlock(null)} title="Close" data-tooltip="Close prettified view">
+                <Icon name="close" size="14" />
+              </button>
+            </div>
+            <div className="rv-prettify-tabs">
+              <button className="rv-prettify-tab rv-prettify-tab--active">Text</button>
+            </div>
+            <div className="rv-prettify-body">
+              <pre className="rv-prettify-content">{prettifiedBlock}</pre>
+            </div>
+            <div className="rv-prettify-footer">
+              <button
+                className="rv-prettify-copy-btn"
+                onClick={() => navigator.clipboard.writeText(prettifiedBlock)}
+                title="Copy to clipboard"
+                data-tooltip="Copy the prettified content to your clipboard">
+                <Icon name="content_copy" size="12" /> Copy
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Transcript TXT sub-tab ── */}
@@ -1324,6 +1593,227 @@ function PerformanceTab({ jobId }: { jobId: string }) {
   );
 }
 
+/* ── Tab: Attendees ── */
+
+interface JobAttendee {
+  name: string;
+  email: string;
+  has_voiceprint: boolean;
+  has_sample: boolean;
+  sample_job_id: string | null;
+  sample_start: number | null;
+  sample_end: number | null;
+}
+
+function AttendeesTab({ jobId }: { jobId: string }) {
+  const [attendees, setAttendees] = useState<JobAttendee[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [playingEmail, setPlayingEmail] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchAttendees = async () => {
+      try {
+        const res = await fetch(`${BRIDGE_URL}/tools/call`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tool: "transcribe_get_job_attendees", args: { jobId } }),
+        });
+        const data = await res.json();
+        if (!cancelled) {
+          setAttendees(data?.attendees || []);
+          setLoading(false);
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setError(err.message);
+          setLoading(false);
+        }
+      }
+    };
+    fetchAttendees();
+    return () => {
+      cancelled = true;
+    };
+  }, [jobId]);
+
+  /** Play or stop a voiceprint sample. Only one sample plays at a time. */
+  const handlePlaySample = useCallback(
+    (email: string) => {
+      if (playingEmail === email) {
+        if (audioRef.current) {
+          audioRef.current.pause();
+          audioRef.current.currentTime = 0;
+        }
+        setPlayingEmail(null);
+        return;
+      }
+
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
+
+      const sampleUrl = `${BRIDGE_URL}/agent/voiceprints/sample/${encodeURIComponent(email)}`;
+      const audio = new Audio(sampleUrl);
+      audio.addEventListener("ended", () => setPlayingEmail(null));
+      audio.addEventListener("error", () => {
+        setPlayingEmail(null);
+        console.warn(`[Attendees] Failed to play sample for ${email}`);
+      });
+      audio.play().catch(() => setPlayingEmail(null));
+      audioRef.current = audio;
+      setPlayingEmail(email);
+    },
+    [playingEmail],
+  );
+
+  // Cleanup audio on unmount
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
+  if (error) {
+    return (
+      <div className="rv-tab-content">
+        <div className="rv-empty-state">
+          <span className="rv-empty-icon">
+            <Icon name="error" color="red" size="32" />
+          </span>
+          <p>Failed to load attendees: {error}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!loading && attendees.length === 0) {
+    return (
+      <div className="rv-tab-content">
+        <div className="rv-empty-state">
+          <span className="rv-empty-icon">
+            <Icon name="group" size="32" color="muted" />
+          </span>
+          <p>No attendees registered for this job.</p>
+          <p className="rv-muted">Attendees are registered when a job is created or when the agent labels speakers.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const withVoiceprint = attendees.filter((a) => a.has_voiceprint);
+  const withoutVoiceprint = attendees.filter((a) => !a.has_voiceprint);
+
+  return (
+    <div className="rv-tab-content rv-tab-content--attendees">
+      <LoadingModal visible={loading} message="Loading attendees…" />
+
+      {/* Summary cards */}
+      <div className="rv-tokens-summary">
+        <div className="rv-tokens-card">
+          <span className="rv-tokens-card-value">{attendees.length}</span>
+          <span className="rv-tokens-card-label">Total Attendees</span>
+        </div>
+        <div className="rv-tokens-card">
+          <span className="rv-tokens-card-value" style={{ color: "var(--green)" }}>
+            {withVoiceprint.length}
+          </span>
+          <span className="rv-tokens-card-label">Voiceprint Matched</span>
+        </div>
+        <div className="rv-tokens-card">
+          <span className="rv-tokens-card-value" style={{ color: "var(--text-muted)" }}>
+            {withoutVoiceprint.length}
+          </span>
+          <span className="rv-tokens-card-label">Registered Only</span>
+        </div>
+      </div>
+
+      {/* Voiceprint-matched attendees */}
+      {withVoiceprint.length > 0 && (
+        <>
+          <h4 className="rv-tokens-steps-title">
+            <Icon name="badge" size="14" color="accent" /> Voiceprint Matched
+          </h4>
+          <div className="rv-attendee-list">
+            {withVoiceprint.map((att, i) => (
+              <div key={i} className="rv-attendee-card rv-attendee-card--vp">
+                <div className="rv-attendee-avatar" style={{ backgroundColor: speakerColor(att.name) }}>
+                  {att.name.charAt(0).toUpperCase()}
+                </div>
+                <div className="rv-attendee-info">
+                  <span className="rv-attendee-name">{att.name}</span>
+                  {att.email && <span className="rv-attendee-email">{att.email}</span>}
+                  <span className="rv-attendee-meta">
+                    <Icon name="badge" size="10" color="green" /> Voiceprint enrolled
+                    {att.has_sample && (
+                      <>
+                        <span className="rv-attendee-meta-sep">·</span>
+                        Audio sample available
+                      </>
+                    )}
+                  </span>
+                </div>
+                <div className="rv-attendee-actions">
+                  {att.has_sample ? (
+                    <button
+                      className={`rv-attendee-play-btn ${playingEmail === att.email ? "rv-attendee-play-btn--playing" : ""}`}
+                      onClick={() => handlePlaySample(att.email)}
+                      title={playingEmail === att.email ? "Stop playback" : "Play voice sample"}
+                      data-tooltip={playingEmail === att.email ? "Click to stop playback" : "Play this attendee's voice sample"}>
+                      {playingEmail === att.email ? <Icon name="stop" size="16" /> : <Icon name="play_arrow" size="16" />}
+                    </button>
+                  ) : (
+                    <span
+                      className="rv-attendee-no-sample"
+                      title="No audio sample available"
+                      data-tooltip="This voiceprint was enrolled without an audio sample">
+                      <Icon name="volume_off" size="14" color="muted" />
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* Registered-only attendees (no voiceprint) */}
+      {withoutVoiceprint.length > 0 && (
+        <>
+          <h4 className="rv-tokens-steps-title" style={{ marginTop: 16 }}>
+            <Icon name="person" size="14" color="muted" /> Registered Attendees
+          </h4>
+          <p className="rv-muted" style={{ fontSize: 11, marginBottom: 8 }}>
+            These attendees were registered for this meeting but do not have voiceprints enrolled.
+          </p>
+          <div className="rv-attendee-list">
+            {withoutVoiceprint.map((att, i) => (
+              <div key={i} className="rv-attendee-card">
+                <div className="rv-attendee-avatar" style={{ backgroundColor: speakerColor(att.name), opacity: 0.6 }}>
+                  {att.name.charAt(0).toUpperCase()}
+                </div>
+                <div className="rv-attendee-info">
+                  <span className="rv-attendee-name">{att.name}</span>
+                  {att.email && <span className="rv-attendee-email">{att.email}</span>}
+                  <span className="rv-attendee-meta">
+                    <Icon name="person" size="10" color="muted" /> Registered
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 /* ── Tab: Delivery ── */
 
 interface DeliveryToolResult {
@@ -1541,6 +2031,7 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
             analysis: "Explore topics discussed, sentiment, key entities, and meeting effectiveness",
             tokens: "View LLM token usage breakdown per pipeline step",
             performance: "See performance metrics — stage durations and timing",
+            attendees: "View registered attendees and their voiceprint status with playable audio samples",
             delivery: "Check delivery status — email, Trello, and Google Drive",
             logs: "View job-specific log files for debugging",
           };
@@ -1600,6 +2091,7 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
           ))}
         {activeTab === "tokens" && <TokensTab jobId={jobId} />}
         {activeTab === "performance" && <PerformanceTab jobId={jobId} />}
+        {activeTab === "attendees" && <AttendeesTab jobId={jobId} />}
         {activeTab === "delivery" && <DeliveryTab jobId={jobId} />}
         {activeTab === "logs" && <LogsTab jobId={jobId} />}
       </div>

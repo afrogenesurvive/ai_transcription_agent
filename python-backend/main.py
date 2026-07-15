@@ -178,6 +178,22 @@ async def upload_audio(
     print(f"[upload] Received file '{file.filename}' ({len(content)} bytes) → job_id={job_id}")
     print(f"[upload] Metadata: title='{title}', attendees={attendees}, event_type='{event_type}'")
     print(f"[upload] skip_steps={parsed_skip}")
+
+    # Persist job record in ephemeral DB
+    try:
+        ephemeral_memory.upsert_job(job_id, {
+            "title": title,
+            "attendees": attendees,
+            "email_recipients": json.dumps(parsed_emails),
+            "audio_url": temp_path if os.path.exists(temp_path) else None,
+            "audio_size_bytes": len(content),
+            "event_type": event_type,
+            "result": "pending",
+        })
+        print(f"[upload] Job record persisted to ephemeral DB")
+    except Exception as e:
+        print(f"[upload] Warning: could not persist job record: {e}")
+
     _start_pipeline_async(job_id)
     return {"job_id": job_id, "status": "uploaded"}
 
@@ -226,6 +242,22 @@ async def upload_audio_by_path(req: UploadByPathRequest):
     file_size = os.path.getsize(file_path)
     print(f"[upload_by_path] File '{file_path}' ({file_size} bytes) → job_id={job_id}")
     print(f"[upload_by_path] Metadata: title='{req.title}', attendees={req.attendees}")
+
+    # Persist job record in ephemeral DB
+    try:
+        ephemeral_memory.upsert_job(job_id, {
+            "title": req.title,
+            "attendees": json.dumps(req.attendees),
+            "email_recipients": json.dumps(req.email_recipients),
+            "audio_url": file_path,
+            "audio_size_bytes": file_size,
+            "event_type": req.event_type,
+            "result": "pending",
+        })
+        print(f"[upload_by_path] Job record persisted to ephemeral DB")
+    except Exception as e:
+        print(f"[upload_by_path] Warning: could not persist job record: {e}")
+
     _start_pipeline_async(job_id)
     return {"job_id": job_id, "status": "uploaded", "file_path": file_path}
 
@@ -435,6 +467,65 @@ async def get_analysis(job_id: str):
         data = json.load(f)
     print(f"[api] GET /transcribe/analysis/{job_id} → OK")
     return data
+
+
+@app.get("/transcribe/attendees/{job_id}")
+async def get_job_attendees(job_id: str):
+    """Get attendees registered for a specific job, cross-referenced with voiceprint status.
+
+    Reads the job's metadata.json to retrieve registered attendee names and emails,
+    then cross-references each attendee against enrolled voiceprints to determine
+    whether they have a matching voiceprint and audio sample available.
+    """
+    meta = uploader.get_metadata(job_id)
+    if not meta:
+        raise HTTPException(404, f"Job {job_id} metadata not found")
+
+    registered = meta.get("attendees", [])
+    attendee_emails = meta.get("attendeeEmails", [])
+
+    # Fetch all enrolled voiceprints
+    vps = vp_manager.list_voiceprints()
+    vp_by_email = {vp["email"].lower(): vp for vp in vps}
+    vp_by_name = {vp["name"].lower(): vp for vp in vps}
+
+    attendees = []
+    seen = set()
+
+    for i, name in enumerate(registered):
+        email = attendee_emails[i] if i < len(attendee_emails) else ""
+        key = email.lower() or name.lower()
+        vp = vp_by_email.get(key) or vp_by_name.get(key)
+        attendees.append({
+            "name": name,
+            "email": email,
+            "has_voiceprint": bool(vp),
+            "has_sample": bool(vp and vp.get("sample_job_id")),
+            "sample_job_id": vp.get("sample_job_id") if vp else None,
+            "sample_start": vp.get("sample_start") if vp else None,
+            "sample_end": vp.get("sample_end") if vp else None,
+        })
+        if key:
+            seen.add(key)
+
+    # Also add any voiceprint-only attendees linked to this job
+    for vp in vps:
+        if vp.get("sample_job_id") == job_id:
+            key = (vp.get("email") or vp.get("name", "")).lower()
+            if key not in seen:
+                attendees.append({
+                    "name": vp.get("name", ""),
+                    "email": vp.get("email", ""),
+                    "has_voiceprint": True,
+                    "has_sample": bool(vp.get("sample_job_id")),
+                    "sample_job_id": vp.get("sample_job_id"),
+                    "sample_start": vp.get("sample_start"),
+                    "sample_end": vp.get("sample_end"),
+                })
+                seen.add(key)
+
+    print(f"[api] GET /transcribe/attendees/{job_id} → {len(attendees)} attendee(s)")
+    return {"job_id": job_id, "attendees": attendees}
 
 
 @app.get("/transcribe/delivery/{job_id}")
@@ -1173,6 +1264,18 @@ async def label_and_resume(job_id: str, labels: list = Body(...)):
         metadata = uploader.get_metadata(job_id)
         skip = metadata.get("skip_steps")
         _update_active(job_id, "ready_for_agent", 0.95)
+
+        # Persist ML pipeline completion stats
+        try:
+            total_chars = sum(len(s.get("text", "")) for s in aligned)
+            ephemeral_memory.upsert_job(job_id, {
+                "transcript_segment_count": len(aligned),
+                "transcript_char_count": total_chars,
+                "audio_duration_sec": aligned[-1]["end"] if aligned else None,
+            })
+        except Exception as e:
+            print(f"[label_and_resume] Warning: could not update job record: {e}")
+
         agent_bridge.enqueue_ready(job_id, aligned, metadata, skip_steps=skip)
         return {"job_id": job_id, "status": "ready_for_agent", "applied_labels": len(label_map)}
     else:
@@ -1351,6 +1454,18 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
             _update_active(job_id, "ready_for_agent", 0.95)
             skip = metadata.get("skip_steps")
             jlog.log(f"[pipeline] All speakers known — enqueueing ready_for_processing")
+
+            # Persist ML pipeline completion stats
+            try:
+                total_chars = sum(len(s.get("text", "")) for s in aligned)
+                ephemeral_memory.upsert_job(job_id, {
+                    "transcript_segment_count": len(aligned),
+                    "transcript_char_count": total_chars,
+                    "audio_duration_sec": aligned[-1]["end"] if aligned else None,
+                })
+            except Exception as e:
+                jlog.log(f"[pipeline] Warning: could not update job record: {e}")
+
             agent_bridge.enqueue_ready(job_id, aligned, metadata, skip_steps=skip)
 
     except Exception as e:
@@ -1362,6 +1477,63 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
     finally:
         jlog.close()
         _pipeline_cancel.discard(job_id)
+
+
+# ── Job record upsert (called from agent-runner for touchpoints C & D) ──
+
+@app.post("/transcribe/job/upsert")
+async def upsert_job_record(data: dict = Body(...)):
+    """Partial-upsert a job record. Accepts any subset of allowed columns.
+    Used by the agent runner to persist LLM token usage, pipeline steps,
+    and delivery results mid-pipeline.
+    """
+    job_id = data.get("jobId") or data.get("job_id")
+    if not job_id:
+        raise HTTPException(400, "Missing jobId/job_id")
+    try:
+        # Map camelCase keys from JS to snake_case DB columns
+        key_map = {
+            "jobId": None,
+            "job_id": None,
+            "totalPromptTokens": "total_prompt_tokens",
+            "totalCompletionTokens": "total_completion_tokens",
+            "totalTokens": "total_tokens",
+            "llmProvider": "llm_provider",
+            "llmModel": "llm_model",
+            "inputCost": "input_cost",
+            "outputCost": "output_cost",
+            "totalCost": "total_cost",
+            "pipelineSteps": "pipeline_steps",
+            "deliveryAttempted": "delivery_attempted",
+            "deliveryResults": "delivery_results",
+            "audioUrl": "audio_url",
+            "audioSizeBytes": "audio_size_bytes",
+            "audioDurationSec": "audio_duration_sec",
+            "errorMessage": "error_message",
+            "transcriptSegmentCount": "transcript_segment_count",
+            "transcriptCharCount": "transcript_char_count",
+            "summaryCharCount": "summary_char_count",
+            "hasAnalysis": "has_analysis",
+            "analysisCharCount": "analysis_char_count",
+            "completedAt": "completed_at",
+        }
+        updates = {}
+        for js_key, db_col in key_map.items():
+            if js_key in data:
+                val = data[js_key]
+                if db_col is not None:
+                    updates[db_col] = val
+        # Also pass through any snake_case keys directly
+        for key, value in data.items():
+            if key not in key_map and key not in ("jobId", "job_id"):
+                updates[key] = value
+
+        ephemeral_memory.upsert_job(job_id, updates)
+        print(f"[api] POST /transcribe/job/upsert/{job_id[:8]} → {len(updates)} field(s) updated")
+        return {"success": True, "job_id": job_id}
+    except Exception as e:
+        print(f"[api] POST /transcribe/job/upsert ERROR: {e}")
+        raise HTTPException(500, f"Job upsert failed: {e}")
 
 
 @app.post("/transcribe/cancel/{job_id}")
@@ -1377,6 +1549,11 @@ async def cancel_job(job_id: str):
         task.cancel()
     uploader.update_status(job_id, {"status": "failed", "error": "Cancelled by user", "progress": 0.0})
     _active_jobs.pop(job_id, None)
+    # Persist terminal state
+    try:
+        ephemeral_memory.upsert_job(job_id, {"result": "cancelled", "completed_at": datetime.utcnow().isoformat()})
+    except Exception as e:
+        print(f"[api] Warning: could not persist cancelled state: {e}")
     print(f"[api] POST /transcribe/cancel/{job_id} → cancelled")
     return {"job_id": job_id, "status": "cancelled", "cancelled": True}
 
@@ -1389,6 +1566,11 @@ async def fail_job(job_id: str, error: str = "Processing failed"):
         raise HTTPException(404, "Job not found")
     uploader.update_status(job_id, {"status": "failed", "error": error, "progress": 0.0})
     _active_jobs.pop(job_id, None)
+    # Persist terminal state
+    try:
+        ephemeral_memory.upsert_job(job_id, {"result": "failed", "error_message": error, "completed_at": datetime.utcnow().isoformat()})
+    except Exception as e:
+        print(f"[api] Warning: could not persist failed state: {e}")
     print(f"[api] POST /transcribe/fail/{job_id} → failed: {error[:120]}")
     return {"job_id": job_id, "status": "failed", "error": error}
 
@@ -1401,6 +1583,33 @@ async def complete_job(job_id: str):
         raise HTTPException(404, "Job not found")
     uploader.update_status(job_id, {"status": "complete", "progress": 1.0})
     _active_jobs.pop(job_id, None)
+
+    # Gather final content metrics from disk before persisting
+    try:
+        summary_path = os.path.join(config.STORAGE_PATH, job_id, "summary.json")
+        analysis_path = os.path.join(config.STORAGE_PATH, job_id, "analysis.json")
+        summary_char_count = 0
+        has_analysis = 0
+        analysis_char_count = 0
+        if os.path.exists(summary_path):
+            with open(summary_path) as f:
+                summary_data = json.load(f)
+                summary_char_count = len(json.dumps(summary_data))
+        if os.path.exists(analysis_path):
+            with open(analysis_path) as f:
+                analysis_data = json.load(f)
+                has_analysis = 1
+                analysis_char_count = len(json.dumps(analysis_data))
+        ephemeral_memory.upsert_job(job_id, {
+            "result": "success",
+            "completed_at": datetime.utcnow().isoformat(),
+            "summary_char_count": summary_char_count,
+            "has_analysis": has_analysis,
+            "analysis_char_count": analysis_char_count,
+        })
+    except Exception as e:
+        print(f"[api] Warning: could not persist completed state: {e}")
+
     print(f"[api] POST /transcribe/complete/{job_id} → complete")
     return {"job_id": job_id, "status": "complete"}
 
@@ -2501,6 +2710,18 @@ def _run_pipeline_sync(job_id: str):
             _update_active(job_id, "ready_for_agent", 0.95)
             skip = metadata.get("skip_steps")
             jlog.log(f"[pipeline] All speakers known — enqueueing ready_for_processing (skip_steps={skip})")
+
+            # Persist ML pipeline completion stats
+            try:
+                total_chars = sum(len(s.get("text", "")) for s in aligned)
+                ephemeral_memory.upsert_job(job_id, {
+                    "transcript_segment_count": len(aligned),
+                    "transcript_char_count": total_chars,
+                    "audio_duration_sec": aligned[-1]["end"] if aligned else None,
+                })
+            except Exception as e:
+                jlog.log(f"[pipeline] Warning: could not update job record: {e}")
+
             agent_bridge.enqueue_ready(job_id, aligned, metadata, skip_steps=skip)
 
     except Exception as e:

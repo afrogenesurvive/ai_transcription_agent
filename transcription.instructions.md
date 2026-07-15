@@ -27,7 +27,20 @@ All three together: `npm run transcribe:all`
 - **Ephemeral**: SQLite at `storage/ephemeral_memory.db` — action items, contacts, budgets
 - **Voiceprints**: SQLite at `storage/voiceprints.db` — speaker embeddings
 
+## Configuration (Environment Variables)
+
+| Variable                         | Default  | Description                                                                                                                                                                   |
+| -------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `WHISPER_MODEL_SIZE`             | `medium` | Whisper model size (tiny/base/small/medium/large)                                                                                                                             |
+| `WHISPER_INITIAL_PROMPT_ENABLED` | `false`  | Toggle to pass an initial prompt to Whisper for context priming                                                                                                               |
+| `WHISPER_INITIAL_PROMPT`         | `""`     | Text prompt sent to Whisper before transcription (e.g. "This is a technical discussion about software architecture"). Helps bias the model toward domain-specific vocabulary. |
+| `DEVICE`                         | `auto`   | Compute device: `auto`, `cpu`, `cuda`, `mps`                                                                                                                                  |
+| `PLATFORM`                       | `auto`   | Whisper backend: `auto`, `mac`, `windows`, `linux`                                                                                                                            |
+
+Set these in a `.env` file in `python-backend/` or export them in your shell.
+
 ## Useful Commands
 
 - `npm run transcribe:setup` — full first-time setup (venv, pip, npm, platform Whisper)
+- `npm run transcribe:backend` — start Python backend only
 - `npm run electron:dev` — Electron desktop UI (requires backend running)
