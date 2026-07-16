@@ -244,6 +244,7 @@ function TranscriptTab({ segments }: { segments?: TranscriptionSegment[] }) {
               </button>
             </Tooltip>
           )}
+          </Tooltip>
         </div>
       </div>
 

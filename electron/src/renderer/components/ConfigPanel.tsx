@@ -2304,6 +2304,7 @@ The system provides existing memory context at the start of each pipeline run. U
                     </span>
                   )}
                 </button>
+                </Tooltip>
                 {restartNeeded && (
                   <Tooltip content="Restart the agent runner service to apply the updated configuration">
                     <button

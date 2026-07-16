@@ -108,7 +108,7 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
       try {
         const result = await callBridge(action.bridgeTool, action.bridgeArgs || {});
         // For log clearing, also flush the in-memory live log buffer used by DevPanel
-        if ((action.type === "logs" || action.type === "all") && window.electronAPI?.clearLogs) {
+        if (action.type === "logs" && window.electronAPI?.clearLogs) {
           await window.electronAPI.clearLogs();
         }
         const msg = result.message || "Cleared successfully";
@@ -311,34 +311,6 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
               {showDevSection && (
                 <div className="storage-dev-content">
                   <p className="storage-dev-description">Destructive actions to clear stored data. These operations are irreversible.</p>
-
-                  {/* Clear All Data */}
-                  <div className="storage-log-action">
-                    <div className="storage-log-action-info">
-                      <strong>
-                        <Icon name="delete_forever" size="14" color="red" /> Clear All Data
-                      </strong>
-                      <p>
-                        Permanently delete all logs, job history, semantic memory (ChromaDB), and ephemeral/voiceprint databases in one operation.
-                      </p>
-                    </div>
-                    <button
-                      className="btn-danger"
-                      onClick={() =>
-                        setConfirmAction({
-                          type: "all",
-                          label: "Clear All Data",
-                          description:
-                            "This will permanently delete ALL stored data: logs, transcription jobs, ChromaDB vector store (semantic memory), ephemeral memory, and voiceprint databases. This action cannot be undone.",
-                          bridgeTool: "storage_clear_all",
-                        })
-                      }
-                      disabled={!!processingAction}>
-                      {processingAction === "all" ? "Clearing All…" : "Clear All Data"}
-                    </button>
-                  </div>
-
-                  <hr className="storage-divider" style={{ margin: "12px 0", opacity: 0.4 }} />
 
                   {/* Clear all logs */}
                   <div className="storage-log-action">

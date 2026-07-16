@@ -32,22 +32,20 @@ export default function AppearancePanel({ onClose }: Props) {
   const [accentColor, setAccentColor] = useState("#58a6ff");
   const [fontPreset, setFontPreset] = useState<FontSizePreset>("medium");
   const [sidebarWidth, setSidebarWidth] = useState(48);
-  const [showTray, setShowTray] = useState(true);
   const [loaded, setLoaded] = useState(false);
 
   // Load current config on mount — only apply appearance AFTER config is loaded
   // to avoid flashing default values over the user's saved theme
   useEffect(() => {
-    Promise.all([window.electronAPI?.getConfig(), window.electronAPI?.getTrayStatus()]).then(([cfg, trayStatus]) => {
-      const t = cfg?.APPEARANCE_THEME || "dark";
-      const a = cfg?.APPEARANCE_ACCENT_COLOR || "#58a6ff";
-      const f = readFontPreset(cfg || {});
-      const s = Number(cfg?.APPEARANCE_SIDEBAR_WIDTH) || 48;
+    window.electronAPI?.getConfig().then((cfg) => {
+      const t = cfg.APPEARANCE_THEME || "dark";
+      const a = cfg.APPEARANCE_ACCENT_COLOR || "#58a6ff";
+      const f = readFontPreset(cfg);
+      const s = Number(cfg.APPEARANCE_SIDEBAR_WIDTH) || 48;
       setTheme(t);
       setAccentColor(a);
       setFontPreset(f);
       setSidebarWidth(s);
-      if (trayStatus) setShowTray(trayStatus.visible);
       // Apply now that all values are set from config
       const config: AppearanceConfig = { theme: t, accentColor: a, fontSize: f, sidebarWidth: s };
       applyAppearance(config);
@@ -103,7 +101,10 @@ export default function AppearancePanel({ onClose }: Props) {
           <Icon name="palette" size="18" color="accent" /> Appearance
         </h2>
         <Tooltip content="Close the Appearance settings panel">
-          <button className="appearance-close-btn" onClick={onClose} title="Close the Appearance panel">
+          <button
+            className="appearance-close-btn"
+            onClick={onClose}
+            title="Close the Appearance panel">
             <Icon name="close" size="16" />
           </button>
         </Tooltip>
@@ -154,7 +155,9 @@ export default function AppearancePanel({ onClose }: Props) {
         {/* ── Accent Color ── */}
         <div className="appearance-section">
           <Tooltip content="Choose your preferred accent color for highlights and interactive elements">
-            <h3 className="appearance-section-title">Accent Color</h3>
+            <h3 className="appearance-section-title">
+              Accent Color
+            </h3>
           </Tooltip>
           <div className="appearance-accent-grid">
             {ACCENT_PRESETS.map((c) => (
@@ -188,49 +191,32 @@ export default function AppearancePanel({ onClose }: Props) {
         {/* ── Font Size Presets ── */}
         <div className="appearance-section">
           <Tooltip content="Adjust the overall font size of the application">
-            <h3 className="appearance-section-title">Font Size</h3>
+            <h3 className="appearance-section-title">
+              Font Size
+            </h3>
           </Tooltip>
           <div className="appearance-font-presets-grid">
             {FONT_SIZE_PRESETS.map((p) => (
-              <Tooltip key={p.value} content={`Switch to ${p.label} font size — ${p.description}`}>
+              <Tooltip content={`Switch to ${p.label} font size — ${p.description}`}>
                 <button
                   key={p.value}
                   className={`appearance-font-preset-card ${fontPreset === p.value ? "appearance-font-preset-card--selected" : ""}`}
                   onClick={() => setFontPreset(p.value)}
                   title={`Font size: ${p.label}`}>
-                  <span className="appearance-font-preset-label">{p.label}</span>
-                  <span className="appearance-font-preset-desc">{p.description}</span>
-                </button>
+                <span className="appearance-font-preset-label">{p.label}</span>
+                <span className="appearance-font-preset-desc">{p.description}</span>
+              </button>
               </Tooltip>
             ))}
           </div>
-        </div>
-
-        {/* ── Menu Bar Icon ── */}
-        <div className="appearance-section">
-          <Tooltip content="Show or hide the menu bar icon (top-right on macOS, system tray on Windows/Linux)">
-            <h3 className="appearance-section-title">Menu Bar Icon</h3>
-          </Tooltip>
-          <label className="appearance-toggle-row" style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-            <input
-              type="checkbox"
-              checked={showTray}
-              onChange={async (e) => {
-                const next = e.target.checked;
-                setShowTray(next);
-                const result = await window.electronAPI?.toggleTray();
-                if (result) setShowTray(result.visible);
-              }}
-            />
-            <Icon name="notifications" size="16" color={showTray ? "accent" : "muted"} />
-            <span>Show menu bar icon</span>
-          </label>
         </div>
       </div>
 
       <div className="appearance-footer">
         <Tooltip content="All appearance changes are saved to your config automatically — no save button needed">
-          <span className="appearance-hint">Changes are saved automatically</span>
+          <span className="appearance-hint">
+            Changes are saved automatically
+          </span>
         </Tooltip>
       </div>
     </div>

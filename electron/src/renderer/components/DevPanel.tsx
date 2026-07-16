@@ -221,6 +221,7 @@ function LiveLogsTab() {
             <option value="agent">Agent</option>
             <option value="main">Main</option>
           </select>
+          </Tooltip>
 
           <Tooltip content="Filter logs by sub-source — Runner, Model, Pipeline, etc.">
             <select
@@ -254,6 +255,7 @@ function LiveLogsTab() {
             <option value="usage">Usage</option>
             <option value="voiceprint">Voiceprint</option>
           </select>
+          </Tooltip>
 
           <Tooltip content="Filter logs by severity — Info, Warnings, Errors, or Debug">
             <select
@@ -267,6 +269,7 @@ function LiveLogsTab() {
             <option value="error">Errors</option>
             <option value="debug">Debug</option>
           </select>
+          </Tooltip>
 
           <Tooltip content="Automatically scroll to the bottom when new logs arrive">
             <label className="dev-panel-checkbox">
@@ -813,6 +816,7 @@ function DatabaseTab() {
                                 title={playingVp === vp.email ? "Stop playback" : "Play sample audio"}>
                               <Icon name={playingVp === vp.email ? "stop" : "play_arrow"} size="14" color="accent" />
                             </button>
+                            </Tooltip>
                           ) : (
                             <span style={{ color: "var(--text-muted)", fontSize: 11 }}>No sample</span>
                           )}
@@ -1363,14 +1367,12 @@ function PerformanceTab() {
             value={pollIntervalMs}
             onChange={(e) => setPollIntervalMs(Number(e.target.value))}
             title="Performance data polling interval">
->
               {POLL_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   Every {opt.label}
                 </option>
               ))}
             </select>
-            </Tooltip>
         </div>
         <span style={{ color: "var(--text-muted)", fontSize: 11 }}>
           {aggData.length} job(s) · {allSamples.length} samples
@@ -1951,7 +1953,6 @@ function UsageTab() {
             <option value={300000}>Every 5 min</option>
               <option value={600000}>Every 10 min</option>
             </select>
-            </Tooltip>
         </div>
         <div className="dev-panel-actions">
           <Tooltip content="Fetch the latest token usage and credit balance data">
@@ -3364,7 +3365,7 @@ export default function DevPanel({ onClose }: Props) {
           <button
             className={`dev-panel-tab ${activeTab === "database" ? "dev-panel-tab--active" : ""}`}
             onClick={() => setActiveTab("database")}
-            title="Browse internal databases"
+            title="Browse internal databases">
             <Icon name="database" size="14" color="accent" /> Database
           </button>
         </Tooltip>
@@ -3372,7 +3373,7 @@ export default function DevPanel({ onClose }: Props) {
           <button
             className={`dev-panel-tab ${activeTab === "performance" ? "dev-panel-tab--active" : ""}`}
             onClick={() => setActiveTab("performance")}
-            title="Performance metrics across jobs"
+            title="Performance metrics across jobs">
             <Icon name="bolt" size="14" color="accent" /> Performance
           </button>
         </Tooltip>
@@ -3380,7 +3381,7 @@ export default function DevPanel({ onClose }: Props) {
           <button
             className={`dev-panel-tab ${activeTab === "usage" ? "dev-panel-tab--active" : ""}`}
             onClick={() => setActiveTab("usage")}
-            title="LLM token usage and costs"
+            title="LLM token usage and costs">
             <Icon name="account_balance_wallet" size="14" color="accent" /> Usage
           </button>
         </Tooltip>
@@ -3388,7 +3389,7 @@ export default function DevPanel({ onClose }: Props) {
           <button
             className={`dev-panel-tab ${activeTab === "updates" ? "dev-panel-tab--active" : ""}`}
             onClick={() => setActiveTab("updates")}
-            title="Check for app updates"
+            title="Check for app updates">
             <Icon name="system_update" size="14" color="accent" /> Updates
           </button>
         </Tooltip>
@@ -3396,7 +3397,7 @@ export default function DevPanel({ onClose }: Props) {
           <button
             className={`dev-panel-tab ${activeTab === "logfiles" ? "dev-panel-tab--active" : ""}`}
             onClick={() => setActiveTab("logfiles")}
-            title="Browse per-job log files"
+            title="Browse per-job log files">
             <Icon name="description" size="14" color="accent" /> Log Files
           </button>
         </Tooltip>
@@ -3404,7 +3405,7 @@ export default function DevPanel({ onClose }: Props) {
           <button
             className={`dev-panel-tab ${activeTab === "testing" ? "dev-panel-tab--active" : ""}`}
             onClick={() => setActiveTab("testing")}
-            title="Run Playwright screenshot tests"
+            title="Run Playwright screenshot tests">
             <Icon name="bug_report" size="14" color="accent" /> Testing
           </button>
         </Tooltip>
