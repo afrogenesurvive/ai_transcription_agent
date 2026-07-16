@@ -2088,9 +2088,27 @@ interface ConfigSnapshot {
   llm_temperature?: string;
   agent_tools?: string[];
   agent_pipeline_steps?: Array<{ id: string; toolName: string; label: string; enabled: boolean; isTerminal: boolean }>;
+  // Full pipeline step details (enriched Phase B)
+  agent_pipeline_steps_full?: Array<{
+    id: string;
+    toolName: string;
+    label: string;
+    description: string;
+    systemPromptTemplate: string;
+    hintTemplate: string;
+    enabled: boolean;
+    isTerminal: boolean;
+  }>;
   agent_terminal_tools?: string[];
   agent_system_prompt_length?: number;
+  agent_system_prompt?: string;
   agent_pipeline_hints?: number;
+  agent_pipeline_hints_full?: Record<string, string>;
+  agent_event_templates?: Record<string, string>;
+  agent_max_pipeline_steps?: number;
+  agent_llm_context_window?: number;
+  agent_ollama_max_retries?: number;
+  agent_ollama_retry_base_delay_ms?: number;
   agent_max_retries?: number;
   agent_retry_base_delay_ms?: number;
   gmail_user?: string;
@@ -2291,14 +2309,133 @@ function ConfigTab({ jobId }: { jobId: string }) {
         {snapshot.agent_retry_base_delay_ms != null && <ConfigRow label="Retry Base Delay" value={`${snapshot.agent_retry_base_delay_ms}ms`} />}
       </div>
 
-      {/* Pipeline steps */}
-      {snapshot.agent_pipeline_steps && snapshot.agent_pipeline_steps.length > 0 && (
-        <>
-          <div style={{ marginTop: 8, marginBottom: 4, fontSize: "var(--fs-12)", color: "var(--text-muted)" }}>
-            <Icon name="checklist" size="12" color="muted" /> Pipeline Steps
-          </div>
-          {pipelineStepsSummary(snapshot.agent_pipeline_steps)}
-        </>
+      {/* ── Section 3a: Pipeline Steps (detailed view, enriched) ── */}
+      {(() => {
+        const fullSteps = snapshot.agent_pipeline_steps_full;
+        if (fullSteps && fullSteps.length > 0) {
+          return (
+            <div className="rv-config-subsection">
+              <ConfigSectionHeader icon="checklist" title="Pipeline Steps" />
+              <div className="rv-config-step-detail-list">
+                {fullSteps.map((step, i) => (
+                  <div key={step.id} className={`rv-config-step-detail ${step.enabled ? "rv-config-step-detail--on" : "rv-config-step-detail--off"}`}>
+                    <span className="rv-config-step-detail-icon">
+                      {step.enabled ? <Icon name="check_circle" size="14" color="green" /> : <Icon name="remove_circle" size="14" color="muted" />}
+                    </span>
+                    <span className="rv-config-step-detail-number">#{i + 1}</span>
+                    <div className="rv-config-step-detail-info">
+                      <span className="rv-config-step-detail-label">{step.label}</span>
+                      <span className="rv-config-step-detail-toolname">{step.toolName}</span>
+                      {step.description && <span className="rv-config-step-detail-desc">{step.description}</span>}
+                    </div>
+                    {step.isTerminal && <span className="rv-config-step-detail-badge rv-config-step-detail-badge--terminal">Terminal</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        }
+        // Fallback: compact chips for older snapshots without full details
+        if (snapshot.agent_pipeline_steps && snapshot.agent_pipeline_steps.length > 0) {
+          return (
+            <div className="rv-config-subsection">
+              <div style={{ marginBottom: 4, fontSize: "var(--fs-12)", color: "var(--text-muted)" }}>
+                <Icon name="checklist" size="12" color="muted" /> Pipeline Steps
+              </div>
+              {pipelineStepsSummary(snapshot.agent_pipeline_steps)}
+            </div>
+          );
+        }
+        return null;
+      })()}
+
+      {/* ── Section 3b: Pipeline Hints (enriched) ── */}
+      {snapshot.agent_pipeline_hints_full && Object.keys(snapshot.agent_pipeline_hints_full).length > 0 && (
+        <div className="rv-config-subsection">
+          <details className="rv-config-details" open>
+            <summary className="rv-config-details-summary">
+              <span className="rv-config-details-summary-icon">▸</span>
+              <Icon name="explore" size="14" color="accent" /> Pipeline Hints ({Object.keys(snapshot.agent_pipeline_hints_full).length})
+            </summary>
+            <div className="rv-config-details-body">
+              <div className="rv-config-hint-grid">
+                {Object.entries(snapshot.agent_pipeline_hints_full).map(([key, val]) => (
+                  <div key={key} className="rv-config-hint-row">
+                    <span className="rv-config-hint-key">{key}</span>
+                    <span className="rv-config-hint-arrow">→</span>
+                    <span className="rv-config-hint-value">{val}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </details>
+        </div>
+      )}
+
+      {/* ── Section 3c: Pipeline Constants (enriched) ── */}
+      {(snapshot.agent_max_pipeline_steps != null ||
+        snapshot.agent_llm_context_window != null ||
+        snapshot.agent_ollama_max_retries != null ||
+        snapshot.agent_ollama_retry_base_delay_ms != null) && (
+        <div className="rv-config-subsection">
+          <details className="rv-config-details">
+            <summary className="rv-config-details-summary">
+              <span className="rv-config-details-summary-icon">▸</span>
+              <Icon name="tune" size="14" color="accent" /> Pipeline Constants
+            </summary>
+            <div className="rv-config-details-body">
+              <div className="rv-config-grid">
+                {snapshot.agent_max_pipeline_steps != null && (
+                  <ConfigRow label="Max Pipeline Steps" value={String(snapshot.agent_max_pipeline_steps)} />
+                )}
+                {snapshot.agent_llm_context_window != null && (
+                  <ConfigRow label="LLM Context Window" value={String(snapshot.agent_llm_context_window)} />
+                )}
+                {snapshot.agent_ollama_max_retries != null && (
+                  <ConfigRow label="Ollama Max Retries" value={String(snapshot.agent_ollama_max_retries)} />
+                )}
+                {snapshot.agent_ollama_retry_base_delay_ms != null && (
+                  <ConfigRow label="Ollama Retry Delay" value={`${snapshot.agent_ollama_retry_base_delay_ms}ms`} />
+                )}
+              </div>
+            </div>
+          </details>
+        </div>
+      )}
+
+      {/* ── Section 3d: Event Templates (enriched) ── */}
+      {snapshot.agent_event_templates && Object.keys(snapshot.agent_event_templates).length > 0 && (
+        <div className="rv-config-subsection">
+          <details className="rv-config-details">
+            <summary className="rv-config-details-summary">
+              <span className="rv-config-details-summary-icon">▸</span>
+              <Icon name="event" size="14" color="accent" /> Event Templates
+            </summary>
+            <div className="rv-config-details-body">
+              {Object.entries(snapshot.agent_event_templates).map(([key, val]) => (
+                <div key={key} className="rv-config-template-block">
+                  <span className="rv-config-template-label">{key}</span>
+                  <pre className="rv-config-pre">{val}</pre>
+                </div>
+              ))}
+            </div>
+          </details>
+        </div>
+      )}
+
+      {/* ── Section 3e: System Prompt (enriched) ── */}
+      {snapshot.agent_system_prompt && (
+        <div className="rv-config-subsection">
+          <details className="rv-config-details">
+            <summary className="rv-config-details-summary">
+              <span className="rv-config-details-summary-icon">▸</span>
+              <Icon name="edit_note" size="14" color="accent" /> System Prompt ({snapshot.agent_system_prompt.length.toLocaleString()} chars)
+            </summary>
+            <div className="rv-config-details-body">
+              <pre className="rv-config-pre">{snapshot.agent_system_prompt}</pre>
+            </div>
+          </details>
+        </div>
       )}
 
       {/* ── Section 4: Delivery & Logging Config ── */}

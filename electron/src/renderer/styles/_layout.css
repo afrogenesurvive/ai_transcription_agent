@@ -230,7 +230,10 @@
 .app-main {
   display: flex;
   flex: 1;
-  overflow: hidden;
+  /* overflow: hidden; */
+  overflow-y: scroll;
+  overflow-x: hidden;
+  max-height: 90vh;
 }
 
 /* Full-width upload panel for the "New" view */

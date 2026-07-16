@@ -234,9 +234,27 @@ async function processEvent(event) {
         enabled: s.enabled,
         isTerminal: s.isTerminal,
       })),
+      // Full pipeline step details with descriptions and templates
+      agent_pipeline_steps_full: PIPELINE_STEPS.map((s) => ({
+        id: s.id,
+        toolName: s.toolName,
+        label: s.label,
+        description: s.description,
+        systemPromptTemplate: s.systemPromptTemplate || "",
+        hintTemplate: s.hintTemplate || "",
+        enabled: s.enabled,
+        isTerminal: s.isTerminal,
+      })),
       agent_terminal_tools: [...TERMINAL_TOOLS],
       agent_system_prompt_length: SYSTEM_PROMPT_TEMPLATE.length,
+      agent_system_prompt: SYSTEM_PROMPT_TEMPLATE,
       agent_pipeline_hints: Object.keys(PIPELINE_HINTS).length,
+      agent_pipeline_hints_full: { ...PIPELINE_HINTS },
+      agent_event_templates: { ...EVENT_TEMPLATES },
+      agent_max_pipeline_steps: MAX_PIPELINE_STEPS,
+      agent_llm_context_window: LLM_CONTEXT_WINDOW,
+      agent_ollama_max_retries: OLLAMA_MAX_RETRIES,
+      agent_ollama_retry_base_delay_ms: OLLAMA_RETRY_BASE_DELAY,
       agent_max_retries: MAX_RETRIES,
       agent_retry_base_delay_ms: RETRY_BASE_DELAY,
 
@@ -353,6 +371,7 @@ async function processEvent(event) {
 
   // Filter the available tools: remove any that are in the skip list
   let availableTools = TOOLS.filter((t) => !skippedTools.has(t.name));
+  let summarizeCalled = false;
 
   // ── Render the system prompt ──
   // Generate a version of the system prompt with skipped sections removed
@@ -765,6 +784,30 @@ async function processEvent(event) {
       console.log(`🔒 [RUNNER] transcribe_get_transcript + labeling tools locked — must summarize first`);
     }
 
+    // ── Lock transcribe_get_summary until transcribe_summarize is called ──
+    // The LLM frequently calls transcribe_get_summary (read-only) instead of
+    // transcribe_summarize (write), getting a "Summary not ready" 404. Lock the
+    // read tool and unlock it only after summarize succeeds.
+    if (!summarizeCalled) {
+      if (decision.name === "transcribe_summarize") {
+        summarizeCalled = true;
+        // Re-add transcribe_get_summary to availableTools now that summarize was called.
+        // Find the tool def from the original TOOLS array so it's the full definition.
+        const summaryReadTool = TOOLS.find((t) => t.name === "transcribe_get_summary");
+        if (summaryReadTool) {
+          availableTools.push(summaryReadTool);
+        }
+        console.log(`🔓 [RUNNER] transcribe_get_summary unlocked — summarize was called`);
+      } else {
+        // Remove transcribe_get_summary if it's still in the available set
+        const hadIt = availableTools.some((t) => t.name === "transcribe_get_summary");
+        if (hadIt) {
+          availableTools = availableTools.filter((t) => t.name !== "transcribe_get_summary");
+          console.log(`🔒 [RUNNER] transcribe_get_summary locked — must call transcribe_summarize first`);
+        }
+      }
+    }
+
     // Check if this was a terminal delivery tool — pipeline ends
     // Delivery tools update terminal steps immediately: save results and mark job complete.
     if (TERMINAL_TOOLS.has(decision.name)) {
@@ -1069,7 +1112,7 @@ function buildInitialContext(event, transcript, safeTitle, safeAttendees, eventI
       { var: "{{error_message}}", value: jobData.error || "unknown" },
     ];
     if (event.type === "ready_for_processing")
-      substitutions.push({ var: "{{transcript_preview}}", value: `${Math.min(transcript.length, 10)} segments preview` });
+      substitutions.push({ var: "{{transcript_preview}}", value: `${Math.min(transcript.length, 50)} segments preview` });
     if (event.type === "labeling_needed")
       substitutions.push({ var: "{{speaker_details}}", value: `${(jobData.unknownSpeakers || []).length} unknown speakers` });
     console.log(`📝 [BUILD-CONTEXT]   Variable substitutions: ${substitutions.map((s) => `${s.var} → ${s.value}`).join(", ")}`);
@@ -1081,16 +1124,22 @@ function buildInitialContext(event, transcript, safeTitle, safeAttendees, eventI
       .replace("{{error_message}}", jobData.error || "unknown")
       .replace("{{non_speaking_attendees}}", nonSpeakingList);
 
-    // Build transcript preview for ready_for_processing
+    // Build transcript preview for ready_for_processing (capped at 5000 chars)
     if (event.type === "ready_for_processing") {
+      const MAX_PREVIEW_CHARS = 5000;
       const previewLines = [];
-      for (const seg of transcript.slice(0, 10)) {
-        previewLines.push(`  [${seg.start?.toFixed(1)}s] ${seg.speaker}: ${(seg.text || "").slice(0, 100)}`);
+      let previewChars = 0;
+      for (const seg of transcript) {
+        const line = `  [${seg.start?.toFixed(1)}s] ${seg.speaker}: ${(seg.text || "").slice(0, 100)}`;
+        if (previewChars + line.length > MAX_PREVIEW_CHARS && previewLines.length > 0) break;
+        previewLines.push(line);
+        previewChars += line.length;
       }
-      if (transcript.length > 10) previewLines.push(`  ... (${transcript.length - 10} more)`);
+      const remaining = transcript.length - previewLines.length;
+      if (remaining > 0) previewLines.push(`  ... (${remaining} more segments omitted — preview capped at ${MAX_PREVIEW_CHARS} chars)`);
       const transcriptPreview = previewLines.join("\n");
       console.log(
-        `   📝 [BUILD-CONTEXT]   Transcript preview: ${Math.min(transcript.length, 10)} segments shown${transcript.length > 10 ? ` (${transcript.length - 10} more omitted)` : ""}`,
+        `   📝 [BUILD-CONTEXT]   Transcript preview: ${previewLines.length} segments, ${previewChars} chars${remaining > 0 ? ` (${remaining} more omitted)` : ""}`,
       );
       lines.push(rendered.replace("{{transcript_preview}}", transcriptPreview));
     } else if (event.type === "labeling_needed") {

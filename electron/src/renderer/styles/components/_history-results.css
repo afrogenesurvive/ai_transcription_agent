@@ -2566,3 +2566,225 @@
   border: 1px solid var(--border);
   color: var(--text-muted);
 }
+
+/* ── Config collapsible sections ── */
+
+.rv-config-details {
+  margin: 8px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.rv-config-details-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  font-size: var(--fs-12);
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+  background: rgba(128, 128, 128, 0.03);
+  border-bottom: 1px solid transparent;
+}
+
+.rv-config-details[open] > .rv-config-details-summary {
+  border-bottom-color: var(--border);
+}
+
+.rv-config-details-summary:hover {
+  background: rgba(128, 128, 128, 0.06);
+}
+
+.rv-config-details-summary::-webkit-details-marker {
+  display: none;
+}
+
+.rv-config-details-summary-icon {
+  font-size: var(--fs-10);
+  color: var(--text-muted);
+  transition: transform 0.15s;
+}
+
+.rv-config-details[open] > .rv-config-details-summary .rv-config-details-summary-icon {
+  transform: rotate(90deg);
+}
+
+.rv-config-details-body {
+  padding: 8px 12px;
+}
+
+/* ── Pipeline steps detail view (replaces compact chips) ── */
+
+.rv-config-step-detail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.rv-config-step-detail {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  font-size: var(--fs-12);
+  line-height: 1.4;
+  transition: background 0.1s;
+}
+
+.rv-config-step-detail:hover {
+  background: rgba(128, 128, 128, 0.04);
+}
+
+.rv-config-step-detail--on {
+  color: var(--text);
+}
+
+.rv-config-step-detail--off {
+  opacity: 0.55;
+}
+
+.rv-config-step-detail-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.rv-config-step-detail-number {
+  flex-shrink: 0;
+  width: 22px;
+  font-size: var(--fs-10);
+  font-weight: 500;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.rv-config-step-detail-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.rv-config-step-detail-label {
+  font-weight: 500;
+  display: inline;
+}
+
+.rv-config-step-detail-toolname {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--fs-10);
+  color: var(--text-muted);
+  margin-left: 6px;
+}
+
+.rv-config-step-detail-desc {
+  display: block;
+  font-size: var(--fs-10);
+  color: var(--text-muted);
+  margin-top: 1px;
+  opacity: 0.8;
+}
+
+.rv-config-step-detail-badge {
+  flex-shrink: 0;
+  font-size: var(--fs-9);
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.rv-config-step-detail-badge--terminal {
+  background: rgba(210, 153, 34, 0.1);
+  color: #d29922;
+  border: 1px solid rgba(210, 153, 34, 0.2);
+}
+
+/* ── Pipeline hints grid ── */
+
+.rv-config-hint-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 3px;
+}
+
+.rv-config-hint-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: var(--fs-11);
+  line-height: 1.5;
+}
+
+.rv-config-hint-row:nth-child(even) {
+  background: rgba(128, 128, 128, 0.03);
+}
+
+.rv-config-hint-key {
+  flex-shrink: 0;
+  font-family: var(--font-mono, monospace);
+  font-size: var(--fs-10);
+  color: var(--accent);
+  min-width: 180px;
+  padding-right: 8px;
+  word-break: break-all;
+}
+
+.rv-config-hint-arrow {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  opacity: 0.4;
+  font-size: var(--fs-10);
+}
+
+.rv-config-hint-value {
+  color: var(--text);
+  word-break: break-word;
+}
+
+/* ── Event template blocks ── */
+
+.rv-config-template-block {
+  margin: 4px 0;
+}
+
+.rv-config-template-label {
+  font-size: var(--fs-11);
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  display: block;
+}
+
+.rv-config-pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-family: var(--font-mono, monospace);
+  font-size: var(--fs-10);
+  line-height: 1.5;
+  color: var(--text);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 300px;
+  overflow-y: auto;
+  margin: 0;
+}
+
+/* ── Config sub-section spacing ── */
+
+.rv-config-subsection {
+  margin: 12px 0;
+}
+
+.rv-config-subsection:first-child {
+  margin-top: 0;
+}

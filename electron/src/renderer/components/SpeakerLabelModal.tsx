@@ -63,9 +63,17 @@ export default function SpeakerLabelModal({
   const [overwriteSet, setOverwriteSet] = useState<Set<string>>(new Set());
   const [checkingConflicts, setCheckingConflicts] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const initializedRef = useRef(false);
 
-  // Initialize labels with suggested names from attendees list
+  // Initialize labels with suggested names from attendees list.
+  // Only runs once on mount — subsequent prop changes (from polling) must NOT
+  // clear user input. The useJobStatus hook keeps polling during paused_for_labeling,
+  // which causes jobMetadata to update on every poll, creating new suggestedEmails
+  // array references. Without this guard, those re-renders reset all typed labels.
   useEffect(() => {
+    if (initializedRef.current) return;
+    initializedRef.current = true;
+
     const initialNames: Record<string, string> = {};
     const initialEmails: Record<string, string> = {};
     for (let i = 0; i < speakers.length; i++) {
@@ -80,7 +88,8 @@ export default function SpeakerLabelModal({
     }
     setLabels(initialNames);
     setEmails(initialEmails);
-  }, [speakers, suggestedEmails]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Stop playback when switching speakers
   const playClip = useCallback(
