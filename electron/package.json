@@ -82,46 +82,46 @@
             "arm64"
           ]
         }
-      ],
-      "dmg": {
-        "title": "Transcription Agent ${version}",
-        "artifactName": "Transcription-Agent-${version}-${arch}.dmg",
-        "contents": [
-          {
-            "x": 130,
-            "y": 220,
-            "type": "file",
-            "name": "Transcription Agent.app"
-          },
-          {
-            "x": 410,
-            "y": 220,
-            "type": "link",
-            "path": "/Applications"
-          }
-        ],
-        "window": {
-          "width": 540,
-          "height": 380
+      ]
+    },
+    "dmg": {
+      "title": "Transcription Agent ${version}",
+      "artifactName": "Transcription-Agent-${version}-${arch}.dmg",
+      "contents": [
+        {
+          "x": 130,
+          "y": 220,
+          "type": "file",
+          "name": "Transcription Agent.app"
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
         }
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
       }
     },
     "win": {
       "target": "nsis",
-      "icon": null,
-      "nsis": {
-        "oneClick": false,
-        "allowToChangeInstallationDirectory": false,
-        "deleteAppDataOnUninstall": true,
-        "include": "build/installer.nsh",
-        "perMachine": true,
-        "runAfterFinish": true,
-        "installerIcon": null,
-        "installerHeaderIcon": null,
-        "installerSidebar": null,
-        "uninstallerIcon": null,
-        "uninstallDisplayName": "Transcription Agent ${version}"
-      }
+      "icon": null
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": false,
+      "deleteAppDataOnUninstall": true,
+      "include": "build/installer.nsh",
+      "perMachine": true,
+      "runAfterFinish": true,
+      "installerIcon": null,
+      "installerHeaderIcon": null,
+      "installerSidebar": null,
+      "uninstallerIcon": null,
+      "uninstallDisplayName": "Transcription Agent ${version}"
     },
     "linux": {
       "icon": null,
