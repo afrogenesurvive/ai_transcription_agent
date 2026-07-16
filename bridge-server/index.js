@@ -69,8 +69,8 @@ snapshotDefaults();
 
 // ── Sanitize (Tier 1 — mandatory for all proxied responses) ──
 
-const MAX_STRING_LENGTH = 2000;
-const MAX_NESTING_DEPTH = 5;
+const MAX_STRING_LENGTH = 100000;
+const MAX_NESTING_DEPTH = 10;
 const SENSITIVE_PATTERNS = [
   /\b(?:sk-[A-Za-z0-9]{20,})\b/g,
   /\b(?:ghp_|gho_|ghu_|ghs_|ghr_)[A-Za-z0-9]{36,}\b/g,

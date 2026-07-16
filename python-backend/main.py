@@ -1834,6 +1834,20 @@ async def get_job_record(job_id: str):
         print(f"[api] GET /transcribe/job/{job_id} → not_found")
         raise HTTPException(404, "Job record not found in ephemeral DB")
 
+    # Parse JSON-string columns back into objects so the bridge sanitizer
+    # doesn't truncate them and break the JSON structure. This affects
+    # config_snapshot (agent instructions, pipeline steps, hints, etc.),
+    # delivery_results (per-recipient delivery status), and pipeline_steps
+    # (accumulated token usage across retries).
+    import json as _json
+    for _col in ("config_snapshot", "delivery_results", "pipeline_steps"):
+        _raw = record.get(_col)
+        if _raw and isinstance(_raw, str):
+            try:
+                record[_col] = _json.loads(_raw)
+            except (_json.JSONDecodeError, TypeError):
+                pass  # leave as-is if the value isn't valid JSON
+
     print(f"[api] GET /transcribe/job/{job_id} → OK ({len(record)} fields)")
     return {"job": record}
 

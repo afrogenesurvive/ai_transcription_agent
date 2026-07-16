@@ -2187,13 +2187,18 @@ function ConfigTab({ jobId }: { jobId: string }) {
     );
   }
 
-  const rawSnapshot: string | null | undefined = record?.config_snapshot;
+  const rawSnapshot: string | object | null | undefined = record?.config_snapshot;
   let snapshot: ConfigSnapshot | null = null;
   if (rawSnapshot) {
-    try {
-      snapshot = JSON.parse(rawSnapshot) as ConfigSnapshot;
-    } catch {
-      snapshot = null;
+    if (typeof rawSnapshot === "object") {
+      // Python backend now parses config_snapshot before returning
+      snapshot = rawSnapshot as ConfigSnapshot;
+    } else {
+      try {
+        snapshot = JSON.parse(rawSnapshot) as ConfigSnapshot;
+      } catch {
+        snapshot = null;
+      }
     }
   }
 
