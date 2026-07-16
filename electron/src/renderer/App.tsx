@@ -595,9 +595,11 @@ export default function App() {
         <nav className="sidebar" ref={sidebarRef}>
           <div className="sidebar-resize-handle" onMouseDown={handleSidebarMouseDown} />
           <Tooltip
-            content={isJobRunning
-              ? "A transcription job is in progress — start a new one after it finishes"
-              : "Start a new transcription — upload audio and configure meeting details"}
+            content={
+              isJobRunning
+                ? "A transcription job is in progress — start a new one after it finishes"
+                : "Start a new transcription — upload audio and configure meeting details"
+            }
             position="right">
             <button
               className={`sidebar-btn ${showNewForm ? "sidebar-btn--active" : ""}`}

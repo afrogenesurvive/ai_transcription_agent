@@ -141,9 +141,53 @@ function createWindow() {
 
 // ── System Tray ──
 
+/** Generate a simple 16×16 microphone icon as a template image for the menu bar */
+function createTrayIcon(): Electron.NativeImage {
+  const size = 16;
+  const buf = Buffer.alloc(size * size * 4);
+  buf.fill(0); // Start fully transparent
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      let visible = false;
+
+      // Microphone body — pill shape
+      if (y >= 1 && y <= 9) {
+        const inTopRounded = y <= 2 && x >= 5 && x <= 10;
+        const inMid = y >= 3 && y <= 8 && x >= 4 && x <= 11;
+        const inBottomRounded = y === 9 && x >= 5 && x <= 10;
+        visible = inTopRounded || inMid || inBottomRounded;
+      }
+
+      // Stand — thin vertical bar below body
+      if (x >= 7 && x <= 8 && y >= 10 && y <= 12) {
+        visible = true;
+      }
+
+      // Base — wider horizontal bar at the bottom
+      if (y >= 13 && y <= 14 && x >= 5 && x <= 10) {
+        visible = true;
+      }
+
+      if (visible) {
+        const idx = (y * size + x) * 4;
+        buf[idx] = 255; // R
+        buf[idx + 1] = 255; // G
+        buf[idx + 2] = 255; // B
+        buf[idx + 3] = 255; // A
+      }
+    }
+  }
+
+  const icon = nativeImage.createFromBuffer(buf, { width: size, height: size });
+  if (process.platform === "darwin") {
+    icon.setTemplateImage(true);
+  }
+  return icon;
+}
+
 function createTray() {
-  // Create a simple 16x16 tray icon (you can replace with an actual icon file)
-  const icon = nativeImage.createEmpty();
+  const icon = createTrayIcon();
   tray = new Tray(icon);
 
   const contextMenu = Menu.buildFromTemplate([
@@ -187,6 +231,22 @@ function createTray() {
     mainWindow?.focus();
   });
 }
+
+// ── Tray IPC ──
+
+ipcMain.handle("tray:toggle", () => {
+  if (tray) {
+    tray.destroy();
+    tray = null;
+  } else {
+    createTray();
+  }
+  return { visible: tray !== null };
+});
+
+ipcMain.handle("tray:status", () => {
+  return { visible: tray !== null };
+});
 
 // ── Notifications ──
 

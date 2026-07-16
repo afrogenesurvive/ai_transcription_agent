@@ -458,46 +458,46 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
           onDrop={disabled ? undefined : handleDrop}
           onClick={disabled ? undefined : () => fileInputRef.current?.click()}
           style={disabled ? { pointerEvents: "none", opacity: 0.5 } : undefined}
-        title={file ? "Click to change file" : "Click to browse or drag and drop an audio file"}>
-        {file ? (
-          <div className="file-info">
-            <span className="file-icon">
-              <Icon name="audio_file" size="32" color="accent" />
-            </span>
-            <span className="file-name">{file.name}</span>
-            <span className="file-size">{formatSize(file.size)}</span>
-            <button
-              className="btn-text"
-              onClick={(e) => {
-                e.stopPropagation();
-                setFile(null);
-              }}>
-              Remove
-            </button>
-          </div>
-        ) : (
-          <div className="drop-hint">
-            <span className="drop-icon">
-              <Icon name="folder_open" size="32" color="accent" />
-            </span>
-            <p>Drop an audio file here, or click to browse</p>
-            <p className="hint">Supports WAV, MP3, M4A, FLAC, OGG, WebM</p>
-          </div>
-        )}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".wav,.mp3,.m4a,.flac,.ogg,.webm"
-          hidden
-          disabled={disabled}
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) handleFile(f);
-          }}
-          title="Browse audio files — supports WAV, MP3, M4A, FLAC, OGG, WebM"
-        />
+          title={file ? "Click to change file" : "Click to browse or drag and drop an audio file"}>
+          {file ? (
+            <div className="file-info">
+              <span className="file-icon">
+                <Icon name="audio_file" size="32" color="accent" />
+              </span>
+              <span className="file-name">{file.name}</span>
+              <span className="file-size">{formatSize(file.size)}</span>
+              <button
+                className="btn-text"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setFile(null);
+                }}>
+                Remove
+              </button>
+            </div>
+          ) : (
+            <div className="drop-hint">
+              <span className="drop-icon">
+                <Icon name="folder_open" size="32" color="accent" />
+              </span>
+              <p>Drop an audio file here, or click to browse</p>
+              <p className="hint">Supports WAV, MP3, M4A, FLAC, OGG, WebM</p>
+            </div>
+          )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".wav,.mp3,.m4a,.flac,.ogg,.webm"
+            hidden
+            disabled={disabled}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) handleFile(f);
+            }}
+            title="Browse audio files — supports WAV, MP3, M4A, FLAC, OGG, WebM"
+          />
         </div>
-        </Tooltip>
+      </Tooltip>
 
       <div className="form-fields" style={disabled ? { opacity: 0.5, pointerEvents: "none" } : undefined}>
         <label>
@@ -510,9 +510,8 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
               placeholder="Q4 Budget Review"
               disabled={disabled}
               title="Give your meeting a descriptive title — auto-filled from filename"
-          />
+            />
           </Tooltip>
-
         </label>
         <div className="attendee-section">
           <Tooltip content="List of meeting participants — names map to speakers, emails are used for delivery" position="right">
@@ -540,7 +539,7 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
                   disabled={disabled}
                   autoComplete="off"
                   title="Enter attendee name — maps positionally to a detected speaker"
-              />
+                />
               </Tooltip>
               {showNameSuggestions && nameSuggestions.length > 0 && !disabled && (
                 <div className="attendee-suggestions" ref={nameSuggestRef}>
@@ -577,7 +576,7 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
                   disabled={disabled}
                   autoComplete="off"
                   title="Optional email address for delivery notifications"
-              />
+                />
               </Tooltip>
               {showEmailSuggestions && emailSuggestions.length > 0 && !disabled && (
                 <div className="attendee-suggestions" ref={emailSuggestRef}>
@@ -603,8 +602,8 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
                 onClick={() => addAttendee()}
                 disabled={disabled || !attendeeName.trim()}
                 title="Add this attendee to the list">
-              + Add
-            </button>
+                + Add
+              </button>
             </Tooltip>
           </div>
           {formError && (
@@ -623,19 +622,14 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
                   {a.email && <span className="attendee-list-email">{a.email}</span>}
                   {registeredNames.has(a.name.toLowerCase()) && (
                     <Tooltip content="This attendee is in the registered attendees list">
-                      <span className="attendee-list-badge">
-                        Registered
-                      </span>
+                      <span className="attendee-list-badge">Registered</span>
                     </Tooltip>
                   )}
                   <Tooltip content="Remove this attendee from the list">
-                    <button
-                      className="btn-text attendee-remove-btn"
-                      onClick={() => removeAttendee(i)}
-                      title="Remove this attendee from the list">
-                    <Icon name="close" size="12" />
-                  </button>
-                    </Tooltip>
+                    <button className="btn-text attendee-remove-btn" onClick={() => removeAttendee(i)} title="Remove this attendee from the list">
+                      <Icon name="close" size="12" />
+                    </button>
+                  </Tooltip>
                 </li>
               ))}
             </ul>
@@ -666,9 +660,7 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
                           </Tooltip>
                         ) : ra.email ? (
                           <Tooltip content="This attendee does not have an enrolled voiceprint with a sample recording">
-                            <span
-                              className="btn-text attendee-play-btn attendee-play-btn--disabled"
-                              title="No voice sample available">
+                            <span className="btn-text attendee-play-btn attendee-play-btn--disabled" title="No voice sample available">
                               <Icon name="play_arrow" size="14" color="muted" />
                             </span>
                           </Tooltip>
@@ -712,14 +704,21 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
         ))}
       </div> */}
 
-      <Tooltip content={uploading ? "Uploading audio file to the server…" : disabled ? "Wait for the current job to finish before starting a new one" : "Upload audio and start the transcription pipeline"}>
+      <Tooltip
+        content={
+          uploading
+            ? "Uploading audio file to the server…"
+            : disabled
+              ? "Wait for the current job to finish before starting a new one"
+              : "Upload audio and start the transcription pipeline"
+        }>
         <button
           className="btn-primary"
           disabled={!file || attendeeList.length === 0 || uploading || disabled}
           onClick={handleSubmit}
           title={uploading ? "Upload in progress" : disabled ? "A job is already running" : "Submit audio and begin transcription"}>
-        {uploading ? "Uploading..." : disabled ? "Job Running — Form Disabled" : "Start Transcription"}
-      </button>
+          {uploading ? "Uploading..." : disabled ? "Job Running — Form Disabled" : "Start Transcription"}
+        </button>
       </Tooltip>
     </div>
   );

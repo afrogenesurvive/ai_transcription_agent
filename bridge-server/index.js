@@ -424,6 +424,32 @@ async function dispatch(tool, args) {
     case "storage_clear_ephemeral":
       return await callPython("DELETE", "/storage/ephemeral");
 
+    case "storage_clear_all": {
+      // Chain all four clear operations and aggregate results
+      const results = {};
+      const operations = [
+        { key: "logs", method: "DELETE", url: `/storage/logs?log_type=${args.logType || "all_including_errors"}` },
+        { key: "jobs", method: "DELETE", url: "/storage/jobs" },
+        { key: "semantic", method: "DELETE", url: "/storage/semantic" },
+        { key: "ephemeral", method: "DELETE", url: "/storage/ephemeral" },
+      ];
+      for (const op of operations) {
+        try {
+          await callPython(op.method, op.url);
+          results[op.key] = { success: true };
+        } catch (err) {
+          results[op.key] = { success: false, error: err.message };
+        }
+      }
+      const allOk = Object.values(results).every((r) => r.success);
+      const failed = Object.keys(results).filter((k) => !results[k].success);
+      return {
+        success: allOk,
+        message: allOk ? "All data cleared successfully" : `Cleared with failures: ${failed.join(", ")}`,
+        results,
+      };
+    }
+
     case "voiceprint_check_conflicts":
       return await callPython("POST", "/voiceprints/check-conflicts", { names: args.attendees || [] });
 

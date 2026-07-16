@@ -158,6 +158,10 @@ export interface ElectronAPI {
   showNotification: (title: string, body: string, clickPayload?: Record<string, unknown>) => Promise<void>;
   onNotificationClick: (cb: (payload: Record<string, unknown>) => void) => () => void;
 
+  // ── Tray / Menu Bar ──
+  toggleTray: () => Promise<{ visible: boolean }>;
+  getTrayStatus: () => Promise<{ visible: boolean }>;
+
   // ── Ollama Health & Server Management ──
   checkOllamaHealth: () => Promise<{ healthy: boolean }>;
   startOllamaServer: () => Promise<{ success: boolean; error?: string }>;

@@ -26,14 +26,7 @@ interface TooltipProps {
 
 type ComputedPos = "top" | "bottom" | "left" | "right";
 
-export default function Tooltip({
-  content,
-  position = "top",
-  children,
-  delay = 300,
-  maxWidth = 320,
-  disabled = false,
-}: TooltipProps) {
+export default function Tooltip({ content, position = "top", children, delay = 300, maxWidth = 320, disabled = false }: TooltipProps) {
   const [visible, setVisible] = useState(false);
   const [computedPos, setComputedPos] = useState<ComputedPos>(position);
   const [coords, setCoords] = useState({ top: 0, left: 0 });
@@ -131,13 +124,7 @@ export default function Tooltip({
 
   return (
     <>
-      <span
-        ref={triggerRef}
-        className="tooltip-trigger"
-        onMouseEnter={show}
-        onMouseLeave={hide}
-        onFocus={show}
-        onBlur={hide}>
+      <span ref={triggerRef} className="tooltip-trigger" onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide}>
         {children}
       </span>
       {visible &&

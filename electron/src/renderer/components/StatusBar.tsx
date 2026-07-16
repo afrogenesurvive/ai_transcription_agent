@@ -337,54 +337,40 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
           <span className="status-item">
             <span className={`status-dot ${configOk ? "online" : "offline"}`} />
             <Tooltip content="Configuration status — whether API keys and LLM provider are set up">
-              <span className="service-label">
-                Config
-              </span>
+              <span className="service-label">Config</span>
             </Tooltip>
             {!configOk ? (
               <>
-                <button
-                  className="micro-btn start-btn"
-                  onClick={onOpenConfig}
-                  disabled={anyBusy}
-                  title="Open config to set up API key">
+                <button className="micro-btn start-btn" onClick={onOpenConfig} disabled={anyBusy} title="Open config to set up API key">
                   <Icon name="settings" size="12" />
                 </button>
                 <Tooltip content="LLM provider not configured — jobs will fail until you add your API key">
-                  <span
-                    className="config-warn-badge"
-                    title="LLM provider not configured — jobs will fail">
+                  <span className="config-warn-badge" title="LLM provider not configured — jobs will fail">
                     <Icon name="warning" size="12" color="orange" />
                   </span>
                 </Tooltip>
               </>
             ) : (
-              <button
-                className="micro-btn restart-btn"
-                onClick={onOpenConfig}
-                disabled={anyBusy}
-                title="Open configuration settings">
+              <button className="micro-btn restart-btn" onClick={onOpenConfig} disabled={anyBusy} title="Open configuration settings">
                 <Icon name="settings" size="12" />
               </button>
             )}
           </span>
           {/* Diarization model status */}
           <Tooltip content={diarizationError || "Status of the speaker diarization model — needed for speaker identification"}>
-          <span
-            className="status-item"
-            title={diarizationError || "Speaker diarization model status"}>
-            <span className={`status-dot ${diarizationOk === null ? "unknown" : diarizationOk ? "online" : "offline"}`} />
-            <span className="service-label">Diarization</span>
-            {diarizationOk === false && (
-              <button
-                className="micro-btn start-btn"
-                onClick={onOpenConfig}
-                disabled={anyBusy}
-                title="Configure Hugging Face token for diarization">
-                <Icon name="settings" size="12" />
-              </button>
-            )}
-          </span>
+            <span className="status-item" title={diarizationError || "Speaker diarization model status"}>
+              <span className={`status-dot ${diarizationOk === null ? "unknown" : diarizationOk ? "online" : "offline"}`} />
+              <span className="service-label">Diarization</span>
+              {diarizationOk === false && (
+                <button
+                  className="micro-btn start-btn"
+                  onClick={onOpenConfig}
+                  disabled={anyBusy}
+                  title="Configure Hugging Face token for diarization">
+                  <Icon name="settings" size="12" />
+                </button>
+              )}
+            </span>
           </Tooltip>
           {SERVICES.map((svc) => (
             <span key={svc} className="status-item">
@@ -422,58 +408,49 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
             </span>
           ))}
           {/* Ollama status — after agent */}
-          <Tooltip content={ollamaProvider
+          <Tooltip
+            content={
+              ollamaProvider
                 ? ollamaOk
                   ? "Ollama local LLM server is running"
                   : "Ollama server is offline — click ▶ to start"
-                : "Ollama is not the active LLM provider — switch in Config"}>
-          <span
-            className="status-item"
-            title={ollamaProvider ? (ollamaOk ? "Ollama server is running" : "Ollama server is offline") : "Ollama is not the active LLM provider"}
-            style={{ opacity: ollamaProvider ? 1 : 0.4 }}>
-            <span className={`status-dot ${ollamaOk === null ? "unknown" : ollamaOk ? "online" : "offline"}`} />
-            <span className="service-label">Ollama</span>
-            <span className="service-actions">
-              {ollamaProvider && ollamaOk === true && (
-                <button
-                  className="micro-btn stop-btn"
-                  onClick={handleStopOllama}
-                  disabled={anyBusy}
-                  title="Force-stop Ollama server">
-                  <Icon name="stop" size="12" />
-                </button>
-              )}
-              {ollamaProvider && ollamaOk === false && (
-                <button
-                  className="micro-btn start-btn"
-                  onClick={handleStartOllama}
-                  disabled={anyBusy || ollamaStarting}
-                  title="Start Ollama server">
-                  {ollamaStarting ? <Icon name="sync" size="12" /> : <Icon name="play_arrow" size="12" />}
-                </button>
-              )}
-              {ollamaProvider && ollamaOk === true && (
-                <button
-                  className="micro-btn restart-btn"
-                  onClick={handleRestartOllama}
-                  disabled={anyBusy}
-                  title="Restart Ollama server">
-                  <Icon name="refresh" size="12" />
-                </button>
-              )}
+                : "Ollama is not the active LLM provider — switch in Config"
+            }>
+            <span
+              className="status-item"
+              title={ollamaProvider ? (ollamaOk ? "Ollama server is running" : "Ollama server is offline") : "Ollama is not the active LLM provider"}
+              style={{ opacity: ollamaProvider ? 1 : 0.4 }}>
+              <span className={`status-dot ${ollamaOk === null ? "unknown" : ollamaOk ? "online" : "offline"}`} />
+              <span className="service-label">Ollama</span>
+              <span className="service-actions">
+                {ollamaProvider && ollamaOk === true && (
+                  <button className="micro-btn stop-btn" onClick={handleStopOllama} disabled={anyBusy} title="Force-stop Ollama server">
+                    <Icon name="stop" size="12" />
+                  </button>
+                )}
+                {ollamaProvider && ollamaOk === false && (
+                  <button
+                    className="micro-btn start-btn"
+                    onClick={handleStartOllama}
+                    disabled={anyBusy || ollamaStarting}
+                    title="Start Ollama server">
+                    {ollamaStarting ? <Icon name="sync" size="12" /> : <Icon name="play_arrow" size="12" />}
+                  </button>
+                )}
+                {ollamaProvider && ollamaOk === true && (
+                  <button className="micro-btn restart-btn" onClick={handleRestartOllama} disabled={anyBusy} title="Restart Ollama server">
+                    <Icon name="refresh" size="12" />
+                  </button>
+                )}
+              </span>
             </span>
-          </span>
           </Tooltip>
         </div>
 
         {feedback && <span className={`status-feedback status-feedback--${feedback.type}`}>{feedback.text}</span>}
 
         <div className="status-actions">
-          <button
-            className="action-btn"
-            onClick={handleCheckServers}
-            disabled={checking || anyBusy}
-            title="Check all backend services">
+          <button className="action-btn" onClick={handleCheckServers} disabled={checking || anyBusy} title="Check all backend services">
             {checking ? (
               <>
                 <Icon name="sync" size="12" /> Checking…
@@ -485,17 +462,11 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
             )}
           </button>
           {!configOk && (
-            <button
-              className="action-btn config-warn-btn"
-              onClick={onOpenConfig}
-              title="API key required — open config">
+            <button className="action-btn config-warn-btn" onClick={onOpenConfig} title="API key required — open config">
               <Icon name="settings" size="12" /> Config
             </button>
           )}
-          <button
-            className="action-btn dev-btn"
-            onClick={onOpenDev}
-            title="Open developer tools panel">
+          <button className="action-btn dev-btn" onClick={onOpenDev} title="Open developer tools panel">
             <Icon name="build" size="12" /> Dev
           </button>
           <div className="credit-btn-wrapper">

@@ -294,10 +294,7 @@ export default function PipelineProgress({
             </p>
             <div className="pp-confirm-actions">
               <Tooltip content="Resume processing without cancelling">
-                <button
-                  className="pp-confirm-cancel-btn"
-                  onClick={() => setShowConfirmCancel(false)}
-                  title="Go back — do not cancel">
+                <button className="pp-confirm-cancel-btn" onClick={() => setShowConfirmCancel(false)} title="Go back — do not cancel">
                   Continue Processing
                 </button>
               </Tooltip>
@@ -327,10 +324,7 @@ export default function PipelineProgress({
           <p className="pp-error-hint">You can go back and try uploading again, or check the developer logs for details.</p>
           {onNewJob && (
             <Tooltip content="Clear the current failed job and start fresh">
-              <button
-                className="pp-new-job-btn"
-                onClick={onNewJob}
-                title="Start a new transcription job">
+              <button className="pp-new-job-btn" onClick={onNewJob} title="Start a new transcription job">
                 <Icon name="add_circle" size="14" /> New Job
               </button>
             </Tooltip>

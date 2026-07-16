@@ -310,29 +310,17 @@ export default function SpeakerLabelModal({
 
         <div className="modal-actions">
           <Tooltip content="Cancel the entire job without saving speaker labels">
-            <button
-              className="btn-secondary"
-              onClick={onCancel}
-              disabled={submitting}
-              title="Cancel the entire transcription job">
+            <button className="btn-secondary" onClick={onCancel} disabled={submitting} title="Cancel the entire transcription job">
               Cancel Job
             </button>
           </Tooltip>
           <Tooltip content="Skip naming — speakers will use their auto-generated IDs (Speaker_1, etc.)">
-            <button
-              className="btn-secondary"
-              onClick={handleSkip}
-              disabled={submitting}
-              title="Use auto-generated speaker IDs instead of names">
+            <button className="btn-secondary" onClick={handleSkip} disabled={submitting} title="Use auto-generated speaker IDs instead of names">
               Use Default Names
             </button>
           </Tooltip>
           <Tooltip content="Save all speaker names and continue the transcription pipeline">
-            <button
-              className="btn-primary"
-              onClick={handleConfirm}
-              disabled={submitting || !allLabeled}
-              title="Save labels and resume pipeline">
+            <button className="btn-primary" onClick={handleConfirm} disabled={submitting || !allLabeled} title="Save labels and resume pipeline">
               {submitting ? "Saving & Resuming..." : `Confirm & Continue (${speakers.length} speaker${speakers.length !== 1 ? "s" : ""})`}
             </button>
           </Tooltip>

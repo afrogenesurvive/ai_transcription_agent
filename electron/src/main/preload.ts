@@ -62,6 +62,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
     return () => ipcRenderer.removeAllListeners("log");
   },
 
+  // ── Tray / Menu Bar ──
+  toggleTray: (): Promise<{ visible: boolean }> => ipcRenderer.invoke("tray:toggle"),
+  getTrayStatus: (): Promise<{ visible: boolean }> => ipcRenderer.invoke("tray:status"),
+
   // ── Voiceprint conflict checking ──
   checkVoiceprintConflicts: (attendees: Array<{ name: string; email?: string }>): Promise<{ conflicts: Array<any> }> =>
     ipcRenderer.invoke("voiceprints:check-conflicts", attendees),
