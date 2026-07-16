@@ -31,31 +31,32 @@ jobs:
           pip install pyinstaller
 
       - name: Build Python backend (Windows)
+        shell: bash
         run: |
           cd python-backend
-          venv\Scripts\activate
-          pyinstaller --onedir --name main --distpath ..\dist-resources\python-backend --workpath build\pyinstaller --specpath build ^
-            --hidden-import "uvicorn" --hidden-import "uvicorn.logging" --hidden-import "uvicorn.loops" --hidden-import "uvicorn.loops.auto" ^
-            --hidden-import "uvicorn.protocols" --hidden-import "uvicorn.protocols.http" --hidden-import "uvicorn.protocols.http.httptools_impl" ^
-            --hidden-import "uvicorn.protocols.websockets" --hidden-import "uvicorn.protocols.websockets.wsproto_impl" ^
-            --hidden-import "uvicorn.middleware" --hidden-import "uvicorn.middleware.proxy_headers" ^
-            --hidden-import "fastapi" --hidden-import "fastapi.routing" --hidden-import "pydantic" --hidden-import "pydantic.json" ^
-            --hidden-import "multipart" --hidden-import "python_multipart" --hidden-import "soundfile" --hidden-import "numpy" ^
-            --hidden-import "torch" --hidden-import "torchaudio" --hidden-import "pyannote.audio" ^
-            --hidden-import "pyannote.audio.pipelines" --hidden-import "pyannote.audio.pipelines.speaker_diarization" ^
-            --hidden-import "chromadb" --hidden-import "sentence_transformers" --hidden-import "dotenv" ^
-            --hidden-import "json" --hidden-import "threading" --hidden-import "warnings" --hidden-import "asyncio" ^
-            --hidden-import "os" --hidden-import "sys" --hidden-import "shutil" --hidden-import "glob" --hidden-import "uuid" ^
-            --hidden-import "datetime" --hidden-import "pathlib" --hidden-import "sqlite3" --hidden-import "hashlib" ^
-            --hidden-import "logging" --hidden-import "inspect" --hidden-import "contextlib" --hidden-import "collections" ^
-            --hidden-import "functools" --hidden-import "typing" ^
-            --hidden-import "email.mime.text" --hidden-import "email.mime.multipart" --hidden-import "email.mime.base" ^
-            --hidden-import "httpx" --hidden-import "anyio" --hidden-import "sniffio" ^
-            --hidden-import "starlette" --hidden-import "starlette.middleware" --hidden-import "starlette.middleware.cors" ^
-            --hidden-import "starlette.routing" --hidden-import "starlette.applications" --hidden-import "starlette.requests" ^
-            --hidden-import "starlette.responses" --hidden-import "starlette.datastructures" --hidden-import "multidict" ^
+          source venv/Scripts/activate
+          pyinstaller --onedir --name main --distpath ../dist-resources/python-backend --workpath build/pyinstaller --specpath build \
+            --hidden-import "uvicorn" --hidden-import "uvicorn.logging" --hidden-import "uvicorn.loops" --hidden-import "uvicorn.loops.auto" \
+            --hidden-import "uvicorn.protocols" --hidden-import "uvicorn.protocols.http" --hidden-import "uvicorn.protocols.http.httptools_impl" \
+            --hidden-import "uvicorn.protocols.websockets" --hidden-import "uvicorn.protocols.websockets.wsproto_impl" \
+            --hidden-import "uvicorn.middleware" --hidden-import "uvicorn.middleware.proxy_headers" \
+            --hidden-import "fastapi" --hidden-import "fastapi.routing" --hidden-import "pydantic" --hidden-import "pydantic.json" \
+            --hidden-import "multipart" --hidden-import "python_multipart" --hidden-import "soundfile" --hidden-import "numpy" \
+            --hidden-import "torch" --hidden-import "torchaudio" --hidden-import "pyannote.audio" \
+            --hidden-import "pyannote.audio.pipelines" --hidden-import "pyannote.audio.pipelines.speaker_diarization" \
+            --hidden-import "chromadb" --hidden-import "sentence_transformers" --hidden-import "dotenv" \
+            --hidden-import "json" --hidden-import "threading" --hidden-import "warnings" --hidden-import "asyncio" \
+            --hidden-import "os" --hidden-import "sys" --hidden-import "shutil" --hidden-import "glob" --hidden-import "uuid" \
+            --hidden-import "datetime" --hidden-import "pathlib" --hidden-import "sqlite3" --hidden-import "hashlib" \
+            --hidden-import "logging" --hidden-import "inspect" --hidden-import "contextlib" --hidden-import "collections" \
+            --hidden-import "functools" --hidden-import "typing" \
+            --hidden-import "email.mime.text" --hidden-import "email.mime.multipart" --hidden-import "email.mime.base" \
+            --hidden-import "httpx" --hidden-import "anyio" --hidden-import "sniffio" \
+            --hidden-import "starlette" --hidden-import "starlette.middleware" --hidden-import "starlette.middleware.cors" \
+            --hidden-import "starlette.routing" --hidden-import "starlette.applications" --hidden-import "starlette.requests" \
+            --hidden-import "starlette.responses" --hidden-import "starlette.datastructures" --hidden-import "multidict" \
             main.py
-          Remove-Item -Recurse -Force build -ErrorAction SilentlyContinue
+          rm -rf build
 
       - name: Download Node.js for Windows
         run: |
