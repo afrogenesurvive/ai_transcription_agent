@@ -42,7 +42,7 @@ Function welcomePage
 
   ${NSD_CreateLabel} 0 0 100% 40u "🎙️  Transcription Agent"
   Pop $WelcomeTitle
-  CreateFont $1 "$%SystemFont%" 18 700
+  CreateFont $1 "MS Shell Dlg 2" 18 700
   SendMessage $WelcomeTitle ${WM_SETFONT} $1 1
 
   ${NSD_CreateLabel} 0 46u 100% -50u \
