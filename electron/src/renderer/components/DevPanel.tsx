@@ -200,10 +200,7 @@ function LiveLogsTab() {
             />
             {searchQuery && (
               <Tooltip content="Clear the log search query">
-                <button
-                  className="dev-panel-search-clear"
-                  onClick={() => setSearchQuery("")}
-                  title="Clear search">
+                <button className="dev-panel-search-clear" onClick={() => setSearchQuery("")} title="Clear search">
                   <Icon name="close" size="12" />
                 </button>
               </Tooltip>
@@ -215,12 +212,12 @@ function LiveLogsTab() {
               value={sourceFilter}
               onChange={(e) => handleSourceFilterChange(e.target.value as SourceFilter)}
               title="Filter logs by source service">
-            <option value="all">All sources</option>
-            <option value="python">Python</option>
-            <option value="bridge">Bridge</option>
-            <option value="agent">Agent</option>
-            <option value="main">Main</option>
-          </select>
+              <option value="all">All sources</option>
+              <option value="python">Python</option>
+              <option value="bridge">Bridge</option>
+              <option value="agent">Agent</option>
+              <option value="main">Main</option>
+            </select>
           </Tooltip>
 
           <Tooltip content="Filter logs by sub-source — Runner, Model, Pipeline, etc.">
@@ -229,32 +226,32 @@ function LiveLogsTab() {
               value={subSourceFilter}
               onChange={(e) => setSubSourceFilter(e.target.value)}
               title="Filter by sub-source tag">
-            <option value="all">All sub-sources</option>
-            <option value="agent_bridge">Agent Bridge</option>
-            <option value="api">API</option>
-            <option value="auto-update">Auto Update</option>
-            <option value="bridge">Bridge</option>
-            <option value="cleanup">Cleanup</option>
-            <option value="config">Config</option>
-            <option value="ephemeral">Ephemeral</option>
-            <option value="executor">Executor</option>
-            <option value="http">HTTP</option>
-            <option value="label_and_resume">Label & Resume</option>
-            <option value="memory">Memory</option>
-            <option value="model">Model</option>
-            <option value="models_status">Models Status</option>
-            <option value="ollama">Ollama</option>
-            <option value="pipeline">Pipeline</option>
-            <option value="reconciliation">Reconciliation</option>
-            <option value="runner">Runner</option>
-            <option value="semantic_memory">Semantic Memory</option>
-            <option value="startup">Startup</option>
-            <option value="transcription">Transcription</option>
-            <option value="upload">Upload</option>
-            <option value="upload_by_path">Upload by Path</option>
-            <option value="usage">Usage</option>
-            <option value="voiceprint">Voiceprint</option>
-          </select>
+              <option value="all">All sub-sources</option>
+              <option value="agent_bridge">Agent Bridge</option>
+              <option value="api">API</option>
+              <option value="auto-update">Auto Update</option>
+              <option value="bridge">Bridge</option>
+              <option value="cleanup">Cleanup</option>
+              <option value="config">Config</option>
+              <option value="ephemeral">Ephemeral</option>
+              <option value="executor">Executor</option>
+              <option value="http">HTTP</option>
+              <option value="label_and_resume">Label & Resume</option>
+              <option value="memory">Memory</option>
+              <option value="model">Model</option>
+              <option value="models_status">Models Status</option>
+              <option value="ollama">Ollama</option>
+              <option value="pipeline">Pipeline</option>
+              <option value="reconciliation">Reconciliation</option>
+              <option value="runner">Runner</option>
+              <option value="semantic_memory">Semantic Memory</option>
+              <option value="startup">Startup</option>
+              <option value="transcription">Transcription</option>
+              <option value="upload">Upload</option>
+              <option value="upload_by_path">Upload by Path</option>
+              <option value="usage">Usage</option>
+              <option value="voiceprint">Voiceprint</option>
+            </select>
           </Tooltip>
 
           <Tooltip content="Filter logs by severity — Info, Warnings, Errors, or Debug">
@@ -263,12 +260,12 @@ function LiveLogsTab() {
               value={levelFilter}
               onChange={(e) => handleLevelFilterChange(e.target.value as LevelFilter)}
               title="Filter logs by severity level">
-            <option value="all">All levels</option>
-            <option value="info">Info</option>
-            <option value="warn">Warnings</option>
-            <option value="error">Errors</option>
-            <option value="debug">Debug</option>
-          </select>
+              <option value="all">All levels</option>
+              <option value="info">Info</option>
+              <option value="warn">Warnings</option>
+              <option value="error">Errors</option>
+              <option value="debug">Debug</option>
+            </select>
           </Tooltip>
 
           <Tooltip content="Automatically scroll to the bottom when new logs arrive">
@@ -281,10 +278,7 @@ function LiveLogsTab() {
 
         <div className="dev-panel-actions">
           <Tooltip content="Clear all log entries from the current view">
-            <button
-              className="dev-panel-btn"
-              onClick={handleClear}
-              title="Clear all logs from the display">
+            <button className="dev-panel-btn" onClick={handleClear} title="Clear all logs from the display">
               Clear
             </button>
           </Tooltip>
@@ -814,8 +808,8 @@ function DatabaseTab() {
                                 style={{ padding: "2px 8px", fontSize: 12 }}
                                 onClick={() => handlePlayVoiceprint(vp.email)}
                                 title={playingVp === vp.email ? "Stop playback" : "Play sample audio"}>
-                              <Icon name={playingVp === vp.email ? "stop" : "play_arrow"} size="14" color="accent" />
-                            </button>
+                                <Icon name={playingVp === vp.email ? "stop" : "play_arrow"} size="14" color="accent" />
+                              </button>
                             </Tooltip>
                           ) : (
                             <span style={{ color: "var(--text-muted)", fontSize: 11 }}>No sample</span>
@@ -1367,12 +1361,12 @@ function PerformanceTab() {
             value={pollIntervalMs}
             onChange={(e) => setPollIntervalMs(Number(e.target.value))}
             title="Performance data polling interval">
-              {POLL_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  Every {opt.label}
-                </option>
-              ))}
-            </select>
+            {POLL_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                Every {opt.label}
+              </option>
+            ))}
+          </select>
         </div>
         <span style={{ color: "var(--text-muted)", fontSize: 11 }}>
           {aggData.length} job(s) · {allSamples.length} samples
@@ -1951,15 +1945,12 @@ function UsageTab() {
             <option value={30000}>Every 30s</option>
             <option value={60000}>Every 1 min</option>
             <option value={300000}>Every 5 min</option>
-              <option value={600000}>Every 10 min</option>
-            </select>
+            <option value={600000}>Every 10 min</option>
+          </select>
         </div>
         <div className="dev-panel-actions">
           <Tooltip content="Fetch the latest token usage and credit balance data">
-            <button
-              className="dev-panel-btn"
-              onClick={fetchAggregate}
-              title="Refresh token usage data">
+            <button className="dev-panel-btn" onClick={fetchAggregate} title="Refresh token usage data">
               <Icon name="refresh" size="14" /> Refresh
             </button>
           </Tooltip>
@@ -2639,10 +2630,7 @@ function LogFilesTab() {
             </span>
             <span className="rv-log-line-text">{group.lines[0].message}</span>
             <Tooltip content="Open this log entry in the prettified viewer">
-              <button
-                className="rv-log-prettify-btn"
-                onClick={() => setPrettifiedBlock(group.lines[0].message)}
-                title="View prettified">
+              <button className="rv-log-prettify-btn" onClick={() => setPrettifiedBlock(group.lines[0].message)} title="View prettified">
                 <Icon name="open_in_new" size="10" />
               </button>
             </Tooltip>
@@ -2683,10 +2671,7 @@ function LogFilesTab() {
                   <span className="rv-log-gutter">│</span>
                   <span className="rv-log-line-text">{line.message}</span>
                   <Tooltip content="Open this log entry in the prettified viewer">
-                    <button
-                      className="rv-log-prettify-btn"
-                      onClick={() => setPrettifiedBlock(line.message)}
-                      title="View prettified">
+                    <button className="rv-log-prettify-btn" onClick={() => setPrettifiedBlock(line.message)} title="View prettified">
                       <Icon name="open_in_new" size="10" />
                     </button>
                   </Tooltip>
@@ -2863,9 +2848,7 @@ function LogFilesTab() {
                       <option value="error">Errors</option>
                     </select>
                     <Tooltip content="Collapse repeated prefix groups">
-                      <label
-                        className="rv-logs-toggle"
-                        title="Collapse consecutive log entries with identical source/sub-source/level">
+                      <label className="rv-logs-toggle" title="Collapse consecutive log entries with identical source/sub-source/level">
                         <input type="checkbox" checked={collapseRepeated} onChange={(e) => setCollapseRepeated(e.target.checked)} />
                         <Icon name="compress" size="12" /> Group
                       </label>
@@ -3234,10 +3217,7 @@ function TestingTab() {
                   style={{ flex: 1 }}
                 />
                 <Tooltip content="Open a native file picker to select an audio file">
-                  <button
-                    className="dev-panel-btn"
-                    onClick={handleBrowse}
-                    title="Browse for audio file">
+                  <button className="dev-panel-btn" onClick={handleBrowse} title="Browse for audio file">
                     <Icon name="folder_open" size="14" color="accent" /> Browse
                   </button>
                 </Tooltip>
@@ -3411,10 +3391,7 @@ export default function DevPanel({ onClose }: Props) {
         </Tooltip>
         <div className="dev-panel-tabs-spacer" />
         <Tooltip content="Close the developer tools panel">
-          <button
-            className="dev-panel-btn dev-panel-btn-close"
-            onClick={onClose}
-            title="Close developer tools">
+          <button className="dev-panel-btn dev-panel-btn-close" onClick={onClose} title="Close developer tools">
             ✕
           </button>
         </Tooltip>
