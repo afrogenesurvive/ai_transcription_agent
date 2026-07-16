@@ -17,7 +17,19 @@ import type { TranscriptionSegment, AnalysisData } from "../types";
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
-type TabId = "pipeline" | "audio" | "transcript" | "summary" | "analysis" | "tokens" | "performance" | "attendees" | "delivery" | "config" | "logs" | "developer";
+type TabId =
+  | "pipeline"
+  | "audio"
+  | "transcript"
+  | "summary"
+  | "analysis"
+  | "tokens"
+  | "performance"
+  | "attendees"
+  | "delivery"
+  | "config"
+  | "logs"
+  | "developer";
 
 interface Tab {
   id: TabId;
