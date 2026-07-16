@@ -8,6 +8,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import Icon from "./Icon";
+import Tooltip from "./Tooltip";
 import { applyAppearance, saveAndApplyAppearance, readFontPreset, FONT_SIZE_PRESETS, watchSystemTheme, unwatchSystemTheme } from "../appearance";
 import type { FontSizePreset, AppearanceConfig } from "../appearance";
 
@@ -99,13 +100,14 @@ export default function AppearancePanel({ onClose }: Props) {
         <h2>
           <Icon name="palette" size="18" color="accent" /> Appearance
         </h2>
-        <button
-          className="appearance-close-btn"
-          onClick={onClose}
-          title="Close the Appearance panel"
-          data-tooltip="Close the Appearance settings panel">
-          <Icon name="close" size="16" />
-        </button>
+        <Tooltip content="Close the Appearance settings panel">
+          <button
+            className="appearance-close-btn"
+            onClick={onClose}
+            title="Close the Appearance panel">
+            <Icon name="close" size="16" />
+          </button>
+        </Tooltip>
       </div>
 
       <div className="appearance-body">
@@ -113,45 +115,50 @@ export default function AppearancePanel({ onClose }: Props) {
         <div className="appearance-section">
           <h3 className="appearance-section-title">Theme</h3>
           <div className="appearance-theme-options">
-            <label
-              className={`appearance-theme-card ${theme === "dark" ? "appearance-theme-card--selected" : ""}`}
-              title="Dark theme — easy on the eyes for low-light environments"
-              data-tooltip="Dark theme — easy on the eyes for low-light environments">
-              <input type="radio" name="theme" value="dark" checked={theme === "dark"} onChange={() => setTheme("dark")} />
-              <span className="appearance-theme-preview appearance-theme-preview--dark">
-                <span className="appearance-theme-preview-dot" />
-              </span>
-              <span className="appearance-theme-card-label">Dark</span>
-            </label>
-            <label
-              className={`appearance-theme-card ${theme === "light" ? "appearance-theme-card--selected" : ""}`}
-              title="Light theme — bright appearance for well-lit environments"
-              data-tooltip="Light theme — bright appearance for well-lit environments">
-              <input type="radio" name="theme" value="light" checked={theme === "light"} onChange={() => setTheme("light")} />
-              <span className="appearance-theme-preview appearance-theme-preview--light">
-                <span className="appearance-theme-preview-dot" />
-              </span>
-              <span className="appearance-theme-card-label">Light</span>
-            </label>
-            <label
-              className={`appearance-theme-card ${theme === "system" ? "appearance-theme-card--selected" : ""}`}
-              title="System theme — follows your operating system's dark/light setting"
-              data-tooltip="System theme — automatically follows your OS dark/light preference">
-              <input type="radio" name="theme" value="system" checked={theme === "system"} onChange={() => setTheme("system")} />
-              <span className="appearance-theme-preview appearance-theme-preview--system">
-                <span className="appearance-theme-preview-dot" />
-                <span className="appearance-theme-preview-dot appearance-theme-preview-dot--alt" />
-              </span>
-              <span className="appearance-theme-card-label">System</span>
-            </label>
+            <Tooltip content="Dark theme — easy on the eyes for low-light environments">
+              <label
+                className={`appearance-theme-card ${theme === "dark" ? "appearance-theme-card--selected" : ""}`}
+                title="Dark theme — easy on the eyes for low-light environments">
+                <input type="radio" name="theme" value="dark" checked={theme === "dark"} onChange={() => setTheme("dark")} />
+                <span className="appearance-theme-preview appearance-theme-preview--dark">
+                  <span className="appearance-theme-preview-dot" />
+                </span>
+                <span className="appearance-theme-card-label">Dark</span>
+              </label>
+            </Tooltip>
+            <Tooltip content="Light theme — bright appearance for well-lit environments">
+              <label
+                className={`appearance-theme-card ${theme === "light" ? "appearance-theme-card--selected" : ""}`}
+                title="Light theme — bright appearance for well-lit environments">
+                <input type="radio" name="theme" value="light" checked={theme === "light"} onChange={() => setTheme("light")} />
+                <span className="appearance-theme-preview appearance-theme-preview--light">
+                  <span className="appearance-theme-preview-dot" />
+                </span>
+                <span className="appearance-theme-card-label">Light</span>
+              </label>
+            </Tooltip>
+            <Tooltip content="System theme — automatically follows your OS dark/light preference">
+              <label
+                className={`appearance-theme-card ${theme === "system" ? "appearance-theme-card--selected" : ""}`}
+                title="System theme — follows your operating system's dark/light setting">
+                <input type="radio" name="theme" value="system" checked={theme === "system"} onChange={() => setTheme("system")} />
+                <span className="appearance-theme-preview appearance-theme-preview--system">
+                  <span className="appearance-theme-preview-dot" />
+                  <span className="appearance-theme-preview-dot appearance-theme-preview-dot--alt" />
+                </span>
+                <span className="appearance-theme-card-label">System</span>
+              </label>
+            </Tooltip>
           </div>
         </div>
 
         {/* ── Accent Color ── */}
         <div className="appearance-section">
-          <h3 className="appearance-section-title" data-tooltip="Choose your preferred accent color for highlights and interactive elements">
-            Accent Color
-          </h3>
+          <Tooltip content="Choose your preferred accent color for highlights and interactive elements">
+            <h3 className="appearance-section-title">
+              Accent Color
+            </h3>
+          </Tooltip>
           <div className="appearance-accent-grid">
             {ACCENT_PRESETS.map((c) => (
               <button
@@ -160,40 +167,42 @@ export default function AppearancePanel({ onClose }: Props) {
                 style={{ background: c.value }}
                 onClick={() => setAccentColor(c.value)}
                 title={`Accent color: ${c.label}`}
-                data-tooltip={`Set accent color to ${c.label}`}
                 aria-label={c.label}
               />
             ))}
           </div>
           <div className="appearance-accent-custom">
-            <label className="appearance-accent-custom-label" data-tooltip="Pick any custom color using the color picker">
-              Custom
-              <input
-                type="color"
-                className="appearance-accent-picker"
-                value={accentColor}
-                onChange={(e) => setAccentColor(e.target.value)}
-                title="Pick a custom accent color"
-                data-tooltip="Pick any color for the accent"
-              />
-            </label>
+            <Tooltip content="Pick any custom color using the color picker">
+              <label className="appearance-accent-custom-label">
+                Custom
+                <input
+                  type="color"
+                  className="appearance-accent-picker"
+                  value={accentColor}
+                  onChange={(e) => setAccentColor(e.target.value)}
+                  title="Pick a custom accent color"
+                />
+              </label>
+            </Tooltip>
             <code className="appearance-accent-hex">{accentColor}</code>
           </div>
         </div>
 
         {/* ── Font Size Presets ── */}
         <div className="appearance-section">
-          <h3 className="appearance-section-title" data-tooltip="Adjust the overall font size of the application">
-            Font Size
-          </h3>
+          <Tooltip content="Adjust the overall font size of the application">
+            <h3 className="appearance-section-title">
+              Font Size
+            </h3>
+          </Tooltip>
           <div className="appearance-font-presets-grid">
             {FONT_SIZE_PRESETS.map((p) => (
-              <button
-                key={p.value}
-                className={`appearance-font-preset-card ${fontPreset === p.value ? "appearance-font-preset-card--selected" : ""}`}
-                onClick={() => setFontPreset(p.value)}
-                title={`Font size: ${p.label}`}
-                data-tooltip={`Switch to ${p.label} font size — ${p.description}`}>
+              <Tooltip content={`Switch to ${p.label} font size — ${p.description}`}>
+                <button
+                  key={p.value}
+                  className={`appearance-font-preset-card ${fontPreset === p.value ? "appearance-font-preset-card--selected" : ""}`}
+                  onClick={() => setFontPreset(p.value)}
+                  title={`Font size: ${p.label}`}>
                 <span className="appearance-font-preset-label">{p.label}</span>
                 <span className="appearance-font-preset-desc">{p.description}</span>
               </button>
@@ -203,9 +212,11 @@ export default function AppearancePanel({ onClose }: Props) {
       </div>
 
       <div className="appearance-footer">
-        <span className="appearance-hint" data-tooltip="All appearance changes are saved to your config automatically — no save button needed">
-          Changes are saved automatically
-        </span>
+        <Tooltip content="All appearance changes are saved to your config automatically — no save button needed">
+          <span className="appearance-hint">
+            Changes are saved automatically
+          </span>
+        </Tooltip>
       </div>
     </div>
   );

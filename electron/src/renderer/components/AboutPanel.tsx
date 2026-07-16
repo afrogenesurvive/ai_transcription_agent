@@ -8,6 +8,7 @@
 
 import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import Icon from "./Icon";
+import Tooltip from "./Tooltip";
 
 type AboutTab = "about" | "guide";
 
@@ -42,9 +43,11 @@ export default function AboutPanel({ onClose }: { onClose: () => void }) {
         <h2>
           <Icon name="mic" size="18" color="accent" /> {appName}
         </h2>
-        <button className="about-close-btn" onClick={onClose} title="Close the About panel" data-tooltip="Close">
-          <Icon name="close" size="16" />
-        </button>
+        <Tooltip content="Close">
+          <button className="about-close-btn" onClick={onClose} title="Close the About panel">
+            <Icon name="close" size="16" />
+          </button>
+        </Tooltip>
       </div>
 
       {/* ── Tab bar ── */}

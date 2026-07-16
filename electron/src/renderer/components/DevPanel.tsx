@@ -12,6 +12,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import Icon from "./Icon";
+import Tooltip from "./Tooltip";
 import LoadingModal from "./LoadingModal";
 import type { LogEntry } from "../types";
 
@@ -198,21 +199,22 @@ function LiveLogsTab() {
               onChange={(e) => setSearchQuery(e.target.value)}
             />
             {searchQuery && (
-              <button
-                className="dev-panel-search-clear"
-                onClick={() => setSearchQuery("")}
-                title="Clear search"
-                data-tooltip="Clear the log search query">
-                <Icon name="close" size="12" />
-              </button>
+              <Tooltip content="Clear the log search query">
+                <button
+                  className="dev-panel-search-clear"
+                  onClick={() => setSearchQuery("")}
+                  title="Clear search">
+                  <Icon name="close" size="12" />
+                </button>
+              </Tooltip>
             )}
           </div>
-          <select
-            className="dev-panel-select"
-            value={sourceFilter}
-            onChange={(e) => handleSourceFilterChange(e.target.value as SourceFilter)}
-            title="Filter logs by source service"
-            data-tooltip="Filter logs by source — Python, Bridge, Agent, or Main">
+          <Tooltip content="Filter logs by source — Python, Bridge, Agent, or Main">
+            <select
+              className="dev-panel-select"
+              value={sourceFilter}
+              onChange={(e) => handleSourceFilterChange(e.target.value as SourceFilter)}
+              title="Filter logs by source service">
             <option value="all">All sources</option>
             <option value="python">Python</option>
             <option value="bridge">Bridge</option>
@@ -220,12 +222,12 @@ function LiveLogsTab() {
             <option value="main">Main</option>
           </select>
 
-          <select
-            className="dev-panel-select"
-            value={subSourceFilter}
-            onChange={(e) => setSubSourceFilter(e.target.value)}
-            title="Filter by sub-source tag"
-            data-tooltip="Filter logs by sub-source — Runner, Model, Pipeline, etc.">
+          <Tooltip content="Filter logs by sub-source — Runner, Model, Pipeline, etc.">
+            <select
+              className="dev-panel-select"
+              value={subSourceFilter}
+              onChange={(e) => setSubSourceFilter(e.target.value)}
+              title="Filter by sub-source tag">
             <option value="all">All sub-sources</option>
             <option value="agent_bridge">Agent Bridge</option>
             <option value="api">API</option>
@@ -253,12 +255,12 @@ function LiveLogsTab() {
             <option value="voiceprint">Voiceprint</option>
           </select>
 
-          <select
-            className="dev-panel-select"
-            value={levelFilter}
-            onChange={(e) => handleLevelFilterChange(e.target.value as LevelFilter)}
-            title="Filter logs by severity level"
-            data-tooltip="Filter logs by severity — Info, Warnings, Errors, or Debug">
+          <Tooltip content="Filter logs by severity — Info, Warnings, Errors, or Debug">
+            <select
+              className="dev-panel-select"
+              value={levelFilter}
+              onChange={(e) => handleLevelFilterChange(e.target.value as LevelFilter)}
+              title="Filter logs by severity level">
             <option value="all">All levels</option>
             <option value="info">Info</option>
             <option value="warn">Warnings</option>
@@ -266,20 +268,23 @@ function LiveLogsTab() {
             <option value="debug">Debug</option>
           </select>
 
-          <label className="dev-panel-checkbox" data-tooltip="Automatically scroll to the bottom when new logs arrive">
-            <input type="checkbox" checked={autoScroll} onChange={(e) => handleAutoScrollChange(e.target.checked)} />
-            Auto-scroll
-          </label>
+          <Tooltip content="Automatically scroll to the bottom when new logs arrive">
+            <label className="dev-panel-checkbox">
+              <input type="checkbox" checked={autoScroll} onChange={(e) => handleAutoScrollChange(e.target.checked)} />
+              Auto-scroll
+            </label>
+          </Tooltip>
         </div>
 
         <div className="dev-panel-actions">
-          <button
-            className="dev-panel-btn"
-            onClick={handleClear}
-            title="Clear all logs from the display"
-            data-tooltip="Clear all log entries from the current view">
-            Clear
-          </button>
+          <Tooltip content="Clear all log entries from the current view">
+            <button
+              className="dev-panel-btn"
+              onClick={handleClear}
+              title="Clear all logs from the display">
+              Clear
+            </button>
+          </Tooltip>
         </div>
       </div>
 
@@ -800,12 +805,12 @@ function DatabaseTab() {
                         <td className="dev-panel-db-cell-nowrap">{vp.created_at ? new Date(vp.created_at).toLocaleDateString() : "—"}</td>
                         <td className="dev-panel-db-cell-nowrap">
                           {vp.sample_job_id ? (
-                            <button
-                              className="dev-panel-btn"
-                              style={{ padding: "2px 8px", fontSize: 12 }}
-                              onClick={() => handlePlayVoiceprint(vp.email)}
-                              title={playingVp === vp.email ? "Stop playback" : "Play sample audio"}
-                              data-tooltip={playingVp === vp.email ? "Stop playback" : "Hear a 3-second sample of this speaker's voice"}>
+                            <Tooltip content={playingVp === vp.email ? "Stop playback" : "Hear a 3-second sample of this speaker's voice"}>
+                              <button
+                                className="dev-panel-btn"
+                                style={{ padding: "2px 8px", fontSize: 12 }}
+                                onClick={() => handlePlayVoiceprint(vp.email)}
+                                title={playingVp === vp.email ? "Stop playback" : "Play sample audio"}>
                               <Icon name={playingVp === vp.email ? "stop" : "play_arrow"} size="14" color="accent" />
                             </button>
                           ) : (
@@ -813,15 +818,16 @@ function DatabaseTab() {
                           )}
                         </td>
                         <td className="dev-panel-db-cell-nowrap">
-                          <button
-                            className="dev-panel-btn"
-                            style={{ padding: "2px 8px", fontSize: 12, color: "var(--red)" }}
-                            onClick={() => setDeleteConfirm(vp.email)}
-                            disabled={deletingVp}
-                            title="Delete this voiceprint"
-                            data-tooltip="Permanently remove this speaker's voiceprint — they will no longer be automatically identified">
-                            <Icon name="delete" size="14" />
-                          </button>
+                          <Tooltip content="Permanently remove this speaker's voiceprint — they will no longer be automatically identified">
+                            <button
+                              className="dev-panel-btn"
+                              style={{ padding: "2px 8px", fontSize: 12, color: "var(--red)" }}
+                              onClick={() => setDeleteConfirm(vp.email)}
+                              disabled={deletingVp}
+                              title="Delete this voiceprint">
+                              <Icon name="delete" size="14" />
+                            </button>
+                          </Tooltip>
                         </td>
                       </tr>
                     ))}
@@ -1356,22 +1362,25 @@ function PerformanceTab() {
             className="dev-panel-select"
             value={pollIntervalMs}
             onChange={(e) => setPollIntervalMs(Number(e.target.value))}
-            title="Performance data polling interval"
-            data-tooltip="How often to poll for new performance data">
-            {POLL_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                Every {opt.label}
-              </option>
-            ))}
-          </select>
+            title="Performance data polling interval">
+>
+              {POLL_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  Every {opt.label}
+                </option>
+              ))}
+            </select>
+            </Tooltip>
         </div>
         <span style={{ color: "var(--text-muted)", fontSize: 11 }}>
           {aggData.length} job(s) · {allSamples.length} samples
         </span>
         <div className="dev-panel-actions">
-          <button className="dev-panel-btn" onClick={fetchData} title="Refresh performance data" data-tooltip="Fetch the latest performance data now">
-            <Icon name="refresh" size="14" /> Refresh
-          </button>
+          <Tooltip content="Fetch the latest performance data now">
+            <button className="dev-panel-btn" onClick={fetchData} title="Refresh performance data">
+              <Icon name="refresh" size="14" /> Refresh
+            </button>
+          </Tooltip>
         </div>
       </div>
 
@@ -1936,22 +1945,23 @@ function UsageTab() {
             className="dev-panel-select"
             value={pollInterval}
             onChange={(e) => handleIntervalChange(Number(e.target.value))}
-            title="Credit balance polling interval"
-            data-tooltip="How often to check the DeepSeek API credit balance">
+            title="Credit balance polling interval">
             <option value={30000}>Every 30s</option>
             <option value={60000}>Every 1 min</option>
             <option value={300000}>Every 5 min</option>
-            <option value={600000}>Every 10 min</option>
-          </select>
+              <option value={600000}>Every 10 min</option>
+            </select>
+            </Tooltip>
         </div>
         <div className="dev-panel-actions">
-          <button
-            className="dev-panel-btn"
-            onClick={fetchAggregate}
-            title="Refresh token usage data"
-            data-tooltip="Fetch the latest token usage and credit balance data">
-            <Icon name="refresh" size="14" /> Refresh
-          </button>
+          <Tooltip content="Fetch the latest token usage and credit balance data">
+            <button
+              className="dev-panel-btn"
+              onClick={fetchAggregate}
+              title="Refresh token usage data">
+              <Icon name="refresh" size="14" /> Refresh
+            </button>
+          </Tooltip>
         </div>
       </div>
 
@@ -2627,13 +2637,14 @@ function LogFilesTab() {
               {group.level === "error" ? "✖" : group.level === "warn" ? "⚠" : ""}
             </span>
             <span className="rv-log-line-text">{group.lines[0].message}</span>
-            <button
-              className="rv-log-prettify-btn"
-              onClick={() => setPrettifiedBlock(group.lines[0].message)}
-              title="View prettified"
-              data-tooltip="Open this log entry in the prettified viewer">
-              <Icon name="open_in_new" size="10" />
-            </button>
+            <Tooltip content="Open this log entry in the prettified viewer">
+              <button
+                className="rv-log-prettify-btn"
+                onClick={() => setPrettifiedBlock(group.lines[0].message)}
+                title="View prettified">
+                <Icon name="open_in_new" size="10" />
+              </button>
+            </Tooltip>
           </div>
         )}
         {/* ── Multi-line group ── */}
@@ -2655,13 +2666,14 @@ function LogFilesTab() {
                 </span>
                 <span className="rv-log-summary-msg">{group.lines[0].message}</span>
               </span>
-              <button
-                className="rv-log-prettify-btn rv-log-prettify-btn--group"
-                onClick={() => setPrettifiedBlock(group.lines.map((l) => l.message).join("\n"))}
-                title="View all lines prettified"
-                data-tooltip="Open the entire group content in the prettified viewer">
-                <Icon name="open_in_new" size="10" />
-              </button>
+              <Tooltip content="Open the entire group content in the prettified viewer">
+                <button
+                  className="rv-log-prettify-btn rv-log-prettify-btn--group"
+                  onClick={() => setPrettifiedBlock(group.lines.map((l) => l.message).join("\n"))}
+                  title="View all lines prettified">
+                  <Icon name="open_in_new" size="10" />
+                </button>
+              </Tooltip>
               <span className="rv-log-group-badge">{group.lines.length} lines</span>
             </summary>
             <div className="rv-log-group-lines">
@@ -2669,13 +2681,14 @@ function LogFilesTab() {
                 <div key={li} className="rv-log-line rv-log-line--nested">
                   <span className="rv-log-gutter">│</span>
                   <span className="rv-log-line-text">{line.message}</span>
-                  <button
-                    className="rv-log-prettify-btn"
-                    onClick={() => setPrettifiedBlock(line.message)}
-                    title="View prettified"
-                    data-tooltip="Open this log entry in the prettified viewer">
-                    <Icon name="open_in_new" size="10" />
-                  </button>
+                  <Tooltip content="Open this log entry in the prettified viewer">
+                    <button
+                      className="rv-log-prettify-btn"
+                      onClick={() => setPrettifiedBlock(line.message)}
+                      title="View prettified">
+                      <Icon name="open_in_new" size="10" />
+                    </button>
+                  </Tooltip>
                 </div>
               ))}
             </div>
@@ -2848,13 +2861,14 @@ function LogFilesTab() {
                       <option value="warn">Warnings</option>
                       <option value="error">Errors</option>
                     </select>
-                    <label
-                      className="rv-logs-toggle"
-                      title="Collapse consecutive log entries with identical source/sub-source/level"
-                      data-tooltip="Collapse repeated prefix groups">
-                      <input type="checkbox" checked={collapseRepeated} onChange={(e) => setCollapseRepeated(e.target.checked)} />
-                      <Icon name="compress" size="12" /> Group
-                    </label>
+                    <Tooltip content="Collapse repeated prefix groups">
+                      <label
+                        className="rv-logs-toggle"
+                        title="Collapse consecutive log entries with identical source/sub-source/level">
+                        <input type="checkbox" checked={collapseRepeated} onChange={(e) => setCollapseRepeated(e.target.checked)} />
+                        <Icon name="compress" size="12" /> Group
+                      </label>
+                    </Tooltip>
                   </div>
                   <span className="rv-logs-filter-count">
                     {filteredLogLines.length} / {(logSubTab === "agent" ? agentFilteredLogLines : logLines).length} line
@@ -2931,9 +2945,11 @@ function LogFilesTab() {
                     <h3 className="rv-prettify-title">
                       <Icon name="open_in_new" size="14" color="accent" /> Prettified View
                     </h3>
-                    <button className="rv-prettify-close" onClick={() => setPrettifiedBlock(null)} title="Close" data-tooltip="Close prettified view">
-                      <Icon name="close" size="14" />
-                    </button>
+                    <Tooltip content="Close prettified view">
+                      <button className="rv-prettify-close" onClick={() => setPrettifiedBlock(null)} title="Close">
+                        <Icon name="close" size="14" />
+                      </button>
+                    </Tooltip>
                   </div>
                   <div className="rv-prettify-tabs">
                     <button className="rv-prettify-tab rv-prettify-tab--active">Text</button>
@@ -2942,13 +2958,14 @@ function LogFilesTab() {
                     <pre className="rv-prettify-content">{prettifiedBlock}</pre>
                   </div>
                   <div className="rv-prettify-footer">
-                    <button
-                      className="rv-prettify-copy-btn"
-                      onClick={() => navigator.clipboard.writeText(prettifiedBlock)}
-                      title="Copy to clipboard"
-                      data-tooltip="Copy the prettified content to your clipboard">
-                      <Icon name="content_copy" size="12" /> Copy
-                    </button>
+                    <Tooltip content="Copy the prettified content to your clipboard">
+                      <button
+                        className="rv-prettify-copy-btn"
+                        onClick={() => navigator.clipboard.writeText(prettifiedBlock)}
+                        title="Copy to clipboard">
+                        <Icon name="content_copy" size="12" /> Copy
+                      </button>
+                    </Tooltip>
                   </div>
                 </div>
               </div>
@@ -3120,15 +3137,16 @@ function TestingTab() {
           <Icon name="bug_report" size="14" color="accent" /> Testing
         </span>
         <div className="dev-panel-actions">
-          <button
-            className="dev-panel-btn"
-            onClick={handleRun}
-            disabled={running || !allPrereqsMet}
-            title={allPrereqsMet ? "Run Playwright screenshot tests" : "Fix prerequisites above before running"}
-            data-tooltip="Launch Playwright screenshot tests in a headed browser.">
-            <Icon name={running ? "sync" : "play_arrow"} size="14" color={running ? "muted" : "accent"} />
-            {running ? " Running..." : " Run Tests"}
-          </button>
+          <Tooltip content="Launch Playwright screenshot tests in a headed browser.">
+            <button
+              className="dev-panel-btn"
+              onClick={handleRun}
+              disabled={running || !allPrereqsMet}
+              title={allPrereqsMet ? "Run Playwright screenshot tests" : "Fix prerequisites above before running"}>
+              <Icon name={running ? "sync" : "play_arrow"} size="14" color={running ? "muted" : "accent"} />
+              {running ? " Running..." : " Run Tests"}
+            </button>
+          </Tooltip>
           <button className="dev-panel-btn" onClick={() => setOutput([])} disabled={output.length === 0} title="Clear test output">
             Clear Output
           </button>
@@ -3214,13 +3232,14 @@ function TestingTab() {
                   onChange={(e) => setAudioPath(e.target.value)}
                   style={{ flex: 1 }}
                 />
-                <button
-                  className="dev-panel-btn"
-                  onClick={handleBrowse}
-                  title="Browse for audio file"
-                  data-tooltip="Open a native file picker to select an audio file">
-                  <Icon name="folder_open" size="14" color="accent" /> Browse
-                </button>
+                <Tooltip content="Open a native file picker to select an audio file">
+                  <button
+                    className="dev-panel-btn"
+                    onClick={handleBrowse}
+                    title="Browse for audio file">
+                    <Icon name="folder_open" size="14" color="accent" /> Browse
+                  </button>
+                </Tooltip>
               </div>
             </label>
 
@@ -3332,64 +3351,72 @@ export default function DevPanel({ onClose }: Props) {
     <div className="dev-panel dev-panel--full">
       {/* Tab bar */}
       <div className="dev-panel-tabs">
-        <button
-          className={`dev-panel-tab ${activeTab === "live" ? "dev-panel-tab--active" : ""}`}
-          onClick={() => setActiveTab("live")}
-          title="Live real-time logs from all services"
-          data-tooltip="View real-time log stream from Python, Bridge, Agent, and Main processes">
-          <Icon name="terminal" size="14" color="accent" /> Live Logs
-        </button>
+        <Tooltip content="View real-time log stream from Python, Bridge, Agent, and Main processes">
+          <button
+            className={`dev-panel-tab ${activeTab === "live" ? "dev-panel-tab--active" : ""}`}
+            onClick={() => setActiveTab("live")}
+            title="Live real-time logs from all services">
+            <Icon name="terminal" size="14" color="accent" /> Live Logs
+          </button>
+        </Tooltip>
 
-        <button
-          className={`dev-panel-tab ${activeTab === "database" ? "dev-panel-tab--active" : ""}`}
-          onClick={() => setActiveTab("database")}
-          title="Browse internal databases"
-          data-tooltip="Explore ChromaDB, ephemeral memory, and voiceprint databases">
-          <Icon name="database" size="14" color="accent" /> Database
-        </button>
-        <button
-          className={`dev-panel-tab ${activeTab === "performance" ? "dev-panel-tab--active" : ""}`}
-          onClick={() => setActiveTab("performance")}
-          title="Performance metrics across jobs"
-          data-tooltip="View CPU, memory, and pipeline performance metrics across jobs">
-          <Icon name="bolt" size="14" color="accent" /> Performance
-        </button>
-        <button
-          className={`dev-panel-tab ${activeTab === "usage" ? "dev-panel-tab--active" : ""}`}
-          onClick={() => setActiveTab("usage")}
-          title="LLM token usage and costs"
-          data-tooltip="View DeepSeek API credit balance and LLM token usage across jobs">
-          <Icon name="account_balance_wallet" size="14" color="accent" /> Usage
-        </button>
-        <button
-          className={`dev-panel-tab ${activeTab === "updates" ? "dev-panel-tab--active" : ""}`}
-          onClick={() => setActiveTab("updates")}
-          title="Check for app updates"
-          data-tooltip="Check for and install application updates">
-          <Icon name="system_update" size="14" color="accent" /> Updates
-        </button>
-        <button
-          className={`dev-panel-tab ${activeTab === "logfiles" ? "dev-panel-tab--active" : ""}`}
-          onClick={() => setActiveTab("logfiles")}
-          title="Browse per-job log files"
-          data-tooltip="Select a job to view its pipeline logs — jobs on the left, formatted log details on the right">
-          <Icon name="description" size="14" color="accent" /> Log Files
-        </button>
-        <button
-          className={`dev-panel-tab ${activeTab === "testing" ? "dev-panel-tab--active" : ""}`}
-          onClick={() => setActiveTab("testing")}
-          title="Run Playwright screenshot tests"
-          data-tooltip="Run screenshot tests and edit test variables — variables are saved to config.json">
-          <Icon name="bug_report" size="14" color="accent" /> Testing
-        </button>
+        <Tooltip content="Explore ChromaDB, ephemeral memory, and voiceprint databases">
+          <button
+            className={`dev-panel-tab ${activeTab === "database" ? "dev-panel-tab--active" : ""}`}
+            onClick={() => setActiveTab("database")}
+            title="Browse internal databases"
+            <Icon name="database" size="14" color="accent" /> Database
+          </button>
+        </Tooltip>
+        <Tooltip content="View CPU, memory, and pipeline performance metrics across jobs">
+          <button
+            className={`dev-panel-tab ${activeTab === "performance" ? "dev-panel-tab--active" : ""}`}
+            onClick={() => setActiveTab("performance")}
+            title="Performance metrics across jobs"
+            <Icon name="bolt" size="14" color="accent" /> Performance
+          </button>
+        </Tooltip>
+        <Tooltip content="View DeepSeek API credit balance and LLM token usage across jobs">
+          <button
+            className={`dev-panel-tab ${activeTab === "usage" ? "dev-panel-tab--active" : ""}`}
+            onClick={() => setActiveTab("usage")}
+            title="LLM token usage and costs"
+            <Icon name="account_balance_wallet" size="14" color="accent" /> Usage
+          </button>
+        </Tooltip>
+        <Tooltip content="Check for and install application updates">
+          <button
+            className={`dev-panel-tab ${activeTab === "updates" ? "dev-panel-tab--active" : ""}`}
+            onClick={() => setActiveTab("updates")}
+            title="Check for app updates"
+            <Icon name="system_update" size="14" color="accent" /> Updates
+          </button>
+        </Tooltip>
+        <Tooltip content="Select a job to view its pipeline logs — jobs on the left, formatted log details on the right">
+          <button
+            className={`dev-panel-tab ${activeTab === "logfiles" ? "dev-panel-tab--active" : ""}`}
+            onClick={() => setActiveTab("logfiles")}
+            title="Browse per-job log files"
+            <Icon name="description" size="14" color="accent" /> Log Files
+          </button>
+        </Tooltip>
+        <Tooltip content="Run screenshot tests and edit test variables — variables are saved to config.json">
+          <button
+            className={`dev-panel-tab ${activeTab === "testing" ? "dev-panel-tab--active" : ""}`}
+            onClick={() => setActiveTab("testing")}
+            title="Run Playwright screenshot tests"
+            <Icon name="bug_report" size="14" color="accent" /> Testing
+          </button>
+        </Tooltip>
         <div className="dev-panel-tabs-spacer" />
-        <button
-          className="dev-panel-btn dev-panel-btn-close"
-          onClick={onClose}
-          title="Close developer tools"
-          data-tooltip="Close the developer tools panel">
-          ✕
-        </button>
+        <Tooltip content="Close the developer tools panel">
+          <button
+            className="dev-panel-btn dev-panel-btn-close"
+            onClick={onClose}
+            title="Close developer tools">
+            ✕
+          </button>
+        </Tooltip>
       </div>
 
       {/* Tab content */}

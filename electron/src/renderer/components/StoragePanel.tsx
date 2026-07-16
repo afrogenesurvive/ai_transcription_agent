@@ -8,6 +8,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import Icon from "./Icon";
+import Tooltip from "./Tooltip";
 import LoadingModal from "./LoadingModal";
 import type { StorageUsage } from "../types";
 
@@ -139,12 +140,16 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
   return (
     <div className="config-panel--full" style={{ flex: 1, overflow: "auto" }}>
       <div className="config-header">
-        <h2 data-tooltip="Disk space usage breakdown by category">
-          <Icon name="storage" size="18" color="accent" /> Storage Usage
-        </h2>
-        <button className="config-close-btn" onClick={onClose} title="Close storage panel" data-tooltip="Close the storage panel">
-          <Icon name="close" size="16" />
-        </button>
+        <Tooltip content="Disk space usage breakdown by category">
+          <h2>
+            <Icon name="storage" size="18" color="accent" /> Storage Usage
+          </h2>
+        </Tooltip>
+        <Tooltip content="Close the storage panel">
+          <button className="config-close-btn" onClick={onClose} title="Close storage panel">
+            <Icon name="close" size="16" />
+          </button>
+        </Tooltip>
       </div>
 
       <div className="config-body" style={{ padding: "16px 24px" }}>
@@ -276,37 +281,39 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
 
             {/* Refresh button */}
             <div style={{ marginTop: 20, textAlign: "center" }}>
-              <button
-                className="btn-primary"
-                onClick={fetchUsage}
-                disabled={loading}
-                title="Refresh storage usage data"
-                data-tooltip="Re-fetch disk usage information from the backend">
-                {loading ? (
-                  "Refreshing…"
-                ) : (
-                  <>
-                    <Icon name="refresh" size="14" /> Refresh
-                  </>
-                )}
-              </button>
+              <Tooltip content="Re-fetch disk usage information from the backend">
+                <button
+                  className="btn-primary"
+                  onClick={fetchUsage}
+                  disabled={loading}
+                  title="Refresh storage usage data">
+                  {loading ? (
+                    "Refreshing…"
+                  ) : (
+                    <>
+                      <Icon name="refresh" size="14" /> Refresh
+                    </>
+                  )}
+                </button>
+              </Tooltip>
             </div>
 
             {/* ── Developer Section ── */}
             <hr className="storage-divider" />
             <div className="storage-dev-section">
-              <button
-                className="storage-dev-toggle"
-                onClick={() => setShowDevSection((v) => !v)}
-                title="Toggle developer section"
-                data-tooltip="Show/hide the developer section for managing storage data">
-                <span className="storage-dev-toggle-icon">
+              <Tooltip content="Show/hide the developer section for managing storage data">
+                <button
+                  className="storage-dev-toggle"
+                  onClick={() => setShowDevSection((v) => !v)}
+                  title="Toggle developer section">
+                  <span className="storage-dev-toggle-icon">
                   {showDevSection ? <Icon name="expand_more" size="14" /> : <Icon name="chevron_right" size="14" />}
                 </span>
                 <span className="storage-dev-toggle-label">
                   <Icon name="terminal" size="14" color="accent" /> Developer
                 </span>
               </button>
+              </Tooltip>
 
               {showDevSection && (
                 <div className="storage-dev-content">

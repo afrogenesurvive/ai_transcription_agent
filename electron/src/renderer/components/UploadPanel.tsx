@@ -9,6 +9,7 @@
 
 import React, { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import Icon from "./Icon";
+import Tooltip from "./Tooltip";
 
 interface AttendeeEntry {
   name: string;
@@ -437,25 +438,27 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
 
   return (
     <div className={`panel upload-panel ${disabled ? "upload-panel--disabled" : ""}`}>
-      <h2 data-tooltip="Upload audio files and configure meeting details for transcription">Upload Meeting Audio</h2>
+      <Tooltip content="Upload audio files and configure meeting details for transcription">
+        <h2>Upload Meeting Audio</h2>
+      </Tooltip>
       {disabled && (
         <p className="upload-disabled-notice">
           <Icon name="hourglass_top" size="12" /> A job is currently running. Start a new transcription after it finishes.
         </p>
       )}
 
-      <div
-        className={`drop-zone ${dragOver ? "drag-over" : ""} ${file ? "has-file" : ""}`}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragOver(true);
-        }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={disabled ? undefined : handleDrop}
-        onClick={disabled ? undefined : () => fileInputRef.current?.click()}
-        style={disabled ? { pointerEvents: "none", opacity: 0.5 } : undefined}
-        title={file ? "Click to change file" : "Click to browse or drag and drop an audio file"}
-        data-tooltip={file ? "Click to select a different audio file" : "Drag and drop an audio file here, or click to browse"}>
+      <Tooltip content={file ? "Click to select a different audio file" : "Drag and drop an audio file here, or click to browse"}>
+        <div
+          className={`drop-zone ${dragOver ? "drag-over" : ""} ${file ? "has-file" : ""}`}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={disabled ? undefined : handleDrop}
+          onClick={disabled ? undefined : () => fileInputRef.current?.click()}
+          style={disabled ? { pointerEvents: "none", opacity: 0.5 } : undefined}
+        title={file ? "Click to change file" : "Click to browse or drag and drop an audio file"}>
         {file ? (
           <div className="file-info">
             <span className="file-icon">
@@ -493,50 +496,52 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
           }}
           title="Browse audio files — supports WAV, MP3, M4A, FLAC, OGG, WebM"
         />
-      </div>
+        </div>
+        </Tooltip>
 
       <div className="form-fields" style={disabled ? { opacity: 0.5, pointerEvents: "none" } : undefined}>
         <label>
           Meeting Title
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Q4 Budget Review"
-            disabled={disabled}
-            title="Give your meeting a descriptive title — auto-filled from filename"
-            data-tooltip="Give your meeting a descriptive title — auto-filled from the audio filename"
+          <Tooltip content="Give your meeting a descriptive title — auto-filled from the audio filename">
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Q4 Budget Review"
+              disabled={disabled}
+              title="Give your meeting a descriptive title — auto-filled from filename"
           />
-        </label>
+          </Tooltip>
 
+        </label>
         <div className="attendee-section">
-          <label
-            className="attendee-section-label"
-            data-tooltip="List of meeting participants — names map to speakers, emails are used for delivery"
-            data-tooltip-pos="right">
-            Meeting Attendees <span className="required">*</span>
-          </label>
+          <Tooltip content="List of meeting participants — names map to speakers, emails are used for delivery" position="right">
+            <label className="attendee-section-label">
+              Meeting Attendees <span className="required">*</span>
+            </label>
+          </Tooltip>
           <span className="field-hint">Names map positionally to detected speakers for labeling. Emails are used for delivery.</span>
 
           <div className="attendee-input-row">
             <div className="attendee-autocomplete-wrap">
-              <input
-                ref={nameInputRef}
-                type="text"
-                className="attendee-name-input"
-                value={attendeeName}
-                onChange={(e) => {
-                  setAttendeeName(e.target.value);
-                  if (e.target.value || !disabled) setShowNameSuggestions(true);
-                }}
-                onFocus={() => setShowNameSuggestions(true)}
-                onKeyDown={handleNameKeyDown}
-                placeholder="Name (e.g. Alice Johnson)"
-                disabled={disabled}
-                autoComplete="off"
-                title="Enter attendee name — maps positionally to a detected speaker"
-                data-tooltip="Enter attendee name — maps positionally to a detected speaker"
+              <Tooltip content="Enter attendee name — maps positionally to a detected speaker">
+                <input
+                  ref={nameInputRef}
+                  type="text"
+                  className="attendee-name-input"
+                  value={attendeeName}
+                  onChange={(e) => {
+                    setAttendeeName(e.target.value);
+                    if (e.target.value || !disabled) setShowNameSuggestions(true);
+                  }}
+                  onFocus={() => setShowNameSuggestions(true)}
+                  onKeyDown={handleNameKeyDown}
+                  placeholder="Name (e.g. Alice Johnson)"
+                  disabled={disabled}
+                  autoComplete="off"
+                  title="Enter attendee name — maps positionally to a detected speaker"
               />
+              </Tooltip>
               {showNameSuggestions && nameSuggestions.length > 0 && !disabled && (
                 <div className="attendee-suggestions" ref={nameSuggestRef}>
                   {nameSuggestions.map((entry, i) => (
@@ -556,23 +561,24 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
               )}
             </div>
             <div className="attendee-autocomplete-wrap">
-              <input
-                ref={emailInputRef}
-                type="email"
-                className={`attendee-email-input${formError ? " attendee-email-input--error" : ""}`}
-                value={attendeeEmail}
-                onChange={(e) => {
-                  setAttendeeEmail(e.target.value);
-                  if (e.target.value || !disabled) setShowEmailSuggestions(true);
-                }}
-                onFocus={() => setShowEmailSuggestions(true)}
-                onKeyDown={handleEmailKeyDown}
-                placeholder="Email (optional)"
-                disabled={disabled}
-                autoComplete="off"
-                title="Optional email address for delivery notifications"
-                data-tooltip="Optional email address — used for sending delivery notifications"
+              <Tooltip content="Optional email address — used for sending delivery notifications">
+                <input
+                  ref={emailInputRef}
+                  type="email"
+                  className={`attendee-email-input${formError ? " attendee-email-input--error" : ""}`}
+                  value={attendeeEmail}
+                  onChange={(e) => {
+                    setAttendeeEmail(e.target.value);
+                    if (e.target.value || !disabled) setShowEmailSuggestions(true);
+                  }}
+                  onFocus={() => setShowEmailSuggestions(true)}
+                  onKeyDown={handleEmailKeyDown}
+                  placeholder="Email (optional)"
+                  disabled={disabled}
+                  autoComplete="off"
+                  title="Optional email address for delivery notifications"
               />
+              </Tooltip>
               {showEmailSuggestions && emailSuggestions.length > 0 && !disabled && (
                 <div className="attendee-suggestions" ref={emailSuggestRef}>
                   {emailSuggestions.map((entry, i) => (
@@ -591,14 +597,15 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
                 </div>
               )}
             </div>
-            <button
-              className="btn-attendee-add"
-              onClick={() => addAttendee()}
-              disabled={disabled || !attendeeName.trim()}
-              title="Add this attendee to the list"
-              data-tooltip="Add this attendee to the meeting participant list">
+            <Tooltip content="Add this attendee to the meeting participant list">
+              <button
+                className="btn-attendee-add"
+                onClick={() => addAttendee()}
+                disabled={disabled || !attendeeName.trim()}
+                title="Add this attendee to the list">
               + Add
             </button>
+            </Tooltip>
           </div>
           {formError && (
             <span className="field-error" style={{ marginTop: 4 }}>
@@ -615,17 +622,20 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
                   <span className="attendee-list-name">{a.name}</span>
                   {a.email && <span className="attendee-list-email">{a.email}</span>}
                   {registeredNames.has(a.name.toLowerCase()) && (
-                    <span className="attendee-list-badge" data-tooltip="This attendee is in the registered attendees list">
-                      Registered
-                    </span>
+                    <Tooltip content="This attendee is in the registered attendees list">
+                      <span className="attendee-list-badge">
+                        Registered
+                      </span>
+                    </Tooltip>
                   )}
-                  <button
-                    className="btn-text attendee-remove-btn"
-                    onClick={() => removeAttendee(i)}
-                    title="Remove this attendee from the list"
-                    data-tooltip="Remove this attendee from the list">
+                  <Tooltip content="Remove this attendee from the list">
+                    <button
+                      className="btn-text attendee-remove-btn"
+                      onClick={() => removeAttendee(i)}
+                      title="Remove this attendee from the list">
                     <Icon name="close" size="12" />
                   </button>
+                    </Tooltip>
                 </li>
               ))}
             </ul>
@@ -646,28 +656,31 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
                       {ra.email && <span className="registered-attendee-email">{ra.email}</span>}
                       <div className="registered-attendee-actions">
                         {ra.email && voiceprintEmails.has(ra.email) ? (
-                          <button
-                            className="btn-text attendee-play-btn"
-                            onClick={() => handlePlayVoiceprint(ra.email)}
-                            title={playingVp === ra.email ? "Stop playback" : "Play voice sample"}
-                            data-tooltip={playingVp === ra.email ? "Stop playback" : "Hear a 3-second voice sample of this attendee"}>
-                            <Icon name={playingVp === ra.email ? "stop" : "play_arrow"} size="14" color="accent" />
-                          </button>
+                          <Tooltip content={playingVp === ra.email ? "Stop playback" : "Hear a 3-second voice sample of this attendee"}>
+                            <button
+                              className="btn-text attendee-play-btn"
+                              onClick={() => handlePlayVoiceprint(ra.email)}
+                              title={playingVp === ra.email ? "Stop playback" : "Play voice sample"}>
+                              <Icon name={playingVp === ra.email ? "stop" : "play_arrow"} size="14" color="accent" />
+                            </button>
+                          </Tooltip>
                         ) : ra.email ? (
-                          <span
-                            className="btn-text attendee-play-btn attendee-play-btn--disabled"
-                            title="No voice sample available"
-                            data-tooltip="This attendee does not have an enrolled voiceprint with a sample recording">
-                            <Icon name="play_arrow" size="14" color="muted" />
-                          </span>
+                          <Tooltip content="This attendee does not have an enrolled voiceprint with a sample recording">
+                            <span
+                              className="btn-text attendee-play-btn attendee-play-btn--disabled"
+                              title="No voice sample available">
+                              <Icon name="play_arrow" size="14" color="muted" />
+                            </span>
+                          </Tooltip>
                         ) : null}
-                        <button
-                          className="btn-text attendee-add-btn"
-                          onClick={() => addAttendee(ra.name, ra.email)}
-                          title={`Add ${ra.name} to attendee list`}
-                          data-tooltip={`Click to add ${ra.name} to the meeting participant list`}>
-                          <Icon name="add" size="14" />
-                        </button>
+                        <Tooltip content={`Click to add ${ra.name} to the meeting participant list`}>
+                          <button
+                            className="btn-text attendee-add-btn"
+                            onClick={() => addAttendee(ra.name, ra.email)}
+                            title={`Add ${ra.name} to attendee list`}>
+                            <Icon name="add" size="14" />
+                          </button>
+                        </Tooltip>
                       </div>
                     </div>
                   ))}
@@ -689,28 +702,25 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
 
       {/* <div className="skip-options" style={disabled ? { opacity: 0.5, pointerEvents: "none" } : undefined}>
         {Object.entries(SKIPPABLE_STEPS).map(([toolName, { label, hint }]) => (
-          <label key={toolName} className="skip-checkbox" data-tooltip={`${label} — ${hint.replace(/[()]/g, "")}`}>
-            <input type="checkbox" checked={skipSteps.includes(toolName)} onChange={() => toggleSkip(toolName)} disabled={disabled} />
-            <span>{label}</span>
-            <span className="skip-hint">{hint}</span>
-          </label>
+          <Tooltip content={`${label} — ${hint.replace(/[()]/g, "")}`} position="bottom">
+            <label key={toolName} className="skip-checkbox">
+              <input type="checkbox" checked={skipSteps.includes(toolName)} onChange={() => toggleSkip(toolName)} disabled={disabled} />
+              <span>{label}</span>
+              <span className="skip-hint">{hint}</span>
+            </label>
+          </Tooltip>
         ))}
       </div> */}
 
-      <button
-        className="btn-primary"
-        disabled={!file || attendeeList.length === 0 || uploading || disabled}
-        onClick={handleSubmit}
-        title={uploading ? "Upload in progress" : disabled ? "A job is already running" : "Submit audio and begin transcription"}
-        data-tooltip={
-          uploading
-            ? "Uploading audio file to the server…"
-            : disabled
-              ? "Wait for the current job to finish before starting a new one"
-              : "Upload audio and start the transcription pipeline"
-        }>
+      <Tooltip content={uploading ? "Uploading audio file to the server…" : disabled ? "Wait for the current job to finish before starting a new one" : "Upload audio and start the transcription pipeline"}>
+        <button
+          className="btn-primary"
+          disabled={!file || attendeeList.length === 0 || uploading || disabled}
+          onClick={handleSubmit}
+          title={uploading ? "Upload in progress" : disabled ? "A job is already running" : "Submit audio and begin transcription"}>
         {uploading ? "Uploading..." : disabled ? "Job Running — Form Disabled" : "Start Transcription"}
       </button>
+      </Tooltip>
     </div>
   );
 }

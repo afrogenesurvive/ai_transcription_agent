@@ -28,6 +28,7 @@ import AppearancePanel from "./components/AppearancePanel";
 import ServerStatusBanner from "./components/ServerStatusBanner";
 import SpeakerLabelModal from "./components/SpeakerLabelModal";
 import LoadingModal from "./components/LoadingModal";
+import Tooltip from "./components/Tooltip";
 import Icon from "./components/Icon";
 import { useApi } from "./hooks/useApi";
 import { useJobStatus } from "./hooks/useJobStatus";
@@ -312,11 +313,10 @@ export default function App() {
         labelingNotifiedRef.current = true;
         const jobTitle = jobMetadata?.title || "Untitled Meeting";
         notify(`"${jobTitle}" — speaker identification needed`);
-        window.electronAPI?.showNotification(
-          "Speaker Labels Needed",
-          `"${jobTitle}" — click to identify speakers`,
-          { action: "view_results", jobId },
-        );
+        window.electronAPI?.showNotification("Speaker Labels Needed", `"${jobTitle}" — click to identify speakers`, {
+          action: "view_results",
+          jobId,
+        });
       }
 
       api
@@ -530,44 +530,48 @@ export default function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1 data-tooltip="Home — Transcription Agent desktop app">
-          <Icon name="mic" size="24" color="accent" /> Transcription Agent
-        </h1>
+        <Tooltip content="Home — Transcription Agent desktop app">
+          <h1>
+            <Icon name="mic" size="24" color="accent" /> Transcription Agent
+          </h1>
+        </Tooltip>
         {isJobRunning && jobId && (
-          <span
-            className="app-header-job-indicator app-header-job-indicator--clickable"
-            data-tooltip={`Job running — click to copy full job ID`}
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(jobId);
-                notify(`Job ID copied: ${jobId.slice(0, 8)}`);
-              } catch {
-                notify("Failed to copy job ID");
-              }
-            }}>
-            <span className="app-header-job-indicator-dot" />
-            <span className="app-header-job-indicator-text">
-              Job Running
-              <span className="app-header-job-indicator-sep">·</span>
-              <span className="app-header-job-indicator-id">{jobId.slice(0, 8)}</span>
+          <Tooltip content={`Job running — click to copy full job ID`}>
+            <span
+              className="app-header-job-indicator app-header-job-indicator--clickable"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(jobId);
+                  notify(`Job ID copied: ${jobId.slice(0, 8)}`);
+                } catch {
+                  notify("Failed to copy job ID");
+                }
+              }}>
+              <span className="app-header-job-indicator-dot" />
+              <span className="app-header-job-indicator-text">
+                Job Running
+                <span className="app-header-job-indicator-sep">·</span>
+                <span className="app-header-job-indicator-id">{jobId.slice(0, 8)}</span>
+              </span>
             </span>
-          </span>
+          </Tooltip>
         )}
       </header>
 
       {notification && (
         <div className="notification" onClick={() => setNotification(null)}>
           <span className="notification-text">{notification}</span>
-          <button
-            className="notification-close"
-            onClick={(e) => {
-              e.stopPropagation();
-              setNotification(null);
-            }}
-            title="Dismiss this notification"
-            data-tooltip="Dismiss this notification">
-            <Icon name="close" size="14" />
-          </button>
+          <Tooltip content="Dismiss this notification">
+            <button
+              className="notification-close"
+              onClick={(e) => {
+                e.stopPropagation();
+                setNotification(null);
+              }}
+              title="Dismiss this notification">
+              <Icon name="close" size="14" />
+            </button>
+          </Tooltip>
         </div>
       )}
 
@@ -590,141 +594,141 @@ export default function App() {
       <div className="app-body">
         <nav className="sidebar" ref={sidebarRef}>
           <div className="sidebar-resize-handle" onMouseDown={handleSidebarMouseDown} />
-          <button
-            className={`sidebar-btn ${showNewForm ? "sidebar-btn--active" : ""}`}
-            onClick={() => {
-              setShowNewForm(true);
-              setSidebarView("current");
-              setShowHistory(false);
-            }}
-            disabled={isJobRunning}
-            title={
-              isJobRunning
-                ? "A job is currently running — wait for it to finish"
-                : "Start a new transcription — upload audio and configure meeting details"
-            }
-            data-tooltip-pos="right"
-            data-tooltip={
-              isJobRunning
-                ? "A transcription job is in progress — start a new one after it finishes"
-                : "Start a new transcription — upload audio and configure meeting details"
-            }>
-            <span className="sidebar-btn-icon">
-              <Icon name="add_circle" size="16" />
-            </span>
-            <span className="sidebar-btn-label">New</span>
-          </button>
-          <button
-            className={`sidebar-btn ${sidebarView === "current" && !showHistory && !showNewForm ? "sidebar-btn--active" : ""}`}
-            onClick={() => {
-              setSidebarView("current");
-              setShowNewForm(false);
-              setShowHistory(false);
-              setHistoryJobId(null);
-            }}
-            title="View active or most recent job — pipeline progress, transcript, and results"
-            data-tooltip-pos="right"
-            data-tooltip="View active or most recent job — pipeline progress, transcript, and results">
-            <span className="sidebar-btn-icon">
-              <Icon name="home" size="16" />
-            </span>
-            <span className="sidebar-btn-label">Current</span>
-          </button>
-          <button
-            className={`sidebar-btn ${showHistory && sidebarView === "current" ? "sidebar-btn--active" : ""}`}
-            onClick={() => {
-              if (showHistory) {
+          <Tooltip
+            content={isJobRunning
+              ? "A transcription job is in progress — start a new one after it finishes"
+              : "Start a new transcription — upload audio and configure meeting details"}
+            position="right">
+            <button
+              className={`sidebar-btn ${showNewForm ? "sidebar-btn--active" : ""}`}
+              onClick={() => {
+                setShowNewForm(true);
+                setSidebarView("current");
+                setShowHistory(false);
+              }}
+              disabled={isJobRunning}
+              title={
+                isJobRunning
+                  ? "A job is currently running — wait for it to finish"
+                  : "Start a new transcription — upload audio and configure meeting details"
+              }>
+              <span className="sidebar-btn-icon">
+                <Icon name="add_circle" size="16" />
+              </span>
+              <span className="sidebar-btn-label">New</span>
+            </button>
+          </Tooltip>
+          <Tooltip content="View active or most recent job — pipeline progress, transcript, and results" position="right">
+            <button
+              className={`sidebar-btn ${sidebarView === "current" && !showHistory && !showNewForm ? "sidebar-btn--active" : ""}`}
+              onClick={() => {
+                setSidebarView("current");
+                setShowNewForm(false);
+                setShowHistory(false);
                 setHistoryJobId(null);
-              }
-              setSidebarView("current");
-              setShowNewForm(false);
-              setShowHistory((v) => !v);
-            }}
-            title="Browse past transcription jobs — reload or delete previous sessions"
-            data-tooltip-pos="right"
-            data-tooltip="Browse past transcription jobs — reload or delete previous sessions">
-            <span className="sidebar-btn-icon">
-              <Icon name="history" size="16" />
-            </span>
-            <span className="sidebar-btn-label">History</span>
-          </button>
-          <button
-            className={`sidebar-btn ${sidebarView === "storage" ? "sidebar-btn--active" : ""}`}
-            onClick={() => {
-              setSidebarView("storage");
-              setShowNewForm(false);
-              setShowHistory(false);
-            }}
-            title="View disk usage breakdown — jobs, logs, databases, and models"
-            data-tooltip-pos="right"
-            data-tooltip="View disk usage breakdown — jobs, logs, databases, and models">
-            <span className="sidebar-btn-icon">
-              <Icon name="storage" size="16" />
-            </span>
-            <span className="sidebar-btn-label">Storage</span>
-          </button>
-          <button
-            className={`sidebar-btn ${sidebarView === "dev" ? "sidebar-btn--active" : ""}`}
-            onClick={() => {
-              setSidebarView("dev");
-              setShowNewForm(false);
-              setShowHistory(false);
-            }}
-            title="Developer tools — live logs, database browser, performance metrics, and updates"
-            data-tooltip-pos="right"
-            data-tooltip="Developer tools — live logs, database browser, performance metrics, and updates">
-            <span className="sidebar-btn-icon">
-              <Icon name="build" size="16" />
-            </span>
-            <span className="sidebar-btn-label">Dev</span>
-          </button>
-          <button
-            className={`sidebar-btn ${sidebarView === "config" ? "sidebar-btn--active" : ""}`}
-            onClick={() => {
-              setSidebarView("config");
-              setShowNewForm(false);
-              setShowHistory(false);
-              window.electronAPI?.getConfigWithSources();
-            }}
-            title="Configure API keys, LLM provider, delivery services, and agent pipeline settings"
-            data-tooltip-pos="right"
-            data-tooltip="Configure API keys, LLM provider, delivery services, and agent pipeline settings">
-            <span className="sidebar-btn-icon">
-              <Icon name="settings" size="16" />
-            </span>
-            <span className="sidebar-btn-label">Config</span>
-            {!configOk && <span className="sidebar-badge" />}
-          </button>
-          <button
-            className={`sidebar-btn ${sidebarView === "appearance" ? "sidebar-btn--active" : ""}`}
-            onClick={() => {
-              setSidebarView("appearance");
-              setShowNewForm(false);
-              setShowHistory(false);
-            }}
-            title="Customize theme, accent color, font size, and sidebar width"
-            data-tooltip-pos="right"
-            data-tooltip="Customize theme, accent color, font size, and sidebar width">
-            <span className="sidebar-btn-icon">
-              <Icon name="palette" size="16" />
-            </span>
-            <span className="sidebar-btn-label">Appearance</span>
-          </button>
-          <button
-            className={`sidebar-btn ${sidebarView === "about" ? "sidebar-btn--active" : ""}`}
-            onClick={() => {
-              setSidebarView("about");
-              setShowNewForm(false);
-              setShowHistory(false);
-            }}
-            title="App version, name, and README — learn about the Transcription Agent"
-            data-tooltip-pos="right"
-            data-tooltip="App version, name, and README — learn about the Transcription Agent">
-            <span className="sidebar-btn-icon">
-              <Icon name="info" size="16" />
-            </span>
-            <span className="sidebar-btn-label">About</span>
-          </button>
+              }}
+              title="View active or most recent job — pipeline progress, transcript, and results">
+              <span className="sidebar-btn-icon">
+                <Icon name="home" size="16" />
+              </span>
+              <span className="sidebar-btn-label">Current</span>
+            </button>
+          </Tooltip>
+          <Tooltip content="Browse past transcription jobs — reload or delete previous sessions" position="right">
+            <button
+              className={`sidebar-btn ${showHistory && sidebarView === "current" ? "sidebar-btn--active" : ""}`}
+              onClick={() => {
+                if (showHistory) {
+                  setHistoryJobId(null);
+                }
+                setSidebarView("current");
+                setShowNewForm(false);
+                setShowHistory((v) => !v);
+              }}
+              title="Browse past transcription jobs — reload or delete previous sessions">
+              <span className="sidebar-btn-icon">
+                <Icon name="history" size="16" />
+              </span>
+              <span className="sidebar-btn-label">History</span>
+            </button>
+          </Tooltip>
+          <Tooltip content="View disk usage breakdown — jobs, logs, databases, and models" position="right">
+            <button
+              className={`sidebar-btn ${sidebarView === "storage" ? "sidebar-btn--active" : ""}`}
+              onClick={() => {
+                setSidebarView("storage");
+                setShowNewForm(false);
+                setShowHistory(false);
+              }}
+              title="View disk usage breakdown — jobs, logs, databases, and models">
+              <span className="sidebar-btn-icon">
+                <Icon name="storage" size="16" />
+              </span>
+              <span className="sidebar-btn-label">Storage</span>
+            </button>
+          </Tooltip>
+          <Tooltip content="Developer tools — live logs, database browser, performance metrics, and updates" position="right">
+            <button
+              className={`sidebar-btn ${sidebarView === "dev" ? "sidebar-btn--active" : ""}`}
+              onClick={() => {
+                setSidebarView("dev");
+                setShowNewForm(false);
+                setShowHistory(false);
+              }}
+              title="Developer tools — live logs, database browser, performance metrics, and updates">
+              <span className="sidebar-btn-icon">
+                <Icon name="build" size="16" />
+              </span>
+              <span className="sidebar-btn-label">Dev</span>
+            </button>
+          </Tooltip>
+          <Tooltip content="Configure API keys, LLM provider, delivery services, and agent pipeline settings" position="right">
+            <button
+              className={`sidebar-btn ${sidebarView === "config" ? "sidebar-btn--active" : ""}`}
+              onClick={() => {
+                setSidebarView("config");
+                setShowNewForm(false);
+                setShowHistory(false);
+                window.electronAPI?.getConfigWithSources();
+              }}
+              title="Configure API keys, LLM provider, delivery services, and agent pipeline settings">
+              <span className="sidebar-btn-icon">
+                <Icon name="settings" size="16" />
+              </span>
+              <span className="sidebar-btn-label">Config</span>
+              {!configOk && <span className="sidebar-badge" />}
+            </button>
+          </Tooltip>
+          <Tooltip content="Customize theme, accent color, font size, and sidebar width" position="right">
+            <button
+              className={`sidebar-btn ${sidebarView === "appearance" ? "sidebar-btn--active" : ""}`}
+              onClick={() => {
+                setSidebarView("appearance");
+                setShowNewForm(false);
+                setShowHistory(false);
+              }}
+              title="Customize theme, accent color, font size, and sidebar width">
+              <span className="sidebar-btn-icon">
+                <Icon name="palette" size="16" />
+              </span>
+              <span className="sidebar-btn-label">Appearance</span>
+            </button>
+          </Tooltip>
+          <Tooltip content="App version, name, and README — learn about the Transcription Agent" position="right">
+            <button
+              className={`sidebar-btn ${sidebarView === "about" ? "sidebar-btn--active" : ""}`}
+              onClick={() => {
+                setSidebarView("about");
+                setShowNewForm(false);
+                setShowHistory(false);
+              }}
+              title="App version, name, and README — learn about the Transcription Agent">
+              <span className="sidebar-btn-icon">
+                <Icon name="info" size="16" />
+              </span>
+              <span className="sidebar-btn-label">About</span>
+            </button>
+          </Tooltip>
         </nav>
 
         <main className="app-main">

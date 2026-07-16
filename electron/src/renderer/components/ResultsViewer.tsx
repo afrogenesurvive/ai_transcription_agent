@@ -12,6 +12,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import Icon from "./Icon";
+import Tooltip from "./Tooltip";
 import LoadingModal from "./LoadingModal";
 import type { TranscriptionSegment, AnalysisData } from "../types";
 
@@ -224,23 +225,24 @@ function TranscriptTab({ segments }: { segments?: TranscriptionSegment[] }) {
           <span className="rv-search-icon">
             <Icon name="search" size="14" color="muted" />
           </span>
-          <input
-            type="text"
-            placeholder="Search transcript…"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="rv-search-input"
-            title="Search through transcript text by speaker name or keyword"
-            data-tooltip="Search through transcript text by speaker name or keyword"
+          <Tooltip content="Search through transcript text by speaker name or keyword">
+            <input
+              type="text"
+              placeholder="Search transcript…"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="rv-search-input"
+              title="Search through transcript text by speaker name or keyword"
           />
           {searchTerm && (
-            <button
-              className="rv-search-clear"
-              onClick={() => setSearchTerm("")}
-              title="Clear search"
-              data-tooltip="Clear the transcript search term">
-              <Icon name="close" size="12" />
-            </button>
+            <Tooltip content="Clear the transcript search term">
+              <button
+                className="rv-search-clear"
+                onClick={() => setSearchTerm("")}
+                title="Clear search">
+                <Icon name="close" size="12" />
+              </button>
+            </Tooltip>
           )}
         </div>
       </div>
@@ -770,13 +772,14 @@ function LogsTab({ jobId }: { jobId: string }) {
                       {group.level === "error" ? "!" : group.level === "warn" ? "▲" : ""}
                     </span>
                     <span className="rv-log-line-text">{group.lines[0].message}</span>
-                    <button
-                      className="rv-log-prettify-btn"
-                      onClick={() => setPrettifiedBlock(group.lines[0].message)}
-                      title="View prettified"
-                      data-tooltip="Open this log entry in the prettified viewer">
-                      <Icon name="open_in_new" size="10" />
-                    </button>
+                    <Tooltip content="Open this log entry in the prettified viewer">
+                      <button
+                        className="rv-log-prettify-btn"
+                        onClick={() => setPrettifiedBlock(group.lines[0].message)}
+                        title="View prettified">
+                        <Icon name="open_in_new" size="10" />
+                      </button>
+                    </Tooltip>
                   </div>
                 )}
                 {isGroup && (
@@ -797,13 +800,14 @@ function LogsTab({ jobId }: { jobId: string }) {
                         </span>
                         <span className="rv-log-summary-msg">{group.lines[0].message}</span>
                       </span>
-                      <button
-                        className="rv-log-prettify-btn rv-log-prettify-btn--group"
-                        onClick={() => setPrettifiedBlock(group.lines.map((l) => l.message).join("\n"))}
-                        title="View all lines prettified"
-                        data-tooltip="Open the entire group content in the prettified viewer">
-                        <Icon name="open_in_new" size="10" />
-                      </button>
+                      <Tooltip content="Open the entire group content in the prettified viewer">
+                        <button
+                          className="rv-log-prettify-btn rv-log-prettify-btn--group"
+                          onClick={() => setPrettifiedBlock(group.lines.map((l) => l.message).join("\n"))}
+                          title="View all lines prettified">
+                          <Icon name="open_in_new" size="10" />
+                        </button>
+                      </Tooltip>
                       <span className="rv-log-group-badge">{group.lines.length} lines</span>
                     </summary>
                     <div className="rv-log-group-lines">
@@ -811,13 +815,14 @@ function LogsTab({ jobId }: { jobId: string }) {
                         <div key={li} className="rv-log-line rv-log-line--nested">
                           <span className="rv-log-gutter">│</span>
                           <span className="rv-log-line-text">{line.message}</span>
-                          <button
-                            className="rv-log-prettify-btn"
-                            onClick={() => setPrettifiedBlock(line.message)}
-                            title="View prettified"
-                            data-tooltip="Open this log entry in the prettified viewer">
-                            <Icon name="open_in_new" size="10" />
-                          </button>
+                          <Tooltip content="Open this log entry in the prettified viewer">
+                            <button
+                              className="rv-log-prettify-btn"
+                              onClick={() => setPrettifiedBlock(line.message)}
+                              title="View prettified">
+                              <Icon name="open_in_new" size="10" />
+                            </button>
+                          </Tooltip>
                         </div>
                       ))}
                     </div>
@@ -923,13 +928,14 @@ function LogsTab({ jobId }: { jobId: string }) {
                     }
                   />
                   {searchQuery && (
-                    <button
-                      className="rv-logs-search-clear"
-                      onClick={() => setSearchQuery("")}
-                      title="Clear search"
-                      data-tooltip="Clear the log search query">
-                      <Icon name="close" size="12" />
-                    </button>
+                    <Tooltip content="Clear the log search query">
+                      <button
+                        className="rv-logs-search-clear"
+                        onClick={() => setSearchQuery("")}
+                        title="Clear search">
+                        <Icon name="close" size="12" />
+                      </button>
+                    </Tooltip>
                   )}
                 </div>
                 <select
@@ -984,13 +990,14 @@ function LogsTab({ jobId }: { jobId: string }) {
                   <option value="error">Errors</option>
                   <option value="debug">Debug</option>
                 </select>
-                <label
-                  className="rv-logs-toggle"
-                  title="Collapse consecutive log entries with identical source/sub-source/level"
-                  data-tooltip="Collapse repeated prefix groups">
-                  <input type="checkbox" checked={collapseRepeated} onChange={(e) => setCollapseRepeated(e.target.checked)} />
-                  <Icon name="compress" size="12" /> Group
-                </label>
+                <Tooltip content="Collapse repeated prefix groups">
+                  <label
+                    className="rv-logs-toggle"
+                    title="Collapse consecutive log entries with identical source/sub-source/level">
+                    <input type="checkbox" checked={collapseRepeated} onChange={(e) => setCollapseRepeated(e.target.checked)} />
+                    <Icon name="compress" size="12" /> Group
+                  </label>
+                </Tooltip>
               </div>
               <span className="rv-logs-filter-count">
                 {filteredEntries.length} / {rawLogs.length} entry{rawLogs.length !== 1 ? "ies" : "y"}
@@ -1024,13 +1031,14 @@ function LogsTab({ jobId }: { jobId: string }) {
                               {group.level === "error" ? "!" : group.level === "warn" ? "▲" : ""}
                             </span>
                             <span className="rv-log-line-text">{highlightText(group.lines[0].message)}</span>
-                            <button
-                              className="rv-log-prettify-btn"
-                              onClick={() => setPrettifiedBlock(group.lines[0].message)}
-                              title="View prettified"
-                              data-tooltip="Open this log entry in the prettified viewer">
-                              <Icon name="open_in_new" size="10" />
-                            </button>
+                            <Tooltip content="Open this log entry in the prettified viewer">
+                              <button
+                                className="rv-log-prettify-btn"
+                                onClick={() => setPrettifiedBlock(group.lines[0].message)}
+                                title="View prettified">
+                                <Icon name="open_in_new" size="10" />
+                              </button>
+                            </Tooltip>
                           </div>
                         )}
                         {/* ── Multi-line group: collapsible ── */}
@@ -1052,13 +1060,14 @@ function LogsTab({ jobId }: { jobId: string }) {
                                 </span>
                                 <span className="rv-log-summary-msg">{group.lines[0].message}</span>
                               </span>
-                              <button
-                                className="rv-log-prettify-btn rv-log-prettify-btn--group"
-                                onClick={() => setPrettifiedBlock(group.lines.map((l) => l.message).join("\n"))}
-                                title="View all lines prettified"
-                                data-tooltip="Open the entire group content in the prettified viewer">
-                                <Icon name="open_in_new" size="10" />
-                              </button>
+                              <Tooltip content="Open the entire group content in the prettified viewer">
+                                <button
+                                  className="rv-log-prettify-btn rv-log-prettify-btn--group"
+                                  onClick={() => setPrettifiedBlock(group.lines.map((l) => l.message).join("\n"))}
+                                  title="View all lines prettified">
+                                  <Icon name="open_in_new" size="10" />
+                                </button>
+                              </Tooltip>
                               <span className="rv-log-group-badge">{group.lines.length} lines</span>
                             </summary>
                             <div className="rv-log-group-lines">
@@ -1066,13 +1075,14 @@ function LogsTab({ jobId }: { jobId: string }) {
                                 <div key={li} className="rv-log-line rv-log-line--nested">
                                   <span className="rv-log-gutter">│</span>
                                   <span className="rv-log-line-text">{highlightText(line.message)}</span>
-                                  <button
-                                    className="rv-log-prettify-btn"
-                                    onClick={() => setPrettifiedBlock(line.message)}
-                                    title="View prettified"
-                                    data-tooltip="Open this log entry in the prettified viewer">
-                                    <Icon name="open_in_new" size="10" />
-                                  </button>
+                                  <Tooltip content="Open this log entry in the prettified viewer">
+                                    <button
+                                      className="rv-log-prettify-btn"
+                                      onClick={() => setPrettifiedBlock(line.message)}
+                                      title="View prettified">
+                                      <Icon name="open_in_new" size="10" />
+                                    </button>
+                                  </Tooltip>
                                 </div>
                               ))}
                             </div>
@@ -1124,9 +1134,11 @@ function LogsTab({ jobId }: { jobId: string }) {
               <h3 className="rv-prettify-title">
                 <Icon name="open_in_new" size="14" color="accent" /> Prettified View
               </h3>
-              <button className="rv-prettify-close" onClick={() => setPrettifiedBlock(null)} title="Close" data-tooltip="Close prettified view">
-                <Icon name="close" size="14" />
-              </button>
+              <Tooltip content="Close prettified view">
+                <button className="rv-prettify-close" onClick={() => setPrettifiedBlock(null)} title="Close">
+                  <Icon name="close" size="14" />
+                </button>
+              </Tooltip>
             </div>
             <div className="rv-prettify-tabs">
               <button className="rv-prettify-tab rv-prettify-tab--active">Text</button>
@@ -1135,13 +1147,14 @@ function LogsTab({ jobId }: { jobId: string }) {
               <pre className="rv-prettify-content">{prettifiedBlock}</pre>
             </div>
             <div className="rv-prettify-footer">
-              <button
-                className="rv-prettify-copy-btn"
-                onClick={() => navigator.clipboard.writeText(prettifiedBlock)}
-                title="Copy to clipboard"
-                data-tooltip="Copy the prettified content to your clipboard">
-                <Icon name="content_copy" size="12" /> Copy
-              </button>
+              <Tooltip content="Copy the prettified content to your clipboard">
+                <button
+                  className="rv-prettify-copy-btn"
+                  onClick={() => navigator.clipboard.writeText(prettifiedBlock)}
+                  title="Copy to clipboard">
+                  <Icon name="content_copy" size="12" /> Copy
+                </button>
+              </Tooltip>
             </div>
           </div>
         </div>
@@ -1849,20 +1862,22 @@ function AttendeesTab({ jobId }: { jobId: string }) {
                 </div>
                 <div className="rv-attendee-actions">
                   {att.has_sample ? (
-                    <button
-                      className={`rv-attendee-play-btn ${playingEmail === att.email ? "rv-attendee-play-btn--playing" : ""}`}
-                      onClick={() => handlePlaySample(att.email)}
-                      title={playingEmail === att.email ? "Stop playback" : "Play voice sample"}
-                      data-tooltip={playingEmail === att.email ? "Click to stop playback" : "Play this attendee's voice sample"}>
-                      {playingEmail === att.email ? <Icon name="stop" size="16" /> : <Icon name="play_arrow" size="16" />}
-                    </button>
+                    <Tooltip content={playingEmail === att.email ? "Click to stop playback" : "Play this attendee's voice sample"}>
+                      <button
+                        className={`rv-attendee-play-btn ${playingEmail === att.email ? "rv-attendee-play-btn--playing" : ""}`}
+                        onClick={() => handlePlaySample(att.email)}
+                        title={playingEmail === att.email ? "Stop playback" : "Play voice sample"}>
+                        {playingEmail === att.email ? <Icon name="stop" size="16" /> : <Icon name="play_arrow" size="16" />}
+                      </button>
+                    </Tooltip>
                   ) : (
-                    <span
-                      className="rv-attendee-no-sample"
-                      title="No audio sample available"
-                      data-tooltip="This voiceprint was enrolled without an audio sample">
-                      <Icon name="volume_off" size="14" color="muted" />
-                    </span>
+                    <Tooltip content="This voiceprint was enrolled without an audio sample">
+                      <span
+                        className="rv-attendee-no-sample"
+                        title="No audio sample available">
+                        <Icon name="volume_off" size="14" color="muted" />
+                      </span>
+                    </Tooltip>
                   )}
                 </div>
               </div>
@@ -2567,8 +2582,7 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
                   setActiveTab(tab.id);
                   setActiveDevSubTab(tab.subTabs[0].id);
                 }}
-                title={tabDescriptions[tab.id] || tab.label}
-                data-tooltip={tabDescriptions[tab.id] || tab.label}>
+                title={tabDescriptions[tab.id] || tab.label}>
                 <span className="rv-tab-icon">
                   <Icon name={tab.icon} size="14" />
                 </span>
@@ -2584,8 +2598,7 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
               key={tab.id}
               className={`rv-tab ${activeTab === tab.id ? "rv-tab--active" : ""}`}
               onClick={() => setActiveTab(tab.id)}
-              title={tabDescriptions[tab.id] || tab.label}
-              data-tooltip={tabDescriptions[tab.id] || tab.label}>
+              title={tabDescriptions[tab.id] || tab.label}>
               <span className="rv-tab-icon">
                 <Icon name={tab.icon} size="14" />
               </span>
@@ -2605,15 +2618,16 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
           {metadata?.title && <span className="rv-panel-subtitle">{metadata.title}</span>}
         </div>
         <div className="rv-panel-header-right">
-          <span
-            className="rv-job-badge"
-            title="Click to copy job ID to clipboard"
-            data-tooltip="Click to copy the full job ID to your clipboard"
-            onClick={() => {
-              navigator.clipboard.writeText(jobId);
-            }}>
-            <Icon name="badge" size="12" color="muted" /> {jobId.slice(0, 12)}…
-          </span>
+          <Tooltip content="Click to copy the full job ID to your clipboard">
+            <span
+              className="rv-job-badge"
+              title="Click to copy job ID to clipboard"
+              onClick={() => {
+                navigator.clipboard.writeText(jobId);
+              }}>
+              <Icon name="badge" size="12" color="muted" /> {jobId.slice(0, 12)}…
+            </span>
+          </Tooltip>
         </div>
       </div>
 
@@ -2642,14 +2656,15 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
             {/* Sub-tab navigation bar */}
             <div className="rv-dev-subtabs">
               {DEV_SUB_TABS.map((st) => (
-                <button
-                  key={st.id}
-                  className={`rv-dev-subtab ${activeDevSubTab === st.id ? "rv-dev-subtab--active" : ""}`}
-                  onClick={() => setActiveDevSubTab(st.id)}
-                  title={`View ${st.label}`}
-                  data-tooltip={`View ${st.label.toLowerCase()} details for this job`}>
-                  <Icon name={st.icon} size="12" /> {st.label}
-                </button>
+                <Tooltip content={`View ${st.label.toLowerCase()} details for this job`}>
+                  <button
+                    key={st.id}
+                    className={`rv-dev-subtab ${activeDevSubTab === st.id ? "rv-dev-subtab--active" : ""}`}
+                    onClick={() => setActiveDevSubTab(st.id)}
+                    title={`View ${st.label}`}>
+                    <Icon name={st.icon} size="12" /> {st.label}
+                  </button>
+                </Tooltip>
               ))}
             </div>
             {/* Sub-tab content */}

@@ -10,6 +10,7 @@
 
 import React, { useState } from "react";
 import Icon from "./Icon";
+import Tooltip from "./Tooltip";
 
 interface Props {
   status: string;
@@ -259,22 +260,23 @@ export default function PipelineProgress({
       {/* ── Stop button (during active processing) ── */}
       {isProcessing && onCancel && (
         <div className="pp-stop-row">
-          <button
-            className="pp-stop-btn"
-            onClick={() => setShowConfirmCancel(true)}
-            disabled={cancelling}
-            title="Stop the current transcription job"
-            data-tooltip="Cancels the running job — partial results may still be available">
-            {cancelling ? (
-              <>
-                <Icon name="hourglass_top" size="14" /> Stopping…
-              </>
-            ) : (
-              <>
-                <Icon name="stop" size="14" /> Stop Processing
-              </>
-            )}
-          </button>
+          <Tooltip content="Cancels the running job — partial results may still be available">
+            <button
+              className="pp-stop-btn"
+              onClick={() => setShowConfirmCancel(true)}
+              disabled={cancelling}
+              title="Stop the current transcription job">
+              {cancelling ? (
+                <>
+                  <Icon name="hourglass_top" size="14" /> Stopping…
+                </>
+              ) : (
+                <>
+                  <Icon name="stop" size="14" /> Stop Processing
+                </>
+              )}
+            </button>
+          </Tooltip>
           <span className="pp-stop-hint">Stops the pipeline and marks the job as cancelled.</span>
         </div>
       )}
@@ -291,23 +293,25 @@ export default function PipelineProgress({
               cannot be undone.
             </p>
             <div className="pp-confirm-actions">
-              <button
-                className="pp-confirm-cancel-btn"
-                onClick={() => setShowConfirmCancel(false)}
-                title="Go back — do not cancel"
-                data-tooltip="Resume processing without cancelling">
-                Continue Processing
-              </button>
-              <button
-                className="pp-confirm-stop-btn"
-                onClick={() => {
-                  setShowConfirmCancel(false);
-                  onCancel?.();
-                }}
-                title="Confirm — cancel this job permanently"
-                data-tooltip="Permanently cancel the transcription job">
-                Yes, Stop It
-              </button>
+              <Tooltip content="Resume processing without cancelling">
+                <button
+                  className="pp-confirm-cancel-btn"
+                  onClick={() => setShowConfirmCancel(false)}
+                  title="Go back — do not cancel">
+                  Continue Processing
+                </button>
+              </Tooltip>
+              <Tooltip content="Permanently cancel the transcription job">
+                <button
+                  className="pp-confirm-stop-btn"
+                  onClick={() => {
+                    setShowConfirmCancel(false);
+                    onCancel?.();
+                  }}
+                  title="Confirm — cancel this job permanently">
+                  Yes, Stop It
+                </button>
+              </Tooltip>
             </div>
           </div>
         </div>
@@ -322,13 +326,14 @@ export default function PipelineProgress({
           <p className="pp-error-message">{error}</p>
           <p className="pp-error-hint">You can go back and try uploading again, or check the developer logs for details.</p>
           {onNewJob && (
-            <button
-              className="pp-new-job-btn"
-              onClick={onNewJob}
-              title="Start a new transcription job"
-              data-tooltip="Clear the current failed job and start fresh">
-              <Icon name="add_circle" size="14" /> New Job
-            </button>
+            <Tooltip content="Clear the current failed job and start fresh">
+              <button
+                className="pp-new-job-btn"
+                onClick={onNewJob}
+                title="Start a new transcription job">
+                <Icon name="add_circle" size="14" /> New Job
+              </button>
+            </Tooltip>
           )}
         </div>
       )}

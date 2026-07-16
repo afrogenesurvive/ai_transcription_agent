@@ -15,6 +15,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import Icon from "./Icon";
+import Tooltip from "./Tooltip";
 import LoadingModal from "./LoadingModal";
 import type { PipelineStep, ConfigValueSource } from "../types";
 
@@ -891,51 +892,58 @@ The system provides existing memory context at the start of each pipeline run. U
       {/* Header: action buttons only */}
       <div className="config-header">
         <div className="config-io-buttons">
-          <button
-            className="config-io-btn"
-            onClick={handleExport}
-            disabled={exporting}
-            title="Export configuration to a JSON file"
-            data-tooltip="Save current configuration to a JSON file for backup or transfer">
-            {exporting ? <Icon name="sync" size="14" /> : <Icon name="upload" size="14" />} Export
-          </button>
-          <button
-            className="config-io-btn"
-            onClick={handleImport}
-            disabled={importing}
-            title="Import configuration from a JSON file"
-            data-tooltip="Load configuration from a previously exported JSON file">
-            {importing ? <Icon name="sync" size="14" /> : <Icon name="download" size="14" />} Import
-          </button>
+          <Tooltip content="Save current configuration to a JSON file for backup or transfer">
+            <button
+              className="config-io-btn"
+              onClick={handleExport}
+              disabled={exporting}
+              title="Export configuration to a JSON file">
+              {exporting ? <Icon name="sync" size="14" /> : <Icon name="upload" size="14" />} Export
+            </button>
+          </Tooltip>
+          <Tooltip content="Load configuration from a previously exported JSON file">
+            <button
+              className="config-io-btn"
+              onClick={handleImport}
+              disabled={importing}
+              title="Import configuration from a JSON file">
+              {importing ? <Icon name="sync" size="14" /> : <Icon name="download" size="14" />} Import
+            </button>
+          </Tooltip>
         </div>
-        <button className="config-close-btn" onClick={onClose} title="Close configuration panel" data-tooltip="Close the configuration panel">
-          <Icon name="close" size="16" />
-        </button>
+        <Tooltip content="Close the configuration panel">
+          <button className="config-close-btn" onClick={onClose} title="Close configuration panel">
+            <Icon name="close" size="16" />
+          </button>
+        </Tooltip>
       </div>
 
       {/* Tab bar (full width, styled like dev-panel-tabs) */}
       <div className="config-tab-bar">
-        <button
-          className={`config-tab ${activeTab === "config" ? "config-tab--active" : ""}`}
-          onClick={() => setActiveTab("config")}
-          title="Configure LLM provider, API keys, and delivery services"
-          data-tooltip="Configure LLM provider, API keys, and delivery services">
-          <Icon name="vpn_key" size="14" /> LLM &amp; Delivery
-        </button>
-        <button
-          className={`config-tab ${activeTab === "agent" ? "config-tab--active" : ""}`}
-          onClick={() => setActiveTab("agent")}
-          title="Edit agent system prompt, tool definitions, and pipeline hints"
-          data-tooltip="Edit agent system prompt, tool definitions, and pipeline hints">
-          <Icon name="smart_toy" size="14" /> Agent Instructions
-        </button>
-        <button
-          className={`config-tab ${activeTab === "logging" ? "config-tab--active" : ""}`}
-          onClick={() => setActiveTab("logging")}
-          title="Configure log sources, levels, file size, and rotation"
-          data-tooltip="Configure log sources, levels, file size, and rotation">
-          <Icon name="edit_note" size="14" /> Logging
-        </button>
+        <Tooltip content="Configure LLM provider, API keys, and delivery services">
+          <button
+            className={`config-tab ${activeTab === "config" ? "config-tab--active" : ""}`}
+            onClick={() => setActiveTab("config")}
+            title="Configure LLM provider, API keys, and delivery services">
+            <Icon name="vpn_key" size="14" /> LLM &amp; Delivery
+          </button>
+        </Tooltip>
+        <Tooltip content="Edit agent system prompt, tool definitions, and pipeline hints">
+          <button
+            className={`config-tab ${activeTab === "agent" ? "config-tab--active" : ""}`}
+            onClick={() => setActiveTab("agent")}
+            title="Edit agent system prompt, tool definitions, and pipeline hints">
+            <Icon name="smart_toy" size="14" /> Agent Instructions
+          </button>
+        </Tooltip>
+        <Tooltip content="Configure log sources, levels, file size, and rotation">
+          <button
+            className={`config-tab ${activeTab === "logging" ? "config-tab--active" : ""}`}
+            onClick={() => setActiveTab("logging")}
+            title="Configure log sources, levels, file size, and rotation">
+            <Icon name="edit_note" size="14" /> Logging
+          </button>
+        </Tooltip>
       </div>
 
       <div className="config-body">
@@ -963,12 +971,12 @@ The system provides existing memory context at the start of each pipeline run. U
             {/* Section sub-tabs — above the hint, full width */}
             <div className="config-section-tabs">
               {sectionNames.map((name) => (
-                <button
-                  key={name}
-                  className={`config-section-tab ${configSection === name ? "config-section-tab--active" : ""}`}
-                  onClick={() => setConfigSection(name)}
-                  title={`Switch to ${name} settings`}
-                  data-tooltip={`Switch to ${name} settings section`}>
+                <Tooltip content={`Switch to ${name} settings section`}>
+                  <button
+                    key={name}
+                    className={`config-section-tab ${configSection === name ? "config-section-tab--active" : ""}`}
+                    onClick={() => setConfigSection(name)}
+                    title={`Switch to ${name} settings`}>
                   {name === "LLM Provider" && (
                     <>
                       <Icon name="psychology" size="14" />{" "}
@@ -990,7 +998,8 @@ The system provides existing memory context at the start of each pipeline run. U
                     </>
                   )}
                   {name}
-                </button>
+                  </button>
+                </Tooltip>
               ))}
             </div>
 
@@ -1077,17 +1086,17 @@ The system provides existing memory context at the start of each pipeline run. U
                                   placeholder="sk-..."
                                   disabled={activeJobs.length > 0}
                                 />
-                                <button
-                                  className="config-visibility-toggle"
-                                  onClick={() => toggleVisible(field.key)}
-                                  title={visibleKeys.has(field.key) ? "Hide the secret value" : "Reveal the secret value"}
-                                  type="button"
-                                  tabIndex={-1}
-                                  data-tooltip={
-                                    visibleKeys.has(field.key) ? "Click to mask the secret value" : "Click to temporarily reveal the secret value"
-                                  }>
-                                  {visibleKeys.has(field.key) ? <Icon name="visibility" size="14" /> : <Icon name="visibility_off" size="14" />}
-                                </button>
+                                <Tooltip content={visibleKeys.has(field.key) ? "Click to mask the secret value" : "Click to temporarily reveal the secret value"}>
+                                  <button
+                                    className="config-visibility-toggle"
+                                    onClick={() => toggleVisible(field.key)}
+                                    title={visibleKeys.has(field.key) ? "Hide the secret value" : "Reveal the secret value"}
+                                    type="button"
+                                    tabIndex={-1}
+                                  >
+                                    {visibleKeys.has(field.key) ? <Icon name="visibility" size="14" /> : <Icon name="visibility_off" size="14" />}
+                                  </button>
+                                </Tooltip>
                               </div>
                             </div>
                           ))}
@@ -2199,14 +2208,15 @@ The system provides existing memory context at the start of each pipeline run. U
                 completion.
               </span>
             ) : (
-              <button
-                className="config-save-btn"
-                onClick={handleSave}
-                disabled={saving || saved}
-                title="Save all configuration values to disk"
-                data-tooltip="Save all API keys, provider settings, and delivery config to disk">
-                {saving ? "Saving…" : saved ? "Saved ✓" : "Save Configuration"}
-              </button>
+              <Tooltip content="Save all API keys, provider settings, and delivery config to disk">
+                <button
+                  className="config-save-btn"
+                  onClick={handleSave}
+                  disabled={saving || saved}
+                  title="Save all configuration values to disk">
+                  {saving ? "Saving…" : saved ? "Saved ✓" : "Save Configuration"}
+                </button>
+              </Tooltip>
             )}
           </>
         )}
@@ -2219,14 +2229,15 @@ The system provides existing memory context at the start of each pipeline run. U
                 completion.
               </span>
             ) : (
-              <button
-                className="config-save-btn"
-                onClick={handleSave}
-                disabled={saving || saved}
-                title="Save logging configuration"
-                data-tooltip="Save log source filters, levels, and rotation settings">
-                {saving ? "Saving…" : saved ? "Saved ✓" : "Save Configuration"}
-              </button>
+              <Tooltip content="Save log source filters, levels, and rotation settings">
+                <button
+                  className="config-save-btn"
+                  onClick={handleSave}
+                  disabled={saving || saved}
+                  title="Save logging configuration">
+                  {saving ? "Saving…" : saved ? "Saved ✓" : "Save Configuration"}
+                </button>
+              </Tooltip>
             )}
           </>
         )}
@@ -2277,12 +2288,12 @@ The system provides existing memory context at the start of each pipeline run. U
                   }>
                   {saving ? "Saving..." : saved && !restartNeeded ? "Saved" : "Save"}
                 </button>
-                <button
-                  className="config-restore-btn"
-                  onClick={handleRestoreDefaults}
-                  disabled={saving || restoringDefaults || activeJobs.length > 0}
-                  title="Restore the original shipped agent configs (tools, pipeline, system prompt)"
-                  data-tooltip="Reset agent configuration to factory defaults — tools, pipeline steps, and system prompt">
+                <Tooltip content="Reset agent configuration to factory defaults — tools, pipeline steps, and system prompt">
+                  <button
+                    className="config-restore-btn"
+                    onClick={handleRestoreDefaults}
+                    disabled={saving || restoringDefaults || activeJobs.length > 0}
+                    title="Restore the original shipped agent configs (tools, pipeline, system prompt)">
                   {restoringDefaults ? (
                     <span>
                       <Icon name="sync" size="14" /> Restoring...
@@ -2294,13 +2305,14 @@ The system provides existing memory context at the start of each pipeline run. U
                   )}
                 </button>
                 {restartNeeded && (
-                  <button
-                    className="config-restart-btn"
-                    onClick={handleRestartAgent}
-                    title="Restart the agent runner to apply new configuration"
-                    data-tooltip="Restart the agent runner service to apply the updated configuration">
-                    <Icon name="restart_alt" size="14" /> Restart Agent Runner Now
-                  </button>
+                  <Tooltip content="Restart the agent runner service to apply the updated configuration">
+                    <button
+                      className="config-restart-btn"
+                      onClick={handleRestartAgent}
+                      title="Restart the agent runner to apply new configuration">
+                      <Icon name="restart_alt" size="14" /> Restart Agent Runner Now
+                    </button>
+                  </Tooltip>
                 )}
               </>
             )}

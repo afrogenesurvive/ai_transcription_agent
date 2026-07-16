@@ -13,6 +13,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import Icon from "./Icon";
+import Tooltip from "./Tooltip";
 
 interface SpeakerInfo {
   speaker_id: string;
@@ -212,28 +213,30 @@ export default function SpeakerLabelModal({
                   </button>
                 </div>
                 <div className="speaker-name-row">
-                  <input
-                    type="text"
-                    className="speaker-name-input"
-                    placeholder={`Name for ${spk.speaker_id}`}
-                    value={labels[spk.speaker_id] ?? ""}
-                    onChange={(e) => setLabels((prev) => ({ ...prev, [spk.speaker_id]: e.target.value }))}
-                    autoFocus={idx === 0 && !spk.suggested_name}
-                    title="Enter a name for this speaker"
-                    data-tooltip="Type the speaker's name — this maps the detected voice to a person"
-                  />
+                  <Tooltip content="Type the speaker's name — this maps the detected voice to a person">
+                    <input
+                      type="text"
+                      className="speaker-name-input"
+                      placeholder={`Name for ${spk.speaker_id}`}
+                      value={labels[spk.speaker_id] ?? ""}
+                      onChange={(e) => setLabels((prev) => ({ ...prev, [spk.speaker_id]: e.target.value }))}
+                      autoFocus={idx === 0 && !spk.suggested_name}
+                      title="Enter a name for this speaker"
+                    />
+                  </Tooltip>
                   {hasName && <span className="speaker-label-check">✓</span>}
                 </div>
                 <div className="speaker-email-row">
-                  <input
-                    type="email"
-                    className="speaker-email-input"
-                    placeholder="Email (optional — enables voiceprint matching)"
-                    value={emails[spk.speaker_id] ?? ""}
-                    onChange={(e) => setEmails((prev) => ({ ...prev, [spk.speaker_id]: e.target.value }))}
-                    title="Enter an email for this speaker"
-                    data-tooltip="Optional email — used as the unique key for voiceprint storage and matching across meetings"
-                  />
+                  <Tooltip content="Optional email — used as the unique key for voiceprint storage and matching across meetings">
+                    <input
+                      type="email"
+                      className="speaker-email-input"
+                      placeholder="Email (optional — enables voiceprint matching)"
+                      value={emails[spk.speaker_id] ?? ""}
+                      onChange={(e) => setEmails((prev) => ({ ...prev, [spk.speaker_id]: e.target.value }))}
+                      title="Enter an email for this speaker"
+                    />
+                  </Tooltip>
                 </div>
               </div>
             );
@@ -306,30 +309,33 @@ export default function SpeakerLabelModal({
         )}
 
         <div className="modal-actions">
-          <button
-            className="btn-secondary"
-            onClick={onCancel}
-            disabled={submitting}
-            title="Cancel the entire transcription job"
-            data-tooltip="Cancel the entire job without saving speaker labels">
-            Cancel Job
-          </button>
-          <button
-            className="btn-secondary"
-            onClick={handleSkip}
-            disabled={submitting}
-            title="Use auto-generated speaker IDs instead of names"
-            data-tooltip="Skip naming — speakers will use their auto-generated IDs (Speaker_1, etc.)">
-            Use Default Names
-          </button>
-          <button
-            className="btn-primary"
-            onClick={handleConfirm}
-            disabled={submitting || !allLabeled}
-            title="Save labels and resume pipeline"
-            data-tooltip="Save all speaker names and continue the transcription pipeline">
-            {submitting ? "Saving & Resuming..." : `Confirm & Continue (${speakers.length} speaker${speakers.length !== 1 ? "s" : ""})`}
-          </button>
+          <Tooltip content="Cancel the entire job without saving speaker labels">
+            <button
+              className="btn-secondary"
+              onClick={onCancel}
+              disabled={submitting}
+              title="Cancel the entire transcription job">
+              Cancel Job
+            </button>
+          </Tooltip>
+          <Tooltip content="Skip naming — speakers will use their auto-generated IDs (Speaker_1, etc.)">
+            <button
+              className="btn-secondary"
+              onClick={handleSkip}
+              disabled={submitting}
+              title="Use auto-generated speaker IDs instead of names">
+              Use Default Names
+            </button>
+          </Tooltip>
+          <Tooltip content="Save all speaker names and continue the transcription pipeline">
+            <button
+              className="btn-primary"
+              onClick={handleConfirm}
+              disabled={submitting || !allLabeled}
+              title="Save labels and resume pipeline">
+              {submitting ? "Saving & Resuming..." : `Confirm & Continue (${speakers.length} speaker${speakers.length !== 1 ? "s" : ""})`}
+            </button>
+          </Tooltip>
         </div>
       </div>
     </div>
