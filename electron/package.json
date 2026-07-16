@@ -9,7 +9,7 @@
     "dev:renderer": "vite",
     "watch:main": "tsc -p tsconfig.main.json --watch",
     "dev:electron": "wait-on http://localhost:5173 dist/main/index.js && electron .",
-    "build": "tsc && vite build",
+    "build": "tsc -b && vite build",
     "build:main": "tsc -p tsconfig.main.json",
     "start": "electron .",
     "dist:prepare": "bash ../scripts/write-version.sh && bash ../scripts/download-nodejs.sh && bash ../scripts/build-python-backend.sh",
