@@ -28,6 +28,7 @@ jobs:
           python -m venv venv
           venv\Scripts\activate
           pip install -r requirements.txt
+          pip install faster-whisper
           pip install pyinstaller
 
       - name: Build Python backend (Windows)
@@ -59,13 +60,13 @@ jobs:
           rm -rf build
 
       - name: Download Node.js for Windows
+        shell: bash
         run: |
-          mkdir dist-resources\node-bin -Force
+          mkdir -p dist-resources/node-bin
           curl -fsSL https://nodejs.org/dist/v20.18.0/node-v20.18.0-win-x64.zip -o node.zip
-          tar -xf node.zip
-          copy "node-v20.18.0-win-x64\node.exe" "dist-resources\node-bin\node.exe"
-          Remove-Item -Recurse -Force node-v20.18.0-win-x64
-          Remove-Item node.zip
+          unzip -o node.zip
+          cp node-v20.18.0-win-x64/node.exe dist-resources/node-bin/node.exe
+          rm -rf node-v20.18.0-win-x64 node.zip
 
       - name: Build bridge-server & agent-runner deps
         run: |
