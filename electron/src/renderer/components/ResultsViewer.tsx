@@ -60,9 +60,9 @@ const TABS: TabDef[] = [
   { id: "transcript", label: "Transcript", icon: "description" },
   { id: "summary", label: "Summary", icon: "summarize" },
   { id: "analysis", label: "Analysis", icon: "analytics" },
-  { id: "developer", label: "Developer", icon: "code", subTabs: DEV_SUB_TABS },
   { id: "attendees", label: "Attendees", icon: "group" },
   { id: "delivery", label: "Delivery", icon: "mail" },
+  { id: "developer", label: "Developer", icon: "code", subTabs: DEV_SUB_TABS },
 ];
 
 interface Props {
@@ -233,17 +233,14 @@ function TranscriptTab({ segments }: { segments?: TranscriptionSegment[] }) {
               onChange={(e) => setSearchTerm(e.target.value)}
               className="rv-search-input"
               title="Search through transcript text by speaker name or keyword"
-          />
-          {searchTerm && (
-            <Tooltip content="Clear the transcript search term">
-              <button
-                className="rv-search-clear"
-                onClick={() => setSearchTerm("")}
-                title="Clear search">
-                <Icon name="close" size="12" />
-              </button>
-            </Tooltip>
-          )}
+            />
+            {searchTerm && (
+              <Tooltip content="Clear the transcript search term">
+                <button className="rv-search-clear" onClick={() => setSearchTerm("")} title="Clear search">
+                  <Icon name="close" size="12" />
+                </button>
+              </Tooltip>
+            )}
           </Tooltip>
         </div>
       </div>
@@ -774,10 +771,7 @@ function LogsTab({ jobId }: { jobId: string }) {
                     </span>
                     <span className="rv-log-line-text">{group.lines[0].message}</span>
                     <Tooltip content="Open this log entry in the prettified viewer">
-                      <button
-                        className="rv-log-prettify-btn"
-                        onClick={() => setPrettifiedBlock(group.lines[0].message)}
-                        title="View prettified">
+                      <button className="rv-log-prettify-btn" onClick={() => setPrettifiedBlock(group.lines[0].message)} title="View prettified">
                         <Icon name="open_in_new" size="10" />
                       </button>
                     </Tooltip>
@@ -817,10 +811,7 @@ function LogsTab({ jobId }: { jobId: string }) {
                           <span className="rv-log-gutter">│</span>
                           <span className="rv-log-line-text">{line.message}</span>
                           <Tooltip content="Open this log entry in the prettified viewer">
-                            <button
-                              className="rv-log-prettify-btn"
-                              onClick={() => setPrettifiedBlock(line.message)}
-                              title="View prettified">
+                            <button className="rv-log-prettify-btn" onClick={() => setPrettifiedBlock(line.message)} title="View prettified">
                               <Icon name="open_in_new" size="10" />
                             </button>
                           </Tooltip>
@@ -930,10 +921,7 @@ function LogsTab({ jobId }: { jobId: string }) {
                   />
                   {searchQuery && (
                     <Tooltip content="Clear the log search query">
-                      <button
-                        className="rv-logs-search-clear"
-                        onClick={() => setSearchQuery("")}
-                        title="Clear search">
+                      <button className="rv-logs-search-clear" onClick={() => setSearchQuery("")} title="Clear search">
                         <Icon name="close" size="12" />
                       </button>
                     </Tooltip>
@@ -992,9 +980,7 @@ function LogsTab({ jobId }: { jobId: string }) {
                   <option value="debug">Debug</option>
                 </select>
                 <Tooltip content="Collapse repeated prefix groups">
-                  <label
-                    className="rv-logs-toggle"
-                    title="Collapse consecutive log entries with identical source/sub-source/level">
+                  <label className="rv-logs-toggle" title="Collapse consecutive log entries with identical source/sub-source/level">
                     <input type="checkbox" checked={collapseRepeated} onChange={(e) => setCollapseRepeated(e.target.checked)} />
                     <Icon name="compress" size="12" /> Group
                   </label>
@@ -1077,10 +1063,7 @@ function LogsTab({ jobId }: { jobId: string }) {
                                   <span className="rv-log-gutter">│</span>
                                   <span className="rv-log-line-text">{highlightText(line.message)}</span>
                                   <Tooltip content="Open this log entry in the prettified viewer">
-                                    <button
-                                      className="rv-log-prettify-btn"
-                                      onClick={() => setPrettifiedBlock(line.message)}
-                                      title="View prettified">
+                                    <button className="rv-log-prettify-btn" onClick={() => setPrettifiedBlock(line.message)} title="View prettified">
                                       <Icon name="open_in_new" size="10" />
                                     </button>
                                   </Tooltip>
@@ -1149,10 +1132,7 @@ function LogsTab({ jobId }: { jobId: string }) {
             </div>
             <div className="rv-prettify-footer">
               <Tooltip content="Copy the prettified content to your clipboard">
-                <button
-                  className="rv-prettify-copy-btn"
-                  onClick={() => navigator.clipboard.writeText(prettifiedBlock)}
-                  title="Copy to clipboard">
+                <button className="rv-prettify-copy-btn" onClick={() => navigator.clipboard.writeText(prettifiedBlock)} title="Copy to clipboard">
                   <Icon name="content_copy" size="12" /> Copy
                 </button>
               </Tooltip>
@@ -1873,9 +1853,7 @@ function AttendeesTab({ jobId }: { jobId: string }) {
                     </Tooltip>
                   ) : (
                     <Tooltip content="This voiceprint was enrolled without an audio sample">
-                      <span
-                        className="rv-attendee-no-sample"
-                        title="No audio sample available">
+                      <span className="rv-attendee-no-sample" title="No audio sample available">
                         <Icon name="volume_off" size="14" color="muted" />
                       </span>
                     </Tooltip>

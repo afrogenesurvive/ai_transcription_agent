@@ -22,7 +22,7 @@ BrandingText "Transcription Agent Installer"
 
 ; ── Custom Welcome Page ──
 
-!macro CustomWelcomePage
+!macro customWelcomePage
   Page custom welcomePage
 !macroend
 

@@ -412,6 +412,35 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
                     </button>
                   </div>
 
+                  {/* Clear all user data */}
+                  <div className="storage-log-action">
+                    <div className="storage-log-action-info">
+                      <strong>
+                        <Icon name="delete_forever" size="14" color="red" /> Clear All User Data
+                      </strong>
+                      <p>
+                        Destructive: clears job history, logs, semantic memory (ChromaDB), and ephemeral/voiceprint databases all at once. This action
+                        cannot be undone.
+                      </p>
+                    </div>
+                    <button
+                      className="btn-danger"
+                      onClick={() =>
+                        setConfirmAction({
+                          type: "all",
+                          label: "Clear All User Data",
+                          description:
+                            "This will delete ALL user data including job history, logs, ChromaDB semantic memory, ephemeral memory, " +
+                            "and voiceprint databases. This action is irreversible.",
+                          bridgeTool: "storage_clear_all",
+                          bridgeArgs: { logType: "all_including_errors" },
+                        })
+                      }
+                      disabled={!!processingAction}>
+                      {processingAction === "all" ? "Clearing…" : "Clear All Data"}
+                    </button>
+                  </div>
+
                   {/* Result feedback */}
                   {actionResult && (
                     <div
