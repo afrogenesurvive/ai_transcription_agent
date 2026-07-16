@@ -70,6 +70,19 @@
   }
 }
 
+.app-header-job-indicator--clickable {
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.app-header-job-indicator--clickable:hover {
+  background: rgba(210, 153, 34, 0.2);
+}
+
+.app-header-job-indicator--clickable:active {
+  background: rgba(210, 153, 34, 0.28);
+}
+
 .app-header-job-indicator-text {
   font-size: var(--fs-11);
   font-weight: 600;
@@ -77,6 +90,12 @@
   text-transform: uppercase;
   letter-spacing: 0.4px;
   white-space: nowrap;
+}
+
+.app-header-job-indicator-id {
+  font-family: var(--font-mono, "SF Mono", "Fira Code", monospace);
+  font-size: var(--fs-10);
+  letter-spacing: 0.6px;
 }
 
 /* ── App Body (sidebar + main) ── */

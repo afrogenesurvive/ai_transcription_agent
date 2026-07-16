@@ -513,10 +513,22 @@ export default function App() {
         <h1 data-tooltip="Home — Transcription Agent desktop app">
           <Icon name="mic" size="24" color="accent" /> Transcription Agent
         </h1>
-        {isJobRunning && (
-          <span className="app-header-job-indicator" data-tooltip="A transcription job is currently in progress">
+        {isJobRunning && jobId && (
+          <span
+            className="app-header-job-indicator app-header-job-indicator--clickable"
+            data-tooltip={`Job ${jobId.slice(0, 8)} — click to copy job ID`}
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(jobId);
+                notify(`Job ID copied: ${jobId.slice(0, 8)}`);
+              } catch {
+                notify("Failed to copy job ID");
+              }
+            }}>
             <span className="app-header-job-indicator-dot" />
-            <span className="app-header-job-indicator-text">Job Running</span>
+            <span className="app-header-job-indicator-text">
+              <span className="app-header-job-indicator-id">{jobId.slice(0, 8)}</span>
+            </span>
           </span>
         )}
       </header>
