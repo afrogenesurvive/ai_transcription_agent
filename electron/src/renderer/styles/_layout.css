@@ -84,6 +84,9 @@
 }
 
 .app-header-job-indicator-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   font-size: var(--fs-11);
   font-weight: 600;
   color: var(--orange);
@@ -96,6 +99,12 @@
   font-family: var(--font-mono, "SF Mono", "Fira Code", monospace);
   font-size: var(--fs-10);
   letter-spacing: 0.6px;
+}
+
+.app-header-job-indicator-sep {
+  opacity: 0.5;
+  margin: 0 2px;
+  font-weight: 400;
 }
 
 /* ── App Body (sidebar + main) ── */

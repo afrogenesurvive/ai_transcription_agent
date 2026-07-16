@@ -116,6 +116,9 @@ export default function App() {
   const [showSpeakerModal, setShowSpeakerModal] = useState(false);
   const [labelingSubmitting, setLabelingSubmitting] = useState(false);
 
+  // Guard ref to prevent duplicate labeling notifications on repeated poll cycles
+  const labelingNotifiedRef = useRef(false);
+
   // Ref to manage notification auto-dismiss timeout — prevents stale timeouts
   // from prematurely dismissing newer notifications.
   const notificationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -303,6 +306,19 @@ export default function App() {
   React.useEffect(() => {
     if (statusHook.state === "paused" && jobId && !showSpeakerModal && !speakerClips) {
       console.log("[App] Pipeline paused for labeling — fetching speaker clips");
+
+      // Fire in-app and system notification once when entering paused state
+      if (!labelingNotifiedRef.current) {
+        labelingNotifiedRef.current = true;
+        const jobTitle = jobMetadata?.title || "Untitled Meeting";
+        notify(`"${jobTitle}" — speaker identification needed`);
+        window.electronAPI?.showNotification(
+          "Speaker Labels Needed",
+          `"${jobTitle}" — click to identify speakers`,
+          { action: "view_results", jobId },
+        );
+      }
+
       api
         .getSpeakerClips(jobId)
         .then((clips) => {
@@ -321,6 +337,10 @@ export default function App() {
     if (statusHook.state !== "paused" && statusHook.state !== "polling") {
       setShowSpeakerModal(false);
       setSpeakerClips(null);
+    }
+    // Reset the labeling notification guard when leaving paused state
+    if (statusHook.state !== "paused") {
+      labelingNotifiedRef.current = false;
     }
   }, [statusHook.state]);
 
@@ -516,7 +536,7 @@ export default function App() {
         {isJobRunning && jobId && (
           <span
             className="app-header-job-indicator app-header-job-indicator--clickable"
-            data-tooltip={`Job ${jobId.slice(0, 8)} — click to copy job ID`}
+            data-tooltip={`Job running — click to copy full job ID`}
             onClick={async () => {
               try {
                 await navigator.clipboard.writeText(jobId);
@@ -527,6 +547,8 @@ export default function App() {
             }}>
             <span className="app-header-job-indicator-dot" />
             <span className="app-header-job-indicator-text">
+              Job Running
+              <span className="app-header-job-indicator-sep">·</span>
               <span className="app-header-job-indicator-id">{jobId.slice(0, 8)}</span>
             </span>
           </span>
