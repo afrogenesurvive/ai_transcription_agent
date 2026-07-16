@@ -170,6 +170,7 @@ async def upload_audio(
     parsed_attendee_emails = json.loads(attendee_emails) if attendee_emails else []
     metadata = {
         "title": title,
+        "original_filename": file.filename,
         "attendees": json.loads(attendees),
         "attendeeEmails": parsed_attendee_emails,
         "email_recipients": parsed_emails,
@@ -192,6 +193,7 @@ async def upload_audio(
         config_snapshot = _build_config_snapshot(metadata)
         ephemeral_memory.upsert_job(job_id, {
             "title": title,
+            "original_filename": file.filename,
             "attendees": attendees,
             "email_recipients": json.dumps(parsed_emails),
             "audio_url": temp_path if os.path.exists(temp_path) else None,

@@ -430,7 +430,7 @@ export default function App() {
       const result: any = await api.uploadAudio(file, title, attendees, emailRecipients, skipSteps, attendeeEmails);
       console.log("Upload result", result);
       setJobId(result.job_id);
-      setJobMetadata({ title, attendees, attendeeEmails: attendeeEmails || [] });
+      setJobMetadata({ title, originalFilename: file.name, attendees, attendeeEmails: attendeeEmails || [] });
       setView("processing");
       setShowNewForm(false);
       // Polling starts automatically via useJobStatus when jobId changes

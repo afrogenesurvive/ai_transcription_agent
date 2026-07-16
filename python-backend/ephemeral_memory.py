@@ -89,6 +89,7 @@ class EphemeralMemory:
                 attendees       TEXT NOT NULL DEFAULT '[]',
                 email_recipients TEXT NOT NULL DEFAULT '[]',
                 pipeline_steps  TEXT NOT NULL DEFAULT '[]',
+                original_filename TEXT DEFAULT NULL,
                 audio_url       TEXT DEFAULT NULL,
                 audio_size_bytes INTEGER DEFAULT NULL,
                 audio_duration_sec REAL DEFAULT NULL,
@@ -218,6 +219,12 @@ class EphemeralMemory:
                 print(f"[ephemeral] Migration: added `config_snapshot` column to jobs table")
             except Exception as e:
                 print(f"[ephemeral] ⚠️  Migration failed to add config_snapshot: {e}")
+        if "original_filename" not in jobs_cols:
+            try:
+                conn.execute("ALTER TABLE jobs ADD COLUMN original_filename TEXT DEFAULT NULL")
+                print(f"[ephemeral] Migration: added `original_filename` column to jobs table")
+            except Exception as e:
+                print(f"[ephemeral] ⚠️  Migration failed to add original_filename: {e}")
         conn.commit()
         conn.close()
 
@@ -232,6 +239,7 @@ class EphemeralMemory:
         """
         allowed = {
             "title", "result", "attendees", "email_recipients", "pipeline_steps",
+            "original_filename",
             "audio_url", "audio_size_bytes", "audio_duration_sec", "error_message",
             "transcript_segment_count", "transcript_char_count",
             "summary_char_count", "has_analysis", "analysis_char_count",

@@ -34,6 +34,7 @@ export interface JobStatus {
   };
   metadata?: {
     title?: string;
+    originalFilename?: string;
     attendees?: string[];
     attendeeEmails?: string[];
     event_type?: string;

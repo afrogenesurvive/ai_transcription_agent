@@ -166,7 +166,7 @@ Shows a summary of all pipeline stages with checkmarks for completed steps.
 
 ### 🎧 Audio Tab
 
-An audio player lets you listen to the original recording.
+An audio player lets you listen to the original recording. The **original filename** of the uploaded file is displayed below the meeting title so you can easily identify the source audio file.
 
 ### 📝 Transcript Tab
 
@@ -200,13 +200,32 @@ AI-generated analysis including:
 
 The unrefined transcript text (before filler-word removal and PII redaction).
 
-### 🪙 Tokens Tab
+### 🖥️ Developer Tab
+
+The Developer tab groups four technical sub-tabs for debugging and inspection:
+
+#### 🪙 Tokens
 
 Shows how much AI processing was used (token count per pipeline step). Useful if you're on a paid API plan.
 
-### ⚡ Performance Tab
+#### ⚡ Performance
 
-Technical performance metrics showing processing times.
+Technical performance metrics showing processing times and resource usage during the job.
+
+#### ⚙️ Config
+
+Shows the full configuration snapshot captured when the job was created and processed:
+
+- **Job Metadata** — title, event type, attendees, skipped pipeline steps
+- **LLM & Model Config** — LLM provider and model, Whisper model size, diarization model, embedding provider, compute device, platform, voiceprint threshold
+- **Agent Instructions** — list of enabled/disabled pipeline steps (green/grey chips), tool count, system prompt size, retry settings
+- **Delivery & Logging** — delivery email settings, log configuration
+
+This snapshot is frozen at job creation time, so you can see exactly what settings were active when the job ran — even if you've since changed them in the Settings panel.
+
+#### 📋 Logs
+
+Technical log files for troubleshooting. Supports **collapsible log groups** — consecutive lines with the same source and level are grouped into expandable entries to reduce visual noise during streaming output. Toggle this behavior on/off in **Settings → Logging** via the "Collapse Repeated Log Lines" option.
 
 ### � Attendees Tab
 
@@ -222,23 +241,6 @@ This helps you quickly see who the system can automatically identify in future m
 ### 📬 Delivery Tab
 
 Shows delivery status if you configured email, Drive, or Trello.
-
-### ⚙️ Config Tab
-
-Shows the full configuration snapshot captured when the job was created and processed:
-
-- **Job Metadata** — title, event type, attendees, skipped pipeline steps
-- **LLM & Model Config** — LLM provider and model, Whisper model size, diarization model, embedding provider, compute device, platform, voiceprint threshold
-- **Agent Instructions** — list of enabled/disabled pipeline steps (green/grey chips), tool count, system prompt size, retry settings
-- **Delivery & Logging** — delivery email settings, log configuration
-
-This snapshot is frozen at job creation time, so you can see exactly what settings were active when the job ran — even if you've since changed them in the Settings panel.
-
-### 📋 Logs Tab
-
-Technical log files for troubleshooting.
-
-The Logs tab supports **collapsible log groups** — consecutive lines with the same source and level are grouped into expandable entries to reduce visual noise during streaming output. Toggle this behavior on/off in **Settings → Logging** via the "Collapse Repeated Log Lines" option.
 
 ---
 

@@ -17,7 +17,7 @@ import type { TranscriptionSegment, AnalysisData } from "../types";
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
-type TabId = "pipeline" | "audio" | "transcript" | "summary" | "analysis" | "tokens" | "performance" | "attendees" | "delivery" | "config" | "logs";
+type TabId = "pipeline" | "audio" | "transcript" | "summary" | "analysis" | "tokens" | "performance" | "attendees" | "delivery" | "config" | "logs" | "developer";
 
 interface Tab {
   id: TabId;
@@ -25,18 +25,31 @@ interface Tab {
   icon: string;
 }
 
-const TABS: Tab[] = [
+interface TabGroup {
+  id: "developer";
+  label: string;
+  icon: string;
+  subTabs: Tab[];
+}
+
+type TabDef = Tab | TabGroup;
+
+const DEV_SUB_TABS: Tab[] = [
+  { id: "tokens", label: "Tokens", icon: "token" },
+  { id: "performance", label: "Performance", icon: "speed" },
+  { id: "config", label: "Config", icon: "settings" },
+  { id: "logs", label: "Logs", icon: "terminal" },
+];
+
+const TABS: TabDef[] = [
   { id: "pipeline", label: "Pipeline", icon: "timeline" },
   { id: "audio", label: "Audio", icon: "headphones" },
   { id: "transcript", label: "Transcript", icon: "description" },
   { id: "summary", label: "Summary", icon: "summarize" },
   { id: "analysis", label: "Analysis", icon: "analytics" },
-  { id: "tokens", label: "Tokens", icon: "token" },
-  { id: "performance", label: "Performance", icon: "speed" },
+  { id: "developer", label: "Developer", icon: "code", subTabs: DEV_SUB_TABS },
   { id: "attendees", label: "Attendees", icon: "group" },
   { id: "delivery", label: "Delivery", icon: "mail" },
-  { id: "config", label: "Config", icon: "settings" },
-  { id: "logs", label: "Logs", icon: "terminal" },
 ];
 
 interface Props {
@@ -50,6 +63,7 @@ interface Props {
   };
   metadata?: {
     title?: string;
+    originalFilename?: string;
     attendees?: string[];
     event_type?: string;
   };
@@ -115,6 +129,11 @@ function AudioTab({ jobId, metadata }: { jobId: string; metadata?: Props["metada
           <Icon name="music_note" size="18" color="accent" /> Meeting Recording
         </h3>
         {metadata?.title && <span className="rv-audio-title">{metadata.title}</span>}
+        {metadata?.originalFilename && (
+          <span className="rv-audio-filename">
+            <Icon name="file" size="12" color="muted" /> {metadata.originalFilename}
+          </span>
+        )}
       </div>
 
       <div className="rv-audio-player-wrapper">
@@ -2462,10 +2481,12 @@ function ConfigTab({ jobId }: { jobId: string }) {
 
 export default function ResultsViewer({ jobId, segments, summary, metadata, jobStatus, jobProgress, jobError }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>("pipeline");
+  const [activeDevSubTab, setActiveDevSubTab] = useState<TabId>("tokens");
 
   // Reset to first tab when switching to a different job
   useEffect(() => {
     setActiveTab("pipeline");
+    setActiveDevSubTab("tokens");
   }, [jobId]);
   const [analysis, setAnalysis] = useState<AnalysisData | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(true);
@@ -2498,7 +2519,17 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
     };
   }, [jobId]);
 
-  const tabMeta = TABS.find((t) => t.id === activeTab);
+  const isDevTab = (id: TabId) => DEV_SUB_TABS.some((st) => st.id === id);
+  const effectiveTab = isDevTab(activeTab) ? "developer" : activeTab;
+
+  const tabMeta = (() => {
+    const def = TABS.find((t) => t.id === effectiveTab);
+    if (def && "subTabs" in def && effectiveTab === "developer") {
+      const sub = def.subTabs.find((st) => st.id === activeDevSubTab);
+      return { id: "developer" as TabId, label: sub?.label || "Developer", icon: "code" };
+    }
+    return def || { id: "pipeline" as TabId, label: "Pipeline", icon: "timeline" };
+  })();
 
   return (
     <div className="rv-container">
@@ -2511,13 +2542,31 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
             transcript: "Browse the speaker-labeled transcript with timestamps and search",
             summary: "Read the executive summary, key decisions, discussion points, and action items",
             analysis: "Explore topics discussed, sentiment, key entities, and meeting effectiveness",
-            tokens: "View LLM token usage breakdown per pipeline step",
-            performance: "See performance metrics — stage durations and timing",
+            developer: "View developer details — tokens, performance, config snapshot, and logs",
             attendees: "View registered attendees and their voiceprint status with playable audio samples",
             delivery: "Check delivery status — email, Trello, and Google Drive",
-            config: "View the full configuration snapshot used for this job — LLM provider, models, agent instructions, delivery & logging settings",
-            logs: "View job-specific log files for debugging",
           };
+          if ("subTabs" in tab) {
+            return (
+              <button
+                key={tab.id}
+                className={`rv-tab ${effectiveTab === tab.id ? "rv-tab--active" : ""}`}
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  setActiveDevSubTab(tab.subTabs[0].id);
+                }}
+                title={tabDescriptions[tab.id] || tab.label}
+                data-tooltip={tabDescriptions[tab.id] || tab.label}>
+                <span className="rv-tab-icon">
+                  <Icon name={tab.icon} size="14" />
+                </span>
+                <span className="rv-tab-label">{tab.label}</span>
+                <span className="rv-tab-arrow">
+                  <Icon name="arrow_drop_down" size="14" />
+                </span>
+              </button>
+            );
+          }
           return (
             <button
               key={tab.id}
@@ -2539,7 +2588,7 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
       <div className="rv-panel-header">
         <div className="rv-panel-header-left">
           <h2 className="rv-panel-title">
-            {tabMeta?.icon} {tabMeta?.label}
+            <Icon name={tabMeta?.icon || "description"} size="16" color="accent" /> {tabMeta?.label}
           </h2>
           {metadata?.title && <span className="rv-panel-subtitle">{metadata.title}</span>}
         </div>
@@ -2572,12 +2621,34 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
           ) : (
             <AnalysisTab analysis={analysis} />
           ))}
-        {activeTab === "tokens" && <TokensTab jobId={jobId} />}
-        {activeTab === "performance" && <PerformanceTab jobId={jobId} />}
         {activeTab === "attendees" && <AttendeesTab jobId={jobId} />}
         {activeTab === "delivery" && <DeliveryTab jobId={jobId} />}
-        {activeTab === "config" && <ConfigTab jobId={jobId} />}
-        {activeTab === "logs" && <LogsTab jobId={jobId} />}
+
+        {/* Developer grouped tabs */}
+        {effectiveTab === "developer" && (
+          <div className="rv-tab-content rv-tab-content--dev">
+            {/* Sub-tab navigation bar */}
+            <div className="rv-dev-subtabs">
+              {DEV_SUB_TABS.map((st) => (
+                <button
+                  key={st.id}
+                  className={`rv-dev-subtab ${activeDevSubTab === st.id ? "rv-dev-subtab--active" : ""}`}
+                  onClick={() => setActiveDevSubTab(st.id)}
+                  title={`View ${st.label}`}
+                  data-tooltip={`View ${st.label.toLowerCase()} details for this job`}>
+                  <Icon name={st.icon} size="12" /> {st.label}
+                </button>
+              ))}
+            </div>
+            {/* Sub-tab content */}
+            <div className="rv-dev-content">
+              {activeDevSubTab === "tokens" && <TokensTab jobId={jobId} />}
+              {activeDevSubTab === "performance" && <PerformanceTab jobId={jobId} />}
+              {activeDevSubTab === "config" && <ConfigTab jobId={jobId} />}
+              {activeDevSubTab === "logs" && <LogsTab jobId={jobId} />}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
