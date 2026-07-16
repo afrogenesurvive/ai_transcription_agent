@@ -1775,6 +1775,7 @@ async def upsert_job_record(data: dict = Body(...)):
         key_map = {
             "jobId": None,
             "job_id": None,
+            "configSnapshot": "config_snapshot",
             "totalPromptTokens": "total_prompt_tokens",
             "totalCompletionTokens": "total_completion_tokens",
             "totalTokens": "total_tokens",
