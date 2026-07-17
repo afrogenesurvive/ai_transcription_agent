@@ -233,6 +233,20 @@ export interface ElectronAPI {
   onBotScriptOutput: (callback: (text: string) => void) => () => void;
   checkNodeAvailable: () => Promise<{ available: boolean; path: string | null }>;
 
+  // ── Export (PDF / Word) ──
+  exportToPdf: (params: { html: string; defaultName?: string }) => Promise<{
+    success: boolean;
+    filePath?: string;
+    error?: string;
+    cancelled?: boolean;
+  }>;
+  exportToWord: (params: { html: string; defaultName?: string }) => Promise<{
+    success: boolean;
+    filePath?: string;
+    error?: string;
+    cancelled?: boolean;
+  }>;
+
   platform: string;
 }
 

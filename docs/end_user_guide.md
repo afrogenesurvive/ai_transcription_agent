@@ -434,3 +434,83 @@ If the Dev Panel Testing tab shows an error when you click "Run Tests":
 - Check the **Dev Tools** → **Logs** tab for error messages
 - Look for error details in the pipeline failure message
 - The app version is shown in **About** (ℹ️ in sidebar) — include this when reporting issues
+
+---
+
+## Manual Un-Installation
+
+If you need to manually remove Transcription Agent from a Windows machine (e.g. the standard uninstaller fails), use the instructions below.
+
+> **Note:** The standard uninstaller (via **"Add or remove programs" → "Transcription Agent" → Uninstall**) handles cleanup automatically using `deleteAppDataOnUninstall: true` and the NSIS `cleanup.nsh` script. Manual removal is only needed if the standard uninstaller does not work.
+
+### Application Install
+
+Installed to `Program Files`:
+
+```
+C:\Program Files\Transcription Agent\
+```
+
+| Path                                | Contents                                |
+| ----------------------------------- | --------------------------------------- |
+| `Transcription Agent.exe`           | Electron app launcher                   |
+| `resources\app.asar`                | Packaged Electron app (main + renderer) |
+| `resources\python-backend\`         | PyInstaller-built Python backend        |
+| `resources\bridge-server\`          | Node.js bridge server                   |
+| `resources\agent-runner\`           | Node.js agent runner                    |
+| `resources\node-bin\`               | Bundled Node.js v20 LTS binary          |
+| `Uninstall Transcription Agent.exe` | NSIS uninstaller                        |
+
+### User Data
+
+```
+%APPDATA%\Transcription Agent\
+```
+
+Typically resolves to:
+
+```
+C:\Users\<YourUsername>\AppData\Roaming\Transcription Agent\
+```
+
+| Path                          | Contents                                                      |
+| ----------------------------- | ------------------------------------------------------------- |
+| `config.json`                 | UI-saved configuration values                                 |
+| `storage\`                    | All job data (transcripts, audio, status, embeddings)         |
+| `storage\<job_id>\`           | Per-job directory (status.json, transcript.json, audio, logs) |
+| `storage\chroma\`             | ChromaDB vector store (semantic memory)                       |
+| `storage\ephemeral_memory.db` | SQLite DB (action items, contacts, budgets, decisions)        |
+| `storage\voiceprints.db`      | SQLite DB (enrolled speaker voiceprints)                      |
+| `storage\logs\`               | Agent runner JSONL logs                                       |
+| `storage\uploads\`            | Temp upload directory (cleaned after processing)              |
+| `storage\test-bot-log.jsonl`  | Test bot run logs                                             |
+| `logs\`                       | Electron main process logs                                    |
+| `queue\`                      | Pipeline job queue files                                      |
+| `bin\ffmpeg.exe`              | Auto-downloaded ffmpeg binary                                 |
+| `.ollama-auto-installed`      | Sentinel (Ollama was auto-installed)                          |
+| `.ffmpeg-auto-installed`      | Sentinel (ffmpeg was auto-installed)                          |
+
+### Ollama (if auto-installed)
+
+```
+%LOCALAPPDATA%\Programs\Ollama\
+```
+
+or
+
+```
+C:\Program Files\Ollama\
+```
+
+### Manual Deletion
+
+```cmd
+:: App install (run as Administrator)
+rmdir /s "C:\Program Files\Transcription Agent"
+
+:: User data
+rmdir /s "%APPDATA%\Transcription Agent"
+
+:: Ollama (if auto-installed)
+rmdir /s "%LOCALAPPDATA%\Programs\Ollama"
+```

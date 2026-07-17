@@ -176,6 +176,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
     error?: string;
   }> => ipcRenderer.invoke("api:getAggregateUsage"),
 
+  // ── Export (PDF / Word) ──
+  exportToPdf: (params: {
+    html: string;
+    defaultName?: string;
+  }): Promise<{ success: boolean; filePath?: string; error?: string; cancelled?: boolean }> => ipcRenderer.invoke("export:pdf", params),
+  exportToWord: (params: {
+    html: string;
+    defaultName?: string;
+  }): Promise<{ success: boolean; filePath?: string; error?: string; cancelled?: boolean }> => ipcRenderer.invoke("export:word", params),
+
   // ── Shell & File system ──
   openPath: (filePath: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke("shell:openPath", filePath),
   fileExists: (filePath: string): Promise<boolean> => ipcRenderer.invoke("fs:fileExists", filePath),

@@ -296,7 +296,11 @@ export default function App() {
   // Includes backend_down so the cancel button stays available when backend is unreachable.
   // Also includes foreign jobs (bot-created) so the UI guards controls when the bot is running.
   const isJobRunning =
-    statusHook.state === "polling" || statusHook.state === "paused" || statusHook.state === "backend_down" || view === "processing" || foreignJobs.hasForeignRunningJobs;
+    statusHook.state === "polling" ||
+    statusHook.state === "paused" ||
+    statusHook.state === "backend_down" ||
+    view === "processing" ||
+    foreignJobs.hasForeignRunningJobs;
 
   // Track status data for progress display
   React.useEffect(() => {
@@ -501,8 +505,13 @@ export default function App() {
         if (transcriptData) {
           setHistoryTranscript({ ...transcriptData, summary: summaryData });
           // Store metadata from status if available (title, attendees, etc.)
+          // Remap snake_case keys from Python backend → camelCase expected by ResultsViewer
           if (statusData?.metadata) {
-            setJobMetadata(statusData.metadata);
+            const meta = { ...statusData.metadata };
+            if (meta.original_filename !== undefined && meta.originalFilename === undefined) {
+              meta.originalFilename = meta.original_filename;
+            }
+            setJobMetadata(meta);
           }
           // Store status info for the Pipeline tab
           setHistoryJobStatus(statusData ? { status: statusData.status, progress: statusData.progress, error: statusData.error } : null);

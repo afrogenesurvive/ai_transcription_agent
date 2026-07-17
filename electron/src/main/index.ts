@@ -14,6 +14,7 @@ import { spawn, execSync } from "child_process";
 import { app, BrowserWindow, Tray, Menu, nativeImage, Notification, ipcMain, dialog, shell } from "electron";
 import path from "path";
 import pidusage from "pidusage";
+import { registerExportHandlers } from "./exporter";
 
 // Set app name before anything else — macOS menu bar and Windows taskbar
 // use this instead of the default "Electron".
@@ -1552,6 +1553,10 @@ ipcMain.handle("ollama:pullModel", async (_event, modelName: string) => {
     });
   });
 });
+
+// ── Export IPC handlers (PDF / Word) ──
+
+registerExportHandlers(() => mainWindow);
 
 // ── App Lifecycle ──
 

@@ -441,6 +441,43 @@
   gap: 16px;
 }
 
+/* ── Export toolbar (PDF / Word buttons in Summary, Analysis, Attendees tabs) ── */
+
+.rv-export-toolbar {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.rv-export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: var(--fs-11);
+  font-weight: 500;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+
+.rv-export-btn:hover {
+  background: var(--hover-bg);
+  border-color: var(--accent);
+}
+
+.rv-export-btn:active {
+  background: var(--active-bg);
+}
+
+/* ── Audio tab ── */
+
 .rv-audio-header {
   display: flex;
   align-items: center;

@@ -118,7 +118,7 @@
   },
   {
     "name": "transcribe_prepare_delivery",
-    "description": "Prepare deliverable package with transcript + summary.",
+    "description": "Prepare deliverable package with meeting summary, analysis, and attendee data.",
     "terminal": false,
     "handler": "bridge",
     "inputSchema": {
@@ -241,7 +241,7 @@
   },
   {
     "name": "send_delivery_email",
-    "description": "Send email with meeting summary and transcript via Gmail.",
+    "description": "Send email with meeting summary, analysis, and attendee data via Gmail.",
     "terminal": true,
     "handler": "direct",
     "inputSchema": {
@@ -249,8 +249,7 @@
       "properties": {
         "to": { "type": "string" },
         "subject": { "type": "string" },
-        "body": { "type": "string" },
-        "transcript": { "type": "string" }
+        "body": { "type": "string" }
       },
       "required": ["to", "subject", "body"]
     }
@@ -281,7 +280,7 @@
   },
   {
     "name": "save_to_drive",
-    "description": "Save transcript and summary to Google Drive.",
+    "description": "Save meeting summary and analysis to Google Drive.",
     "terminal": true,
     "handler": "direct",
     "inputSchema": {
@@ -289,7 +288,6 @@
       "properties": {
         "folderName": { "type": "string" },
         "title": { "type": "string" },
-        "transcript": { "type": "string" },
         "summary": { "type": "string" }
       },
       "required": ["title"]

@@ -14,6 +14,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import Icon from "./Icon";
 import Tooltip from "./Tooltip";
 import LoadingModal from "./LoadingModal";
+import ExportButton from "./ExportButton";
 import type { TranscriptionSegment, AnalysisData } from "../types";
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
@@ -260,6 +261,64 @@ function TranscriptTab({ segments }: { segments?: TranscriptionSegment[] }) {
   );
 }
 
+/* ── Export helpers ── */
+
+/** Build an HTML string from summary data for PDF/Word export. */
+function buildSummaryExportHtml(summary: Props["summary"]): string {
+  if (!summary) return "<p>No summary data available.</p>";
+  const parts: string[] = [];
+  if (summary.executive_summary) {
+    parts.push(`<div class="section"><h2>Executive Summary</h2><p>${escapeHtml(summary.executive_summary)}</p></div>`);
+  }
+  if (summary.discussion_points?.length) {
+    parts.push(
+      `<div class="section"><h2>Discussion Points</h2><ul>${summary.discussion_points.map((p) => `<li>${escapeHtml(p)}</li>`).join("")}</ul></div>`,
+    );
+  }
+  if (summary.key_decisions?.length) {
+    parts.push(`<div class="section"><h2>Key Decisions</h2><ul>${summary.key_decisions.map((d) => `<li>${escapeHtml(d)}</li>`).join("")}</ul></div>`);
+  }
+  if (summary.action_items?.length) {
+    const items = summary.action_items
+      .map((a) => {
+        const assignee = a.assignee ? ` — ${escapeHtml(a.assignee)}` : "";
+        const deadline = a.deadline ? ` (due: ${escapeHtml(a.deadline)})` : "";
+        return `<li><strong>${escapeHtml(a.description)}</strong>${assignee}${deadline}</li>`;
+      })
+      .join("");
+    parts.push(`<div class="section"><h2>Action Items</h2><ul>${items}</ul></div>`);
+  }
+  return parts.join("\n");
+}
+
+/** Build an HTML string from analysis data for PDF/Word export. */
+function buildAnalysisExportHtml(analysis: AnalysisData | null): string {
+  if (!analysis || Object.keys(analysis).length === 0) return "<p>No analysis data available.</p>";
+  const parts: string[] = [];
+  if (analysis.topics?.length) {
+    parts.push(
+      `<div class="section"><h2>Topics Discussed</h2><p>${analysis.topics.map((t) => `<span class="tag">${escapeHtml(t)}</span>`).join(" ")}</p></div>`,
+    );
+  }
+  if (analysis.sentiment) {
+    parts.push(`<div class="section"><h2>Meeting Sentiment</h2><p>${escapeHtml(analysis.sentiment)}</p></div>`);
+  }
+  if (analysis.key_entities?.length) {
+    parts.push(`<div class="section"><h2>Key Entities</h2><ul>${analysis.key_entities.map((e) => `<li>${escapeHtml(e)}</li>`).join("")}</ul></div>`);
+  }
+  if (analysis.effectiveness) {
+    parts.push(`<div class="section"><h2>Meeting Effectiveness</h2><p>${escapeHtml(analysis.effectiveness)}</p></div>`);
+  }
+  if (analysis.follow_ups?.length) {
+    parts.push(`<div class="section"><h2>Follow-Ups</h2><ul>${analysis.follow_ups.map((f) => `<li>${escapeHtml(f)}</li>`).join("")}</ul></div>`);
+  }
+  return parts.join("\n");
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
 /* ── Tab: Summary ── */
 
 function SummaryTab({ summary }: { summary?: Props["summary"] }) {
@@ -277,8 +336,15 @@ function SummaryTab({ summary }: { summary?: Props["summary"] }) {
     );
   }
 
+  const summaryHtml = buildSummaryExportHtml(summary);
+
   return (
     <div className="rv-tab-content rv-tab-content--summary">
+      <div className="rv-export-toolbar">
+        <ExportButton format="pdf" content={summaryHtml} defaultName="Meeting_Summary" />
+        <ExportButton format="word" content={summaryHtml} defaultName="Meeting_Summary" />
+      </div>
+
       {summary.executive_summary && (
         <div className="rv-summary-card">
           <div className="rv-summary-card-header">
@@ -368,8 +434,15 @@ function AnalysisTab({ analysis }: { analysis: AnalysisData | null }) {
     );
   }
 
+  const analysisHtml = buildAnalysisExportHtml(analysis);
+
   return (
     <div className="rv-tab-content rv-tab-content--analysis">
+      <div className="rv-export-toolbar">
+        <ExportButton format="pdf" content={analysisHtml} defaultName="Meeting_Analysis" />
+        <ExportButton format="word" content={analysisHtml} defaultName="Meeting_Analysis" />
+      </div>
+
       <div className="rv-analysis-grid">
         {analysis.topics && analysis.topics.length > 0 && (
           <div className="rv-analysis-card">
@@ -1693,6 +1766,8 @@ interface JobAttendee {
 
 function AttendeesTab({ jobId }: { jobId: string }) {
   const [attendees, setAttendees] = useState<JobAttendee[]>([]);
+  const [deliveryEmails, setDeliveryEmails] = useState<Set<string>>(new Set());
+  const [hasDeliveryData, setHasDeliveryData] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [playingEmail, setPlayingEmail] = useState<string | null>(null);
@@ -1702,14 +1777,49 @@ function AttendeesTab({ jobId }: { jobId: string }) {
     let cancelled = false;
     const fetchAttendees = async () => {
       try {
-        const res = await fetch(`${BRIDGE_URL}/tools/call`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tool: "transcribe_get_job_attendees", args: { jobId } }),
-        });
-        const data = await res.json();
+        const [attRes, delRes] = await Promise.allSettled([
+          fetch(`${BRIDGE_URL}/tools/call`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ tool: "transcribe_get_job_attendees", args: { jobId } }),
+          }),
+          fetch(`${BRIDGE_URL}/tools/call`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ tool: "transcribe_get_delivery_results", args: { jobId } }),
+          }),
+        ]);
+
         if (!cancelled) {
-          setAttendees(data?.attendees || []);
+          // Process attendees
+          if (attRes.status === "fulfilled") {
+            const attData = await attRes.value.json();
+            setAttendees(attData?.attendees || []);
+          } else {
+            setError(attRes.reason?.message || "Failed to load attendees");
+          }
+
+          // Process delivery results — extract email recipients
+          if (delRes.status === "fulfilled") {
+            const delData = await delRes.value.json();
+            const recipients = new Set<string>();
+            if (delData?.results) {
+              for (const r of delData.results) {
+                if (r.tool === "send_delivery_email" && r.success && r.result) {
+                  // Handle both single-recipient and multi-recipient formats
+                  if (r.result.to) recipients.add(r.result.to.toLowerCase());
+                  if (r.result.recipients) {
+                    for (const rec of r.result.recipients) {
+                      if (rec.email) recipients.add(rec.email.toLowerCase());
+                    }
+                  }
+                }
+              }
+            }
+            setDeliveryEmails(recipients);
+            setHasDeliveryData(recipients.size > 0);
+          }
+
           setLoading(false);
         }
       } catch (err: any) {
@@ -1796,8 +1906,38 @@ function AttendeesTab({ jobId }: { jobId: string }) {
   const withVoiceprint = attendees.filter((a) => a.has_voiceprint);
   const withoutVoiceprint = attendees.filter((a) => !a.has_voiceprint);
 
+  // Build attendee export HTML with delivery cross-reference
+  const attendeeExportHtml = (() => {
+    if (attendees.length === 0) return "<p>No attendees registered.</p>";
+    const rows = attendees
+      .map((a) => {
+        const vpBadge = a.has_voiceprint
+          ? '<span class="badge badge--vp">Voiceprint enrolled</span>'
+          : '<span class="badge badge--no-vp">Registered only</span>';
+        const receivedDelivery =
+          hasDeliveryData && a.email && deliveryEmails.has(a.email.toLowerCase())
+            ? '<span class="badge badge--delivered">Yes</span>'
+            : hasDeliveryData
+              ? '<span class="badge badge--no-delivery">No</span>'
+              : '<span class="badge badge--no-delivery">N/A</span>';
+        return `<tr><td>${escapeHtml(a.name)}</td><td>${escapeHtml(a.email || "—")}</td><td>${vpBadge}</td><td>${receivedDelivery}</td></tr>`;
+      })
+      .join("");
+    return `
+<h1>Meeting Attendees</h1>
+<p class="meta">Total: ${attendees.length} attendee(s)${hasDeliveryData ? " · Delivery data available" : ""}</p>
+<table>
+<thead><tr><th>Name</th><th>Email</th><th>Voiceprint</th><th>Results Delivered</th></tr></thead>
+<tbody>${rows}</tbody>
+</table>`;
+  })();
+
   return (
     <div className="rv-tab-content rv-tab-content--attendees">
+      <div className="rv-export-toolbar">
+        <ExportButton format="pdf" content={attendeeExportHtml} defaultName="Meeting_Attendees" />
+        <ExportButton format="word" content={attendeeExportHtml} defaultName="Meeting_Attendees" />
+      </div>
       <LoadingModal visible={loading} message="Loading attendees…" />
 
       {/* Summary cards */}

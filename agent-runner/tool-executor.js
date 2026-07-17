@@ -23,7 +23,7 @@ async function callBridge(tool, args) {
 
 // ── Delivery handlers (direct API calls) ──
 
-async function sendEmail(to, subject, body, transcript) {
+async function sendEmail(to, subject, body) {
   // Support both comma-separated string and array of recipients
   const recipients = Array.isArray(to)
     ? to
@@ -37,7 +37,7 @@ async function sendEmail(to, subject, body, transcript) {
   const oauth = new OAuth2Client(process.env.GMAIL_CLIENT_ID, process.env.GMAIL_CLIENT_SECRET);
   oauth.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
   const gmail = google.gmail({ version: "v1", auth: oauth });
-  const full = transcript ? `${body}\n\n---\nFull Transcript:\n${transcript}` : body;
+  const full = body;
 
   const results = [];
   for (const recipient of recipients) {
@@ -94,7 +94,7 @@ async function createTrelloCards(listId, items) {
   return { ok: true, tool: "create_trello_action_items", result: sanitizeApiResponse({ cardsCreated: cards.length, listId, firstCardName }) };
 }
 
-async function saveToDrive(folder, title, transcript, summary) {
+async function saveToDrive(folder, title, summary) {
   const { google } = await import("googleapis");
   const { OAuth2Client } = await import("google-auth-library");
   const oauth = new OAuth2Client(process.env.GMAIL_CLIENT_ID, process.env.GMAIL_CLIENT_SECRET);
@@ -116,15 +116,11 @@ async function saveToDrive(folder, title, transcript, summary) {
   const doc = await drive.files.create({
     requestBody: { name: `${safe} — Summary`, mimeType: "application/vnd.google-apps.document", parents: [folderId] },
   });
-  const txt = await drive.files.create({
-    requestBody: { name: `${safe} — Transcript.txt`, mimeType: "text/plain", parents: [folderId] },
-    media: { mimeType: "text/plain", body: transcript || "" },
-  });
 
   return {
     ok: true,
     tool: "save_to_drive",
-    result: sanitizeApiResponse({ folderId, folderName, summaryDocId: doc.data.id, transcriptFileId: txt.data.id }),
+    result: sanitizeApiResponse({ folderId, folderName, summaryDocId: doc.data.id }),
   };
 }
 
@@ -149,9 +145,9 @@ const HANDLERS = {
   transcribe_upsert_job: (a) => callBridge("transcribe_upsert_job", a),
   transcribe_fail_job: (a) => callBridge("transcribe_fail_job", a),
   transcribe_complete_job: (a) => callBridge("transcribe_complete_job", a),
-  send_delivery_email: (a) => sendEmail(a.to, a.subject, a.body, a.transcript),
+  send_delivery_email: (a) => sendEmail(a.to, a.subject, a.body),
   create_trello_action_items: (a) => createTrelloCards(a.listId, a.actionItems),
-  save_to_drive: (a) => saveToDrive(a.folderName, a.title, a.transcript, a.summary),
+  save_to_drive: (a) => saveToDrive(a.folderName, a.title, a.summary),
 };
 
 export async function executeToolCall(toolName, args) {
