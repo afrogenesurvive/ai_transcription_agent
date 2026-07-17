@@ -742,6 +742,115 @@ async def agent_label_speakers(req: LabelRequest):
     return {"success": True, "applied_labels": len(req.labels)}
 
 
+# ── Label Verification (Mitigation 1: voiceprint-backed label verification) ──
+
+@app.post("/agent/verify-labels")
+async def verify_labels(payload: dict = Body(...)):
+    """Verify proposed speaker labels against enrolled voiceprints.
+
+    Accepts {job_id, labels: [{speaker_id, name, email}]} and returns
+    any voiceprint conflicts — i.e. labels whose assigned name doesn't
+    match the voice of an existing enrolled voiceprint.
+
+    The frontend uses this to show warnings before the user confirms.
+    This endpoint does NOT save anything — it's purely advisory.
+
+    Returns:
+      {
+        "verifications": [{speaker_id, assigned_name, voice_match_conflicts: [...]}],
+        "unregistered_names": [...],
+        "registered_attendees": [...]
+      }
+    """
+    job_id = payload.get("job_id", "")
+    labels = payload.get("labels", [])
+
+    if not job_id or not labels:
+        raise HTTPException(400, "job_id and labels are required")
+
+    print(f"[api] POST /agent/verify-labels job_id={job_id} labels={[l.get('name', '?') for l in labels]}")
+
+    # Load diarization data to extract embeddings for verification
+    diar_data = uploader.load_diarization(job_id)
+    audio_path = None
+    if diar_data and "speaker_segments" in diar_data:
+        try:
+            audio_path = uploader.get_audio_path(job_id)
+        except Exception:
+            audio_path = None
+
+    # Load registered attendees for the job
+    metadata = uploader.get_metadata(job_id)
+    registered_attendees = metadata.get("attendees", [])
+
+    verifications = []
+    unregistered_names = []
+
+    for label in labels:
+        spk = label.get("speaker_id", "")
+        name = label.get("name", "").strip()
+        email = label.get("email", "").strip()
+        if not spk or not name:
+            continue
+
+        # Check if name is registered
+        if registered_attendees:
+            is_registered = any(
+                a.lower() == name.lower() for a in registered_attendees
+            )
+            if not is_registered:
+                unregistered_names.append(name)
+
+        # Extract embedding and match against ALL voiceprints
+        voice_match_conflicts = []
+        if audio_path and diar_data and spk in diar_data.get("speaker_segments", {}):
+            segs = diar_data["speaker_segments"][spk]
+            MAX_ENROLL_SEGMENTS = 5
+            step = max(1, len(segs) // MAX_ENROLL_SEGMENTS)
+            sampled_embs = []
+            for i in range(0, len(segs), step):
+                if len(sampled_embs) >= MAX_ENROLL_SEGMENTS:
+                    break
+                s = segs[i]
+                try:
+                    seg_emb = vp_manager.extract_embedding(
+                        audio_path, segment=(s["start"], s["end"])
+                    )
+                    sampled_embs.append(seg_emb)
+                except Exception:
+                    continue
+
+            if sampled_embs:
+                emb = np.mean(sampled_embs, axis=0)
+                emb = emb / np.linalg.norm(emb)
+
+                # Find matches against ALL enrolled voiceprints
+                matches = vp_manager.find_matching_voiceprints(
+                    emb, threshold=config.VOICEPRINT_THRESHOLD
+                )
+
+                # Report any match where the existing name differs from the assigned name
+                for m in matches:
+                    if m["name"].lower() != name.lower():
+                        voice_match_conflicts.append(m)
+
+        verifications.append({
+            "speaker_id": spk,
+            "assigned_name": name,
+            "assigned_email": email,
+            "voice_match_conflicts": voice_match_conflicts,
+        })
+
+    print(f"[api] POST /agent/verify-labels → {len(verifications)} verifications, "
+          f"{sum(len(v['voice_match_conflicts']) for v in verifications)} conflict(s), "
+          f"{len(unregistered_names)} unregistered name(s)")
+    return {
+        "verifications": verifications,
+        "unregistered_names": unregistered_names,
+        "registered_attendees": registered_attendees,
+    }
+
+
 @app.get("/agent/voiceprints")
 async def agent_list_voiceprints():
     vps = vp_manager.list_voiceprints()
@@ -1266,6 +1375,48 @@ async def get_speaker_clips(job_id: str):
         clip_start = longest["start"]
         clip_end = clip_start + clip_duration
 
+        # Try voiceprint matching first — extract embedding and compare
+        # against ALL enrolled voiceprints for a reliable suggested name.
+        suggested_name = ""
+        suggested_email = ""
+        voiceprint_confidence = 0.0
+        try:
+            # Multi-clip average for robust embedding
+            MAX_SAMPLE = 5
+            step = max(1, len(segs) // MAX_SAMPLE)
+            sampled_embs = []
+            for i in range(0, len(segs), step):
+                if len(sampled_embs) >= MAX_SAMPLE:
+                    break
+                s = segs[i]
+                seg_emb = vp_manager.extract_embedding(
+                    audio_path, segment=(s["start"], s["end"])
+                )
+                sampled_embs.append(seg_emb)
+            if sampled_embs:
+                emb = np.mean(sampled_embs, axis=0)
+                emb = emb / np.linalg.norm(emb)
+                matches = vp_manager.find_matching_voiceprints(
+                    emb, threshold=config.VOICEPRINT_THRESHOLD
+                )
+                if matches:
+                    best = matches[0]
+                    suggested_name = best["name"]
+                    suggested_email = best.get("email", "")
+                    voiceprint_confidence = best["similarity"]
+        except Exception as e:
+            print(f"[speaker_clips] ⚠️  Voiceprint matching failed for {spk}: {e}")
+
+        # Fall back to positional alignment if no voiceprint match
+        if not suggested_name:
+            idx = len(speakers)
+            if idx < len(attendee_names):
+                suggested_name = attendee_names[idx]
+                # Grab email from attendeeEmails if positionally aligned
+                attendee_emails_list = metadata.get("attendeeEmails", [])
+                if idx < len(attendee_emails_list):
+                    suggested_email = attendee_emails_list[idx]
+
         speakers.append({
             "speaker_id": spk,
             "segment_count": len(segs),
@@ -1273,7 +1424,9 @@ async def get_speaker_clips(job_id: str):
             "sample_clip_url": f"/transcribe/audio/speaker_clip/{job_id}/{spk}/0",
             "sample_start": clip_start,
             "sample_end": clip_end,
-            "suggested_name": attendee_names[len(speakers)] if len(speakers) < len(attendee_names) else "",
+            "suggested_name": suggested_name,
+            "suggested_email": suggested_email,
+            "voiceprint_confidence": round(voiceprint_confidence, 3),
         })
 
     # Include non-speaking attendees from reconciliation data (if available)
@@ -1444,6 +1597,54 @@ async def label_and_resume(job_id: str, labels: list = Body(...)):
                 except Exception as e:
                     print(f"[api]   ⚠️  Could not extract embedding for '{name}': {e}")
                     vp_manager.save_voiceprint(name, email, None)
+
+    # ── Cross-job drift audit (Mitigation 2: detect labeling inconsistencies) ──
+    # After saving all voiceprints, compare each new embedding against ALL
+    # existing voiceprints. Log any matches where the same voice was assigned
+    # a different name in a previous job.
+    drift_entries = []
+    for label in labels:
+        spk = label.get("speaker_id", "")
+        name = label.get("name", "").strip()
+        if not spk or not name:
+            continue
+        # Retrieve the embedding we just saved for this speaker
+        email_key = vp_manager._make_email(name, label.get("email", "").strip())
+        saved_emb = vp_manager.get_embedding(email_key)
+        if saved_emb is None:
+            continue
+        # Match against ALL enrolled voiceprints
+        all_matches = vp_manager.find_matching_voiceprints(
+            saved_emb, threshold=config.VOICEPRINT_THRESHOLD
+        )
+        for m in all_matches:
+            if m["name"].lower() == name.lower():
+                continue  # same name — no drift
+            entry = {
+                "timestamp": datetime.utcnow().isoformat(),
+                "job_id": job_id,
+                "assigned_name": name,
+                "assigned_email": email_key,
+                "speaker_id": spk,
+                "matched_name": m["name"],
+                "matched_email": m["email"],
+                "similarity": m["similarity"],
+                "matched_sample_job_id": m.get("sample_job_id"),
+            }
+            drift_entries.append(entry)
+            print(f"[drift] ⚠️  '{name}' ({spk}) matches voice of '{m['name']}' "
+                  f"(sim={m['similarity']:.3f}) from job "
+                  f"{m.get('sample_job_id', '?')[:8]}")
+
+    if drift_entries:
+        drift_log_path = os.path.join(config.STORAGE_PATH, job_id, "label-drift-audit.jsonl")
+        try:
+            with open(drift_log_path, "w") as f:
+                for entry in drift_entries:
+                    f.write(json.dumps(entry) + "\n")
+            print(f"[drift] ✅ Drift audit written ({len(drift_entries)} entry/entries) to {drift_log_path}")
+        except Exception as e:
+            print(f"[drift] ⚠️  Could not write drift audit log: {e}")
 
     # Determine how to proceed based on labeling phase
     labeling_phase = s.get("labeling_phase", "pre_asr")

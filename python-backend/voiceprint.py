@@ -562,3 +562,61 @@ class VoiceprintManager:
         ~41 degrees of each other.
         """
         return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+
+    def get_embedding(self, email: str) -> Optional[np.ndarray]:
+        """Fetch raw embedding vector by email. Returns None if not found."""
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT embedding FROM voiceprints WHERE email = ?",
+            (email,),
+        ).fetchone()
+        if not row or row[0] is None:
+            return None
+        try:
+            return pickle.loads(row[0])
+        except Exception:
+            return None
+
+    def find_matching_voiceprints(
+        self, embedding: np.ndarray, threshold: float = None
+    ) -> List[dict]:
+        """Compare an embedding against ALL enrolled voiceprints.
+
+        Args:
+            embedding: The query embedding vector to match.
+            threshold: Cosine similarity threshold (0.0–1.0). Default from config.
+
+        Returns:
+            List of {name, email, similarity, sample_job_id} dicts
+            for every stored voiceprint whose similarity exceeds the threshold.
+            Sorted by similarity descending (best match first).
+        """
+        if threshold is None:
+            from config import config as _cfg
+            threshold = _cfg.VOICEPRINT_THRESHOLD
+
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT speaker_name, email, embedding, sample_job_id "
+            "FROM voiceprints WHERE embedding IS NOT NULL"
+        ).fetchall()
+
+        matches = []
+        for name, email, blob, sample_job_id in rows:
+            try:
+                stored = pickle.loads(blob)
+            except Exception:
+                continue
+            if stored is None:
+                continue
+            sim = self._cosine_similarity(embedding, stored)
+            if sim >= threshold:
+                matches.append({
+                    "name": name,
+                    "email": email,
+                    "similarity": round(sim, 4),
+                    "sample_job_id": sample_job_id,
+                })
+
+        matches.sort(key=lambda m: m["similarity"], reverse=True)
+        return matches

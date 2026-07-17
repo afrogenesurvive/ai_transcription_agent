@@ -334,6 +334,9 @@ async function dispatch(tool, args) {
     case "transcribe_label_and_resume":
       return await callPython("POST", `/transcribe/label_and_resume/${args.jobId}`, args.labels || []);
 
+    case "transcribe_verify_labels":
+      return await callPython("POST", `/agent/verify-labels`, args);
+
     case "transcribe_get_token_usage": {
       const usageResult = await callPython("GET", `/transcribe/usage/${args.jobId}`);
       if (usageResult?.totals) {

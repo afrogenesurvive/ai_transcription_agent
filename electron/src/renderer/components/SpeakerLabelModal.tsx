@@ -23,6 +23,22 @@ interface SpeakerInfo {
   sample_start: number;
   sample_end: number;
   suggested_name: string;
+  suggested_email?: string;
+  voiceprint_confidence?: number;
+}
+
+interface VoiceMatchConflict {
+  name: string;
+  email: string;
+  similarity: number;
+  sample_job_id?: string;
+}
+
+interface LabelVerification {
+  speaker_id: string;
+  assigned_name: string;
+  assigned_email: string;
+  voice_match_conflicts: VoiceMatchConflict[];
 }
 
 interface ConflictInfo {
@@ -64,6 +80,15 @@ export default function SpeakerLabelModal({
   const [overwriteSet, setOverwriteSet] = useState<Set<string>>(new Set());
   const [checkingConflicts, setCheckingConflicts] = useState(false);
   const [emailErrors, setEmailErrors] = useState<Record<string, string>>({});
+
+  // ── Voice match verification (Mitigation 1) ──
+  const [voiceMatchConflicts, setVoiceMatchConflicts] = useState<LabelVerification[]>([]);
+  const [showVoiceWarnings, setShowVoiceWarnings] = useState(false);
+  const [verificationDone, setVerificationDone] = useState(false);
+
+  // ── Unregistered name warning (Mitigation 3) ──
+  const [unregisteredNames, setUnregisteredNames] = useState<string[]>([]);
+  const [dismissedUnregistered, setDismissedUnregistered] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const initializedRef = useRef(false);
 
@@ -133,7 +158,15 @@ export default function SpeakerLabelModal({
     return name.length > 0 && email.length > 0 && validateEmail(email);
   });
 
-  // ── Voiceprint conflict checking ──
+  // ── Build label result from current state ──
+  const buildResult = () =>
+    speakers.map((s) => ({
+      speaker_id: s.speaker_id,
+      name: labels[s.speaker_id]?.trim() || s.speaker_id,
+      email: emails[s.speaker_id]?.trim() || "",
+    }));
+
+  // ── Voiceprint + voice-match conflict checking ──
   const handleConfirm = async () => {
     // Re-validate all emails before proceeding
     const invalid: string[] = [];
@@ -156,14 +189,9 @@ export default function SpeakerLabelModal({
       return;
     }
 
-    // Build labels for ALL speakers with email
-    const result = speakers.map((s) => ({
-      speaker_id: s.speaker_id,
-      name: labels[s.speaker_id]?.trim() || s.speaker_id,
-      email: emails[s.speaker_id]?.trim() || "",
-    }));
+    const result = buildResult();
 
-    // Check for existing voiceprints with these names
+    // Step 1: Check for existing voiceprints with these names (name/email conflicts)
     const namesToCheck = result.map((l) => ({ name: l.name }));
     setCheckingConflicts(true);
     try {
@@ -173,11 +201,43 @@ export default function SpeakerLabelModal({
         setConflicts(foundConflicts);
         setOverwriteSet(new Set());
         setCheckingConflicts(false);
-        return; // Show conflict dialog, don't submit yet
+        return; // Show name conflict dialog, don't submit yet
       }
     } catch {
       // Backend unavailable — proceed without checking
     }
+
+    // Step 2: Voice-match verification (Mitigation 1)
+    // Call the backend to compare proposed labels against enrolled voiceprints.
+    if (!verificationDone) {
+      try {
+        const vResult = await (window as any).electronAPI?.verifyLabels({
+          jobId,
+          labels: result,
+        });
+        if (vResult) {
+          const voiceConflicts = (vResult.verifications || []).filter(
+            (v: LabelVerification) => v.voice_match_conflicts.length > 0,
+          );
+          const unregistered = vResult.unregistered_names || [];
+
+          if (voiceConflicts.length > 0) {
+            setVoiceMatchConflicts(voiceConflicts);
+            setShowVoiceWarnings(true);
+            setCheckingConflicts(false);
+            return; // Show voice match dialog
+          }
+
+          if (unregistered.length > 0) {
+            setUnregisteredNames(unregistered);
+          }
+        }
+      } catch {
+        // Backend unavailable — proceed without voice verification
+      }
+      setVerificationDone(true);
+    }
+
     setCheckingConflicts(false);
     await onConfirm(result);
   };
@@ -194,12 +254,17 @@ export default function SpeakerLabelModal({
 
   /** Not overwriting any entries → keep existing voiceprints, don't save new ones for those names. */
   const handleConflictConfirm = async () => {
-    const result = speakers.map((s) => ({
-      speaker_id: s.speaker_id,
-      name: labels[s.speaker_id]?.trim() || s.speaker_id,
-      email: emails[s.speaker_id]?.trim() || "",
-    }));
+    const result = buildResult();
     setConflicts([]);
+    await onConfirm(result);
+  };
+
+  /** Continue despite voice match warnings (Mitigation 1 override). */
+  const handleVoiceWarningContinue = async () => {
+    setShowVoiceWarnings(false);
+    setVerificationDone(true);
+    setCheckingConflicts(false);
+    const result = buildResult();
     await onConfirm(result);
   };
 
@@ -236,6 +301,12 @@ export default function SpeakerLabelModal({
                   <span className="speaker-stats">
                     {spk.segment_count} segment{spk.segment_count !== 1 ? "s" : ""} · {spk.total_duration.toFixed(0)}s total
                   </span>
+                  {/* ── Voiceprint confidence badge (Mitigation 4) ── */}
+                  {spk.voiceprint_confidence && spk.voiceprint_confidence > 0 && (
+                    <span className="speaker-vp-badge" title={`Auto-detected from voiceprint (${(spk.voiceprint_confidence * 100).toFixed(0)}% confidence)`}>
+                      <Icon name="mic" size="12" color="accent" /> {(spk.voiceprint_confidence * 100).toFixed(0)}%
+                    </span>
+                  )}
                   <button
                     className="btn-icon speaker-play-btn"
                     onClick={() => playClip(spk.speaker_id, spk.sample_clip_url)}
@@ -351,6 +422,59 @@ export default function SpeakerLabelModal({
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* ── Voice match warning dialog (Mitigation 1) ── */}
+        {showVoiceWarnings && voiceMatchConflicts.length > 0 && (
+          <div className="vp-conflict-overlay">
+            <div className="vp-conflict-dialog">
+              <h3>
+                <Icon name="warning" size="16" color="orange" /> Voice Match Detected
+              </h3>
+              <p className="vp-conflict-desc">
+                The following speakers have voices that closely match someone already enrolled under a different name. Please review each match
+                before continuing.
+              </p>
+              {voiceMatchConflicts.map((vc) => (
+                <div key={vc.speaker_id} className="vp-conflict-row">
+                  <div className="vp-conflict-row-info">
+                    <strong>{vc.speaker_id}</strong> → <strong>{vc.assigned_name}</strong>
+                  </div>
+                  {vc.voice_match_conflicts.map((mc, i) => (
+                    <div key={i} className="vp-conflict-hint" style={{ marginTop: 4 }}>
+                      <Icon name="info" size="12" /> This voice matches{' '}
+                      <strong>{mc.name}</strong> ({(mc.similarity * 100).toFixed(0)}% similar)
+                      {mc.sample_job_id && <> from job {mc.sample_job_id.slice(0, 8)}</>}
+                    </div>
+                  ))}
+                </div>
+              ))}
+              <div className="modal-actions" style={{ marginTop: 12 }}>
+                <button className="btn-secondary" onClick={() => { setShowVoiceWarnings(false); setVerificationDone(false); }}>
+                  Go Back
+                </button>
+                <button className="btn-primary" onClick={handleVoiceWarningContinue}>
+                  Continue Anyway
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Unregistered name warning banner (Mitigation 3) ── */}
+        {unregisteredNames.length > 0 && !dismissedUnregistered && !showVoiceWarnings && conflicts.length === 0 && (
+          <div className="speaker-unregistered-banner">
+            <Icon name="warning" size="14" color="orange" />
+            <span>
+              <strong>Not registered:</strong> {unregisteredNames.join(", ")}{" "}
+              {unregisteredNames.length === 1 ? "wasn't" : "weren't"} registered as{" "}
+              {unregisteredNames.length === 1 ? "an attendee" : "attendees"} for this meeting.
+              They will be added to the attendee list.
+            </span>
+            <button className="btn-icon speaker-unregistered-dismiss" onClick={() => setDismissedUnregistered(true)} title="Dismiss">
+              <Icon name="close" size="12" color="muted" />
+            </button>
           </div>
         )}
 

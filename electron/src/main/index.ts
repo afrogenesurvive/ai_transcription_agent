@@ -1175,6 +1175,23 @@ ipcMain.handle("voiceprints:check-conflicts", async (_event, attendees: Array<{ 
   }
 });
 
+// ── Label verification (Mitigation 1: voiceprint-backed label verification) ──
+
+ipcMain.handle("labels:verify", async (_event, payload: { jobId: string; labels: Array<{ speaker_id: string; name: string; email?: string }> }) => {
+  try {
+    const res = await fetch("http://127.0.0.1:5010/tools/call", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tool: "transcribe_verify_labels", args: { jobId: payload.jobId, labels: payload.labels } }),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (res.ok) return await res.json();
+    return { verifications: [], unregistered_names: [], registered_attendees: [] };
+  } catch {
+    return { verifications: [], unregistered_names: [], registered_attendees: [] };
+  }
+});
+
 // ── Playwright Testing IPC ──
 
 ipcMain.handle("testing:run", async (_event, vars: Record<string, string>) => {

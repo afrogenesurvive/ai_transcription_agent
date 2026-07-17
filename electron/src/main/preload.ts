@@ -71,6 +71,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
   checkVoiceprintConflicts: (attendees: Array<{ name: string; email?: string }>): Promise<{ conflicts: Array<any> }> =>
     ipcRenderer.invoke("voiceprints:check-conflicts", attendees),
 
+  // ── Label verification (Mitigation 1: voiceprint-backed label verification) ──
+  verifyLabels: (payload: { jobId: string; labels: Array<{ speaker_id: string; name: string; email?: string }> }): Promise<{
+    verifications: Array<any>;
+    unregistered_names: Array<string>;
+    registered_attendees: Array<string>;
+  }> => ipcRenderer.invoke("labels:verify", payload),
+
   // ── Configuration ──
   getConfig: (): Promise<Record<string, string>> => ipcRenderer.invoke("config:get"),
   saveConfig: (values: Record<string, string>): Promise<Record<string, string>> => ipcRenderer.invoke("config:save", values),
