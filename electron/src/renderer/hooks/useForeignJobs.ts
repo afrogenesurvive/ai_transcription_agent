@@ -81,8 +81,7 @@ export function useForeignJobs() {
     // returns ALL pipeline jobs including UI-created ones, causing false positives.
     // The IPC handler already reads job status from disk and filters terminal ones.
     try {
-      const botJobs: Array<{ job_id: string; status: string }> =
-        await window.electronAPI?.getRunningBotJobs() ?? [];
+      const botJobs: Array<{ job_id: string; status: string }> = (await window.electronAPI?.getRunningBotJobs()) ?? [];
       for (const job of botJobs) {
         if (NON_TERMINAL_STATUSES.has(job.status)) {
           discovered.add(job.job_id);
