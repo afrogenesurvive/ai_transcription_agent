@@ -70,6 +70,7 @@ export default function App() {
   const [loadingMessage, setLoadingMessage] = useState<string | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
   const [sidebarView, setSidebarView] = useState<SidebarView>("current");
+  const [devWarningModal, setDevWarningModal] = useState<SidebarView | null>(null);
   const [configOk, setConfigOk] = useState(true);
   const [ollamaRequired, setOllamaRequired] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -588,6 +589,54 @@ export default function App() {
         />
       )}
 
+      {/* Dev/Config warning modal */}
+      {devWarningModal && (
+        <div className="lm-overlay">
+          <div
+            style={{
+              background: "var(--surface)",
+              borderRadius: "var(--radius)",
+              padding: 24,
+              maxWidth: 420,
+              textAlign: "center",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 16,
+              boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+            }}>
+            <Icon name="warning" size="48" color="orange" />
+            <h3 style={{ margin: 0, color: "var(--text)", fontSize: "var(--fs-16)" }}>Developer Section</h3>
+            <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "var(--fs-13)", lineHeight: 1.5 }}>
+              This section is for developers. Proceed with caution. Do you want to proceed?
+            </p>
+            <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+              <button
+                className="dev-panel-btn"
+                onClick={() => {
+                  sessionStorage.setItem("dev_warning_accepted", "true");
+                  setSidebarView(devWarningModal);
+                  setDevWarningModal(null);
+                }}
+                style={{ padding: "8px 24px", fontWeight: 600 }}
+                title="Proceed to this section">
+                <Icon name="check_circle" size="16" color="green" /> Proceed
+              </button>
+              <button
+                className="dev-panel-btn"
+                onClick={() => {
+                  setDevWarningModal(null);
+                  setSidebarView("current");
+                }}
+                style={{ padding: "8px 24px", fontWeight: 600 }}
+                title="Go back to the current job view">
+                <Icon name="cancel" size="16" color="red" /> Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Global loading modal — covers everything during data fetches */}
       <LoadingModal visible={!!loadingMessage} message={loadingMessage || undefined} />
 
@@ -673,7 +722,11 @@ export default function App() {
             <button
               className={`sidebar-btn ${sidebarView === "dev" ? "sidebar-btn--active" : ""}`}
               onClick={() => {
-                setSidebarView("dev");
+                if (sessionStorage.getItem("dev_warning_accepted")) {
+                  setSidebarView("dev");
+                } else {
+                  setDevWarningModal("dev");
+                }
                 setShowNewForm(false);
                 setShowHistory(false);
               }}
@@ -688,7 +741,11 @@ export default function App() {
             <button
               className={`sidebar-btn ${sidebarView === "config" ? "sidebar-btn--active" : ""}`}
               onClick={() => {
-                setSidebarView("config");
+                if (sessionStorage.getItem("dev_warning_accepted")) {
+                  setSidebarView("config");
+                } else {
+                  setDevWarningModal("config");
+                }
                 setShowNewForm(false);
                 setShowHistory(false);
                 window.electronAPI?.getConfigWithSources();

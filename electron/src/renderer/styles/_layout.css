@@ -129,6 +129,11 @@
   position: relative;
 }
 
+.sidebar .tooltip-trigger {
+  display: flex;
+  width: 100%;
+}
+
 /* ── Sidebar drag resize handle ── */
 
 .sidebar-resize-handle {

@@ -2039,6 +2039,17 @@ async def delete_logs(log_type: str = "all"):
                 errors += 1
                 print(f"[api] DELETE /storage/logs → failed to remove {fname}: {e}")
 
+    # Also delete the test-bot log file from the storage directory
+    test_bot_log = os.path.join(config.STORAGE_PATH, "test-bot-log.jsonl")
+    if os.path.exists(test_bot_log):
+        try:
+            os.remove(test_bot_log)
+            deleted += 1
+            print(f"[api] DELETE /storage/logs → removed test-bot-log.jsonl from storage")
+        except Exception as e:
+            errors += 1
+            print(f"[api] DELETE /storage/logs → failed to remove test-bot-log.jsonl: {e}")
+
     if deleted == 0 and errors == 0:
         return {"deleted": 0, "errors": 0, "log_type": log_type, "message": "No log files found"}
 
