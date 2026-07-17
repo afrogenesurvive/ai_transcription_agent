@@ -86,6 +86,11 @@ export default function SpeakerLabelModal({
   const [showVoiceWarnings, setShowVoiceWarnings] = useState(false);
   const [verificationDone, setVerificationDone] = useState(false);
 
+  // ── Per-speaker live conflict detection (Phase C) ──
+  // Keyed by speaker_id; stores inline conflict info from onBlur verification.
+  const [perSpeakerConflicts, setPerSpeakerConflicts] = useState<Record<string, LabelVerification | null>>({});
+  const blurTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
   // ── Unregistered name warning (Mitigation 3) ──
   const [unregisteredNames, setUnregisteredNames] = useState<string[]>([]);
   const [dismissedUnregistered, setDismissedUnregistered] = useState(false);
@@ -257,6 +262,19 @@ export default function SpeakerLabelModal({
     await onConfirm(result);
   };
 
+  /** Per-conflict accept/reject toggles (Phase C3). */
+  const [acceptedConflicts, setAcceptedConflicts] = useState<Set<string>>(new Set());
+
+  /** Toggle whether a specific voice-match conflict is accepted. */
+  const toggleAcceptedConflict = (key: string) => {
+    setAcceptedConflicts((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   /** Continue despite voice match warnings (Mitigation 1 override). */
   const handleVoiceWarningContinue = async () => {
     setShowVoiceWarnings(false);
@@ -265,6 +283,85 @@ export default function SpeakerLabelModal({
     const result = buildResult();
     await onConfirm(result);
   };
+
+  /** Accept only the ticked conflicts and proceed. */
+  const handleVoiceWarningAcceptSelected = async () => {
+    // Build a modified label set: any conflict the user ACCEPTED keeps its
+    // existing name. Any conflict the user REJECTED keeps the user's typed name.
+    const result = buildResult();
+
+    // For accepted conflicts, overwrite the label with the existing name
+    for (const vc of voiceMatchConflicts) {
+      for (const mc of vc.voice_match_conflicts || []) {
+        const key = `${vc.speaker_id}:${mc.name}`;
+        if (acceptedConflicts.has(key)) {
+          const found = result.find((l) => l.speaker_id === vc.speaker_id);
+          if (found) {
+            found.name = mc.name;
+            found.email = mc.email || found.email;
+          }
+        }
+      }
+    }
+
+    setShowVoiceWarnings(false);
+    setVerificationDone(true);
+    setCheckingConflicts(false);
+    await onConfirm(result);
+  };
+
+  // ── Live per-speaker conflict detection on name blur (Phase C) ──
+  const handleNameBlur = useCallback(
+    async (speakerId: string) => {
+      const name = labels[speakerId]?.trim();
+      if (!name) return;
+
+      // Clear previous timer
+      if (blurTimersRef.current[speakerId]) {
+        clearTimeout(blurTimersRef.current[speakerId]);
+      }
+
+      // Debounce: wait 500ms after blur before checking
+      blurTimersRef.current[speakerId] = setTimeout(async () => {
+        try {
+          const res = await (window as any).electronAPI?.verifyLabels({
+            jobId,
+            labels: [{ speaker_id: speakerId, name, email: emails[speakerId] || "" }],
+          });
+          const v = res?.verifications?.[0];
+          if (v?.voice_match_conflicts?.length > 0) {
+            setPerSpeakerConflicts((prev) => ({ ...prev, [speakerId]: v }));
+          } else {
+            setPerSpeakerConflicts((prev) => {
+              const next = { ...prev };
+              delete next[speakerId];
+              return next;
+            });
+          }
+        } catch {
+          // Backend unavailable — ignore
+        }
+      }, 500);
+    },
+    [jobId, labels, emails],
+  );
+
+  /** Resolve an inline voice-match conflict: accept the existing name. */
+  const resolveInlineConflict = useCallback((speakerId: string, existingName: string, existingEmail: string) => {
+    setLabels((prev) => ({ ...prev, [speakerId]: existingName }));
+    setEmails((prev) => ({ ...prev, [speakerId]: existingEmail }));
+    setPerSpeakerConflicts((prev) => {
+      const next = { ...prev };
+      delete next[speakerId];
+      return next;
+    });
+    // Clear any error for this speaker
+    setEmailErrors((prev) => {
+      const next = { ...prev };
+      delete next[speakerId];
+      return next;
+    });
+  }, []);
 
   const handleSkip = () => {
     // Use default speaker IDs for any unnamed speakers
@@ -322,6 +419,7 @@ export default function SpeakerLabelModal({
                       placeholder={`Name for ${spk.speaker_id}`}
                       value={labels[spk.speaker_id] ?? ""}
                       onChange={(e) => setLabels((prev) => ({ ...prev, [spk.speaker_id]: e.target.value }))}
+                      onBlur={() => handleNameBlur(spk.speaker_id)}
                       autoFocus={idx === 0 && !spk.suggested_name}
                       title="Enter a name for this speaker"
                     />
@@ -355,6 +453,34 @@ export default function SpeakerLabelModal({
                   </Tooltip>
                   {emailErrors[spk.speaker_id] && <span className="speaker-email-error">{emailErrors[spk.speaker_id]}</span>}
                 </div>
+                {/* ── Inline voice-match conflict widget (Phase C) ── */}
+                {perSpeakerConflicts[spk.speaker_id]?.voice_match_conflicts?.map((mc, ci) => (
+                  <div key={ci} className="speaker-inline-conflict">
+                    <Icon name="warning" size="13" color="orange" />
+                    <span className="speaker-inline-conflict-text">
+                      This voice matches <strong>{mc.name}</strong> ({(mc.similarity * 100).toFixed(0)}% similarity)
+                      {mc.sample_job_id ? <> from job {mc.sample_job_id.slice(0, 8)}</> : ""}
+                    </span>
+                    <button
+                      className="btn-sm btn-link"
+                      onClick={() => resolveInlineConflict(spk.speaker_id, mc.name, mc.email)}
+                      title={`Use "${mc.name}" instead`}>
+                      Use &ldquo;{mc.name}&rdquo;
+                    </button>
+                    <button
+                      className="btn-sm btn-link speaker-inline-conflict-dismiss"
+                      onClick={() =>
+                        setPerSpeakerConflicts((prev) => {
+                          const next = { ...prev };
+                          delete next[spk.speaker_id];
+                          return next;
+                        })
+                      }
+                      title="Keep current name">
+                      Keep &ldquo;{labels[spk.speaker_id] || spk.speaker_id}&rdquo;
+                    </button>
+                  </div>
+                ))}
               </div>
             );
           })}
@@ -425,7 +551,7 @@ export default function SpeakerLabelModal({
           </div>
         )}
 
-        {/* ── Voice match warning dialog (Mitigation 1) ── */}
+        {/* ── Voice match warning dialog (Phase C3: per-conflict accept/reject) ── */}
         {showVoiceWarnings && voiceMatchConflicts.length > 0 && (
           <div className="vp-conflict-overlay">
             <div className="vp-conflict-dialog">
@@ -433,20 +559,32 @@ export default function SpeakerLabelModal({
                 <Icon name="warning" size="16" color="orange" /> Voice Match Detected
               </h3>
               <p className="vp-conflict-desc">
-                The following speakers have voices that closely match someone already enrolled under a different name. Please review each match before
-                continuing.
+                The following speakers have voices that closely match someone already enrolled under a different name. Tick the matches you want to
+                accept (uses the existing name) — unticked ones keep your typed name.
               </p>
               {voiceMatchConflicts.map((vc) => (
                 <div key={vc.speaker_id} className="vp-conflict-row">
                   <div className="vp-conflict-row-info">
                     <strong>{vc.speaker_id}</strong> → <strong>{vc.assigned_name}</strong>
                   </div>
-                  {vc.voice_match_conflicts.map((mc, i) => (
-                    <div key={i} className="vp-conflict-hint" style={{ marginTop: 4 }}>
-                      <Icon name="info" size="12" /> This voice matches <strong>{mc.name}</strong> ({(mc.similarity * 100).toFixed(0)}% similar)
-                      {mc.sample_job_id && <> from job {mc.sample_job_id.slice(0, 8)}</>}
-                    </div>
-                  ))}
+                  {vc.voice_match_conflicts.map((mc, i) => {
+                    const key = `${vc.speaker_id}:${mc.name}`;
+                    return (
+                      <div key={i} className="vp-conflict-hint vp-conflict-hint--with-checkbox" style={{ marginTop: 4 }}>
+                        <label className="vp-conflict-checkbox">
+                          <input type="checkbox" checked={acceptedConflicts.has(key)} onChange={() => toggleAcceptedConflict(key)} />
+                          <span>
+                            This voice matches <strong>{mc.name}</strong> ({(mc.similarity * 100).toFixed(0)}% similar)
+                            {mc.sample_job_id && <> from job {mc.sample_job_id.slice(0, 8)}</>}
+                            <br />
+                            <span className="vp-conflict-hint-sub">
+                              Tick to use &ldquo;{mc.name}&rdquo; instead of &ldquo;{vc.assigned_name}&rdquo;
+                            </span>
+                          </span>
+                        </label>
+                      </div>
+                    );
+                  })}
                 </div>
               ))}
               <div className="modal-actions" style={{ marginTop: 12 }}>
@@ -455,11 +593,15 @@ export default function SpeakerLabelModal({
                   onClick={() => {
                     setShowVoiceWarnings(false);
                     setVerificationDone(false);
+                    setAcceptedConflicts(new Set());
                   }}>
                   Go Back
                 </button>
-                <button className="btn-primary" onClick={handleVoiceWarningContinue}>
-                  Continue Anyway
+                <button className="btn-secondary" onClick={handleVoiceWarningContinue}>
+                  Keep All My Names
+                </button>
+                <button className="btn-primary" onClick={handleVoiceWarningAcceptSelected} disabled={acceptedConflicts.size === 0}>
+                  Accept Selected ({acceptedConflicts.size})
                 </button>
               </div>
             </div>

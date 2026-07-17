@@ -331,8 +331,18 @@ async function dispatch(tool, args) {
     case "transcribe_get_speaker_clips":
       return await callPython("GET", `/transcribe/speaker_clips/${args.jobId}`);
 
-    case "transcribe_label_and_resume":
-      return await callPython("POST", `/transcribe/label_and_resume/${args.jobId}`, args.labels || []);
+    case "transcribe_label_and_resume": {
+      const lrResult = await callPython("POST", `/transcribe/label_and_resume/${args.jobId}`, args.labels || []);
+      if (lrResult?.voice_match_conflicts?.length) {
+        console.warn(`[bridge] ⚠️  Voice match conflict(s) detected for job ${args.jobId?.slice(0, 8) || "?"}:`);
+        for (const c of lrResult.voice_match_conflicts) {
+          console.warn(
+            `[bridge]   "${c.assigned_name}" (${c.speaker_id}) matches existing voiceprint "${c.matched_name}" (sim=${c.similarity?.toFixed(3) || "?"}) from job ${c.matched_sample_job_id?.slice(0, 8) || "?"}`,
+          );
+        }
+      }
+      return lrResult;
+    }
 
     case "transcribe_verify_labels":
       return await callPython("POST", `/agent/verify-labels`, args);

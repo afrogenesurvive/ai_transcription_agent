@@ -69,7 +69,14 @@ _active_jobs: dict[str, dict] = {}
 ML_PIPELINE_STATUSES = frozenset({
     "uploaded", "initializing", "processing_diarization",
     "matching_voiceprints", "processing_transcription", "aligning",
+    "paused_for_labeling", "resuming",
 })
+
+# Maximum wall-clock time (seconds) for the entire ML pipeline before
+# it's considered hung and fails itself. Prevents silent MPS hangs when
+# multiple pipelines contend for GPU resources.
+# Editable from the Config UI as "Pipeline Timeout (minutes)".
+PIPELINE_TIMEOUT_SECONDS = config.PIPELINE_TIMEOUT_SECONDS
 
 
 @asynccontextmanager
@@ -1725,11 +1732,17 @@ async def label_and_resume(job_id: str, labels: list = Body(...)):
             job_id, aligned, metadata, skip_steps=skip,
             non_speaking_attendees=non_speaking_names,
         )
-        return {"job_id": job_id, "status": "ready_for_agent", "applied_labels": len(label_map)}
+        result = {"job_id": job_id, "status": "ready_for_agent", "applied_labels": len(label_map)}
+        if drift_entries:
+            result["voice_match_conflicts"] = drift_entries
+        return result
     else:
         # Pre-ASR (diarization only) — run full resumed pipeline (ASR → alignment → agent)
         _start_resumed_pipeline(job_id, label_map)
-        return {"job_id": job_id, "status": "resuming", "applied_labels": len(label_map)}
+        result = {"job_id": job_id, "status": "resuming", "applied_labels": len(label_map)}
+        if drift_entries:
+            result["voice_match_conflicts"] = drift_entries
+        return result
 
 
 def _start_resumed_pipeline(job_id: str, label_map: dict):
@@ -1781,6 +1794,7 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
 
     All progress is also written to the per-job pipeline.log file.
     """
+    _pipeline_start = time.time()
     jlog = _setup_job_logger(job_id)
     try:
         _update_active(job_id, "resuming", 0.35)
@@ -1836,6 +1850,7 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
         jlog.log(f"\n   🎤 [PIPELINE] Step 3/5: ASR transcription (Whisper)...")
         _update_active(job_id, "processing_transcription", 0.5)
         if _check_cancelled(job_id): return
+        _check_pipeline_timeout(job_id, _pipeline_start, jlog)
         t_asr = time.time()
         transcription = engine.run_transcription(audio_path)
         asr_elapsed = time.time() - t_asr
@@ -1844,6 +1859,7 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
         jlog.log(f"\n   🔗 [PIPELINE] Step 4/5: Aligning diarization with transcript...")
         _update_active(job_id, "aligning", 0.7)
         if _check_cancelled(job_id): return
+        _check_pipeline_timeout(job_id, _pipeline_start, jlog)
         t_align = time.time()
         aligned = engine.align_transcript(transcription, diarization)
         align_elapsed = time.time() - t_align
@@ -1890,6 +1906,7 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
         # ── Step 5: Enqueue for agent or pause for labeling ──
         jlog.log(f"\n   📨 [PIPELINE] Step 5/5: Enqueueing for agent runner...")
         if _check_cancelled(job_id): return
+        _check_pipeline_timeout(job_id, _pipeline_start, jlog)
         if unknown:
             for u in unknown:
                 for seg in aligned:
@@ -3091,6 +3108,22 @@ def _check_cancelled(job_id: str) -> bool:
     return False
 
 
+def _check_pipeline_timeout(job_id: str, start_time: float, jlog=None) -> bool:
+    """Check if the pipeline has exceeded the wall-clock timeout.
+
+    Returns True if timed out (caller should return/fail). Raises
+    TimeoutError so the outer try/except catches it and sets failed status.
+    """
+    elapsed = time.time() - start_time
+    if elapsed > PIPELINE_TIMEOUT_SECONDS:
+        msg = (f"Pipeline exceeded {PIPELINE_TIMEOUT_SECONDS // 60}-minute timeout "
+               f"(elapsed={elapsed:.0f}s)")
+        if jlog:
+            jlog.log(f"\n   ⏰ [pipeline] {msg}")
+        raise TimeoutError(msg)
+    return False
+
+
 async def _run_pipeline_async(job_id: str):
     """Async wrapper around the synchronous ML pipeline.
 
@@ -3209,6 +3242,7 @@ def _run_pipeline_sync(job_id: str):
 
     All progress is also written to a per-job log file at ``<storage>/<job_id>/pipeline.log``.
     """
+    _pipeline_start = time.time()
     jlog = _setup_job_logger(job_id)
     try:
         _update_active(job_id, "initializing", 0.05)
@@ -3223,6 +3257,7 @@ def _run_pipeline_sync(job_id: str):
         jlog.log(f"\n   🔬 [PIPELINE] Step 1/5: Diarization (identifying speakers)...")
         _update_active(job_id, "processing_diarization", 0.2)
         if _check_cancelled(job_id): return
+        _check_pipeline_timeout(job_id, _pipeline_start, jlog)
         t_diar = time.time()
         diarization = engine.run_diarization(audio_path)
         diar_elapsed = time.time() - t_diar
@@ -3280,6 +3315,7 @@ def _run_pipeline_sync(job_id: str):
         jlog.log(f"\n   🧬 [PIPELINE] Step 2/5: Voiceprint matching...")
         _update_active(job_id, "matching_voiceprints", 0.35)
         if _check_cancelled(job_id): return
+        _check_pipeline_timeout(job_id, _pipeline_start, jlog)
         t_vp = time.time()
         attendees = metadata.get("attendees", [])
         if attendees:
@@ -3300,6 +3336,66 @@ def _run_pipeline_sync(job_id: str):
         vp_elapsed = time.time() - t_vp
         jlog.log(f"   ✅ [pipeline] Voiceprint matching in {vp_elapsed:.1f}s: "
               f"{len(match_result['known'])} known, {len(match_result.get('unknown', []))} unknown")
+
+        # ── Cross-check: detect voiceprint conflicts before auto-labeling ──
+        # If a matched speaker's voice also matches an EXISTING enrolled
+        # voiceprint under a DIFFERENT name, don't auto-label — defer to
+        # the user so they can resolve the conflict via the labeling modal.
+        if match_result.get("known"):
+            scores = match_result.get("scores", {})
+            for matched_name, segs in list(match_result["known"].items()):
+                # Extract composite embedding from the matched segments
+                sample_segs = segs[:5]
+                step = max(1, len(segs) // 5) if len(segs) > 5 else 1
+                sampled_embs = []
+                for i in range(0, len(segs), step):
+                    if len(sampled_embs) >= 5:
+                        break
+                    s = segs[i]
+                    try:
+                        seg_emb = vp_manager.extract_embedding(
+                            audio_path, segment=(s["start"], s["end"])
+                        )
+                        sampled_embs.append(seg_emb)
+                    except Exception:
+                        continue
+                if not sampled_embs:
+                    continue
+                emb = np.mean(sampled_embs, axis=0)
+                emb = emb / np.linalg.norm(emb)
+                # Check against ALL enrolled voiceprints for conflicts
+                all_matches = vp_manager.find_matching_voiceprints(
+                    emb, threshold=config.VOICEPRINT_THRESHOLD
+                )
+                for m in all_matches:
+                    if m["name"].lower() == matched_name.lower():
+                        continue  # Same name — no conflict
+                    # Conflict! This voice is already enrolled under a different name.
+                    jlog.log(f"[voiceprint] ⚠️  Auto-label '{matched_name}' ({segs[0].get('speaker', '?')}) "
+                          f"conflicts with existing voiceprint '{m['name']}' "
+                          f"(sim={m['similarity']:.3f}) — deferring to user")
+                    # Move from known → unknown
+                    conflict_segments = match_result["known"].pop(matched_name)
+                    match_result.setdefault("scores", {}).pop(matched_name, None)
+                    # Find the speaker_id for this matched name
+                    conflict_spk_id = "?"
+                    for spk_id, spk_segs in speaker_segments.items():
+                        for cs in conflict_segments[:3]:
+                            for ss in spk_segs[:3]:
+                                if abs(cs.get("start", 0) - ss.get("start", 0)) < 0.5:
+                                    conflict_spk_id = spk_id
+                                    break
+                            if conflict_spk_id != "?":
+                                break
+                        if conflict_spk_id != "?":
+                            break
+                    match_result.setdefault("unknown", []).append({
+                        "speaker_id": conflict_spk_id,
+                        "segments": [{"start": s["start"], "end": s["end"]} for s in conflict_segments],
+                        "sample_segment": {"start": conflict_segments[0]["start"],
+                                           "end": conflict_segments[0]["end"]},
+                    })
+                    break  # Only the first conflict per speaker
 
         # ── Log detailed voiceprint identification results ──
         scores = match_result.get("scores", {})
@@ -3356,6 +3452,7 @@ def _run_pipeline_sync(job_id: str):
         jlog.log(f"\n   🎤 [PIPELINE] Step 3/5: ASR transcription (Whisper)...")
         _update_active(job_id, "processing_transcription", 0.5)
         if _check_cancelled(job_id): return
+        _check_pipeline_timeout(job_id, _pipeline_start, jlog)
         t_asr = time.time()
         transcription = engine.run_transcription(audio_path)
         asr_elapsed = time.time() - t_asr
@@ -3420,6 +3517,7 @@ def _run_pipeline_sync(job_id: str):
         # ── Step 5: Enqueue for agent or pause for labeling ──
         jlog.log(f"\n   📨 [PIPELINE] Step 5/5: Enqueueing for agent runner...")
         if _check_cancelled(job_id): return
+        _check_pipeline_timeout(job_id, _pipeline_start, jlog)
         unknown = match_result.get("unknown", [])
         if unknown:
             for u in unknown:

@@ -48,6 +48,7 @@ interface ConfigValues {
   LOG_LLM_DATA: string;
   LOG_COLLAPSE_REPEATED_PREFIXES: string;
   LLM_TEMPERATURE: string;
+  PIPELINE_TIMEOUT_MINUTES: string;
   DELIVERY_RECIPIENT_EMAILS: string;
   DELIVERY_EMAIL_SUBJECT: string;
   DELIVERY_EMAIL_ADDITIONAL_CONTENT: string;
@@ -76,6 +77,7 @@ const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secre
   { key: "OLLAMA_MODEL", label: "Ollama Model", required: false, secret: false, section: "LLM Provider" },
   { key: "OLLAMA_NUM_CTX", label: "Ollama Context Window", required: false, secret: false, section: "LLM Provider" },
   { key: "LLM_TEMPERATURE", label: "LLM Temperature (0.0–2.0)", required: false, secret: false, section: "LLM Provider" },
+  { key: "PIPELINE_TIMEOUT_MINUTES", label: "Pipeline Timeout (minutes)", required: false, secret: false, section: "LLM Provider" },
   { key: "HUGGING_FACE_TOKEN", label: "Hugging Face Token", required: false, secret: true, section: "LLM Provider" },
   { key: "GITHUB_TOKEN", label: "GitHub PAT (for private repo auto-updates)", required: false, secret: true, section: "Auto-Update" },
   { key: "EMBEDDING_PROVIDER", label: "Speaker Embedding Model", required: false, secret: false, section: "LLM Provider" },
@@ -424,6 +426,7 @@ export default function ConfigPanel({ onClose }: Props) {
             LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
             LOG_COLLAPSE_REPEATED_PREFIXES: cfg.LOG_COLLAPSE_REPEATED_PREFIXES?.value || "true",
             LLM_TEMPERATURE: cfg.LLM_TEMPERATURE?.value || "0.1",
+            PIPELINE_TIMEOUT_MINUTES: cfg.PIPELINE_TIMEOUT_MINUTES?.value || "15",
             DELIVERY_RECIPIENT_EMAILS: cfg.DELIVERY_RECIPIENT_EMAILS?.value || "",
             DELIVERY_EMAIL_SUBJECT: cfg.DELIVERY_EMAIL_SUBJECT?.value || "Meeting Summary: {title}",
             DELIVERY_EMAIL_ADDITIONAL_CONTENT: cfg.DELIVERY_EMAIL_ADDITIONAL_CONTENT?.value || "",
@@ -515,6 +518,7 @@ export default function ConfigPanel({ onClose }: Props) {
         LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
         LOG_COLLAPSE_REPEATED_PREFIXES: cfg.LOG_COLLAPSE_REPEATED_PREFIXES?.value || "true",
         LLM_TEMPERATURE: cfg.LLM_TEMPERATURE?.value || "0.1",
+        PIPELINE_TIMEOUT_MINUTES: cfg.PIPELINE_TIMEOUT_MINUTES?.value || "15",
         DELIVERY_RECIPIENT_EMAILS: cfg.DELIVERY_RECIPIENT_EMAILS?.value || "",
         DELIVERY_EMAIL_SUBJECT: cfg.DELIVERY_EMAIL_SUBJECT?.value || "Meeting Summary: {title}",
         DELIVERY_EMAIL_ADDITIONAL_CONTENT: cfg.DELIVERY_EMAIL_ADDITIONAL_CONTENT?.value || "",

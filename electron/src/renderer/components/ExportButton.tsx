@@ -22,12 +22,12 @@ export default function ExportButton({ format, content, defaultName, onExport }:
     onExport?.();
     try {
       if (format === "pdf") {
-        await window.electronAPI.exportToPdf({
+        await window.electronAPI!.exportToPdf({
           html: content,
           defaultName: `${defaultName}.pdf`,
         });
       } else {
-        await window.electronAPI.exportToWord({
+        await window.electronAPI!.exportToWord({
           html: content,
           defaultName: `${defaultName}.doc`,
         });

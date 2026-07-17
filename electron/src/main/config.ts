@@ -80,6 +80,8 @@ export interface AppConfig {
   PLAYWRIGHT_TITLE_TEMPLATE: string;
   /** Comma-separated list of 20 generic speaker names for labeling modal */
   PLAYWRIGHT_GENERIC_NAMES: string;
+  /** Pipeline wall-clock timeout (minutes) before a hung job fails itself */
+  PIPELINE_TIMEOUT_MINUTES: string;
 }
 
 const DEFAULTS: AppConfig = {
@@ -118,6 +120,7 @@ const DEFAULTS: AppConfig = {
   PLAYWRIGHT_TITLE_TEMPLATE: "test {autoNum}",
   PLAYWRIGHT_GENERIC_NAMES:
     "Alex,Blake,Casey,Drew,Ellis,Finley,Gray,Harper,Indigo,Jade,Kai,Logan,Morgan,Nico,Oakley,Parker,Quinn,Reese,Skyler,Taylor",
+  PIPELINE_TIMEOUT_MINUTES: "15",
 };
 
 /** Keys the UI considers "required" before the pipeline can run. */
@@ -272,6 +275,7 @@ export function getChildEnv(): NodeJS.ProcessEnv {
       config.PLAYWRIGHT_GENERIC_NAMES ||
       process.env.PLAYWRIGHT_GENERIC_NAMES ||
       "Alex,Blake,Casey,Drew,Ellis,Finley,Gray,Harper,Indigo,Jade,Kai,Logan,Morgan,Nico,Oakley,Parker,Quinn,Reese,Skyler,Taylor",
+    PIPELINE_TIMEOUT_MINUTES: config.PIPELINE_TIMEOUT_MINUTES || process.env.PIPELINE_TIMEOUT_MINUTES || "15",
     // Storage paths — only override in packaged (prod) mode so DBs land in a
     // writable location. In dev the Python backend defaults to the project-
     // relative storage/ dir, which is already writable.
