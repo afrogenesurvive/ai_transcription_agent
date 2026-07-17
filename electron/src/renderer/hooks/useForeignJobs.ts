@@ -1,18 +1,17 @@
 /**
  * useForeignJobs — detects jobs created outside the UI (e.g., by test-bot.mjs).
  *
- * Polls two sources:
- *   1. Backend /transcribe/active (ML pipeline jobs)
- *   2. test-bot-log.jsonl via IPC (bot-created job IDs)
- *
- * For each foreign job ID found, polls its full status via the bridge to
- * catch agent-runner stages (transcribed → analyzed) which are NOT tracked
- * in the backend's _active_jobs dict.
+ * Polls test-bot-log.jsonl via IPC (bot-created job IDs) and for each
+ * discovered job polls its full status via the bridge to catch agent-runner
+ * stages (transcribed → analyzed) that aren't reflected in status.json.
  *
  * Exposes:
- *   foreignJobIds      — Set<string> of detected foreign job IDs
- *   hasForeignRunningJobs — true if any foreign job has a non-terminal status
- *   foreignJobsStatus  — Map<jobId, { status, progress, title }>
+ *   foreignJobIds          — Set<string> of detected foreign job IDs
+ *   hasForeignRunningJobs  — true if any foreign job has a non-terminal status
+ *   foreignJobsStatus      — Map<jobId, { status, progress, title }>
+ *
+ * NOTE: Does NOT poll /transcribe/active — that endpoint returns ALL pipeline
+ * jobs including UI-created ones, which would cause false positives.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -77,21 +76,10 @@ export function useForeignJobs() {
   const poll = useCallback(async () => {
     const discovered = new Set<string>();
 
-    // Source 1: Backend /transcribe/active (ML pipeline jobs)
-    try {
-      const activeJobs = await window.electronAPI?.getActiveJobs();
-      if (activeJobs && activeJobs.length > 0) {
-        for (const job of activeJobs) {
-          if (NON_TERMINAL_STATUSES.has(job.status)) {
-            discovered.add(job.job_id);
-          }
-        }
-      }
-    } catch {
-      // IPC or backend not reachable — skip
-    }
-
-    // Source 2: test-bot-log.jsonl via IPC
+    // Source: test-bot-log.jsonl via IPC (bot-created job IDs)
+    // NOTE: We intentionally do NOT poll /transcribe/active here — that endpoint
+    // returns ALL pipeline jobs including UI-created ones, causing false positives.
+    // The IPC handler already reads job status from disk and filters terminal ones.
     try {
       const botJobs: Array<{ job_id: string; status: string }> =
         await window.electronAPI?.getRunningBotJobs() ?? [];
@@ -104,21 +92,9 @@ export function useForeignJobs() {
       // IPC handler not available or file missing — skip gracefully
     }
 
-    // Update the set of foreign job IDs
-    setForeignJobIds((prev) => {
-      const next = new Set(prev);
-      for (const id of discovered) next.add(id);
-      // Remove IDs that are no longer discovered (completed/failed)
-      for (const id of prev) {
-        if (!discovered.has(id)) {
-          // Keep it briefly so the UI has a chance to show "completed"
-          // Will be removed on the next poll cycle
-        }
-      }
-      return next;
-    });
-
-    // For each discovered foreign job, poll full status to catch agent-runner stages
+    // For each discovered foreign job, poll full status via the bridge to
+    // catch agent-runner stages (transcribed → analyzed) which aren't reflected
+    // in the status.json file that the IPC handler reads.
     if (discovered.size > 0) {
       const statusUpdates = new Map<string, ForeignJobInfo>();
       const chunks: string[][] = [];
@@ -139,8 +115,14 @@ export function useForeignJobs() {
         }
       }
       setForeignJobsStatus(statusUpdates);
-      setForeignJobIds(new Set(discovered));
+    } else {
+      // No non-terminal bot jobs — clear stale status map
+      setForeignJobsStatus(new Map());
     }
+
+    // Always update the set: when all jobs are done, discovered is empty
+    // and foreignJobIds becomes empty too, clearing the "Bot Job Running" state.
+    setForeignJobIds(new Set(discovered));
   }, [checkJobStatus]);
 
   // Start polling on mount
