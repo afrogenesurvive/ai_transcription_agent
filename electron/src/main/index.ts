@@ -86,7 +86,7 @@ function createWindow() {
     minWidth: 800,
     minHeight: 500,
     title: "Transcription Agent",
-    fullscreen: true,
+    fullscreen: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -94,6 +94,9 @@ function createWindow() {
     },
     show: false,
   });
+
+  // Maximize window on all platforms (avoiding fullscreen which hides the taskbar on Windows)
+  mainWindow.maximize();
 
   // In development, load from Vite dev server
   const isProd = app.isPackaged;
@@ -1159,10 +1162,12 @@ ipcMain.handle("testing:run", async (_event, vars: Record<string, string>) => {
     };
 
     // 4. Spawn Playwright in the electron directory
+    // On Windows, npx is npx.cmd which requires a shell to resolve
     const child = spawn("npx", ["playwright", "test", "tests/screenshots/", "--headed"], {
       cwd: electronDir,
       stdio: ["pipe", "pipe", "pipe"],
       env: testEnv,
+      shell: process.platform === "win32",
     });
 
     let output = "";

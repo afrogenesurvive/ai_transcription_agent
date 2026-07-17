@@ -72,9 +72,30 @@ function resolveNodeBin(): string {
   return IS_WIN ? "node.exe" : "node";
 }
 
-/** Kill any process listening on the given TCP port (macOS/Linux only). */
+/** Kill any process listening on the given TCP port (cross-platform). */
 export async function killProcessOnPort(port: number): Promise<void> {
-  if (IS_WIN) return; // taskkill-based cleanup in killProcess handles this
+  if (IS_WIN) {
+    // Use netstat to find PIDs listening on the target port, then taskkill each
+    try {
+      const result = execSync(`netstat -ano | findstr :${port}`, { encoding: "utf8", timeout: 3000 });
+      const lines = result.trim().split("\n").filter(l => l.includes("LISTENING"));
+      for (const line of lines) {
+        const parts = line.trim().split(/\s+/);
+        const pid = parts[parts.length - 1];
+        if (pid && /^\d+$/.test(pid)) {
+          try {
+            execSync(`taskkill /PID ${pid} /F`, { stdio: "ignore" });
+            console.log(`[backend] Killed stale process ${pid} on port ${port}`);
+          } catch {
+            // already gone
+          }
+        }
+      }
+    } catch {
+      // No process found on that port — great
+    }
+    return;
+  }
   try {
     const result = execSync(`lsof -ti:${port} -sTCP:LISTEN 2>/dev/null`, { encoding: "utf8", timeout: 3000 });
     const pids = result.trim().split("\n").filter(Boolean).map(Number);
@@ -385,7 +406,6 @@ function ollamaInstallPaths(): string[] {
   if (IS_WIN) {
     return [
       path.join(process.env.LOCALAPPDATA || "", "Programs", "Ollama", "ollama.exe"),
-      path.join(process.env.PROGRAMFILES || "", "Ollama", "ollama.exe"),
       path.join(process.env.PROGRAMFILES || "", "Ollama", "ollama.exe"),
       "ollama",
     ];
@@ -846,8 +866,8 @@ async function installFfmpeg(): Promise<void> {
     const extractDir = path.join(tmpDir, "ffmpeg_extract");
     fs.mkdirSync(extractDir, { recursive: true });
 
-    // Use PowerShell to expand the zip
-    execSync(`powershell -Command \"Expand-Archive -Path '${zipPath}' -DestinationPath '${extractDir}' -Force\"`, { stdio: "pipe", timeout: 60_000 });
+    // Use PowerShell to expand the zip (escaped for paths with spaces)
+    execSync(`powershell -Command \"Expand-Archive -LiteralPath '${zipPath.replace(/'/g, "''")}' -DestinationPath '${extractDir.replace(/'/g, "''")}' -Force\"`, { stdio: "pipe", timeout: 60_000 });
 
     // Find ffmpeg.exe anywhere in the extracted tree
     const result = execSync(`where /r \"${extractDir}\" ffmpeg.exe 2>nul || dir /s /b \"${extractDir}\"\\ffmpeg.exe 2>nul`, {

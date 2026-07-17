@@ -61,13 +61,14 @@ const isPackaged = app.isPackaged;
 
 // ── Seed GH_TOKEN from config for electron-updater (packaged mode) ──
 // electron-updater's GitHub provider reads process.env.GH_TOKEN at runtime.
-// Set it now so the user's PAT from config is available.
+// This is called at module load AND inside checkAndUpdate() so that
+// the PAT is available even if the config file wasn't ready at startup.
 (function initGitHubToken(): void {
   try {
     const token = getConfig().GITHUB_TOKEN;
-    if (token && !process.env.GH_TOKEN) {
-      process.env.GH_TOKEN = token;
-      addLog("main", "info", "[auto-update] GH_TOKEN set from app config");
+    if (token) {
+      if (!process.env.GH_TOKEN) process.env.GH_TOKEN = token;
+      if (!process.env.GITHUB_TOKEN) process.env.GITHUB_TOKEN = token;
     }
   } catch {
     // Config not ready yet — will be retried in checkAndUpdate()
@@ -392,7 +393,9 @@ async function downloadPackagedUpdate(): Promise<{ success: boolean; error: stri
 function installPackagedUpdate(): void {
   if (!autoUpdater || !state.updateDownloaded) return;
   addLog("main", "info", "[auto-update] Installing update and restarting...");
-  autoUpdater.quitAndInstall(false, true);
+  // On Windows, use non-silent install so the UAC elevation prompt appears.
+  // On macOS/Linux, silent install works fine without elevation.
+  autoUpdater.quitAndInstall(false, !IS_WIN);
 }
 
 // ══════════════════════════════════════════════════════════════

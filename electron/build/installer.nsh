@@ -158,22 +158,10 @@ FunctionEnd
 !macroend
 
 ;;
-;; ── Cleanup macros (merged from cleanup.nsh) ──
+;; ── Cleanup macros (imported from cleanup.nsh) ──
 ;;
 
-!macro removeUserData
-  ; Remove app user data directory
-  RMDir /r "$APPDATA\Transcription Agent"
-!macroend
-
-!macro removeOllamaIfAutoInstalled
-  ; Check for the auto-install sentinel file
-  IfFileExists "$APPDATA\Transcription Agent\.ollama-auto-installed" 0 +4
-    ; Sentinel found — Ollama was installed by this app, remove it
-    RMDir /r "$LOCALAPPDATA\Programs\Ollama"
-    RMDir /r "$PROGRAMFILES\Ollama"
-    Delete "$APPDATA\Transcription Agent\.ollama-auto-installed"
-!macroend
+!include "cleanup.nsh"
 
 ;;
 ;; The uninstall section is included by electron-builder's generated

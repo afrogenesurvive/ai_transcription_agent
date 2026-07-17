@@ -1,9 +1,11 @@
 ;;
 ;; cleanup.nsh — NSIS include for the Transcription Agent uninstaller.
 ;;
-;; Included in both the install and uninstall sections. On uninstall:
-;;   1. Removes user app data from %APPDATA%\Transcription Agent
-;;   2. Removes Ollama if the auto-install sentinel file is present
+;; Provides macros for cleaning up user data and auto-installed
+;; dependencies (Ollama) on uninstall.
+;;
+;; Included by installer.nsh (which is included by electron-builder's
+;; generated NSIS script).
 ;;
 
 !macro removeUserData
@@ -19,18 +21,3 @@
     RMDir /r "$PROGRAMFILES\Ollama"
     Delete "$APPDATA\Transcription Agent\.ollama-auto-installed"
 !macroend
-
-;;
-;; Uninstall section that gets called when the user uninstalls via
-;; Add/Remove Programs or the uninstaller shortcut.
-;;
-Section "Uninstall"
-  ; Inherits from electron-builder's default uninstall section
-
-  ; Remove user data (matches deleteAppDataOnUninstall: true behavior,
-  ; but also catches edge cases)
-  !insertmacro removeUserData
-
-  ; Remove Ollama if this app auto-installed it
-  !insertmacro removeOllamaIfAutoInstalled
-SectionEnd
