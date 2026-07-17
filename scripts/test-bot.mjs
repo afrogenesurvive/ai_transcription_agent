@@ -46,10 +46,7 @@ const CONFIG = {
 };
 
 // Steps to skip — skip analysis and delivery to keep test focused
-const DEFAULT_SKIP_STEPS = [
-  "save_to_drive",
-  "create_trello_action_items",
-];
+const DEFAULT_SKIP_STEPS = ["save_to_drive", "create_trello_action_items"];
 
 // ══════════════════════════════════════════════════════════════════════
 //  Helpers
