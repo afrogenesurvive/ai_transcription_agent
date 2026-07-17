@@ -185,5 +185,22 @@ export function useApi() {
         saved_at: string;
       }>;
     },
+
+    /** Get active ML pipeline jobs from the backend */
+    getActiveJobs: async (): Promise<Array<{ job_id: string; status: string; progress: number; title: string }>> => {
+      return window.electronAPI?.getActiveJobs() ?? Promise.resolve([]);
+    },
+
+    /** Poll any job's full status via the bridge (covers ML + agent-runner stages) */
+    getJobStatus: async (jobId: string) => {
+      return bridgeCall("transcribe_status", { jobId }) as Promise<{
+        job_id: string;
+        status: string;
+        progress: number;
+        error?: string;
+        title?: string;
+        metadata?: any;
+      }>;
+    },
   };
 }

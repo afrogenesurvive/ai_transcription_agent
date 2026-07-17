@@ -24,7 +24,7 @@ import crypto from "crypto";
 
 const CONFIG = {
   /** Absolute path to the audio file to use for all 3 jobs */
-  audioPath: "",
+  audioPath: "/Users/michaelgrandison/Downloads/Transcription_test_audio/Best update ever from caller with four baby mamas.mp3",
 
   /** Base name for jobs — auto-incremented (#1, #2, #3) */
   baseJobName: "Bot Test Meeting",
@@ -37,18 +37,16 @@ const CONFIG = {
 
   /** Test attendee list — used as the pool for all 3 jobs */
   attendeeList: [
-    // { name: "Alice Johnson", email: "alice@example.com" },
-    // { name: "Bob Smith", email: "bob@example.com" },
-    // { name: "Charlie Brown", email: "charlie@example.com" },
-    // { name: "Diana Prince", email: "diana@example.com" },
+    { name: "Alice Johnson", email: "michael.grandison@gmail.com" },
+    { name: "Bob Smith", email: "african.genetic.survival@gmail.com" },
+    { name: "Charlie Brown", email: "mgrandison@smartterm.io" },
+    { name: "Diana Prince", email: "stonedrone001@gmail.com" },
+    { name: "Daniel Prince", email: "stonedrone002@gmail.com" },
   ],
 };
 
 // Steps to skip — skip analysis and delivery to keep test focused
 const DEFAULT_SKIP_STEPS = [
-  "transcribe_analyze",
-  "transcribe_prepare_delivery",
-  "send_delivery_email",
   "save_to_drive",
   "create_trello_action_items",
 ];
@@ -102,26 +100,36 @@ async function waitForCompletion(jobId, nameOffset) {
   const TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
   const startTime = Date.now();
 
+  process.stderr.write(`\n[bot] Job ${jobId.slice(0, 8)} running...`);
+
   while (Date.now() - startTime < TIMEOUT_MS) {
     const status = await pollStatus(jobId);
 
     if (status.status === "complete" || status.status === "delivered") {
+      process.stderr.write(" done\n");
       return { ...status, finalStatus: "success" };
     }
 
     if (status.status === "failed") {
+      process.stderr.write(" failed\n");
       return { ...status, finalStatus: "failed" };
     }
 
     if (status.status === "paused_for_labeling") {
       const labelsApplied = await labelSpeakers(jobId, nameOffset);
       // Resume polling — pipeline will transition to "resuming" or "complete"
+      process.stderr.write(`[bot]   Labeled ${labelsApplied} speaker(s)\n`);
       await sleep(CONFIG.pollIntervalMs);
       continue;
     }
 
+    // Show progress dot for non-terminal status
+    process.stderr.write(".");
     await sleep(CONFIG.pollIntervalMs);
   }
+
+  // Timeout
+  process.stderr.write(" timeout\n");
 
   // Timeout
   return { job_id: jobId, status: "timeout", finalStatus: "failed", error: "Timed out waiting for completion" };

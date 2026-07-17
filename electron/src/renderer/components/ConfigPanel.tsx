@@ -456,12 +456,31 @@ export default function ConfigPanel({ onClose }: Props) {
   }, []);
 
   // ── Check active jobs on mount (blocks editing on ALL tabs while running) ──
+  // Checks both the ML pipeline (/transcribe/active) and bot-created jobs (test-bot-log.jsonl)
+  // so config editing is disabled whenever any job is actively processing.
   useEffect(() => {
     setActiveJobsLoading(true);
-    window.electronAPI
-      ?.getActiveJobs()
-      .then((jobs) => {
-        setActiveJobs(jobs || []);
+    Promise.all([
+      window.electronAPI?.getActiveJobs() ?? Promise.resolve([]),
+      window.electronAPI?.getRunningBotJobs() ?? Promise.resolve([]),
+    ])
+      .then(([pipelineJobs, botJobs]) => {
+        // Merge pipeline jobs and non-terminal bot jobs
+        const seen = new Set<string>();
+        const merged: Array<{ job_id: string; status: string; progress: number; title: string }> = [];
+        for (const j of pipelineJobs) {
+          if (!seen.has(j.job_id)) {
+            seen.add(j.job_id);
+            merged.push(j);
+          }
+        }
+        for (const j of botJobs) {
+          if (!seen.has(j.job_id)) {
+            seen.add(j.job_id);
+            merged.push({ job_id: j.job_id, status: j.status, progress: 0, title: "Bot Job" });
+          }
+        }
+        setActiveJobs(merged);
         setActiveJobsLoading(false);
       })
       .catch(() => {

@@ -114,6 +114,7 @@ export interface ElectronAPI {
   getReadme: () => Promise<string>;
   getGuide: () => Promise<string>;
   getActiveJobs: () => Promise<Array<{ job_id: string; status: string; progress: number; title: string }>>;
+  getRunningBotJobs: () => Promise<Array<{ job_id: string; status: string }>>;
   onNotification: (cb: (msg: string) => void) => () => void;
   getLogs: () => Promise<LogEntry[]>;
   clearLogs: () => Promise<{ success: boolean }>;

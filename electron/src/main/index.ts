@@ -414,6 +414,47 @@ ipcMain.handle("jobs:getActive", async () => {
   return [];
 });
 
+/** Terminal statuses — a job with one of these is definitely done. */
+const TERMINAL_STATUSES = new Set(["complete", "delivered", "failed", "corrupted"]);
+
+ipcMain.handle("testbot:getRunningJobs", async () => {
+  const storageDir = process.env.TRANSCRIPTION_STORAGE || path.join(app.getPath("userData"), "storage");
+  const logPath = path.join(storageDir, "test-bot-log.jsonl");
+  try {
+    if (!fs.existsSync(logPath)) return [];
+    const content = fs.readFileSync(logPath, "utf8");
+    const lines = content.trim().split("\n").filter(Boolean);
+    if (lines.length === 0) return [];
+    // Parse the last entry to get bot-created job IDs
+    const lastEntry = JSON.parse(lines[lines.length - 1]);
+    const jobIds: string[] = lastEntry.jobIds || [];
+    if (jobIds.length === 0) return [];
+
+    const running: Array<{ job_id: string; status: string }> = [];
+    for (const jobId of jobIds) {
+      // Skip error placeholders (e.g. "error-1")
+      if (jobId.startsWith("error-")) continue;
+      const statusPath = path.join(storageDir, jobId, "status.json");
+      if (!fs.existsSync(statusPath)) {
+        running.push({ job_id: jobId, status: "unknown" });
+        continue;
+      }
+      try {
+        const status = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+        const s = (status.status || "unknown") as string;
+        if (!TERMINAL_STATUSES.has(s)) {
+          running.push({ job_id: jobId, status: s });
+        }
+      } catch {
+        // Corrupted status.json — skip
+      }
+    }
+    return running;
+  } catch {
+    return [];
+  }
+});
+
 // ── Combined service management ──
 
 ipcMain.handle("services:stop", async () => {

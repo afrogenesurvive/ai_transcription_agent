@@ -43,6 +43,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // ── Job status ──
   getActiveJobs: (): Promise<Array<{ job_id: string; status: string; progress: number; title: string }>> => ipcRenderer.invoke("jobs:getActive"),
+  getRunningBotJobs: (): Promise<Array<{ job_id: string; status: string }>> => ipcRenderer.invoke("testbot:getRunningJobs"),
 
   // ── Notifications ──
   onNotification: (callback: (message: string) => void) => {

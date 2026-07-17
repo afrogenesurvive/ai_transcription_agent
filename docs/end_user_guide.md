@@ -104,6 +104,8 @@ Maximum file size: **500 MB**
 5. Click **Upload & Transcribe**
 
 > **Tip:** If a second person tries to upload while the first meeting is still processing, you'll see a message saying "A transcription job is already running." Wait for the current one to finish.
+>
+> The app also detects **bot-created jobs** (e.g., from the automated test script). When one is running, a pulsing badge appears on the Current sidebar button, and the main panel shows a "Bot Job Running" message with per-job status. Settings are locked until the bot job completes.
 
 ---
 

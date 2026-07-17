@@ -34,6 +34,7 @@ import { useApi } from "./hooks/useApi";
 import { useJobStatus } from "./hooks/useJobStatus";
 import type { PollingState } from "./hooks/useJobStatus";
 import { useServerStatus } from "./hooks/useServerStatus";
+import { useForeignJobs } from "./hooks/useForeignJobs";
 import { loadAndApplyAppearance } from "./appearance";
 import type { JobStatus } from "./types";
 
@@ -145,6 +146,9 @@ export default function App() {
 
   // ── Server & diarization health ──
   const serverStatus = useServerStatus(ollamaRequired);
+
+  // ── Foreign job detection (bot-created jobs) ──
+  const foreignJobs = useForeignJobs();
 
   // Keep diarizationAvailable in sync with server hook for downstream use
   useEffect(() => {
@@ -290,8 +294,9 @@ export default function App() {
 
   // Whether a job is currently running (processing).
   // Includes backend_down so the cancel button stays available when backend is unreachable.
+  // Also includes foreign jobs (bot-created) so the UI guards controls when the bot is running.
   const isJobRunning =
-    statusHook.state === "polling" || statusHook.state === "paused" || statusHook.state === "backend_down" || view === "processing";
+    statusHook.state === "polling" || statusHook.state === "paused" || statusHook.state === "backend_down" || view === "processing" || foreignJobs.hasForeignRunningJobs;
 
   // Track status data for progress display
   React.useEffect(() => {
@@ -669,7 +674,13 @@ export default function App() {
               <span className="sidebar-btn-label">New</span>
             </button>
           </Tooltip>
-          <Tooltip content="View active or most recent job — pipeline progress, transcript, and results" position="right">
+          <Tooltip
+            content={
+              foreignJobs.hasForeignRunningJobs
+                ? "A bot job is running — click to see status"
+                : "View active or most recent job — pipeline progress, transcript, and results"
+            }
+            position="right">
             <button
               className={`sidebar-btn ${sidebarView === "current" && !showHistory && !showNewForm ? "sidebar-btn--active" : ""}`}
               onClick={() => {
@@ -681,6 +692,7 @@ export default function App() {
               title="View active or most recent job — pipeline progress, transcript, and results">
               <span className="sidebar-btn-icon">
                 <Icon name="home" size="16" />
+                {foreignJobs.hasForeignRunningJobs && <span className="sidebar-badge sidebar-badge--pulsing" />}
               </span>
               <span className="sidebar-btn-label">Current</span>
             </button>
@@ -865,7 +877,22 @@ export default function App() {
                               </div>
                             )}
 
-                            {!jobId && (
+                            {!jobId && foreignJobs.hasForeignRunningJobs && (
+                              <div className="panel">
+                                <h2>
+                                  <Icon name="hourglass_top" color="accent" size="16" /> Bot Job Running
+                                </h2>
+                                <p className="placeholder" style={{ color: "var(--text-muted)" }}>
+                                  A test-bot job is currently processing. Controls are disabled until it completes.
+                                </p>
+                                {Array.from(foreignJobs.foreignJobsStatus.entries()).map(([id, info]) => (
+                                  <div key={id} style={{ fontSize: "var(--fs-12)", marginTop: 8, color: "var(--text-muted)" }}>
+                                    <code>{id.slice(0, 8)}</code> — {info.title} ({info.status})
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {!jobId && !foreignJobs.hasForeignRunningJobs && (
                               <div className="panel">
                                 <h2>No Active Job</h2>
                                 <p className="placeholder" style={{ color: "var(--text-muted)" }}>
