@@ -78,7 +78,10 @@ export async function killProcessOnPort(port: number): Promise<void> {
     // Use netstat to find PIDs listening on the target port, then taskkill each
     try {
       const result = execSync(`netstat -ano | findstr :${port}`, { encoding: "utf8", timeout: 3000 });
-      const lines = result.trim().split("\n").filter(l => l.includes("LISTENING"));
+      const lines = result
+        .trim()
+        .split("\n")
+        .filter((l) => l.includes("LISTENING"));
       for (const line of lines) {
         const parts = line.trim().split(/\s+/);
         const pid = parts[parts.length - 1];
@@ -867,7 +870,10 @@ async function installFfmpeg(): Promise<void> {
     fs.mkdirSync(extractDir, { recursive: true });
 
     // Use PowerShell to expand the zip (escaped for paths with spaces)
-    execSync(`powershell -Command \"Expand-Archive -LiteralPath '${zipPath.replace(/'/g, "''")}' -DestinationPath '${extractDir.replace(/'/g, "''")}' -Force\"`, { stdio: "pipe", timeout: 60_000 });
+    execSync(
+      `powershell -Command \"Expand-Archive -LiteralPath '${zipPath.replace(/'/g, "''")}' -DestinationPath '${extractDir.replace(/'/g, "''")}' -Force\"`,
+      { stdio: "pipe", timeout: 60_000 },
+    );
 
     // Find ffmpeg.exe anywhere in the extracted tree
     const result = execSync(`where /r \"${extractDir}\" ffmpeg.exe 2>nul || dir /s /b \"${extractDir}\"\\ffmpeg.exe 2>nul`, {
