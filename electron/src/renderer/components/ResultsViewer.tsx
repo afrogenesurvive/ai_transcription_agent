@@ -57,12 +57,12 @@ const DEV_SUB_TABS: Tab[] = [
 
 const TABS: TabDef[] = [
   { id: "pipeline", label: "Pipeline", icon: "timeline" },
-  { id: "audio", label: "Audio", icon: "headphones" },
   { id: "transcript", label: "Transcript", icon: "description" },
   { id: "summary", label: "Summary", icon: "summarize" },
   { id: "analysis", label: "Analysis", icon: "analytics" },
   { id: "attendees", label: "Attendees", icon: "group" },
   { id: "delivery", label: "Delivery", icon: "mail" },
+  { id: "audio", label: "Audio", icon: "headphones" },
   { id: "developer", label: "Developer", icon: "code", subTabs: DEV_SUB_TABS },
 ];
 

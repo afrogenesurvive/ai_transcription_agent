@@ -216,9 +216,7 @@ export default function SpeakerLabelModal({
           labels: result,
         });
         if (vResult) {
-          const voiceConflicts = (vResult.verifications || []).filter(
-            (v: LabelVerification) => v.voice_match_conflicts.length > 0,
-          );
+          const voiceConflicts = (vResult.verifications || []).filter((v: LabelVerification) => v.voice_match_conflicts.length > 0);
           const unregistered = vResult.unregistered_names || [];
 
           if (voiceConflicts.length > 0) {
@@ -303,7 +301,9 @@ export default function SpeakerLabelModal({
                   </span>
                   {/* ── Voiceprint confidence badge (Mitigation 4) ── */}
                   {spk.voiceprint_confidence && spk.voiceprint_confidence > 0 && (
-                    <span className="speaker-vp-badge" title={`Auto-detected from voiceprint (${(spk.voiceprint_confidence * 100).toFixed(0)}% confidence)`}>
+                    <span
+                      className="speaker-vp-badge"
+                      title={`Auto-detected from voiceprint (${(spk.voiceprint_confidence * 100).toFixed(0)}% confidence)`}>
                       <Icon name="mic" size="12" color="accent" /> {(spk.voiceprint_confidence * 100).toFixed(0)}%
                     </span>
                   )}
@@ -433,8 +433,8 @@ export default function SpeakerLabelModal({
                 <Icon name="warning" size="16" color="orange" /> Voice Match Detected
               </h3>
               <p className="vp-conflict-desc">
-                The following speakers have voices that closely match someone already enrolled under a different name. Please review each match
-                before continuing.
+                The following speakers have voices that closely match someone already enrolled under a different name. Please review each match before
+                continuing.
               </p>
               {voiceMatchConflicts.map((vc) => (
                 <div key={vc.speaker_id} className="vp-conflict-row">
@@ -443,15 +443,19 @@ export default function SpeakerLabelModal({
                   </div>
                   {vc.voice_match_conflicts.map((mc, i) => (
                     <div key={i} className="vp-conflict-hint" style={{ marginTop: 4 }}>
-                      <Icon name="info" size="12" /> This voice matches{' '}
-                      <strong>{mc.name}</strong> ({(mc.similarity * 100).toFixed(0)}% similar)
+                      <Icon name="info" size="12" /> This voice matches <strong>{mc.name}</strong> ({(mc.similarity * 100).toFixed(0)}% similar)
                       {mc.sample_job_id && <> from job {mc.sample_job_id.slice(0, 8)}</>}
                     </div>
                   ))}
                 </div>
               ))}
               <div className="modal-actions" style={{ marginTop: 12 }}>
-                <button className="btn-secondary" onClick={() => { setShowVoiceWarnings(false); setVerificationDone(false); }}>
+                <button
+                  className="btn-secondary"
+                  onClick={() => {
+                    setShowVoiceWarnings(false);
+                    setVerificationDone(false);
+                  }}>
                   Go Back
                 </button>
                 <button className="btn-primary" onClick={handleVoiceWarningContinue}>
@@ -467,10 +471,8 @@ export default function SpeakerLabelModal({
           <div className="speaker-unregistered-banner">
             <Icon name="warning" size="14" color="orange" />
             <span>
-              <strong>Not registered:</strong> {unregisteredNames.join(", ")}{" "}
-              {unregisteredNames.length === 1 ? "wasn't" : "weren't"} registered as{" "}
-              {unregisteredNames.length === 1 ? "an attendee" : "attendees"} for this meeting.
-              They will be added to the attendee list.
+              <strong>Not registered:</strong> {unregisteredNames.join(", ")} {unregisteredNames.length === 1 ? "wasn't" : "weren't"} registered as{" "}
+              {unregisteredNames.length === 1 ? "an attendee" : "attendees"} for this meeting. They will be added to the attendee list.
             </span>
             <button className="btn-icon speaker-unregistered-dismiss" onClick={() => setDismissedUnregistered(true)} title="Dismiss">
               <Icon name="close" size="12" color="muted" />
