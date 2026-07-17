@@ -20,7 +20,9 @@
 
 BrandingText "Transcription Agent Installer"
 
-; ── Custom Welcome Page ──
+; ── Custom Welcome Page (installer only) ──
+
+!ifndef BUILD_UNINSTALLER
 
 !macro customWelcomePage
   Page custom welcomePage
@@ -63,6 +65,8 @@ Function welcomePage
 
   ${NSD_GetState} $WelcomeLaunchCheckbox $RunAfterInstall
 FunctionEnd
+
+!endif
 
 ; ── Progress Detail Messages ──
 ;
