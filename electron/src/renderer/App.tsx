@@ -75,6 +75,7 @@ export default function App() {
   const [configOk, setConfigOk] = useState(true);
   const [ollamaRequired, setOllamaRequired] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [cancellingForeign, setCancellingForeign] = useState(false);
   const [diarizationAvailable, setDiarizationAvailable] = useState<boolean | null>(null);
   const [historyJobId, setHistoryJobId] = useState<string | null>(null);
   const [historyJobStatus, setHistoryJobStatus] = useState<{ status: string; progress: number; error?: string | null } | null>(null);
@@ -490,6 +491,26 @@ export default function App() {
     }
   }, [jobId, api, statusHook]);
 
+  // Cancel all foreign (bot-created) jobs
+  const handleCancelForeign = useCallback(async () => {
+    const ids = Array.from(foreignJobs.foreignJobIds);
+    if (ids.length === 0) return;
+    setCancellingForeign(true);
+    let cancelledCount = 0;
+    let failCount = 0;
+    for (const id of ids) {
+      try {
+        await api.cancelJob(id);
+        cancelledCount++;
+      } catch {
+        failCount++;
+      }
+    }
+    if (cancelledCount > 0) notify(`Cancelled ${cancelledCount} bot job(s)`);
+    if (failCount > 0) notify(`${failCount} bot job(s) failed to cancel`);
+    setCancellingForeign(false);
+  }, [foreignJobs.foreignJobIds, api]);
+
   // Load a past job from history — keeps history panel visible and shows results in the right column
   const loadHistoryJob = useCallback(
     async (jobId: string) => {
@@ -899,6 +920,23 @@ export default function App() {
                                     <code>{id.slice(0, 8)}</code> — {info.title} ({info.status})
                                   </div>
                                 ))}
+                                <div style={{ marginTop: 16 }}>
+                                  <button
+                                    className="pp-stop-btn"
+                                    onClick={handleCancelForeign}
+                                    disabled={cancellingForeign}
+                                    title="Cancel all bot-created jobs — marks them as failed">
+                                    {cancellingForeign ? (
+                                      <>
+                                        <Icon name="hourglass_top" size="14" /> Stopping…
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Icon name="stop" size="14" /> Stop All Bot Jobs
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
                               </div>
                             )}
                             {!jobId && !foreignJobs.hasForeignRunningJobs && (

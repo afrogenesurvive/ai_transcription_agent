@@ -131,8 +131,13 @@ If the app has heard a speaker before (from a previous meeting), it automaticall
 
 **If speaker labeling is needed:** If the number of detected speakers doesn't match the number of attendees you entered, the pipeline pauses. A popup appears with:
 
-- Audio clips for each detected speaker
-- Name input fields
+- **Audio clips** for each detected speaker — click the play button to hear a sample of their longest speech segment before assigning a name. Only one clip plays at a time.
+- **Name and email input fields** — email is required and validated for proper format
+- **Voiceprint conflict detection** (3 layers):
+  1. **Name/Email Conflict** — if the entered name or email already has a voiceprint enrolled, a dialog shows the existing details (name, email, which job it came from). Choose **Overwrite** (per-name) or **Keep Existing**.
+  2. **Voice-Match Verification** — after resolving name conflicts, the system compares proposed labels against all enrolled voiceprints. If a person's voice matches an existing voiceprint under a different name, a warning appears with similarity scores before you can proceed.
+  3. **Unregistered Name Warning** — if a label matches no voiceprint at all, a non-blocking informational note is shown.
+- **Non-speaking attendees** — registered attendees who were present but never spoke (no diarization segments detected) appear under **"Also present but did not speak"** in the modal. These names are passed to the AI for context and included in delivery records.
 - **Confirm** to continue, **Skip** to use default names, or **Cancel** to stop
 
 ### 5. 🎤 Transcribing Speech
@@ -185,8 +190,10 @@ A structured summary with:
 - **Executive Summary** — a brief overview of the meeting
 - **Key Decisions** — what was decided
 - **Discussion Points** — main topics covered
-- **Action Items** — tasks assigned to people, with deadlines if mentioned
+- **Action Items** — tasks assigned to people, with deadlines if mentioned. Each item has a checkbox to track completion.
 - Each section is collapsible
+
+Export buttons (**PDF** / **Word**) appear in the toolbar at the top of this tab.
 
 ### 📊 Analysis Tab
 
@@ -197,6 +204,8 @@ AI-generated analysis including:
 - **Key Entities** — names, dates, amounts mentioned
 - **Meeting Effectiveness** — how productive the meeting was
 - **Follow-ups** — items that need future discussion
+
+Export buttons (**PDF** / **Word**) appear in the toolbar at the top of this tab.
 
 ### 📄 Raw Tab
 
@@ -229,7 +238,7 @@ This snapshot is frozen at job creation time, so you can see exactly what settin
 
 Technical log files for troubleshooting. Supports **collapsible log groups** — consecutive lines with the same source and level are grouped into expandable entries to reduce visual noise during streaming output. Toggle this behavior on/off in **Settings → Logging** via the "Collapse Repeated Log Lines" option.
 
-### � Attendees Tab
+### 👥 Attendees Tab
 
 Shows per-job attendee information with voiceprint enrollment status:
 
@@ -243,6 +252,17 @@ This helps you quickly see who the system can automatically identify in future m
 ### 📬 Delivery Tab
 
 Shows delivery status if you configured email, Drive, or Trello.
+
+### 📤 Export
+
+The **Summary** and **Analysis** tabs include export buttons for sharing results outside the app:
+
+| Format          | How it works                                                                                                                                                         | Best for                                                     |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| **PDF**         | Rendered via a hidden browser window → print-to-PDF → native Save dialog. Uses a clean print-friendly stylesheet with proper margins, typography, and table styling. | Archiving, printing, sharing with non-technical stakeholders |
+| **Word (.doc)** | HTML content saved with a `.doc` extension — Word and other document editors open it natively. Office-compatible XML headers are included for best compatibility.    | Editing in a word processor, combining with other documents  |
+
+Click **Export PDF** or **Export Word** in the toolbar at the top of the Summary or Analysis tab. A native file dialog opens where you choose the save location and filename.
 
 ---
 

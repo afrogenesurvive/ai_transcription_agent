@@ -2976,7 +2976,33 @@ function FrontendTestingTab() {
   const [running, setRunning] = useState(false);
   const [output, setOutput] = useState<string[]>([]);
   const [exitCode, setExitCode] = useState<number | null>(null);
+  const [showStaleModal, setShowStaleModal] = useState(false);
+  const [staleBuildDate, setStaleBuildDate] = useState("");
   const outputRef = useRef<HTMLDivElement>(null);
+  const [activeJobs, setActiveJobs] = useState<any[]>([]);
+
+  // ── Fetch active pipeline + bot jobs on mount (guards buttons while running) ──
+  useEffect(() => {
+    Promise.all([window.electronAPI?.getActiveJobs() ?? Promise.resolve([]), window.electronAPI?.getRunningBotJobs() ?? Promise.resolve([])])
+      .then(([pipelineJobs, botJobs]) => {
+        const seen = new Set<string>();
+        const merged: Array<{ job_id: string; status: string; progress: number; title: string }> = [];
+        for (const j of pipelineJobs) {
+          if (!seen.has(j.job_id)) {
+            seen.add(j.job_id);
+            merged.push(j);
+          }
+        }
+        for (const j of botJobs) {
+          if (!seen.has(j.job_id)) {
+            seen.add(j.job_id);
+            merged.push({ job_id: j.job_id, status: j.status, progress: 0, title: "Bot Job" });
+          }
+        }
+        setActiveJobs(merged);
+      })
+      .catch(() => setActiveJobs([]));
+  }, []);
 
   // ── Prerequisite live status ──
   const [backendStatus, setBackendStatus] = useState<{ python: boolean; bridge: boolean; agent: boolean } | null>(null);
@@ -3064,19 +3090,28 @@ function FrontendTestingTab() {
     }
   }, []);
 
-  const handleRun = useCallback(async () => {
+  // Check if the build is stale (built before today).
+  // Returns true if stale (modal should be shown), false if fresh.
+  const isBuildStale = useCallback((): boolean => {
+    if (!builtAt) return false; // No build info — let prerequisites handle it
+    const buildDate = new Date(builtAt);
+    const today = new Date();
+    // Compare calendar dates (ignore time)
+    return buildDate.getFullYear() < today.getFullYear() || buildDate.getMonth() < today.getMonth() || buildDate.getDate() < today.getDate();
+  }, [builtAt]);
+
+  // Actually run the tests (used both directly and after stale confirmation)
+  const runTests = useCallback(async () => {
     setRunning(true);
     setOutput([]);
     setExitCode(null);
 
-    // Build vars to save to config and pass as env
     const vars: Record<string, string> = {
       PLAYWRIGHT_AUDIO_FILE_PATH: audioPath,
       PLAYWRIGHT_TITLE_TEMPLATE: titleTemplate,
       PLAYWRIGHT_GENERIC_NAMES: genericNames,
     };
 
-    // Save test vars to config first
     await window.electronAPI?.saveConfig(vars);
 
     const result = await window.electronAPI?.runPlaywrightTests(vars);
@@ -3088,6 +3123,27 @@ function FrontendTestingTab() {
     }
     setRunning(false);
   }, [audioPath, titleTemplate, genericNames]);
+
+  const handleRun = useCallback(async () => {
+    // Check if build is stale — show confirmation modal if so
+    if (builtAt && isBuildStale()) {
+      const buildDateStr = new Date(builtAt).toLocaleString();
+      setStaleBuildDate(buildDateStr);
+      setShowStaleModal(true);
+      return; // await user decision
+    }
+    // Build is fresh or unknown — run directly
+    await runTests();
+  }, [builtAt, isBuildStale, runTests]);
+
+  const handleProceedStale = useCallback(async () => {
+    setShowStaleModal(false);
+    await runTests();
+  }, [runTests]);
+
+  const handleCancelStale = useCallback(() => {
+    setShowStaleModal(false);
+  }, []);
 
   // ── Prerequisite status helpers ──
   const statusIcon = (ok: boolean | null) => {
@@ -3125,8 +3181,14 @@ function FrontendTestingTab() {
             <button
               className="dev-panel-btn"
               onClick={handleRun}
-              disabled={running || !allPrereqsMet}
-              title={allPrereqsMet ? "Run Playwright screenshot tests" : "Fix prerequisites above before running"}>
+              disabled={running || !allPrereqsMet || activeJobs.length > 0}
+              title={
+                activeJobs.length > 0
+                  ? "Cannot run tests while a pipeline or bot job is running"
+                  : allPrereqsMet
+                    ? "Run Playwright screenshot tests"
+                    : "Fix prerequisites above before running"
+              }>
               <Icon name={running ? "sync" : "play_arrow"} size="14" color={running ? "muted" : "accent"} />
               {running ? " Running..." : " Run Tests"}
             </button>
@@ -3188,6 +3250,22 @@ function FrontendTestingTab() {
               Complete all prerequisites to enable the Run Tests button.
             </div>
           )}
+          {activeJobs.length > 0 && (
+            <div
+              style={{
+                marginTop: 8,
+                padding: "8px 12px",
+                background: "color-mix(in srgb, var(--red) 15%, transparent)",
+                border: "1px solid var(--red)",
+                borderRadius: "var(--radius)",
+                fontSize: "var(--fs-11)",
+                color: "var(--red)",
+                lineHeight: 1.6,
+              }}>
+              <strong>Testing blocked</strong> — {activeJobs.length} pipeline/bot job{activeJobs.length > 1 ? "s" : ""} currently running. Wait for
+              jobs to complete before running or editing tests.
+            </div>
+          )}
         </div>
 
         {/* ── Test Variables ── */}
@@ -3214,11 +3292,12 @@ function FrontendTestingTab() {
                   placeholder="/path/to/test-meeting.mp3"
                   value={audioPath}
                   onChange={(e) => setAudioPath(e.target.value)}
+                  readOnly={activeJobs.length > 0}
                   style={{ flex: 1 }}
                 />
                 <Tooltip content="Open a native file picker to select an audio file">
-                  <button className="dev-panel-btn" onClick={handleBrowse} title="Browse for audio file">
-                    <Icon name="folder_open" size="14" color="accent" /> Browse
+                  <button className="dev-panel-btn" onClick={handleBrowse} disabled={activeJobs.length > 0} title="Browse for audio file">
+                    <Icon name="folder_open" size="14" color={activeJobs.length > 0 ? "muted" : "accent"} /> Browse
                   </button>
                 </Tooltip>
               </div>
@@ -3233,6 +3312,7 @@ function FrontendTestingTab() {
                 placeholder="test {autoNum}"
                 value={titleTemplate}
                 onChange={(e) => setTitleTemplate(e.target.value)}
+                readOnly={activeJobs.length > 0}
               />
             </label>
 
@@ -3256,6 +3336,7 @@ function FrontendTestingTab() {
                   setGenericNames(lines.join(","));
                 }}
                 placeholder="One name per line (at least 20 required)"
+                readOnly={activeJobs.length > 0}
                 style={{ fontFamily: "monospace", fontSize: "var(--fs-11)" }}
               />
               {!namesValid && (
@@ -3319,6 +3400,30 @@ function FrontendTestingTab() {
         </span>
         <span>{output.length > 0 ? `${output.length} output chunk(s)` : ""}</span>
       </div>
+
+      {/* ── Stale Build Confirmation Modal ── */}
+      {showStaleModal && (
+        <div className="confirm-overlay" onClick={handleCancelStale}>
+          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>⚠️ Stale Build Detected</h3>
+            <p>
+              The app was last built on <strong>{staleBuildDate}</strong>. Frontend changes made since then won't be reflected in the tests.
+            </p>
+            <p style={{ marginTop: 8, fontSize: "var(--fs-11)", color: "var(--text-muted)" }}>
+              Run <code style={{ background: "var(--bg)", padding: "1px 4px", borderRadius: 3 }}>npm run build</code> in the terminal to include
+              recent changes, then try again.
+            </p>
+            <div className="modal-actions" style={{ marginTop: 16 }}>
+              <button className="btn-secondary" onClick={handleCancelStale}>
+                Cancel
+              </button>
+              <button className="btn-primary" onClick={handleProceedStale}>
+                Proceed Anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -3336,6 +3441,30 @@ function BackendTestingTab() {
   const [nodeAvailable, setNodeAvailable] = useState<boolean | null>(null);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const outputRef = useRef<HTMLDivElement>(null);
+  const [activeJobs, setActiveJobs] = useState<any[]>([]);
+
+  // ── Fetch active pipeline + bot jobs on mount (guards buttons while running) ──
+  useEffect(() => {
+    Promise.all([window.electronAPI?.getActiveJobs() ?? Promise.resolve([]), window.electronAPI?.getRunningBotJobs() ?? Promise.resolve([])])
+      .then(([pipelineJobs, botJobs]) => {
+        const seen = new Set<string>();
+        const merged: Array<{ job_id: string; status: string; progress: number; title: string }> = [];
+        for (const j of pipelineJobs) {
+          if (!seen.has(j.job_id)) {
+            seen.add(j.job_id);
+            merged.push(j);
+          }
+        }
+        for (const j of botJobs) {
+          if (!seen.has(j.job_id)) {
+            seen.add(j.job_id);
+            merged.push({ job_id: j.job_id, status: j.status, progress: 0, title: "Bot Job" });
+          }
+        }
+        setActiveJobs(merged);
+      })
+      .catch(() => setActiveJobs([]));
+  }, []);
 
   // Load script content + check Node on mount
   useEffect(() => {
@@ -3421,8 +3550,12 @@ function BackendTestingTab() {
           <span style={{ fontSize: "var(--fs-10)", color: nodeAvailable ? "var(--green)" : "var(--red)", marginRight: 8 }}>
             {nodeAvailable === null ? "◌ Checking Node..." : nodeAvailable ? "● Node found" : "● Node not found"}
           </span>
-          <button className="dev-panel-btn" onClick={handleSave} disabled={saving || !dirty} title="Save script changes">
-            <Icon name="save" size="14" color={dirty ? "accent" : "muted"} />
+          <button
+            className="dev-panel-btn"
+            onClick={handleSave}
+            disabled={saving || !dirty || activeJobs.length > 0}
+            title={activeJobs.length > 0 ? "Cannot save while a pipeline or bot job is running" : "Save script changes"}>
+            <Icon name="save" size="14" color={dirty && activeJobs.length === 0 ? "accent" : "muted"} />
             {saving ? " Saving..." : " Save"}
           </button>
           {saveStatus && (
@@ -3430,8 +3563,12 @@ function BackendTestingTab() {
               {saveStatus}
             </span>
           )}
-          <button className="dev-panel-btn" onClick={handleRun} disabled={running} title="Run the test bot script">
-            <Icon name={running ? "sync" : "play_arrow"} size="14" color={running ? "muted" : "accent"} />
+          <button
+            className="dev-panel-btn"
+            onClick={handleRun}
+            disabled={running || activeJobs.length > 0}
+            title={activeJobs.length > 0 ? "Cannot run while a pipeline or bot job is running" : "Run the test bot script"}>
+            <Icon name={running ? "sync" : "play_arrow"} size="14" color={running || activeJobs.length > 0 ? "muted" : "accent"} />
             {running ? " Running..." : " Run"}
           </button>
           <button className="dev-panel-btn" onClick={handleStop} disabled={!running} title="Stop the running script">
@@ -3445,6 +3582,22 @@ function BackendTestingTab() {
       </div>
 
       <div className="dev-panel-list" style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 12, flex: 1 }}>
+        {/* ── Active jobs guard banner ── */}
+        {activeJobs.length > 0 && (
+          <div
+            style={{
+              padding: "8px 12px",
+              background: "color-mix(in srgb, var(--red) 15%, transparent)",
+              border: "1px solid var(--red)",
+              borderRadius: "var(--radius)",
+              fontSize: "var(--fs-11)",
+              color: "var(--red)",
+              lineHeight: 1.6,
+            }}>
+            <strong>Editing and running blocked</strong> — {activeJobs.length} pipeline/bot job{activeJobs.length > 1 ? "s" : ""} currently running.
+            Wait for jobs to complete before editing or running the backend test script.
+          </div>
+        )}
         {/* Script Editor */}
         <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
@@ -3456,6 +3609,7 @@ function BackendTestingTab() {
             value={scriptContent}
             onChange={(e) => setScriptContent(e.target.value)}
             spellCheck={false}
+            readOnly={activeJobs.length > 0}
             style={{
               flex: 1,
               minHeight: 200,

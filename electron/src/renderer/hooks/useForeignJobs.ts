@@ -16,23 +16,9 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 
-/** Statuses that mean a job is still alive and being processed */
-const NON_TERMINAL_STATUSES = new Set([
-  "uploaded",
-  "initializing",
-  "processing_diarization",
-  "matching_voiceprints",
-  "paused_for_labeling",
-  "resuming",
-  "processing_transcription",
-  "aligning",
-  "transcribed",
-  "ready_for_agent",
-  "labeling_needed",
-  "refined",
-  "summarized",
-  "analyzed",
-]);
+/** Terminal statuses — a job with one of these is definitely done.
+ *  Matches the IPC handler in electron/src/main/index.ts so the two don't drift. */
+const TERMINAL_STATUSES = new Set(["complete", "delivered", "failed", "corrupted"]);
 
 const POLL_INTERVAL_MS = 5000;
 const MAX_CONCURRENT_STATUS_CHECKS = 3;
@@ -83,7 +69,7 @@ export function useForeignJobs() {
     try {
       const botJobs: Array<{ job_id: string; status: string }> = (await window.electronAPI?.getRunningBotJobs()) ?? [];
       for (const job of botJobs) {
-        if (NON_TERMINAL_STATUSES.has(job.status)) {
+        if (!TERMINAL_STATUSES.has(job.status)) {
           discovered.add(job.job_id);
         }
       }
@@ -107,7 +93,7 @@ export function useForeignJobs() {
           if (r) {
             statusUpdates.set(r.jobId, { status: r.status, progress: r.progress, title: r.title });
             // If terminal, remove from foreign set
-            if (!NON_TERMINAL_STATUSES.has(r.status)) {
+            if (TERMINAL_STATUSES.has(r.status)) {
               discovered.delete(r.jobId);
             }
           }

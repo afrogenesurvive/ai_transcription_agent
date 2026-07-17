@@ -266,6 +266,10 @@ async function main() {
       const jobId = result.job_id;
       jobIds.push(jobId);
 
+      // Write accumulated job IDs to the log immediately so the UI can detect
+      // this running job via getRunningBotJobs() IPC handler.
+      await appendTestLog(testId, timestamp, [...jobIds]);
+
       // Print only the job ID (the only stdout output)
       console.log(jobId);
 
@@ -280,9 +284,6 @@ async function main() {
       jobIds.push(`error-${i + 1}`);
     }
   }
-
-  // Write test log
-  await appendTestLog(testId, timestamp, jobIds);
 }
 
 main().catch((err) => {

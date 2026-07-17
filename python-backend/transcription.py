@@ -30,6 +30,7 @@ This module does two independent ML tasks and then merges them:
 
 import os
 import time
+import warnings
 import platform as sys_platform
 from typing import Optional
 from config import config
@@ -204,8 +205,21 @@ class TranscriptionEngine:
         for line in _tb.format_stack(limit=4)[:-1]:
             for sub in line.rstrip().split("\n"):
                 print(f"[transcription]     | {sub}")
-        diarization = self._diarization(audio_path)
+        # Capture torchaudio deprecation warnings so we can log a follow-up
+        _torchaudio_warning_seen = False
+        with warnings.catch_warnings(record=True) as _captured_warnings:
+            warnings.simplefilter("always")
+            diarization = self._diarization(audio_path)
+            for _w in _captured_warnings:
+                if (
+                    issubclass(_w.category, UserWarning)
+                    and "torchaudio" in str(_w.filename)
+                    and "In 2.9" in str(_w.message)
+                ):
+                    _torchaudio_warning_seen = True
         infer_elapsed = time.time() - t0
+        if _torchaudio_warning_seen:
+            print(f"[transcription] Processing diarization w/ PyTorch")
 
         # Collect segments and compute per-speaker stats, logging progress
         segments = []

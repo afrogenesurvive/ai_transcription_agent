@@ -62,6 +62,12 @@ const GENERIC_NAMES = (
 
 // ════════════════════════════════════════════════════════════════
 
+/** Attendee entry with name and required email. */
+interface AttendeeEntry {
+  name: string;
+  email: string;
+}
+
 /** Root directory for guide screenshots (always shows the latest run) */
 const SCREENSHOT_DIR_ROOT = path.resolve(__dirname, "../../docs/screenshots");
 
@@ -94,16 +100,25 @@ async function callBridge(tool: string, args: Record<string, unknown> = {}): Pro
 }
 
 /**
- * Fetch the first 2 registered attendees from the bridge.
- * Falls back to ["Alice", "Bob"] if none are registered.
+ * Fetch the first 2 registered attendees from the bridge with their emails.
+ * Falls back to default entries if none are registered.
  */
-async function getFirstTwoAttendees(): Promise<string[]> {
+async function getFirstTwoAttendees(): Promise<AttendeeEntry[]> {
   try {
     const data = await callBridge("transcribe_list_attendees", { limit: 100 });
-    const attendees: string[] = (data.attendees || data.results || []).map((a: any) => a.name || "").filter(Boolean);
-    return attendees.length >= 2 ? attendees.slice(0, 2) : ["Alice", "Bob"];
+    const attendees: AttendeeEntry[] = (data.attendees || data.results || [])
+      .map((a: any) => ({ name: a.name || "", email: a.email || "" }))
+      .filter((a: AttendeeEntry) => a.name);
+    if (attendees.length >= 2) return attendees.slice(0, 2);
+    return [
+      { name: "Alice", email: "alice@example.com" },
+      { name: "Bob", email: "bob@example.com" },
+    ];
   } catch {
-    return ["Alice", "Bob"];
+    return [
+      { name: "Alice", email: "alice@example.com" },
+      { name: "Bob", email: "bob@example.com" },
+    ];
   }
 }
 
@@ -137,11 +152,12 @@ async function getNextJobNumber(): Promise<number> {
  * Upload an audio file by path (skipping analysis & delivery steps for speed).
  * Returns the job_id.
  */
-async function uploadAudioByPath(filePath: string, title: string, attendees: string[]): Promise<string> {
+async function uploadAudioByPath(filePath: string, title: string, attendeeEntries: AttendeeEntry[]): Promise<string> {
   const result = await callBridge("transcribe_upload_by_path", {
     filePath,
     title,
-    attendees,
+    attendees: attendeeEntries.map((a) => a.name),
+    attendeeEmails: attendeeEntries.map((a) => a.email),
     eventType: "internal",
     skipSteps: ["transcribe_analyze", "transcribe_prepare_delivery", "send_delivery_email", "save_to_drive", "create_trello_action_items"],
   });
@@ -386,12 +402,13 @@ test("11 - pipeline progress", async () => {
   const nextNum = await getNextJobNumber();
   const title = TITLE_TEMPLATE.replace("{autoNum}", String(nextNum).padStart(4, "0"));
 
-  // 2. Get first 2 registered attendees
-  const attendees = await getFirstTwoAttendees();
+  // 2. Get first 2 registered attendees (name + email pairs)
+  const attendeeEntries = await getFirstTwoAttendees();
+  const attendeeNames = attendeeEntries.map((a) => a.name);
 
-  // 3. Upload via bridge
-  const jobId = await uploadAudioByPath(AUDIO_FILE_PATH, title, attendees);
-  console.log(`[test] Uploaded job ${jobId} with title "${title}", attendees: ${attendees.join(", ")}`);
+  // 3. Upload via bridge (passes attendeeEmails separately)
+  const jobId = await uploadAudioByPath(AUDIO_FILE_PATH, title, attendeeEntries);
+  console.log(`[test] Uploaded job ${jobId} with title "${title}", attendees: ${attendeeNames.join(", ")}`);
 
   // 4. Navigate to "Current" view so PipelineProgress renders
   const currentBtn = window.locator(".sidebar-btn", { hasText: "Current" });
@@ -428,12 +445,15 @@ test("12 - speaker labeling modal", async () => {
     return;
   }
 
-  // Fill each speaker name input with a unique generic name from the list.
+  // Fill each speaker name and email input. Email is required for every speaker.
   const nameInputs = modal.locator(".speaker-name-input");
+  const emailInputs = modal.locator(".speaker-email-input");
   const inputCount = await nameInputs.count();
   for (let i = 0; i < inputCount; i++) {
     const name = GENERIC_NAMES[i % GENERIC_NAMES.length];
     await nameInputs.nth(i).fill(name);
+    // Generate email from the name (lowercased)
+    await emailInputs.nth(i).fill(`${name.toLowerCase()}@example.com`);
   }
 
   await window.screenshot({
@@ -535,5 +555,74 @@ test("16 - results viewer analysis", async () => {
 
   await window.screenshot({
     path: path.join(SCREENSHOT_DIR, "16-results-analysis.png"),
+  });
+});
+
+// ════════════════════════════════════════════════════════════════
+// SCREENSHOT 17: Results Viewer — Attendees Tab
+// ════════════════════════════════════════════════════════════════
+// Shows: The Attendees tab with voiceprint status, sample buttons,
+//        and per-attendee details (name, email, linked job).
+// Guide section: "Reviewing Results — Attendees Tab"
+// Add to guide as: ![Meeting Attendees](screenshots/17-results-attendees.png)
+test("17 - results viewer attendees", async () => {
+  const attendeesTab = window.locator(".rv-tab", { hasText: "Attendees" });
+  try {
+    await attendeesTab.waitFor({ state: "visible", timeout: 30_000 });
+  } catch {
+    console.warn("[test] Attendees tab did not appear — results viewer may not be loaded");
+    test.skip();
+    return;
+  }
+
+  await attendeesTab.click();
+
+  // Wait for attendee content to load (not the loading spinner)
+  try {
+    await window.waitForFunction(
+      () => {
+        const el = document.querySelector(".rv-tab-content--attendees");
+        if (!el) return false;
+        // Ensure at least one attendee row or the empty state is rendered
+        return (
+          el.querySelector(".rv-attendee-section") !== null ||
+          el.querySelector(".rv-tokens-card-value") !== null ||
+          el.textContent?.includes("No attendees")
+        );
+      },
+      { timeout: 15_000 },
+    );
+  } catch {
+    console.warn("[test] Attendees content did not load in time — taking screenshot anyway");
+  }
+  await window.waitForTimeout(500);
+
+  await window.screenshot({
+    path: path.join(SCREENSHOT_DIR, "17-results-attendees.png"),
+  });
+});
+
+// ════════════════════════════════════════════════════════════════
+// SCREENSHOT 18: Results Viewer — Delivery Tab
+// ════════════════════════════════════════════════════════════════
+// Shows: The Delivery tab with delivery status summary and
+//        per-delivery results (email, Drive, Trello).
+// Guide section: "Reviewing Results — Delivery Tab"
+// Add to guide as: ![Delivery Results](screenshots/18-results-delivery.png)
+test("18 - results viewer delivery", async () => {
+  const deliveryTab = window.locator(".rv-tab", { hasText: "Delivery" });
+  try {
+    await deliveryTab.waitFor({ state: "visible", timeout: 10_000 });
+  } catch {
+    console.warn("[test] Delivery tab did not appear — delivery steps were skipped");
+    test.skip();
+    return;
+  }
+
+  await deliveryTab.click();
+  await window.waitForTimeout(500);
+
+  await window.screenshot({
+    path: path.join(SCREENSHOT_DIR, "18-results-delivery.png"),
   });
 });
