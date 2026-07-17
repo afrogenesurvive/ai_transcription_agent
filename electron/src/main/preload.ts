@@ -187,6 +187,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
     return () => ipcRenderer.removeAllListeners("testing:output");
   },
 
+  // ── Bot Testing (Backend) ──
+  readBotScript: (): Promise<string> => ipcRenderer.invoke("testing:bot:read"),
+  saveBotScript: (content: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke("testing:bot:save", content),
+  runBotScript: (): Promise<{ exitCode: number; output: string }> => ipcRenderer.invoke("testing:bot:run"),
+  stopBotScript: (): Promise<{ success: boolean; message?: string }> => ipcRenderer.invoke("testing:bot:stop"),
+  onBotScriptOutput: (callback: (text: string) => void) => {
+    ipcRenderer.on("testing:bot:output", (_event, text) => callback(text));
+    return () => ipcRenderer.removeAllListeners("testing:bot:output");
+  },
+  checkNodeAvailable: (): Promise<{ available: boolean; path: string | null }> => ipcRenderer.invoke("testing:bot:checkNode"),
+  readBotTestLog: (): Promise<string> => ipcRenderer.invoke("testing:bot:readLog"),
+
   // ── Platform ──
   platform: process.platform,
 });

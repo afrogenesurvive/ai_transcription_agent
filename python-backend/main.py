@@ -277,6 +277,7 @@ async def upload_audio_by_path(req: UploadByPathRequest):
     metadata = {
         "title": req.title,
         "attendees": req.attendees,
+        "attendeeEmails": req.attendee_emails,
         "email_recipients": req.email_recipients,
         "event_type": req.event_type,
         "skip_steps": skip_steps,
@@ -1582,6 +1583,7 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
     jlog = _setup_job_logger(job_id)
     try:
         _update_active(job_id, "resuming", 0.35)
+        global engine
         engine = TranscriptionEngine()
         metadata = uploader.get_metadata(job_id)
         audio_path = uploader.get_audio_path(job_id)
@@ -2946,10 +2948,27 @@ def _cleanup_pipeline_resources():
                 engine._diarization = None
                 print(f"[pipeline]   \U0001f9f9 Diarization model unloaded")
 
+            # Unload Whisper ASR model (openai-whisper / faster-whisper)
+            if engine is not None and hasattr(engine, "_whisper"):
+                engine._whisper = None
+                print(f"[pipeline]   \U0001f9f9 Whisper model unloaded")
+
+            # Clear MLX metal cache on Apple Silicon (mlx-whisper internal cache)
+            if engine is not None:
+                try:
+                    import mlx.core as mx
+                    mx.metal.clear_cache()
+                    print(f"[pipeline]   \U0001f9f9 MLX metal cache cleared")
+                except (ImportError, AttributeError):
+                    pass  # Not on macOS or mlx not installed — fine
+
             # Unload embedding model from VoiceprintManager
             if vp_manager is not None:
                 vp_manager.reset_model()
                 print(f"[pipeline]   \U0001f9f9 Embedding model unloaded")
+
+            # Release engine reference to help GC
+            engine = None
 
             # Force garbage collection + final MPS cache clear
             gc.collect()
@@ -2981,6 +3000,7 @@ def _run_pipeline_sync(job_id: str):
     jlog = _setup_job_logger(job_id)
     try:
         _update_active(job_id, "initializing", 0.05)
+        global engine
         engine = TranscriptionEngine()
         metadata = uploader.get_metadata(job_id)
         audio_path = uploader.get_audio_path(job_id)

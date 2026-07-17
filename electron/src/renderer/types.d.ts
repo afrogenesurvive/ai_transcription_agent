@@ -223,6 +223,15 @@ export interface ElectronAPI {
   onPlaywrightOutput: (callback: (text: string) => void) => () => void;
   checkPlaywrightBuild: () => Promise<{ exists: boolean; builtAt: string | null }>;
 
+  // ── Bot Testing (Backend) ──
+  readBotScript: () => Promise<string>;
+  saveBotScript: (content: string) => Promise<{ success: boolean; error?: string }>;
+  runBotScript: () => Promise<{ exitCode: number; output: string }>;
+  stopBotScript: () => Promise<{ success: boolean; message?: string }>;
+  readBotTestLog: () => Promise<string>;
+  onBotScriptOutput: (callback: (text: string) => void) => () => void;
+  checkNodeAvailable: () => Promise<{ available: boolean; path: string | null }>;
+
   platform: string;
 }
 

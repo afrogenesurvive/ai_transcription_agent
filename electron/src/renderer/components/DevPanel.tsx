@@ -2961,13 +2961,13 @@ function LogFilesTab() {
   );
 }
 
-/* ── Testing Tab ── */
+/* ── Testing Tab — Frontend (Playwright) ── */
 
 /** Default 20 generic speaker names (comma-separated, matches config.ts) */
 const DEFAULT_GENERIC_NAMES =
   "Alex,Blake,Casey,Drew,Ellis,Finley,Gray,Harper,Indigo,Jade,Kai,Logan,Morgan,Nico,Oakley,Parker,Quinn,Reese,Skyler,Taylor";
 
-function TestingTab() {
+function FrontendTestingTab() {
   const [audioPath, setAudioPath] = useState("");
   const [titleTemplate, setTitleTemplate] = useState("test {autoNum}");
   const [genericNames, setGenericNames] = useState(DEFAULT_GENERIC_NAMES);
@@ -3323,10 +3323,364 @@ function TestingTab() {
   );
 }
 
+/* ── Testing Tab — Backend (Test Bot Script) ── */
+
+function BackendTestingTab() {
+  const [scriptContent, setScriptContent] = useState("");
+  const [originalContent, setOriginalContent] = useState("");
+  const [dirty, setDirty] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [output, setOutput] = useState<string[]>([]);
+  const [exitCode, setExitCode] = useState<number | null>(null);
+  const [nodeAvailable, setNodeAvailable] = useState<boolean | null>(null);
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  const outputRef = useRef<HTMLDivElement>(null);
+
+  // Load script content + check Node on mount
+  useEffect(() => {
+    window.electronAPI?.readBotScript().then((content) => {
+      setScriptContent(content);
+      setOriginalContent(content);
+    });
+    window.electronAPI?.checkNodeAvailable().then((r) => setNodeAvailable(r.available));
+  }, []);
+
+  // Subscribe to real-time script output
+  useEffect(() => {
+    const unsub = window.electronAPI?.onBotScriptOutput((text: string) => {
+      setOutput((prev) => [...prev, text]);
+    });
+    return () => unsub?.();
+  }, []);
+
+  // Auto-scroll on new output
+  useEffect(() => {
+    if (outputRef.current) {
+      outputRef.current.scrollTop = outputRef.current.scrollHeight;
+    }
+  }, [output]);
+
+  // Track dirty state
+  useEffect(() => {
+    setDirty(scriptContent !== originalContent);
+  }, [scriptContent, originalContent]);
+
+  const handleSave = useCallback(async () => {
+    setSaving(true);
+    setSaveStatus(null);
+    const result = await window.electronAPI?.saveBotScript(scriptContent);
+    if (result?.success) {
+      setOriginalContent(scriptContent);
+      setDirty(false);
+      setSaveStatus("Saved");
+    } else {
+      setSaveStatus(`Save failed: ${result?.error || "Unknown error"}`);
+    }
+    setSaving(false);
+    setTimeout(() => setSaveStatus(null), 3000);
+  }, [scriptContent]);
+
+  const handleRun = useCallback(async () => {
+    // Auto-save before running
+    if (dirty) {
+      await window.electronAPI?.saveBotScript(scriptContent);
+      setOriginalContent(scriptContent);
+      setDirty(false);
+    }
+
+    setRunning(true);
+    setOutput([]);
+    setExitCode(null);
+
+    const result = await window.electronAPI?.runBotScript();
+    if (result) {
+      setExitCode(result.exitCode);
+      if (result.output) {
+        setOutput((prev) => [...prev, result.output]);
+      }
+    }
+    setRunning(false);
+  }, [dirty, scriptContent]);
+
+  const handleStop = useCallback(async () => {
+    await window.electronAPI?.stopBotScript();
+  }, []);
+
+  const outputColor = exitCode === null ? "var(--text-muted)" : exitCode === 0 ? "var(--green)" : "var(--orange)";
+  const outputIcon = exitCode === null ? "info" : exitCode === 0 ? "check_circle" : "warning";
+
+  return (
+    <>
+      {/* Toolbar */}
+      <div className="dev-panel-toolbar">
+        <span className="dev-panel-title">
+          <Icon name="terminal" size="14" color="accent" /> Backend Test Script
+        </span>
+        <div className="dev-panel-actions">
+          <span style={{ fontSize: "var(--fs-10)", color: nodeAvailable ? "var(--green)" : "var(--red)", marginRight: 8 }}>
+            {nodeAvailable === null ? "◌ Checking Node..." : nodeAvailable ? "● Node found" : "● Node not found"}
+          </span>
+          <button className="dev-panel-btn" onClick={handleSave} disabled={saving || !dirty} title="Save script changes">
+            <Icon name="save" size="14" color={dirty ? "accent" : "muted"} />
+            {saving ? " Saving..." : " Save"}
+          </button>
+          {saveStatus && (
+            <span style={{ fontSize: "var(--fs-10)", color: saveStatus === "Saved" ? "var(--green)" : "var(--red)", marginRight: 8 }}>
+              {saveStatus}
+            </span>
+          )}
+          <button className="dev-panel-btn" onClick={handleRun} disabled={running} title="Run the test bot script">
+            <Icon name={running ? "sync" : "play_arrow"} size="14" color={running ? "muted" : "accent"} />
+            {running ? " Running..." : " Run"}
+          </button>
+          <button className="dev-panel-btn" onClick={handleStop} disabled={!running} title="Stop the running script">
+            <Icon name="stop" size="14" color="red" />
+            Stop
+          </button>
+          <button className="dev-panel-btn" onClick={() => setOutput([])} disabled={output.length === 0} title="Clear output">
+            Clear Output
+          </button>
+        </div>
+      </div>
+
+      <div className="dev-panel-list" style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 12, flex: 1 }}>
+        {/* Script Editor */}
+        <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <span style={{ fontSize: "var(--fs-11)", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.4, fontWeight: 600 }}>
+              <Icon name="code" size="14" color="accent" /> scripts/test-bot.mjs
+            </span>
+          </div>
+          <textarea
+            value={scriptContent}
+            onChange={(e) => setScriptContent(e.target.value)}
+            spellCheck={false}
+            style={{
+              flex: 1,
+              minHeight: 200,
+              fontFamily: "monospace",
+              fontSize: "var(--fs-11)",
+              lineHeight: 1.5,
+              padding: 10,
+              background: "var(--bg)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius)",
+              color: "var(--text)",
+              resize: "vertical",
+              whiteSpace: "pre",
+              overflowWrap: "normal",
+              overflowX: "auto",
+              tabSize: 2,
+            }}
+          />
+        </div>
+
+        {/* Output */}
+        <div style={{ display: "flex", flexDirection: "column", minHeight: 120 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <span style={{ fontSize: "var(--fs-11)", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.4, fontWeight: 600 }}>
+              <Icon name="terminal" size="14" color="accent" /> Output
+            </span>
+          </div>
+          <div
+            ref={outputRef}
+            style={{
+              background: "var(--bg)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius)",
+              padding: 10,
+              maxHeight: 200,
+              overflowY: "auto",
+              fontFamily: "monospace",
+              fontSize: "var(--fs-11)",
+              whiteSpace: "pre-wrap",
+              lineHeight: 1.5,
+              color: "var(--text)",
+            }}>
+            {output.length === 0 && !running && <span style={{ color: "var(--text-muted)" }}>No output yet — click "Run" to start.</span>}
+            {output.length === 0 && running && <span style={{ color: "var(--text-muted)" }}>Starting script...</span>}
+            {output.map((chunk, i) => (
+              <span key={i}>{chunk}</span>
+            ))}
+            {running && <span className="dev-panel-testing-cursor">▊</span>}
+          </div>
+          {exitCode !== null && (
+            <div style={{ marginTop: 6, fontSize: "var(--fs-12)", color: outputColor }}>
+              <Icon name={outputIcon} size="14" color={exitCode === 0 ? "green" : "orange"} />{" "}
+              {exitCode === 0 ? "Script completed successfully" : `Script exited with code ${exitCode}`}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="dev-panel-footer">
+        <span>{running ? "Running…" : exitCode !== null ? (exitCode === 0 ? "Completed" : "Failed") : "Idle"}</span>
+        <span>{output.length > 0 ? `${output.length} output chunk(s)` : ""}</span>
+      </div>
+    </>
+  );
+}
+
+/* ── Testing Tab — Logs ── */
+
+function TestingLogsTab() {
+  const [backendLogContent, setBackendLogContent] = useState("");
+  const [frontendExpanded, setFrontendExpanded] = useState(false);
+  const [backendExpanded, setBackendExpanded] = useState(true);
+
+  // Load backend test log on mount
+  useEffect(() => {
+    window.electronAPI?.readBotTestLog().then((content) => {
+      setBackendLogContent(content);
+    });
+  }, []);
+
+  const refreshBackendLog = useCallback(async () => {
+    const content = await window.electronAPI?.readBotTestLog();
+    if (content !== undefined) setBackendLogContent(content);
+  }, []);
+
+  // Collapsible section style
+  const sectionHeaderStyle: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "8px 12px",
+    borderRadius: "var(--radius) var(--radius) 0 0",
+    background: "var(--surface)",
+    border: "1px solid var(--border)",
+    cursor: "pointer",
+    userSelect: "none",
+    fontSize: "var(--fs-12)",
+    fontWeight: 600,
+  };
+
+  const sectionBodyStyle: React.CSSProperties = {
+    border: "1px solid var(--border)",
+    borderTop: "none",
+    borderRadius: "0 0 var(--radius) var(--radius)",
+    padding: backendExpanded ? 12 : 0,
+    maxHeight: backendExpanded ? 400 : 0,
+    overflow: "auto",
+    fontFamily: "monospace",
+    fontSize: "var(--fs-11)",
+    lineHeight: 1.5,
+    whiteSpace: "pre-wrap",
+    color: "var(--text)",
+    background: "var(--bg)",
+    transition: "max-height 0.2s, padding 0.2s",
+  };
+
+  const renderLogEntry = (line: string, i: number) => {
+    try {
+      const parsed = JSON.parse(line);
+      return (
+        <div key={i} style={{ marginBottom: 4, padding: 6, background: "var(--surface)", borderRadius: "var(--radius)" }}>
+          <div style={{ display: "flex", gap: 12, fontSize: "var(--fs-10)", color: "var(--text-muted)", marginBottom: 2 }}>
+            <span>
+              Test: <strong style={{ color: "var(--text)" }}>{parsed.testId?.slice(0, 8)}</strong>
+            </span>
+            <span>{new Date(parsed.timestamp).toLocaleString()}</span>
+          </div>
+          <div style={{ fontSize: "var(--fs-11)" }}>
+            Job IDs:{" "}
+            {parsed.jobIds?.map((id: string) => (
+              <code key={id} style={{ marginRight: 6, color: "var(--accent)" }}>
+                {id}
+              </code>
+            ))}
+          </div>
+        </div>
+      );
+    } catch {
+      return (
+        <div key={i} style={{ color: "var(--text-muted)" }}>
+          {line}
+        </div>
+      );
+    }
+  };
+
+  return (
+    <div className="dev-panel-list" style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 12 }}>
+      {/* Frontend Section — placeholder */}
+      <div>
+        <div style={sectionHeaderStyle} onClick={() => setFrontendExpanded(!frontendExpanded)}>
+          <Icon name={frontendExpanded ? "expand_less" : "expand_more"} size="16" color="accent" />
+          Frontend Test Logs
+        </div>
+        {frontendExpanded && (
+          <div style={{ ...sectionBodyStyle, maxHeight: "none", padding: 12, borderTop: "none", borderRadius: "0 0 var(--radius) var(--radius)" }}>
+            <span style={{ color: "var(--text-muted)" }}>Coming soon — Playwright test results will appear here.</span>
+          </div>
+        )}
+      </div>
+
+      {/* Backend Section */}
+      <div>
+        <div style={sectionHeaderStyle} onClick={() => setBackendExpanded(!backendExpanded)}>
+          <Icon name={backendExpanded ? "expand_less" : "expand_more"} size="16" color="accent" />
+          Backend Test Logs
+          <button
+            className="dev-panel-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              refreshBackendLog();
+            }}
+            style={{ marginLeft: "auto", padding: "2px 8px" }}
+            title="Refresh log">
+            <Icon name="refresh" size="12" color="accent" /> Refresh
+          </button>
+        </div>
+        <div style={sectionBodyStyle}>
+          {!backendLogContent && <span style={{ color: "var(--text-muted)" }}>No test runs yet — run the backend test script to generate logs.</span>}
+          {backendLogContent && backendLogContent.split("\n").filter(Boolean).map(renderLogEntry)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Sub-tab pill button ── */
+
+interface SubTabPillProps {
+  label: string;
+  icon: string;
+  active: boolean;
+  onClick: () => void;
+}
+
+function SubTabPill({ label, icon, active, onClick }: SubTabPillProps) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        padding: "4px 12px",
+        borderRadius: 12,
+        border: "1px solid",
+        borderColor: active ? "var(--accent)" : "var(--border)",
+        background: active ? "color-mix(in srgb, var(--accent) 15%, transparent)" : "transparent",
+        color: active ? "var(--accent)" : "var(--text-muted)",
+        fontSize: "var(--fs-11)",
+        fontWeight: active ? 600 : 400,
+        cursor: "pointer",
+        transition: "all 0.15s",
+      }}>
+      <Icon name={icon} size="12" color={active ? "accent" : "muted"} />
+      {label}
+    </button>
+  );
+}
+
 /* ── DevPanel ── */
 
 export default function DevPanel({ onClose }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("live");
+  const [testingSubTab, setTestingSubTab] = useState<"frontend" | "backend" | "logs">("frontend");
 
   return (
     <div className="dev-panel dev-panel--full">
@@ -3381,11 +3735,11 @@ export default function DevPanel({ onClose }: Props) {
             <Icon name="description" size="14" color="accent" /> Log Files
           </button>
         </Tooltip>
-        <Tooltip content="Run screenshot tests and edit test variables — variables are saved to config.json">
+        <Tooltip content="Run frontend (Playwright) or backend (test bot) tests">
           <button
             className={`dev-panel-tab ${activeTab === "testing" ? "dev-panel-tab--active" : ""}`}
             onClick={() => setActiveTab("testing")}
-            title="Run Playwright screenshot tests">
+            title="Run tests — frontend (Playwright) or backend (test bot)">
             <Icon name="bug_report" size="14" color="accent" /> Testing
           </button>
         </Tooltip>
@@ -3404,7 +3758,19 @@ export default function DevPanel({ onClose }: Props) {
       {activeTab === "usage" && <UsageTab />}
       {activeTab === "updates" && <UpdatesTab />}
       {activeTab === "logfiles" && <LogFilesTab />}
-      {activeTab === "testing" && <TestingTab />}
+      {activeTab === "testing" && (
+        <>
+          {/* Sub-tab pills */}
+          <div style={{ padding: "8px 16px 0", display: "flex", gap: 8 }}>
+            <SubTabPill label="Frontend" icon="smartphone" active={testingSubTab === "frontend"} onClick={() => setTestingSubTab("frontend")} />
+            <SubTabPill label="Backend" icon="dns" active={testingSubTab === "backend"} onClick={() => setTestingSubTab("backend")} />
+            <SubTabPill label="Logs" icon="article" active={testingSubTab === "logs"} onClick={() => setTestingSubTab("logs")} />
+          </div>
+          {testingSubTab === "frontend" && <FrontendTestingTab />}
+          {testingSubTab === "backend" && <BackendTestingTab />}
+          {testingSubTab === "logs" && <TestingLogsTab />}
+        </>
+      )}
     </div>
   );
 }

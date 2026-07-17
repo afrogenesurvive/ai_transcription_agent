@@ -1213,6 +1213,131 @@ ipcMain.handle("testing:checkBuild", async () => {
   }
 });
 
+// ── Bot Testing IPC ──
+// Tracks the active bot child process so it can be stopped
+
+let botProcess: import("child_process").ChildProcess | null = null;
+
+ipcMain.handle("testing:bot:read", async () => {
+  const rootDir = app.isPackaged ? path.join(process.resourcesPath, "..") : path.join(app.getAppPath(), "..");
+  const scriptPath = path.join(rootDir, "scripts", "test-bot.mjs");
+  try {
+    if (!fs.existsSync(scriptPath)) return "";
+    return fs.readFileSync(scriptPath, "utf-8");
+  } catch (err: any) {
+    addLog("main", "error", `[bot] Failed to read script: ${err.message}`);
+    return "";
+  }
+});
+
+ipcMain.handle("testing:bot:save", async (_event, content: string) => {
+  const rootDir = app.isPackaged ? path.join(process.resourcesPath, "..") : path.join(app.getAppPath(), "..");
+  const scriptDir = path.join(rootDir, "scripts");
+  const scriptPath = path.join(scriptDir, "test-bot.mjs");
+  try {
+    fs.mkdirSync(scriptDir, { recursive: true });
+    fs.writeFileSync(scriptPath + ".tmp", content, "utf-8");
+    fs.renameSync(scriptPath + ".tmp", scriptPath);
+    addLog("main", "info", `[bot] Script saved (${content.length} chars)`);
+    return { success: true };
+  } catch (err: any) {
+    addLog("main", "error", `[bot] Failed to save script: ${err.message}`);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle("testing:bot:run", async () => {
+  const rootDir = app.isPackaged ? path.join(process.resourcesPath, "..") : path.join(app.getAppPath(), "..");
+  const scriptPath = path.join(rootDir, "scripts", "test-bot.mjs");
+
+  if (!fs.existsSync(scriptPath)) {
+    return { exitCode: -1, output: "Script not found — save it first" };
+  }
+
+  addLog("main", "info", "[bot] Starting test bot script");
+
+  // Resolve node binary — prefer the bundled one, fall back to PATH
+  let nodeBin = "node";
+  try {
+    const bundledNode = path.join(rootDir, "dist-resources", "node-bin", process.platform === "win32" ? "node.exe" : "node");
+    if (fs.existsSync(bundledNode)) nodeBin = bundledNode;
+  } catch {}
+
+  return new Promise<{ exitCode: number; output: string }>((resolve) => {
+    botProcess = spawn(nodeBin, [scriptPath], {
+      cwd: rootDir,
+      stdio: ["pipe", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        NODE_ENV: "development",
+        TRANSCRIPTION_STORAGE: process.env.TRANSCRIPTION_STORAGE || path.join(app.getPath("userData"), "storage"),
+      },
+    });
+
+    let output = "";
+
+    const onData = (data: Buffer) => {
+      const text = data.toString();
+      output += text;
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("testing:bot:output", text);
+      }
+    };
+
+    botProcess.stdout?.on("data", onData);
+    botProcess.stderr?.on("data", onData);
+
+    botProcess.on("close", (code) => {
+      botProcess = null;
+      addLog("main", "info", `[bot] Script exited with code ${code}`);
+      resolve({ exitCode: code ?? -1, output });
+    });
+
+    botProcess.on("error", (err) => {
+      botProcess = null;
+      addLog("main", "error", `[bot] Failed to spawn script: ${err.message}`);
+      resolve({ exitCode: -1, output: `Failed to spawn: ${err.message}` });
+    });
+  });
+});
+
+ipcMain.handle("testing:bot:stop", async () => {
+  if (botProcess) {
+    addLog("main", "info", "[bot] Stopping bot script");
+    botProcess.kill("SIGTERM");
+    // Force kill after 3s if it hasn't exited
+    setTimeout(() => {
+      if (botProcess) {
+        botProcess.kill("SIGKILL");
+        botProcess = null;
+      }
+    }, 3000);
+    return { success: true };
+  }
+  return { success: false, message: "No bot script running" };
+});
+
+ipcMain.handle("testing:bot:checkNode", async () => {
+  try {
+    execSync("node --version", { stdio: "pipe" });
+    return { available: true, path: "node" };
+  } catch {
+    return { available: false, path: null };
+  }
+});
+
+ipcMain.handle("testing:bot:readLog", async () => {
+  const storageDir = process.env.TRANSCRIPTION_STORAGE || path.join(app.getPath("userData"), "storage");
+  const logPath = path.join(storageDir, "test-bot-log.jsonl");
+  try {
+    if (!fs.existsSync(logPath)) return "";
+    return fs.readFileSync(logPath, "utf-8");
+  } catch (err: any) {
+    addLog("main", "error", `[bot] Failed to read test log: ${err.message}`);
+    return "";
+  }
+});
+
 // ── Uninstall / Cleanup IPC ──
 
 ipcMain.handle("app:uninstall", async () => {

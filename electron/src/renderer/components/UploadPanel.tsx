@@ -39,7 +39,6 @@ interface Props {
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function validateEmail(email: string): boolean {
-  if (!email.trim()) return true; // empty is allowed (optional)
   return EMAIL_RE.test(email);
 }
 
@@ -255,10 +254,10 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
         setFormError(`"${resolvedName}" is already in the attendee list.`);
         return;
       }
-      // Validate email if provided
+      // Validate email — required and must match format
       const resolvedEmail = email !== undefined ? email : attendeeEmail.trim();
-      if (resolvedEmail && !validateEmail(resolvedEmail)) {
-        setFormError(`Invalid email address: "${resolvedEmail}"`);
+      if (!resolvedEmail || !validateEmail(resolvedEmail)) {
+        setFormError(resolvedEmail ? `Invalid email address: "${resolvedEmail}"` : "Email is required.");
         return;
       }
 
@@ -417,7 +416,7 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
     if (!file) return;
     if (attendeeList.length === 0) return; // attendees is required
     const nameList = attendeeList.map((a) => a.name);
-    const attendeeEmails = attendeeList.map((a) => a.email); // keep alignment with names (may include empties)
+    const attendeeEmails = attendeeList.map((a) => a.email); // keep alignment with names (all now have validated emails)
     const deliveryRecipients = attendeeEmails.filter(Boolean);
     // Persist all submitted attendees for future autocomplete
     const updated = [...savedAttendees];
@@ -514,12 +513,16 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
           </Tooltip>
         </label>
         <div className="attendee-section">
-          <Tooltip content="List of meeting participants — names map to speakers, emails are used for delivery" position="right">
+          <Tooltip
+            content="List of meeting participants — names map to speakers, emails are required for voiceprint matching and delivery"
+            position="right">
             <label className="attendee-section-label">
               Meeting Attendees <span className="required">*</span>
             </label>
           </Tooltip>
-          <span className="field-hint">Names map positionally to detected speakers for labeling. Emails are used for delivery.</span>
+          <span className="field-hint">
+            Names map positionally to detected speakers for labeling. Email is required for every attendee (voiceprint matching and delivery).
+          </span>
 
           <div className="attendee-input-row">
             <div className="attendee-autocomplete-wrap">
@@ -560,7 +563,7 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
               )}
             </div>
             <div className="attendee-autocomplete-wrap">
-              <Tooltip content="Optional email address — used for sending delivery notifications">
+              <Tooltip content="Email is required — used for voiceprint matching and delivery notifications">
                 <input
                   ref={emailInputRef}
                   type="email"
@@ -572,10 +575,10 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
                   }}
                   onFocus={() => setShowEmailSuggestions(true)}
                   onKeyDown={handleEmailKeyDown}
-                  placeholder="Email (optional)"
+                  placeholder="Email (required)"
                   disabled={disabled}
                   autoComplete="off"
-                  title="Optional email address for delivery notifications"
+                  title="Email is required for voiceprint matching and delivery notifications"
                 />
               </Tooltip>
               {showEmailSuggestions && emailSuggestions.length > 0 && !disabled && (

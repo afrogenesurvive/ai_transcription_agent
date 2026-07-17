@@ -63,8 +63,14 @@ export default function SpeakerLabelModal({
   const [conflicts, setConflicts] = useState<ConflictInfo[]>([]);
   const [overwriteSet, setOverwriteSet] = useState<Set<string>>(new Set());
   const [checkingConflicts, setCheckingConflicts] = useState(false);
+  const [emailErrors, setEmailErrors] = useState<Record<string, string>>({});
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const initializedRef = useRef(false);
+
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const validateEmail = useCallback((email: string): boolean => {
+    return EMAIL_RE.test(email);
+  }, []);
 
   // Initialize labels with suggested names from attendees list.
   // Only runs once on mount — subsequent prop changes (from polling) must NOT
@@ -120,11 +126,36 @@ export default function SpeakerLabelModal({
     };
   }, []);
 
-  // Every speaker must have a non-empty name
-  const allLabeled = speakers.every((s) => (labels[s.speaker_id]?.trim() ?? "").length > 0);
+  // Every speaker must have a non-empty name and a valid email
+  const allLabeled = speakers.every((s) => {
+    const name = labels[s.speaker_id]?.trim() ?? "";
+    const email = emails[s.speaker_id]?.trim() ?? "";
+    return name.length > 0 && email.length > 0 && validateEmail(email);
+  });
 
   // ── Voiceprint conflict checking ──
   const handleConfirm = async () => {
+    // Re-validate all emails before proceeding
+    const invalid: string[] = [];
+    for (const s of speakers) {
+      const email = emails[s.speaker_id]?.trim() || "";
+      if (!email || !validateEmail(email)) {
+        invalid.push(labels[s.speaker_id]?.trim() || s.speaker_id);
+      }
+    }
+    if (invalid.length > 0) {
+      setEmailErrors((prev) => {
+        const next = { ...prev };
+        for (const s of speakers) {
+          const email = emails[s.speaker_id]?.trim() || "";
+          if (!email) next[s.speaker_id] = "Email is required";
+          else if (!validateEmail(email)) next[s.speaker_id] = "Invalid email address";
+        }
+        return next;
+      });
+      return;
+    }
+
     // Build labels for ALL speakers with email
     const result = speakers.map((s) => ({
       speaker_id: s.speaker_id,
@@ -227,16 +258,31 @@ export default function SpeakerLabelModal({
                   {hasName && <span className="speaker-label-check">✓</span>}
                 </div>
                 <div className="speaker-email-row">
-                  <Tooltip content="Optional email — used as the unique key for voiceprint storage and matching across meetings">
+                  <Tooltip content="Email is required — used as the unique key for voiceprint storage and matching across meetings">
                     <input
                       type="email"
-                      className="speaker-email-input"
-                      placeholder="Email (optional — enables voiceprint matching)"
+                      className={`speaker-email-input${emailErrors[spk.speaker_id] ? " speaker-email-input--error" : ""}`}
+                      placeholder="Email (required — enables voiceprint matching)"
                       value={emails[spk.speaker_id] ?? ""}
-                      onChange={(e) => setEmails((prev) => ({ ...prev, [spk.speaker_id]: e.target.value }))}
-                      title="Enter an email for this speaker"
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setEmails((prev) => ({ ...prev, [spk.speaker_id]: val }));
+                        if (!val) {
+                          setEmailErrors((prev) => ({ ...prev, [spk.speaker_id]: "Email is required" }));
+                        } else if (!validateEmail(val)) {
+                          setEmailErrors((prev) => ({ ...prev, [spk.speaker_id]: "Invalid email address" }));
+                        } else {
+                          setEmailErrors((prev) => {
+                            const next = { ...prev };
+                            delete next[spk.speaker_id];
+                            return next;
+                          });
+                        }
+                      }}
+                      title="Enter an email for this speaker (required)"
                     />
                   </Tooltip>
+                  {emailErrors[spk.speaker_id] && <span className="speaker-email-error">{emailErrors[spk.speaker_id]}</span>}
                 </div>
               </div>
             );

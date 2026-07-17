@@ -176,6 +176,7 @@ async function dispatch(tool, args) {
         file_path: args.filePath,
         title: args.title || "Untitled Meeting",
         attendees: args.attendees || [],
+        attendee_emails: args.attendeeEmails || [],
         event_type: args.eventType || "internal",
         skip_steps: args.skipSteps || args.skip_steps || undefined,
       });
