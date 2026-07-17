@@ -20,6 +20,25 @@
 
 BrandingText "Transcription Agent Installer"
 
+; ── Cancel Button — Keep Enabled During Extraction ──
+;
+; NSIS disables the Cancel button during file extraction by default.
+; These callbacks re-enable it so users can abort mid-installation.
+
+Function instfiles.pre
+  GetDlgItem $0 $HWNDPARENT 2
+  EnableWindow $0 1
+FunctionEnd
+
+Function instfiles.show
+  GetDlgItem $0 $HWNDPARENT 2
+  EnableWindow $0 1
+FunctionEnd
+
+; ── Show details view by default ──
+
+ShowInstDetails show
+
 ; ── Custom Welcome Page (installer only) ──
 
 !ifndef BUILD_UNINSTALLER
@@ -64,6 +83,51 @@ Function welcomePage
   nsDialogs::Show
 
   ${NSD_GetState} $WelcomeLaunchCheckbox $RunAfterInstall
+FunctionEnd
+
+!endif
+
+; ── Custom Install Progress Page (before file extraction) ──
+
+!ifndef BUILD_UNINSTALLER
+
+!macro customPageAfterChangeDir
+  Page custom instProgressPage
+!macroend
+
+Var ProgressDialog
+Var ProgressTitle
+Var ProgressComponents
+Var ProgressStatus
+
+Function instProgressPage
+  nsDialogs::Create 1018
+  Pop $ProgressDialog
+
+  ${If} $ProgressDialog == error
+    Abort
+  ${EndIf}
+
+  ${NSD_CreateLabel} 0 0 100% 30u "Preparing to Install..."
+  Pop $ProgressTitle
+  CreateFont $1 "MS Shell Dlg 2" 14 700
+  SendMessage $ProgressTitle ${WM_SETFONT} $1 1
+
+  ${NSD_CreateLabel} 0 36u 100% -36u \
+    "Transcription Agent will be installed to:$\r$\n\
+     $INSTDIR$\r$\n$\r$\n\
+     The following components will be installed:$\r$\n\
+     🐍  Python Backend — Whisper ASR + speaker diarization$\r$\n\
+     ⚡  Node.js Runtime v20 LTS$\r$\n\
+     🌉  Bridge Server — REST API gateway$\r$\n\
+     🤖  Agent Runner — LLM pipeline orchestrator$\r$\n$\r$\n\
+     Total size: approximately 400 MB."
+  Pop $ProgressComponents
+
+  ${NSD_CreateLabel} 0 -30u 100% 14u "Click Install to begin."
+  Pop $ProgressStatus
+
+  nsDialogs::Show
 FunctionEnd
 
 !endif
