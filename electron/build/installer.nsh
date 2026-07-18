@@ -20,16 +20,6 @@
 
 BrandingText "Transcription Agent Installer"
 
-; ── Cancel Button — Keep Enabled During Extraction ──
-;
-; NSIS disables the Cancel button during file extraction by default.
-; These callbacks re-enable it so users can abort mid-installation.
-
-Function instfiles.show
-  GetDlgItem $0 $HWNDPARENT 2
-  EnableWindow $0 1
-FunctionEnd
-
 ; ── Show details view by default ──
 
 ShowInstDetails show
