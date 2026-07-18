@@ -67,6 +67,12 @@
   gap: 12px;
 }
 
+/* Tooltip wrapper inside theme options — stretch to fill the flex row */
+.appearance-theme-options .tooltip-trigger {
+  flex: 1;
+  display: flex;
+}
+
 .appearance-theme-card {
   flex: 1;
   display: flex;
@@ -211,6 +217,15 @@
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
+}
+
+/* Tooltip wrapper inside font grid — stretch to fill the grid cell */
+.appearance-font-presets-grid .tooltip-trigger {
+  display: flex;
+}
+
+.appearance-font-presets-grid .tooltip-trigger .appearance-font-preset-card {
+  width: 100%;
 }
 
 .appearance-font-preset-card {
