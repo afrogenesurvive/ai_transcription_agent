@@ -179,7 +179,23 @@ async function labelSpeakers(jobId, nameOffset) {
   }
 
   // Submit labels and resume
-  await callBridge("transcribe_label_and_resume", { jobId, labels });
+  try {
+    await callBridge("transcribe_label_and_resume", { jobId, labels });
+  } catch (err) {
+    // Surface voice match conflicts clearly
+    if (err.message.includes("voice_match_conflict") || err.message.includes("409")) {
+      const conflictLabels = labels
+        .filter((l) => l.name)
+        .map((l) => `"${l.name}" (${l.speaker_id})`)
+        .join(", ");
+      console.error(`[bot] ❌ VOICE MATCH CONFLICT in job ${jobId.slice(0, 8)}`);
+      console.error(`[bot]   Labels attempted: ${conflictLabels}`);
+      console.error(`[bot]   ${err.message}`);
+      console.error(`[bot]   ---`);
+      console.error(`[bot]   Fix: adjust the attendeeList order or skip this job`);
+    }
+    throw err; // Fail the job visibly
+  }
   return labels.length;
 }
 

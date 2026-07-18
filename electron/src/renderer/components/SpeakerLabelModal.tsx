@@ -597,9 +597,6 @@ export default function SpeakerLabelModal({
                   }}>
                   Go Back
                 </button>
-                <button className="btn-secondary" onClick={handleVoiceWarningContinue}>
-                  Keep All My Names
-                </button>
                 <button className="btn-primary" onClick={handleVoiceWarningAcceptSelected} disabled={acceptedConflicts.size === 0}>
                   Accept Selected ({acceptedConflicts.size})
                 </button>

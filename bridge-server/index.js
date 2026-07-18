@@ -332,16 +332,38 @@ async function dispatch(tool, args) {
       return await callPython("GET", `/transcribe/speaker_clips/${args.jobId}`);
 
     case "transcribe_label_and_resume": {
-      const lrResult = await callPython("POST", `/transcribe/label_and_resume/${args.jobId}`, args.labels || []);
-      if (lrResult?.voice_match_conflicts?.length) {
-        console.warn(`[bridge] ⚠️  Voice match conflict(s) detected for job ${args.jobId?.slice(0, 8) || "?"}:`);
-        for (const c of lrResult.voice_match_conflicts) {
-          console.warn(
-            `[bridge]   "${c.assigned_name}" (${c.speaker_id}) matches existing voiceprint "${c.matched_name}" (sim=${c.similarity?.toFixed(3) || "?"}) from job ${c.matched_sample_job_id?.slice(0, 8) || "?"}`,
-          );
+      try {
+        const lrResult = await callPython("POST", `/transcribe/label_and_resume/${args.jobId}`, args.labels || []);
+        if (lrResult?.voice_match_conflicts?.length) {
+          console.warn(`[bridge] ⚠️  Voice match conflict(s) detected for job ${args.jobId?.slice(0, 8) || "?"}:`);
+          for (const c of lrResult.voice_match_conflicts) {
+            console.warn(
+              `[bridge]   "${c.assigned_name}" (${c.speaker_id}) matches existing voiceprint "${c.matched_name}" (sim=${c.similarity?.toFixed(3) || "?"}) from job ${c.matched_sample_job_id?.slice(0, 8) || "?"}`,
+            );
+          }
         }
+        return lrResult;
+      } catch (err) {
+        // Check if this is a voice match conflict (409 from Python)
+        try {
+          const parsed = JSON.parse(err.message);
+          if (parsed?.error === "voice_match_conflict") {
+            console.error(`[bridge] ❌ VOICE MATCH CONFLICT for job ${args.jobId?.slice(0, 8) || "?"}:`);
+            for (const c of (parsed.conflicts || [])) {
+              console.error(`[bridge]   "${c.assigned_name}" (${c.speaker_id}) ↔ "${c.matched_name}" (sim=${(c.similarity || 0).toFixed(3)}) from job ${(c.matched_sample_job_id || "?").slice(0, 8)}`);
+            }
+            // Re-throw a clean error message for the caller
+            throw new Error(parsed.message || "Voice match conflict — resolve and re-submit");
+          }
+        } catch (parseErr) {
+          // Not a conflict error or parse failed — re-throw original
+          if (parseErr instanceof Error && parseErr.message !== err.message) {
+            // It's our re-throw above
+            throw parseErr;
+          }
+        }
+        throw err;
       }
-      return lrResult;
     }
 
     case "transcribe_verify_labels":

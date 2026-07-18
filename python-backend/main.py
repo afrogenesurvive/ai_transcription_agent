@@ -736,6 +736,60 @@ async def agent_label_speakers(req: LabelRequest):
             sample_end=sample_end,
         )
 
+    # ── Drift audit: check for voice match conflicts across ALL jobs ──
+    drift_entries = []
+    for label in req.labels:
+        spk = label.speaker_id
+        name = label.name.strip()
+        if not spk or not name:
+            continue
+        email_key = vp_manager._make_email(name, label.email or "")
+        saved_emb = vp_manager.get_embedding(email_key)
+        if saved_emb is None:
+            continue
+        all_matches = vp_manager.find_matching_voiceprints(
+            saved_emb, threshold=config.VOICEPRINT_THRESHOLD
+        )
+        for m in all_matches:
+            if m["name"].lower() == name.lower():
+                continue
+            drift_entries.append({
+                "timestamp": datetime.utcnow().isoformat(),
+                "job_id": req.job_id,
+                "assigned_name": name,
+                "assigned_email": email_key,
+                "speaker_id": spk,
+                "matched_name": m["name"],
+                "matched_email": m["email"],
+                "similarity": m["similarity"],
+                "matched_sample_job_id": m.get("sample_job_id"),
+            })
+
+    if drift_entries:
+        drift_log_path = os.path.join(config.STORAGE_PATH, req.job_id, "label-drift-audit.jsonl")
+        try:
+            with open(drift_log_path, "w") as f:
+                for entry in drift_entries:
+                    f.write(json.dumps(entry) + "\n")
+            print(f"[api] ❌ Drift audit: {len(drift_entries)} conflict(s) — rejecting labels")
+        except Exception as e:
+            print(f"[api] ⚠️  Could not write drift audit log: {e}")
+        first = drift_entries[0]
+        raise HTTPException(
+            409,
+            detail={
+                "error": "voice_match_conflict",
+                "message": (
+                    f"'{first['assigned_name']}' ({first['speaker_id']}) matches the enrolled "
+                    f"voiceprint of '{first['matched_name']}' "
+                    f"(similarity: {first['similarity']:.3f}, "
+                    f"from job {first.get('matched_sample_job_id', '?')[:8]}). "
+                    "Resolve the conflict and re-submit."
+                ),
+                "conflicts": drift_entries,
+            },
+        )
+
     if transcript_data:
         mapping = {l.speaker_id: l.name for l in req.labels}
         for seg in transcript_data:
@@ -1652,6 +1706,24 @@ async def label_and_resume(job_id: str, labels: list = Body(...)):
             print(f"[drift] ✅ Drift audit written ({len(drift_entries)} entry/entries) to {drift_log_path}")
         except Exception as e:
             print(f"[drift] ⚠️  Could not write drift audit log: {e}")
+
+        # ❌ Gating: reject conflicting labels instead of silently proceeding.
+        # The caller (bot or UI) must resolve the conflict and re-submit.
+        first = drift_entries[0]
+        raise HTTPException(
+            409,
+            detail={
+                "error": "voice_match_conflict",
+                "message": (
+                    f"'{first['assigned_name']}' ({first['speaker_id']}) matches the enrolled "
+                    f"voiceprint of '{first['matched_name']}' "
+                    f"(similarity: {first['similarity']:.3f}, "
+                    f"from job {first.get('matched_sample_job_id', '?')[:8]}). "
+                    "Resolve the conflict and re-submit."
+                ),
+                "conflicts": drift_entries,
+            },
+        )
 
     # Determine how to proceed based on labeling phase
     labeling_phase = s.get("labeling_phase", "pre_asr")

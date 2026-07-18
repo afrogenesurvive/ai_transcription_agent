@@ -2981,27 +2981,34 @@ function FrontendTestingTab() {
   const outputRef = useRef<HTMLDivElement>(null);
   const [activeJobs, setActiveJobs] = useState<any[]>([]);
 
-  // ── Fetch active pipeline + bot jobs on mount (guards buttons while running) ──
+  // ── Poll active pipeline + bot jobs every 5s (guards buttons while running) ──
+  // Polling is needed because jobs may start/stop after mount (e.g. user clicks Run).
+  // A single on-mount fetch would leave buttons enabled while jobs are still running.
   useEffect(() => {
-    Promise.all([window.electronAPI?.getActiveJobs() ?? Promise.resolve([]), window.electronAPI?.getRunningBotJobs() ?? Promise.resolve([])])
-      .then(([pipelineJobs, botJobs]) => {
-        const seen = new Set<string>();
-        const merged: Array<{ job_id: string; status: string; progress: number; title: string }> = [];
-        for (const j of pipelineJobs) {
-          if (!seen.has(j.job_id)) {
-            seen.add(j.job_id);
-            merged.push(j);
+    const fetchJobs = () =>
+      Promise.all([window.electronAPI?.getActiveJobs() ?? Promise.resolve([]), window.electronAPI?.getRunningBotJobs() ?? Promise.resolve([])])
+        .then(([pipelineJobs, botJobs]) => {
+          const seen = new Set<string>();
+          const merged: Array<{ job_id: string; status: string; progress: number; title: string }> = [];
+          for (const j of pipelineJobs) {
+            if (!seen.has(j.job_id)) {
+              seen.add(j.job_id);
+              merged.push(j);
+            }
           }
-        }
-        for (const j of botJobs) {
-          if (!seen.has(j.job_id)) {
-            seen.add(j.job_id);
-            merged.push({ job_id: j.job_id, status: j.status, progress: 0, title: "Bot Job" });
+          for (const j of botJobs) {
+            if (!seen.has(j.job_id)) {
+              seen.add(j.job_id);
+              merged.push({ job_id: j.job_id, status: j.status, progress: 0, title: "Bot Job" });
+            }
           }
-        }
-        setActiveJobs(merged);
-      })
-      .catch(() => setActiveJobs([]));
+          setActiveJobs(merged);
+        })
+        .catch(() => setActiveJobs([]));
+
+    fetchJobs();
+    const interval = setInterval(fetchJobs, 5_000);
+    return () => clearInterval(interval);
   }, []);
 
   // ── Prerequisite live status ──
@@ -3443,27 +3450,34 @@ function BackendTestingTab() {
   const outputRef = useRef<HTMLDivElement>(null);
   const [activeJobs, setActiveJobs] = useState<any[]>([]);
 
-  // ── Fetch active pipeline + bot jobs on mount (guards buttons while running) ──
+  // ── Poll active pipeline + bot jobs every 5s (guards buttons while running) ──
+  // Polling is needed because jobs may start/stop after mount (e.g. user clicks Run).
+  // A single on-mount fetch would leave buttons enabled while jobs are still running.
   useEffect(() => {
-    Promise.all([window.electronAPI?.getActiveJobs() ?? Promise.resolve([]), window.electronAPI?.getRunningBotJobs() ?? Promise.resolve([])])
-      .then(([pipelineJobs, botJobs]) => {
-        const seen = new Set<string>();
-        const merged: Array<{ job_id: string; status: string; progress: number; title: string }> = [];
-        for (const j of pipelineJobs) {
-          if (!seen.has(j.job_id)) {
-            seen.add(j.job_id);
-            merged.push(j);
+    const fetchJobs = () =>
+      Promise.all([window.electronAPI?.getActiveJobs() ?? Promise.resolve([]), window.electronAPI?.getRunningBotJobs() ?? Promise.resolve([])])
+        .then(([pipelineJobs, botJobs]) => {
+          const seen = new Set<string>();
+          const merged: Array<{ job_id: string; status: string; progress: number; title: string }> = [];
+          for (const j of pipelineJobs) {
+            if (!seen.has(j.job_id)) {
+              seen.add(j.job_id);
+              merged.push(j);
+            }
           }
-        }
-        for (const j of botJobs) {
-          if (!seen.has(j.job_id)) {
-            seen.add(j.job_id);
-            merged.push({ job_id: j.job_id, status: j.status, progress: 0, title: "Bot Job" });
+          for (const j of botJobs) {
+            if (!seen.has(j.job_id)) {
+              seen.add(j.job_id);
+              merged.push({ job_id: j.job_id, status: j.status, progress: 0, title: "Bot Job" });
+            }
           }
-        }
-        setActiveJobs(merged);
-      })
-      .catch(() => setActiveJobs([]));
+          setActiveJobs(merged);
+        })
+        .catch(() => setActiveJobs([]));
+
+    fetchJobs();
+    const interval = setInterval(fetchJobs, 5_000);
+    return () => clearInterval(interval);
   }, []);
 
   // Load script content + check Node on mount
