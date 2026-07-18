@@ -275,6 +275,15 @@ export default function App() {
     return () => cleanup?.();
   }, [jobId]);
 
+  // Listen for job-started events from main process (agent runner / Python backend)
+  React.useEffect(() => {
+    const cleanup = window.electronAPI?.onJobStarted((payload) => {
+      const shortId = payload.jobId ? payload.jobId.slice(0, 8) : "?";
+      notify(`Job ${shortId} started — transcription processing`);
+    });
+    return () => cleanup?.();
+  }, [notify]);
+
   // Cleanup notification timer on unmount
   React.useEffect(() => {
     return () => {
@@ -465,6 +474,8 @@ export default function App() {
       setView("processing");
       setShowNewForm(false);
       // Polling starts automatically via useJobStatus when jobId changes
+      notify(`"${title}" — transcription started`);
+      window.electronAPI?.showNotification("Transcription Started", `"${title}"`, { action: "view_results", jobId: result.job_id });
     } catch (err: any) {
       notify(`Upload failed: ${err.message}`);
     } finally {

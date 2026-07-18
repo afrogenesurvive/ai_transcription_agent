@@ -3567,8 +3567,8 @@ function BackendTestingTab() {
           <button
             className="dev-panel-btn"
             onClick={handleSave}
-            disabled={saving || !dirty || activeJobs.length > 0}
-            title={activeJobs.length > 0 ? "Cannot save while a pipeline or bot job is running" : "Save script changes"}>
+            disabled={saving || !dirty || activeJobs.length > 0 || running}
+            title={activeJobs.length > 0 || running ? "Cannot save while a pipeline or bot job is running" : "Save script changes"}>
             <Icon name="save" size="14" color={dirty && activeJobs.length === 0 ? "accent" : "muted"} />
             {saving ? " Saving..." : " Save"}
           </button>

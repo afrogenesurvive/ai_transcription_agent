@@ -68,6 +68,7 @@ import {
   getChildPids,
   ollamaStartedByUs,
   stopOllamaServer,
+  setOnJobStarted,
 } from "./backend-manager";
 import { subscribe, getLogs, clearLogs, addLog, setStorageBase, setCurrentJobId, listJobLogFiles, readLogFile } from "./logger";
 import { getConfig, getChildEnv, saveConfig, checkConfig, getConfigWithSources } from "./config";
@@ -400,60 +401,157 @@ ipcMain.handle("app:guide", () => {
   return "";
 });
 
+/** ML pipeline statuses returned by Python /transcribe/active — jobs that are
+ *  actively running in the ML pipeline (diarization, ASR, alignment). */
+const ML_PIPELINE_STATUSES = new Set([
+  "uploaded", "initializing", "processing_diarization",
+  "matching_voiceprints", "processing_transcription", "aligning",
+  "paused_for_labeling", "resuming",
+]);
+
+/** Terminal statuses — a job with one of these is definitely done. */
+const TERMINAL_STATUSES = new Set(["complete", "delivered", "failed", "corrupted"]);
+
+/** Scan the storage directory for jobs in agent-runner stages (transcribed,
+ *  refined, summarized, analyzed, etc.) that the Python /transcribe/active
+ *  endpoint (ML pipeline only) would miss. */
+function scanAgentStageJobs(storageDir: string): Array<{ job_id: string; status: string; progress: number; title: string }> {
+  const results: Array<{ job_id: string; status: string; progress: number; title: string }> = [];
+  try {
+    if (!fs.existsSync(storageDir)) return results;
+    const entries = fs.readdirSync(storageDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (["chroma", "logs", "uploads"].includes(entry.name)) continue;
+      const statusPath = path.join(storageDir, entry.name, "status.json");
+      if (!fs.existsSync(statusPath)) continue;
+      try {
+        const status = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+        const s = (status.status || "unknown") as string;
+        // Skip ML pipeline statuses (handled by Python) and terminal statuses
+        if (ML_PIPELINE_STATUSES.has(s) || TERMINAL_STATUSES.has(s)) continue;
+        // Also skip if it's a bot-created error placeholder
+        if (entry.name.startsWith("error-")) continue;
+        const metaPath = path.join(storageDir, entry.name, "metadata.json");
+        let title = "Untitled";
+        try {
+          if (fs.existsSync(metaPath)) {
+            const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+            title = meta.title || title;
+          }
+        } catch { /* ignore */ }
+        results.push({
+          job_id: status.job_id || entry.name,
+          status: s,
+          progress: status.progress || 0,
+          title,
+        });
+      } catch { /* skip corrupt status files */ }
+    }
+  } catch { /* storage dir not readable */ }
+  return results;
+}
+
 ipcMain.handle("jobs:getActive", async () => {
+  const storageDir = process.env.TRANSCRIPTION_STORAGE || path.join(app.getPath("userData"), "storage");
+  const active = new Map<string, { job_id: string; status: string; progress: number; title: string }>();
+
+  // Source 1: Python /transcribe/active (ML pipeline statuses)
   try {
     const res = await fetch("http://127.0.0.1:5001/transcribe/active", {
       signal: AbortSignal.timeout(3000),
     });
     if (res.ok) {
       const data = await res.json();
-      return data.active_jobs || [];
+      for (const job of data.active_jobs || []) {
+        active.set(job.job_id, job);
+      }
     }
   } catch {
-    // Backend not running — no active jobs
+    // Backend not running — fall through to disk scan
   }
-  return [];
+
+  // Source 2: Disk scan for agent-runner stages (transcribed, refined, etc.)
+  for (const job of scanAgentStageJobs(storageDir)) {
+    if (!active.has(job.job_id)) {
+      active.set(job.job_id, job);
+    }
+  }
+
+  return Array.from(active.values());
 });
 
-/** Terminal statuses — a job with one of these is definitely done. */
-const TERMINAL_STATUSES = new Set(["complete", "delivered", "failed", "corrupted"]);
-
 ipcMain.handle("testbot:getRunningJobs", async () => {
-  const storageDir = process.env.TRANSCRIPTION_STORAGE || path.join(app.getPath("userData"), "storage");
-  const logPath = path.join(storageDir, "test-bot-log.jsonl");
-  try {
-    if (!fs.existsSync(logPath)) return [];
-    const content = fs.readFileSync(logPath, "utf8");
-    const lines = content.trim().split("\n").filter(Boolean);
-    if (lines.length === 0) return [];
-    // Parse the last entry to get bot-created job IDs
-    const lastEntry = JSON.parse(lines[lines.length - 1]);
-    const jobIds: string[] = lastEntry.jobIds || [];
-    if (jobIds.length === 0) return [];
+  const primaryStorageDir = process.env.TRANSCRIPTION_STORAGE || path.join(app.getPath("userData"), "storage");
+  // Try to also find the project-relative storage dir (for CLI-run bot scripts
+  // that may not have TRANSCRIPTION_STORAGE set and default to cwd/storage/)
+  const projectStorageDir = (() => {
+    try {
+      const projectRoot = app.isPackaged ? path.join(process.resourcesPath, "..") : path.join(app.getAppPath(), "..");
+      const candidate = path.join(projectRoot, "storage");
+      return fs.existsSync(candidate) ? candidate : null;
+    } catch { return null; }
+  })();
 
-    const running: Array<{ job_id: string; status: string }> = [];
-    for (const jobId of jobIds) {
-      // Skip error placeholders (e.g. "error-1")
-      if (jobId.startsWith("error-")) continue;
-      const statusPath = path.join(storageDir, jobId, "status.json");
-      if (!fs.existsSync(statusPath)) {
-        running.push({ job_id: jobId, status: "unknown" });
-        continue;
+  // Try both paths for the log file, prefer the primary
+  const logPaths = [path.join(primaryStorageDir, "test-bot-log.jsonl")];
+  if (projectStorageDir && projectStorageDir !== primaryStorageDir) {
+    logPaths.push(path.join(projectStorageDir, "test-bot-log.jsonl"));
+  }
+
+  // Read all discovered log files and merge job IDs
+  const allJobIds = new Set<string>();
+  for (const logPath of logPaths) {
+    try {
+      if (!fs.existsSync(logPath)) continue;
+      const content = fs.readFileSync(logPath, "utf8");
+      const lines = content.trim().split("\n").filter(Boolean);
+      if (lines.length === 0) continue;
+      // Parse ALL entries (not just the last) to catch all bot runs
+      for (const line of lines) {
+        try {
+          const entry = JSON.parse(line);
+          const jobIds: string[] = entry.jobIds || [];
+          for (const id of jobIds) allJobIds.add(id);
+        } catch { /* skip malformed line */ }
       }
+    } catch { /* skip unreadable */ }
+  }
+
+  if (allJobIds.size === 0) return [];
+
+  // Check status for each discovered job ID across both storage directories
+  const statusDirs = [primaryStorageDir];
+  if (projectStorageDir && projectStorageDir !== primaryStorageDir) {
+    statusDirs.push(projectStorageDir);
+  }
+
+  const running: Array<{ job_id: string; status: string }> = [];
+  for (const jobId of allJobIds) {
+    // Skip error placeholders (e.g. "error-1")
+    if (jobId.startsWith("error-")) continue;
+
+    let found = false;
+    for (const dir of statusDirs) {
+      const statusPath = path.join(dir, jobId, "status.json");
+      if (!fs.existsSync(statusPath)) continue;
       try {
         const status = JSON.parse(fs.readFileSync(statusPath, "utf8"));
         const s = (status.status || "unknown") as string;
         if (!TERMINAL_STATUSES.has(s)) {
           running.push({ job_id: jobId, status: s });
         }
+        found = true;
+        break;
       } catch {
-        // Corrupted status.json — skip
+        // Corrupted status.json — skip this dir
       }
     }
-    return running;
-  } catch {
-    return [];
+    if (!found) {
+      running.push({ job_id: jobId, status: "unknown" });
+    }
   }
+  return running;
 });
 
 // ── Combined service management ──
@@ -1658,6 +1756,13 @@ app.whenReady().then(async () => {
 
     if (cfg.ok) {
       addLog("main", "info", `Config OK — starting agent runner`);
+      // Wire up job-started notification: forward agent [JOB_START] events
+      // to OS notification + renderer (in-app toast via App.tsx)
+      setOnJobStarted((jobId: string) => {
+        addLog("main", "info", `Job started: ${jobId.slice(0, 8)}`, "job-start");
+        sendNotification("Transcription Started", `Job ${jobId.slice(0, 8)} is processing`);
+        mainWindow?.webContents.send("job-started", { jobId });
+      });
       await startAgentRunner();
       sendNotification("Ready", "Transcription backend is running");
       mainWindow?.webContents.send("notification", "Backend ready");

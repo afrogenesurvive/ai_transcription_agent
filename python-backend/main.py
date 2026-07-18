@@ -3214,9 +3214,11 @@ async def _run_pipeline_async(job_id: str):
         try:
             # Fetch metadata upfront (lightweight, no ML)
             metadata = uploader.get_metadata(job_id)
-            _active_jobs[job_id]["title"] = metadata.get("title", "Untitled")
+            title = metadata.get("title", "Untitled")
+            _active_jobs[job_id]["title"] = title
+            print(f"[pipeline] JOB-STARTED job_id={job_id} title='{title}'")
         except Exception:
-            pass
+            print(f"[pipeline] JOB-STARTED job_id={job_id} title='Untitled'")
         try:
             await asyncio.to_thread(_run_pipeline_sync, job_id)
             print(f"\n{'='*60}")

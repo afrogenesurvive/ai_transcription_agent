@@ -19,6 +19,13 @@ import { getChildEnv } from "./config";
 const isProd = app.isPackaged;
 const IS_WIN = process.platform === "win32";
 
+/** Optional callback invoked when the agent runner starts a job via [JOB_START] marker.
+ *  Set by index.ts on startup to forward the event to the renderer for notifications. */
+let _onJobStarted: ((jobId: string) => void) | null = null;
+export function setOnJobStarted(cb: (jobId: string) => void): void {
+  _onJobStarted = cb;
+}
+
 /** Extract a [tag] prefix from the start of a message, e.g. "[transcription] ..." → "transcription"
  *
  *  Falls back to detecting:
@@ -996,9 +1003,12 @@ export async function startAgentRunner(): Promise<void> {
       //   [JOB_START] <full-uuid>
       const jobStartMatch = msg.match(/^\[JOB_START\]\s*([a-f0-9-]+)/i);
       if (jobStartMatch) {
-        setCurrentJobId(jobStartMatch[1]);
-        console.log(`[agent] Tracking job ${jobStartMatch[1].slice(0, 8)} for agent logs`);
-        continue; // don't log the marker itself
+        const jobId = jobStartMatch[1];
+        setCurrentJobId(jobId);
+        console.log(`[agent] Tracking job ${jobId.slice(0, 8)} for agent logs`);
+        addLog("agent", "info", `Job started: ${jobId}`, "job-start");
+        _onJobStarted?.(jobId);
+        continue; // don't propagate the marker to normal logging
       }
 
       // Extract sub-source from inline [TAG] patterns like "[RUNNER]", "[MODEL]", "[EXECUTOR]", "[Step 2 Complete]"

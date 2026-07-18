@@ -54,6 +54,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("notification-click", (_event, payload) => callback(payload));
     return () => ipcRenderer.removeAllListeners("notification-click");
   },
+  onJobStarted: (callback: (payload: { jobId: string; title?: string }) => void) => {
+    ipcRenderer.on("job-started", (_event, payload) => callback(payload));
+    return () => ipcRenderer.removeAllListeners("job-started");
+  },
 
   // ── Developer logs ──
   getLogs: (): Promise<LogEntry[]> => ipcRenderer.invoke("logs:get"),

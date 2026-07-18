@@ -322,7 +322,13 @@ function escapeHtml(text: string): string {
 /* ── Tab: Summary ── */
 
 function SummaryTab({ summary }: { summary?: Props["summary"] }) {
-  if (!summary || (!summary.executive_summary && !summary.key_decisions && !summary.action_items)) {
+  const hasSummaryContent = summary && (
+    summary.executive_summary ||
+    (summary.discussion_points && summary.discussion_points.length > 0) ||
+    (summary.key_decisions && summary.key_decisions.length > 0) ||
+    (summary.action_items && summary.action_items.length > 0)
+  );
+  if (!hasSummaryContent) {
     return (
       <div className="rv-tab-content">
         <div className="rv-empty-state">
@@ -420,7 +426,14 @@ function SummaryTab({ summary }: { summary?: Props["summary"] }) {
 /* ── Tab: Analysis ── */
 
 function AnalysisTab({ analysis }: { analysis: AnalysisData | null }) {
-  if (!analysis || Object.keys(analysis).length === 0) {
+  const hasAnalysisContent = analysis && (
+    (analysis.topics && analysis.topics.length > 0) ||
+    analysis.sentiment ||
+    (analysis.key_entities && analysis.key_entities.length > 0) ||
+    analysis.effectiveness ||
+    (analysis.follow_ups && analysis.follow_ups.length > 0)
+  );
+  if (!hasAnalysisContent) {
     return (
       <div className="rv-tab-content">
         <div className="rv-empty-state">

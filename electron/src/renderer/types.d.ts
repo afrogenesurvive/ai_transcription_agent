@@ -158,6 +158,7 @@ export interface ElectronAPI {
   // ── Native Notifications ──
   showNotification: (title: string, body: string, clickPayload?: Record<string, unknown>) => Promise<void>;
   onNotificationClick: (cb: (payload: Record<string, unknown>) => void) => () => void;
+  onJobStarted: (cb: (payload: { jobId: string; title?: string }) => void) => () => void;
 
   // ── Tray / Menu Bar ──
   toggleTray: () => Promise<{ visible: boolean }>;
