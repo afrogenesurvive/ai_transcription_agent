@@ -321,7 +321,19 @@ function escapeHtml(text: string): string {
 
 /* ── Tab: Summary ── */
 
-function SummaryTab({ summary }: { summary?: Props["summary"] }) {
+function SummaryTab({ summary, jobId }: { summary?: Props["summary"]; jobId: string }) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editedSummary, setEditedSummary] = useState<NonNullable<Props["summary"]>>({ ...(summary || {}) });
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Reset edited copy when summary prop changes or editing is cancelled
+  useEffect(() => {
+    if (!editing) {
+      setEditedSummary({ ...(summary || {}) });
+    }
+  }, [summary, editing]);
+
   const hasSummaryContent =
     summary &&
     (summary.executive_summary ||
@@ -342,82 +354,242 @@ function SummaryTab({ summary }: { summary?: Props["summary"] }) {
     );
   }
 
-  const summaryHtml = buildSummaryExportHtml(summary);
+  const handleSave = async () => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const res = await fetch(`${BRIDGE_URL}/tools/call`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tool: "transcribe_save_summary", args: { jobId, summary: editedSummary } }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to save summary");
+      setEditing(false);
+    } catch (err: any) {
+      setSaveError(err.message || "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setEditedSummary({ ...(summary || {}) });
+    setEditing(false);
+    setSaveError(null);
+  };
+
+  const updateField = (field: string, value: any) => {
+    setEditedSummary((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const updateActionItem = (index: number, field: string, value: string) => {
+    const items = [...(editedSummary.action_items || [])];
+    items[index] = { ...items[index], [field]: value };
+    updateField("action_items", items);
+  };
+
+  const addActionItem = () => {
+    const items = [...(editedSummary.action_items || []), { description: "", assignee: "", deadline: "" }];
+    updateField("action_items", items);
+  };
+
+  const removeActionItem = (index: number) => {
+    const items = (editedSummary.action_items || []).filter((_, i) => i !== index);
+    updateField("action_items", items);
+  };
+
+  const addListItem = (field: string) => {
+    updateField(field, [...(editedSummary[field as keyof typeof editedSummary] || []), ""]);
+  };
+
+  const updateListItem = (field: string, index: number, value: string) => {
+    const list = [...((editedSummary[field as keyof typeof editedSummary] as string[]) || [])];
+    list[index] = value;
+    updateField(field, list);
+  };
+
+  const removeListItem = (field: string, index: number) => {
+    const list = ((editedSummary[field as keyof typeof editedSummary] as string[]) || []).filter((_, i) => i !== index);
+    updateField(field, list);
+  };
+
+  const summaryHtml = buildSummaryExportHtml(editing ? editedSummary : summary);
 
   return (
     <div className="rv-tab-content rv-tab-content--summary">
       <div className="rv-export-toolbar">
         <ExportButton format="pdf" content={summaryHtml} defaultName="Meeting_Summary" />
         <ExportButton format="word" content={summaryHtml} defaultName="Meeting_Summary" />
+        {!editing ? (
+          <button className="rv-export-btn" onClick={() => setEditing(true)} title="Edit summary content">
+            <Icon name="edit" size="12" /> Edit
+          </button>
+        ) : (
+          <>
+            <button className="rv-export-btn rv-edit-btn--save" onClick={handleSave} disabled={saving}>
+              <Icon name="save" size="12" /> {saving ? "Saving…" : "Save"}
+            </button>
+            <button className="rv-export-btn" onClick={handleCancel} disabled={saving}>
+              <Icon name="close" size="12" /> Cancel
+            </button>
+          </>
+        )}
       </div>
+      {saveError && <div className="rv-edit-error">⚠️ {saveError}</div>}
 
-      {summary.executive_summary && (
-        <div className="rv-summary-card">
-          <div className="rv-summary-card-header">
-            <span className="rv-summary-card-icon">
-              <Icon name="article" size="16" color="accent" />
-            </span>
-            <h3>Executive Summary</h3>
+      {editing ? (
+        <>
+          {/* Executive Summary - editable textarea */}
+          <div className="rv-summary-card">
+            <div className="rv-summary-card-header">
+              <span className="rv-summary-card-icon"><Icon name="article" size="16" color="accent" /></span>
+              <h3>Executive Summary</h3>
+            </div>
+            <textarea
+              className="rv-edit-textarea"
+              rows={4}
+              value={editedSummary.executive_summary || ""}
+              onChange={(e) => updateField("executive_summary", e.target.value)}
+              placeholder="Executive summary text…"
+            />
           </div>
-          <p className="rv-summary-text">{summary.executive_summary}</p>
-        </div>
-      )}
 
-      {summary.discussion_points && summary.discussion_points.length > 0 && (
-        <div className="rv-summary-card">
-          <div className="rv-summary-card-header">
-            <span className="rv-summary-card-icon">
-              <Icon name="chat" size="16" color="accent" />
-            </span>
-            <h3>Discussion Points</h3>
-          </div>
-          <ul className="rv-summary-list">
-            {summary.discussion_points.map((p, i) => (
-              <li key={i}>{p}</li>
+          {/* Discussion Points - editable list */}
+          <div className="rv-summary-card">
+            <div className="rv-summary-card-header">
+              <span className="rv-summary-card-icon"><Icon name="chat" size="16" color="accent" /></span>
+              <h3>Discussion Points</h3>
+              <button className="rv-edit-inline-add" onClick={() => addListItem("discussion_points")}>+ Add</button>
+            </div>
+            {(editedSummary.discussion_points || []).map((p, i) => (
+              <div key={i} className="rv-edit-list-row">
+                <textarea
+                  className="rv-edit-textarea rv-edit-textarea--inline"
+                  rows={2}
+                  value={p}
+                  onChange={(e) => updateListItem("discussion_points", i, e.target.value)}
+                />
+                <button className="rv-edit-list-remove" onClick={() => removeListItem("discussion_points", i)}>✕</button>
+              </div>
             ))}
-          </ul>
-        </div>
-      )}
-
-      {summary.key_decisions && summary.key_decisions.length > 0 && (
-        <div className="rv-summary-card">
-          <div className="rv-summary-card-header">
-            <span className="rv-summary-card-icon">
-              <Icon name="check_circle" size="16" color="green" />
-            </span>
-            <h3>Key Decisions</h3>
           </div>
-          <ul className="rv-summary-list rv-list--decisions">
-            {summary.key_decisions.map((d, i) => (
-              <li key={i}>{d}</li>
-            ))}
-          </ul>
-        </div>
-      )}
 
-      {summary.action_items && summary.action_items.length > 0 && (
-        <div className="rv-summary-card">
-          <div className="rv-summary-card-header">
-            <span className="rv-summary-card-icon">
-              <Icon name="push_pin" size="16" color="accent" />
-            </span>
-            <h3>Action Items</h3>
-          </div>
-          <ul className="rv-action-items">
-            {summary.action_items.map((a, i) => (
-              <li key={i}>
-                <label className="rv-action-checkbox">
-                  <input type="checkbox" />
-                  <span className="rv-action-text">
-                    <strong>{a.description}</strong>
-                    {a.assignee && <span className="rv-assignee"> — {a.assignee}</span>}
-                    {a.deadline && <span className="rv-deadline"> (due: {a.deadline})</span>}
-                  </span>
-                </label>
-              </li>
+          {/* Key Decisions - editable list */}
+          <div className="rv-summary-card">
+            <div className="rv-summary-card-header">
+              <span className="rv-summary-card-icon"><Icon name="check_circle" size="16" color="green" /></span>
+              <h3>Key Decisions</h3>
+              <button className="rv-edit-inline-add" onClick={() => addListItem("key_decisions")}>+ Add</button>
+            </div>
+            {(editedSummary.key_decisions || []).map((d, i) => (
+              <div key={i} className="rv-edit-list-row">
+                <textarea
+                  className="rv-edit-textarea rv-edit-textarea--inline"
+                  rows={2}
+                  value={d}
+                  onChange={(e) => updateListItem("key_decisions", i, e.target.value)}
+                />
+                <button className="rv-edit-list-remove" onClick={() => removeListItem("key_decisions", i)}>✕</button>
+              </div>
             ))}
-          </ul>
-        </div>
+          </div>
+
+          {/* Action Items - editable fields */}
+          <div className="rv-summary-card">
+            <div className="rv-summary-card-header">
+              <span className="rv-summary-card-icon"><Icon name="push_pin" size="16" color="accent" /></span>
+              <h3>Action Items</h3>
+              <button className="rv-edit-inline-add" onClick={addActionItem}>+ Add</button>
+            </div>
+            {(editedSummary.action_items || []).map((a, i) => (
+              <div key={i} className="rv-edit-action-row">
+                <input
+                  className="rv-edit-input"
+                  value={a.description}
+                  onChange={(e) => updateActionItem(i, "description", e.target.value)}
+                  placeholder="Description"
+                />
+                <input
+                  className="rv-edit-input rv-edit-input--short"
+                  value={a.assignee || ""}
+                  onChange={(e) => updateActionItem(i, "assignee", e.target.value)}
+                  placeholder="Assignee"
+                />
+                <input
+                  className="rv-edit-input rv-edit-input--short"
+                  value={a.deadline || ""}
+                  onChange={(e) => updateActionItem(i, "deadline", e.target.value)}
+                  placeholder="Deadline"
+                />
+                <button className="rv-edit-list-remove" onClick={() => removeActionItem(i)}>✕</button>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : (
+        <>
+          {summary!.executive_summary && (
+            <div className="rv-summary-card">
+              <div className="rv-summary-card-header">
+                <span className="rv-summary-card-icon"><Icon name="article" size="16" color="accent" /></span>
+                <h3>Executive Summary</h3>
+              </div>
+              <p className="rv-summary-text">{summary!.executive_summary}</p>
+            </div>
+          )}
+
+          {summary!.discussion_points && summary!.discussion_points.length > 0 && (
+            <div className="rv-summary-card">
+              <div className="rv-summary-card-header">
+                <span className="rv-summary-card-icon"><Icon name="chat" size="16" color="accent" /></span>
+                <h3>Discussion Points</h3>
+              </div>
+              <ul className="rv-summary-list">
+                {summary!.discussion_points.map((p, i) => (
+                  <li key={i}>{p}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {summary!.key_decisions && summary!.key_decisions.length > 0 && (
+            <div className="rv-summary-card">
+              <div className="rv-summary-card-header">
+                <span className="rv-summary-card-icon"><Icon name="check_circle" size="16" color="green" /></span>
+                <h3>Key Decisions</h3>
+              </div>
+              <ul className="rv-summary-list rv-list--decisions">
+                {summary!.key_decisions.map((d, i) => (
+                  <li key={i}>{d}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {summary!.action_items && summary!.action_items.length > 0 && (
+            <div className="rv-summary-card">
+              <div className="rv-summary-card-header">
+                <span className="rv-summary-card-icon"><Icon name="push_pin" size="16" color="accent" /></span>
+                <h3>Action Items</h3>
+              </div>
+              <ul className="rv-action-items">
+                {summary!.action_items.map((a, i) => (
+                  <li key={i}>
+                    <label className="rv-action-checkbox">
+                      <input type="checkbox" />
+                      <span className="rv-action-text">
+                        <strong>{a.description}</strong>
+                        {a.assignee && <span className="rv-assignee"> — {a.assignee}</span>}
+                        {a.deadline && <span className="rv-deadline"> (due: {a.deadline})</span>}
+                      </span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -425,7 +597,18 @@ function SummaryTab({ summary }: { summary?: Props["summary"] }) {
 
 /* ── Tab: Analysis ── */
 
-function AnalysisTab({ analysis }: { analysis: AnalysisData | null }) {
+function AnalysisTab({ analysis, jobId, onAnalysisUpdate }: { analysis: AnalysisData | null; jobId: string; onAnalysisUpdate?: (updated: AnalysisData) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editedAnalysis, setEditedAnalysis] = useState<AnalysisData>({ ...(analysis || {}) });
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!editing) {
+      setEditedAnalysis({ ...(analysis || {}) });
+    }
+  }, [analysis, editing]);
+
   const hasAnalysisContent =
     analysis &&
     ((analysis.topics && analysis.topics.length > 0) ||
@@ -447,88 +630,233 @@ function AnalysisTab({ analysis }: { analysis: AnalysisData | null }) {
     );
   }
 
-  const analysisHtml = buildAnalysisExportHtml(analysis);
+  const handleSave = async () => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const res = await fetch(`${BRIDGE_URL}/tools/call`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tool: "transcribe_save_analysis", args: { jobId, analysis: editedAnalysis } }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to save analysis");
+      setEditing(false);
+      onAnalysisUpdate?.(editedAnalysis);
+    } catch (err: any) {
+      setSaveError(err.message || "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setEditedAnalysis({ ...(analysis || {}) });
+    setEditing(false);
+    setSaveError(null);
+  };
+
+  const updateField = (field: string, value: any) => {
+    setEditedAnalysis((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const addListItem = (field: string) => {
+    updateField(field, [...((editedAnalysis[field as keyof AnalysisData] as string[]) || []), ""]);
+  };
+
+  const updateListItem = (field: string, index: number, value: string) => {
+    const list = [...((editedAnalysis[field as keyof AnalysisData] as string[]) || [])];
+    list[index] = value;
+    updateField(field, list);
+  };
+
+  const removeListItem = (field: string, index: number) => {
+    const list = ((editedAnalysis[field as keyof AnalysisData] as string[]) || []).filter((_, i) => i !== index);
+    updateField(field, list);
+  };
+
+  const analysisHtml = buildAnalysisExportHtml(editing ? editedAnalysis : analysis);
 
   return (
     <div className="rv-tab-content rv-tab-content--analysis">
       <div className="rv-export-toolbar">
         <ExportButton format="pdf" content={analysisHtml} defaultName="Meeting_Analysis" />
         <ExportButton format="word" content={analysisHtml} defaultName="Meeting_Analysis" />
+        {!editing ? (
+          <button className="rv-export-btn" onClick={() => setEditing(true)} title="Edit analysis content">
+            <Icon name="edit" size="12" /> Edit
+          </button>
+        ) : (
+          <>
+            <button className="rv-export-btn rv-edit-btn--save" onClick={handleSave} disabled={saving}>
+              <Icon name="save" size="12" /> {saving ? "Saving…" : "Save"}
+            </button>
+            <button className="rv-export-btn" onClick={handleCancel} disabled={saving}>
+              <Icon name="close" size="12" /> Cancel
+            </button>
+          </>
+        )}
       </div>
+      {saveError && <div className="rv-edit-error">⚠️ {saveError}</div>}
 
       <div className="rv-analysis-grid">
-        {analysis.topics && analysis.topics.length > 0 && (
-          <div className="rv-analysis-card">
-            <div className="rv-analysis-card-header">
-              <span className="rv-analysis-icon">
-                <Icon name="label" size="16" color="accent" />
-              </span>
-              <h3>Topics Discussed</h3>
-            </div>
-            <div className="rv-tag-list">
-              {analysis.topics.map((t, i) => (
-                <span key={i} className="rv-tag">
-                  {t}
-                </span>
+        {editing ? (
+          <>
+            {/* Topics - editable tag list */}
+            <div className="rv-analysis-card">
+              <div className="rv-analysis-card-header">
+                <span className="rv-analysis-icon"><Icon name="label" size="16" color="accent" /></span>
+                <h3>Topics Discussed</h3>
+                <button className="rv-edit-inline-add" onClick={() => addListItem("topics")}>+ Add</button>
+              </div>
+              {(editedAnalysis.topics || []).map((t, i) => (
+                <div key={i} className="rv-edit-list-row">
+                  <input
+                    className="rv-edit-input"
+                    value={t}
+                    onChange={(e) => updateListItem("topics", i, e.target.value)}
+                    placeholder="Topic"
+                  />
+                  <button className="rv-edit-list-remove" onClick={() => removeListItem("topics", i)}>✕</button>
+                </div>
               ))}
             </div>
-          </div>
-        )}
 
-        {analysis.sentiment && (
-          <div className="rv-analysis-card">
-            <div className="rv-analysis-card-header">
-              <span className="rv-analysis-icon">
-                <Icon name="sentiment_satisfied" size="16" color="accent" />
-              </span>
-              <h3>Meeting Sentiment</h3>
+            {/* Sentiment - editable textarea */}
+            <div className="rv-analysis-card">
+              <div className="rv-analysis-card-header">
+                <span className="rv-analysis-icon"><Icon name="sentiment_satisfied" size="16" color="accent" /></span>
+                <h3>Meeting Sentiment</h3>
+              </div>
+              <textarea
+                className="rv-edit-textarea"
+                rows={3}
+                value={editedAnalysis.sentiment || ""}
+                onChange={(e) => updateField("sentiment", e.target.value)}
+                placeholder="Sentiment description…"
+              />
             </div>
-            <p className="rv-analysis-text">{analysis.sentiment}</p>
-          </div>
-        )}
 
-        {analysis.key_entities && analysis.key_entities.length > 0 && (
-          <div className="rv-analysis-card">
-            <div className="rv-analysis-card-header">
-              <span className="rv-analysis-icon">
-                <Icon name="key" size="16" color="accent" />
-              </span>
-              <h3>Key Entities</h3>
-            </div>
-            <ul className="rv-entity-list">
-              {analysis.key_entities.map((e, i) => (
-                <li key={i}>{e}</li>
+            {/* Key Entities - editable list */}
+            <div className="rv-analysis-card">
+              <div className="rv-analysis-card-header">
+                <span className="rv-analysis-icon"><Icon name="key" size="16" color="accent" /></span>
+                <h3>Key Entities</h3>
+                <button className="rv-edit-inline-add" onClick={() => addListItem("key_entities")}>+ Add</button>
+              </div>
+              {(editedAnalysis.key_entities || []).map((e, i) => (
+                <div key={i} className="rv-edit-list-row">
+                  <input
+                    className="rv-edit-input"
+                    value={e}
+                    onChange={(e) => updateListItem("key_entities", i, e.target.value)}
+                    placeholder="Entity"
+                  />
+                  <button className="rv-edit-list-remove" onClick={() => removeListItem("key_entities", i)}>✕</button>
+                </div>
               ))}
-            </ul>
-          </div>
-        )}
-
-        {analysis.effectiveness && (
-          <div className="rv-analysis-card">
-            <div className="rv-analysis-card-header">
-              <span className="rv-analysis-icon">
-                <Icon name="trending_up" size="16" color="accent" />
-              </span>
-              <h3>Meeting Effectiveness</h3>
             </div>
-            <p className="rv-analysis-text">{analysis.effectiveness}</p>
-          </div>
-        )}
 
-        {analysis.follow_ups && analysis.follow_ups.length > 0 && (
-          <div className="rv-analysis-card">
-            <div className="rv-analysis-card-header">
-              <span className="rv-analysis-icon">
-                <Icon name="outgoing_mail" size="16" color="accent" />
-              </span>
-              <h3>Follow-Ups</h3>
+            {/* Effectiveness - editable textarea */}
+            <div className="rv-analysis-card">
+              <div className="rv-analysis-card-header">
+                <span className="rv-analysis-icon"><Icon name="trending_up" size="16" color="accent" /></span>
+                <h3>Meeting Effectiveness</h3>
+              </div>
+              <textarea
+                className="rv-edit-textarea"
+                rows={3}
+                value={editedAnalysis.effectiveness || ""}
+                onChange={(e) => updateField("effectiveness", e.target.value)}
+                placeholder="Effectiveness notes…"
+              />
             </div>
-            <ul className="rv-entity-list">
-              {analysis.follow_ups.map((f, i) => (
-                <li key={i}>{f}</li>
+
+            {/* Follow-Ups - editable list */}
+            <div className="rv-analysis-card">
+              <div className="rv-analysis-card-header">
+                <span className="rv-analysis-icon"><Icon name="outgoing_mail" size="16" color="accent" /></span>
+                <h3>Follow-Ups</h3>
+                <button className="rv-edit-inline-add" onClick={() => addListItem("follow_ups")}>+ Add</button>
+              </div>
+              {(editedAnalysis.follow_ups || []).map((f, i) => (
+                <div key={i} className="rv-edit-list-row">
+                  <textarea
+                    className="rv-edit-textarea rv-edit-textarea--inline"
+                    rows={2}
+                    value={f}
+                    onChange={(e) => updateListItem("follow_ups", i, e.target.value)}
+                    placeholder="Follow-up item…"
+                  />
+                  <button className="rv-edit-list-remove" onClick={() => removeListItem("follow_ups", i)}>✕</button>
+                </div>
               ))}
-            </ul>
-          </div>
+            </div>
+          </>
+        ) : (
+          <>
+            {analysis!.topics && analysis!.topics.length > 0 && (
+              <div className="rv-analysis-card">
+                <div className="rv-analysis-card-header">
+                  <span className="rv-analysis-icon"><Icon name="label" size="16" color="accent" /></span>
+                  <h3>Topics Discussed</h3>
+                </div>
+                <div className="rv-tag-list">
+                  {analysis!.topics.map((t, i) => (
+                    <span key={i} className="rv-tag">{t}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {analysis!.sentiment && (
+              <div className="rv-analysis-card">
+                <div className="rv-analysis-card-header">
+                  <span className="rv-analysis-icon"><Icon name="sentiment_satisfied" size="16" color="accent" /></span>
+                  <h3>Meeting Sentiment</h3>
+                </div>
+                <p className="rv-analysis-text">{analysis!.sentiment}</p>
+              </div>
+            )}
+
+            {analysis!.key_entities && analysis!.key_entities.length > 0 && (
+              <div className="rv-analysis-card">
+                <div className="rv-analysis-card-header">
+                  <span className="rv-analysis-icon"><Icon name="key" size="16" color="accent" /></span>
+                  <h3>Key Entities</h3>
+                </div>
+                <ul className="rv-entity-list">
+                  {analysis!.key_entities.map((e, i) => (
+                    <li key={i}>{e}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {analysis!.effectiveness && (
+              <div className="rv-analysis-card">
+                <div className="rv-analysis-card-header">
+                  <span className="rv-analysis-icon"><Icon name="trending_up" size="16" color="accent" /></span>
+                  <h3>Meeting Effectiveness</h3>
+                </div>
+                <p className="rv-analysis-text">{analysis!.effectiveness}</p>
+              </div>
+            )}
+
+            {analysis!.follow_ups && analysis!.follow_ups.length > 0 && (
+              <div className="rv-analysis-card">
+                <div className="rv-analysis-card-header">
+                  <span className="rv-analysis-icon"><Icon name="outgoing_mail" size="16" color="accent" /></span>
+                  <h3>Follow-Ups</h3>
+                </div>
+                <ul className="rv-entity-list">
+                  {analysis!.follow_ups.map((f, i) => (
+                    <li key={i}>{f}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -2250,6 +2578,7 @@ interface ConfigSnapshot {
   default_skip_steps?: string[];
   hugging_face_token_set?: boolean;
   whisper_initial_prompt_enabled?: boolean;
+  keep_models_warm?: boolean;
 
   // ── Per-job metadata ──
   title?: string;
@@ -2289,6 +2618,11 @@ interface ConfigSnapshot {
   agent_ollama_retry_base_delay_ms?: number;
   agent_max_retries?: number;
   agent_retry_base_delay_ms?: number;
+
+  // ── Approval gates (Phase A — Python backend config) ──
+  gate_raw_review_enabled?: boolean;
+  gate_delivery_review_enabled?: boolean;
+
   gmail_user?: string;
   delivery_recipient_emails?: string;
   delivery_email_subject?: string;
@@ -2472,6 +2806,9 @@ function ConfigTab({ jobId }: { jobId: string }) {
           value={snapshot.hugging_face_token_set ? <Icon name="check" size="14" color="green" /> : <Icon name="close" size="14" color="muted" />}
         />
         <ConfigRow label="Whisper Initial Prompt" value={boolIcon(snapshot.whisper_initial_prompt_enabled)} />
+        <ConfigRow label="Keep Models Warm" value={boolIcon(snapshot.keep_models_warm)} />
+        <ConfigRow label="Raw Transcript Review (Gate 1)" value={boolIcon(snapshot.gate_raw_review_enabled)} />
+        <ConfigRow label="Delivery Review (Gate 2)" value={boolIcon(snapshot.gate_delivery_review_enabled)} />
         <ConfigRow
           label="Max Concurrent Pipelines"
           value={snapshot.max_concurrent_pipelines != null ? String(snapshot.max_concurrent_pipelines) : null}
@@ -2768,7 +3105,7 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
         {activeTab === "pipeline" && <PipelineTab status={jobStatus || "unknown"} progress={jobProgress ?? 0} error={jobError} />}
         {activeTab === "audio" && <AudioTab jobId={jobId} metadata={metadata} />}
         {activeTab === "transcript" && <TranscriptTab segments={segments} />}
-        {activeTab === "summary" && <SummaryTab summary={summary} />}
+        {activeTab === "summary" && <SummaryTab summary={summary} jobId={jobId} />}
         {activeTab === "analysis" &&
           (analysisLoading ? (
             <div className="rv-tab-content">
@@ -2777,7 +3114,7 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
               </div>
             </div>
           ) : (
-            <AnalysisTab analysis={analysis} />
+            <AnalysisTab analysis={analysis} jobId={jobId} onAnalysisUpdate={(updated) => setAnalysis(updated)} />
           ))}
         {activeTab === "attendees" && <AttendeesTab jobId={jobId} />}
         {activeTab === "delivery" && <DeliveryTab jobId={jobId} />}

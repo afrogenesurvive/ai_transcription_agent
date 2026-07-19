@@ -82,6 +82,14 @@ class Config:
     DELIVERY_EMAIL_ADDITIONAL_CONTENT = os.getenv("DELIVERY_EMAIL_ADDITIONAL_CONTENT", "")
     DELIVERY_DRIVE_FOLDER = os.getenv("DELIVERY_DRIVE_FOLDER", "Meeting Transcripts")
 
+    # ── Model lifecycle ──
+    # When True: ML models (whisper + diarization) stay loaded between jobs.
+    # Subsequent jobs start faster (no reload, no HuggingFace HEAD request),
+    # but memory usage stays high and MPS fragmentation may accumulate.
+    # When False (default): models are unloaded after each job via GC + torch.mps.empty_cache().
+    # Slower per-job startup but safer on memory-constrained Apple Silicon systems.
+    KEEP_MODELS_WARM = os.getenv("KEEP_MODELS_WARM", "false").lower() in ("true", "1", "yes")
+
     # ── Approval Gates ──
     # Gate 1: pause after ASR+alignment for raw transcript review/editing before LLM processing
     GATE_RAW_REVIEW_ENABLED = os.getenv("GATE_RAW_REVIEW_ENABLED", "false").lower() in ("true", "1", "yes")

@@ -15,8 +15,10 @@ import numpy as np
 from datetime import datetime
 
 # ── Load .env file (if present) for standalone Python runs ──
+# override=True ensures .env values take precedence over env vars inherited
+# from the Electron parent process (which may contain stale defaults).
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(override=True)
 
 # ── MPS memory limit (Apple Silicon) ──
 # PyTorch's MPS backend enforces a high-water mark (~90% of available VRAM).
@@ -292,6 +294,9 @@ def _build_config_snapshot(metadata: dict) -> dict:
         # ── Python env vars (config panel values, redacted) ──
         "hugging_face_token_set": check("HUGGING_FACE_TOKEN") != "[not set]",
         "whisper_initial_prompt_enabled": config.WHISPER_INITIAL_PROMPT_ENABLED,
+        "keep_models_warm": config.KEEP_MODELS_WARM,
+        "gate_raw_review_enabled": config.GATE_RAW_REVIEW_ENABLED,
+        "gate_delivery_review_enabled": config.GATE_DELIVERY_REVIEW_ENABLED,
 
         # ── Per-job metadata ──
         "title": metadata.get("title", ""),
@@ -2141,7 +2146,13 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
     try:
         _update_active(job_id, "resuming", 0.35)
         global engine
-        engine = TranscriptionEngine()
+
+        # Reuse warm engine if available (same logic as _run_pipeline_sync)
+        if config.KEEP_MODELS_WARM and engine is not None:
+            jlog.log(f"[pipeline] \U0001f525 Reusing warm TranscriptionEngine (device={engine.device})")
+        else:
+            engine = TranscriptionEngine()
+
         metadata = uploader.get_metadata(job_id)
         audio_path = uploader.get_audio_path(job_id)
 
@@ -2277,6 +2288,7 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
                           reconciliation={
                               "matched_speakers": reconciliation["matched_speakers"],
                               "non_speaking_attendees": reconciliation["non_speaking_attendees"],
+                              "unregistered_speakers": reconciliation.get("unregistered_speakers", []),
                           })
             jlog.log(f"[pipeline] ⏸️  Pipeline paused — waiting for speaker labels from user")
             jlog.log(f"[pipeline]   Unknown speakers: {', '.join(u['speaker_id'] for u in unknown)}")
@@ -2492,6 +2504,89 @@ async def complete_job(job_id: str):
 
     print(f"[api] POST /transcribe/complete/{job_id} → complete")
     return {"job_id": job_id, "status": "complete"}
+
+
+# ── Post-Completion Summary & Analysis Editing ──
+
+
+@app.post("/transcribe/save_summary/{job_id}")
+async def save_summary_edits(job_id: str, body: dict = Body(...)):
+    """Save edited summary after job completion. Logs the edit for audit.
+
+    Body:
+      summary: dict — the full summary object (executive_summary, key_decisions,
+                      discussion_points, action_items)
+    """
+    s = uploader.get_status(job_id)
+    if s["status"] == "not_found":
+        raise HTTPException(404, "Job not found")
+    if s["status"] == "complete" or s["status"] == "failed" or True:  # allow any terminal/non-terminal state
+        summary = body.get("summary", {})
+        if not summary:
+            raise HTTPException(400, "Missing summary data")
+
+        # Detect which fields changed by comparing with existing
+        existing = {}
+        existing_path = os.path.join(config.STORAGE_PATH, job_id, "summary.json")
+        if os.path.exists(existing_path):
+            with open(existing_path) as f:
+                existing = json.load(f)
+
+        changed_fields = []
+        for key in summary:
+            if key not in existing or json.dumps(summary[key], sort_keys=True) != json.dumps(existing[key], sort_keys=True):
+                changed_fields.append(key)
+
+        uploader.save_summary(job_id, summary)
+        if changed_fields:
+            uploader.save_edit_action(job_id, "post_complete_edit_summary", {
+                "fields_changed": changed_fields,
+            })
+
+        print(f"[api] POST /transcribe/save_summary/{job_id} → saved (changed: {changed_fields})")
+        return {"success": True, "job_id": job_id, "fields_changed": changed_fields}
+
+    raise HTTPException(409, f"Cannot edit summary for job in status: {s['status']}")
+
+
+@app.post("/transcribe/save_analysis/{job_id}")
+async def save_analysis_edits(job_id: str, body: dict = Body(...)):
+    """Save edited analysis after job completion. Logs the edit for audit.
+
+    Body:
+      analysis: dict — the full analysis object (topics, sentiment, key_entities,
+                       effectiveness, follow_ups)
+    """
+    s = uploader.get_status(job_id)
+    if s["status"] == "not_found":
+        raise HTTPException(404, "Job not found")
+    if s["status"] == "complete" or s["status"] == "failed" or True:
+        analysis = body.get("analysis", {})
+        if not analysis:
+            raise HTTPException(400, "Missing analysis data")
+
+        # Detect which fields changed
+        existing = {}
+        existing_path = os.path.join(config.STORAGE_PATH, job_id, "analysis.json")
+        if os.path.exists(existing_path):
+            with open(existing_path) as f:
+                existing = json.load(f)
+
+        changed_fields = []
+        for key in analysis:
+            if key not in existing or json.dumps(analysis[key], sort_keys=True) != json.dumps(existing[key], sort_keys=True):
+                changed_fields.append(key)
+
+        uploader.save_analysis(job_id, analysis)
+        if changed_fields:
+            uploader.save_edit_action(job_id, "post_complete_edit_analysis", {
+                "fields_changed": changed_fields,
+            })
+
+        print(f"[api] POST /transcribe/save_analysis/{job_id} → saved (changed: {changed_fields})")
+        return {"success": True, "job_id": job_id, "fields_changed": changed_fields}
+
+    raise HTTPException(409, f"Cannot edit analysis for job in status: {s['status']}")
 
 
 # ── Job Deletion ──
@@ -3303,6 +3398,9 @@ def _reconcile_attendees(metadata_attendees: list, attendee_emails: list,
       matched_speakers: [{name, email, speaker_id, confidence}]
       non_speaking_attendees: [{name, email}] — registered but never detected as speakers
       unknown_speakers: [{speaker_id, ...}] — detected speakers not matched to any attendee
+      unregistered_speakers: [{name, email}] — speakers matched/identified but whose
+          name is not in the registered attendee list. These need to be registered
+          separately so they appear in delivery recipients.
     """
     matched_speakers = []
     non_speaking_attendees = []
@@ -3359,6 +3457,24 @@ def _reconcile_attendees(metadata_attendees: list, attendee_emails: list,
                 "email": att_email,
             })
 
+    # ── Unregistered speakers: known speakers not in the attendee list ──
+    # Speakers identified via voiceprint matching or user labeling whose names
+    # don't appear in metadata_attendees need to be surfaced so the caller can
+    # register them and include them in delivery.
+    matched_attendee_names = {s["name"].lower() for s in matched_speakers}
+    unregistered_speakers = []
+    for name, segs in match_result.get("known", {}).items():
+        if name.lower() not in matched_attendee_names:
+            unregistered_speakers.append({
+                "name": name,
+                "email": "",
+            })
+            speaker_ids_for_name = [
+                sid for sid, n in speaker_to_name.items() if n == name
+            ]
+            print(f"[reconciliation] ⚠️  Speaker '{name}' (IDs: {speaker_ids_for_name}) "
+                  f"is NOT in registered attendees — will be registered as new attendee")
+
     # ── Positional fallback: no voiceprints exist, all attendees unmatched ──
     # When there are no stored voiceprints, match_result["known"] is empty,
     # so every attendee lands in non_speaking_attendees even though the
@@ -3386,6 +3502,7 @@ def _reconcile_attendees(metadata_attendees: list, attendee_emails: list,
         "matched_speakers": matched_speakers,
         "non_speaking_attendees": non_speaking_attendees,
         "unknown_speakers": unknown_speakers,
+        "unregistered_speakers": unregistered_speakers,
     }
 
 
@@ -3425,6 +3542,8 @@ def _register_attendees_after_reconciliation(
     Registered:
       - matched_speakers (they spoke)
       - non_speaking_attendees (they were present but silent)
+      - unregistered_speakers (identified by voiceprint/labeling but not in
+        the original attendee list — come from reconciliation["unregistered_speakers"])
     """
     all_attendees = []
     all_emails = []
@@ -3457,6 +3576,17 @@ def _register_attendees_after_reconciliation(
             print(f"[reconciliation] ⚠️  Non-speaking attendee '{name}' ({resolved}) "
                   f"is NOT in email_recipients — will not receive email delivery")
 
+    # Register unregistered speakers — attendees identified by voiceprint matching
+    # or user labeling whose names weren't in the original upload attendee list.
+    for us in reconciliation.get("unregistered_speakers", []):
+        name = us["name"]
+        resolved = _resolve_attendee_email(name, us.get("email", ""))
+        all_attendees.append(name)
+        all_emails.append(resolved)
+        if resolved.lower() not in email_recipients:
+            print(f"[reconciliation] ⚠️  Unregistered speaker '{name}' ({resolved}) "
+                  f"is NOT in email_recipients — will not receive email delivery")
+
     if not all_attendees:
         return
 
@@ -3465,9 +3595,11 @@ def _register_attendees_after_reconciliation(
             all_attendees, all_emails,
             source=source, job_id=job_id,
         )
+        unreg_count = len(reconciliation.get("unregistered_speakers", []))
         print(f"[reconciliation] Registered {len(all_attendees)} attendee(s) "
               f"({len(reconciliation.get('matched_speakers', []))} spoke, "
-              f"{len(reconciliation.get('non_speaking_attendees', []))} non-speaking) "
+              f"{len(reconciliation.get('non_speaking_attendees', []))} non-speaking"
+              f"{f', {unreg_count} unregistered' if unreg_count else ''}) "
               f"for job {job_id[:8]} in ephemeral DB")
     except Exception as e:
         print(f"[reconciliation] ⚠️  Could not register attendees for job {job_id}: {e}")
@@ -3525,7 +3657,9 @@ async def _run_pipeline_async(job_id: str):
         # reclaim fragmented memory pages before loading models again.
         # This prevents cumulative memory pressure across sequential jobs.
         global _last_pipeline_end_time
-        if _last_pipeline_end_time > 0:
+        # Skip inter-job cooldown when keeping models warm — the models are
+        # already loaded and there's no memory pressure to settle.
+        if not config.KEEP_MODELS_WARM and _last_pipeline_end_time > 0:
             elapsed_since_last = time.time() - _last_pipeline_end_time
             if elapsed_since_last < _MIN_INTERJOB_COOLDOWN_SEC:
                 wait = _MIN_INTERJOB_COOLDOWN_SEC - elapsed_since_last
@@ -3582,13 +3716,17 @@ async def _run_pipeline_async(job_id: str):
 def _cleanup_pipeline_resources():
     """Free ML resources after a pipeline completes.
 
-    Unloads ALL ML models regardless of whether other jobs are active.
-    Previously this guarded with ``if len(_active_jobs) == 0`` to keep
-    models warm between sequential jobs, but on Apple Silicon the MPS
-    memory driver does NOT reclaim fragmented pages until the model
-    objects are fully released AND a GC cycle runs.  Only by eagerly
-    unloading can we prevent cumulative fragmentation from causing
-    an OOM crash on the next job.
+    When ``config.KEEP_MODELS_WARM`` is False (default): unloads ALL ML
+    models regardless of whether other jobs are active. On Apple Silicon
+    the MPS memory driver does NOT reclaim fragmented pages until the
+    model objects are fully released AND a GC cycle runs. Eager unloading
+    prevents cumulative fragmentation from causing an OOM crash on the
+    next job.
+
+    When ``KEEP_MODELS_WARM`` is True: skips model deletion but still
+    runs GC, MPS cache clearing, and the cooldown sleep. The model
+    references survive across jobs so ``from_pretrained()`` is never
+    called again.
 
     Safe to call even if models are already unloaded.
     """
@@ -3601,26 +3739,30 @@ def _cleanup_pipeline_resources():
         #    before setting to None.  Python's GC can miss cycles involving
         #    torch.nn.Module objects (which hold references to CUDA/MPS
         #    allocations) if we only set to None.
-        if engine is not None:
-            if hasattr(engine, "_diarization") and engine._diarization is not None:
-                del engine._diarization
-                engine._diarization = None
-                print(f"[pipeline]   \U0001f9f9 Diarization model unloaded")
-            if hasattr(engine, "_whisper") and engine._whisper is not None:
-                del engine._whisper
-                engine._whisper = None
-                print(f"[pipeline]   \U0001f9f9 Whisper model unloaded")
-            # Clear MLX metal cache on Apple Silicon (mlx-whisper internal cache)
-            try:
-                import mlx.core as mx
-                mx.metal.clear_cache()
-                print(f"[pipeline]   \U0001f9f9 MLX metal cache cleared")
-            except (ImportError, AttributeError):
-                pass  # Not on macOS or mlx not installed — fine
-            # Release engine itself
-            del engine
-            engine = None
-            print(f"[pipeline]   \U0001f9f9 TranscriptionEngine released")
+        if not config.KEEP_MODELS_WARM:
+            if engine is not None:
+                if hasattr(engine, "_diarization") and engine._diarization is not None:
+                    del engine._diarization
+                    engine._diarization = None
+                    print(f"[pipeline]   \U0001f9f9 Diarization model unloaded")
+                if hasattr(engine, "_whisper") and engine._whisper is not None:
+                    del engine._whisper
+                    engine._whisper = None
+                    print(f"[pipeline]   \U0001f9f9 Whisper model unloaded")
+                # Clear MLX metal cache on Apple Silicon (mlx-whisper internal cache)
+                try:
+                    import mlx.core as mx
+                    mx.metal.clear_cache()
+                    print(f"[pipeline]   \U0001f9f9 MLX metal cache cleared")
+                except (ImportError, AttributeError):
+                    pass  # Not on macOS or mlx not installed — fine
+                # Release engine itself
+                del engine
+                engine = None
+                print(f"[pipeline]   \U0001f9f9 TranscriptionEngine released")
+        else:
+            # Warm mode: keep models loaded between jobs
+            print(f"[pipeline]   \U0001f525 Models kept warm (KEEP_MODELS_WARM=true)")
 
         # 2. Unload embedding model from VoiceprintManager
         if vp_manager is not None:
@@ -4015,6 +4157,7 @@ def _run_pipeline_sync(job_id: str):
                           reconciliation={
                               "matched_speakers": reconciliation["matched_speakers"],
                               "non_speaking_attendees": reconciliation["non_speaking_attendees"],
+                              "unregistered_speakers": reconciliation.get("unregistered_speakers", []),
                           })
             jlog.log(f"[pipeline] ⏸️  Pipeline paused — waiting for speaker labels from user")
             jlog.log(f"[pipeline]   Unknown speakers: {', '.join(u['speaker_id'] for u in unknown)}")

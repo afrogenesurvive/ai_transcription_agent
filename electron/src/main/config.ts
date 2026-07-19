@@ -86,6 +86,8 @@ export interface AppConfig {
   GATE_RAW_REVIEW_ENABLED: string;
   /** Gate 2: Pause after LLM analysis for transcript/summary/analysis review before memory save + delivery */
   GATE_DELIVERY_REVIEW_ENABLED: string;
+  /** Keep ML models loaded between transcription jobs (faster startup, higher memory) */
+  KEEP_MODELS_WARM: string;
 }
 
 const DEFAULTS: AppConfig = {
@@ -127,6 +129,7 @@ const DEFAULTS: AppConfig = {
   PIPELINE_TIMEOUT_MINUTES: "15",
   GATE_RAW_REVIEW_ENABLED: "false",
   GATE_DELIVERY_REVIEW_ENABLED: "false",
+  KEEP_MODELS_WARM: "false",
 };
 
 /** Keys the UI considers "required" before the pipeline can run. */
@@ -246,6 +249,7 @@ export function checkConfig(): { ok: boolean; missing: string[] } {
 /** Get environment variables for child processes (config values merged in). */
 export function getChildEnv(): NodeJS.ProcessEnv {
   const config = getConfig();
+  const userVals = parseUserConfig(); // only explicitly-set keys, not DEFAULTS
   const userData = app.getPath("userData");
 
   return {
@@ -282,8 +286,13 @@ export function getChildEnv(): NodeJS.ProcessEnv {
       process.env.PLAYWRIGHT_GENERIC_NAMES ||
       "Alex,Blake,Casey,Drew,Ellis,Finley,Gray,Harper,Indigo,Jade,Kai,Logan,Morgan,Nico,Oakley,Parker,Quinn,Reese,Skyler,Taylor",
     PIPELINE_TIMEOUT_MINUTES: config.PIPELINE_TIMEOUT_MINUTES || process.env.PIPELINE_TIMEOUT_MINUTES || "15",
-    GATE_RAW_REVIEW_ENABLED: config.GATE_RAW_REVIEW_ENABLED || process.env.GATE_RAW_REVIEW_ENABLED || "false",
-    GATE_DELIVERY_REVIEW_ENABLED: config.GATE_DELIVERY_REVIEW_ENABLED || process.env.GATE_DELIVERY_REVIEW_ENABLED || "false",
+    // Use parseUserConfig() instead of the merged config for gate flags so that
+    // DEFAULTS (which are truthy strings like "false") don't prevent fallthrough
+    // to process.env. This lets .env or host env vars override when the user
+    // hasn't explicitly set a value in config.json.
+    GATE_RAW_REVIEW_ENABLED: userVals.GATE_RAW_REVIEW_ENABLED || process.env.GATE_RAW_REVIEW_ENABLED || "false",
+    GATE_DELIVERY_REVIEW_ENABLED: userVals.GATE_DELIVERY_REVIEW_ENABLED || process.env.GATE_DELIVERY_REVIEW_ENABLED || "false",
+    KEEP_MODELS_WARM: userVals.KEEP_MODELS_WARM || process.env.KEEP_MODELS_WARM || "false",
     // Storage paths — only override in packaged (prod) mode so DBs land in a
     // writable location. In dev the Python backend defaults to the project-
     // relative storage/ dir, which is already writable.

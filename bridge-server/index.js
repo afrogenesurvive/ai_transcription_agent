@@ -514,6 +514,12 @@ async function dispatch(tool, args) {
       return { error: "No delivery review state found" };
     }
 
+    case "transcribe_save_summary":
+      return await callPython("POST", `/transcribe/save_summary/${args.jobId}`, { summary: args.summary });
+
+    case "transcribe_save_analysis":
+      return await callPython("POST", `/transcribe/save_analysis/${args.jobId}`, { analysis: args.analysis });
+
     case "voiceprint_check_conflicts":
       return await callPython("POST", "/voiceprints/check-conflicts", { names: args.attendees || [] });
 

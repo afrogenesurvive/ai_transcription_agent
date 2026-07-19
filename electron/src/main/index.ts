@@ -677,6 +677,43 @@ ipcMain.handle("config:save", async (_event, values: Record<string, string>) => 
     console.error(msg);
     addLog("main", "error", msg);
   }
+
+  // ── Restart Python backend if gate configs changed ──
+  // Gate 1 (GATE_RAW_REVIEW_ENABLED) is enforced inside the Python backend at
+  // import time via os.getenv(). The agent runner restart above doesn't affect
+  // the Python process, so we must restart it to pick up the new values.
+  // Gate 2 (GATE_DELIVERY_REVIEW_ENABLED) is handled by the agent runner which
+  // IS restarted above.
+  const GATE_KEYS = new Set(["GATE_RAW_REVIEW_ENABLED", "GATE_DELIVERY_REVIEW_ENABLED"]);
+  const hasGateChanges = Object.keys(values).some((k) => GATE_KEYS.has(k));
+  if (hasGateChanges) {
+    try {
+      const activeRes = await fetch("http://127.0.0.1:5001/transcribe/active", {
+        signal: AbortSignal.timeout(3000),
+      });
+      let hasActiveJobs = false;
+      let activeData: any = null;
+      if (activeRes.ok) {
+        activeData = await activeRes.json();
+        hasActiveJobs = (activeData.active_jobs || []).length > 0;
+      }
+      if (hasActiveJobs) {
+        addLog(
+          "main",
+          "warn",
+          `Gate config changed but ${(activeData.active_jobs || []).length} job(s) running — Python backend NOT restarted. Gates apply after next restart.`,
+        );
+      } else {
+        await restartPythonBackend();
+        addLog("main", "info", "Python backend restarted after gate config change");
+      }
+    } catch {
+      // Backend unreachable — restart anyway to pick up env vars
+      await restartPythonBackend();
+      addLog("main", "info", "Python backend restarted after gate config change (backend was unreachable)");
+    }
+  }
+
   return getConfig();
 });
 

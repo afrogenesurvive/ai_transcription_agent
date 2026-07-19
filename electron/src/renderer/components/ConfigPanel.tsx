@@ -51,6 +51,7 @@ interface ConfigValues {
   PIPELINE_TIMEOUT_MINUTES: string;
   GATE_RAW_REVIEW_ENABLED: string;
   GATE_DELIVERY_REVIEW_ENABLED: string;
+  KEEP_MODELS_WARM: string;
   DELIVERY_RECIPIENT_EMAILS: string;
   DELIVERY_EMAIL_SUBJECT: string;
   DELIVERY_EMAIL_ADDITIONAL_CONTENT: string;
@@ -99,6 +100,7 @@ const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secre
   { key: "DELIVERY_DRIVE_FOLDER", label: "Drive Destination Folder", required: false, secret: false, section: "Delivery Config" },
   { key: "GATE_RAW_REVIEW_ENABLED", label: "Raw Transcript Review (Gate 1)", required: false, secret: false, section: "Pipeline" },
   { key: "GATE_DELIVERY_REVIEW_ENABLED", label: "Delivery Review (Gate 2)", required: false, secret: false, section: "Pipeline" },
+  { key: "KEEP_MODELS_WARM", label: "Keep Models Warm", required: false, secret: false, section: "Pipeline" },
 ];
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -433,6 +435,7 @@ export default function ConfigPanel({ onClose }: Props) {
             PIPELINE_TIMEOUT_MINUTES: cfg.PIPELINE_TIMEOUT_MINUTES?.value || "15",
             GATE_RAW_REVIEW_ENABLED: cfg.GATE_RAW_REVIEW_ENABLED?.value || "false",
             GATE_DELIVERY_REVIEW_ENABLED: cfg.GATE_DELIVERY_REVIEW_ENABLED?.value || "false",
+            KEEP_MODELS_WARM: cfg.KEEP_MODELS_WARM?.value || "false",
             DELIVERY_RECIPIENT_EMAILS: cfg.DELIVERY_RECIPIENT_EMAILS?.value || "",
             DELIVERY_EMAIL_SUBJECT: cfg.DELIVERY_EMAIL_SUBJECT?.value || "Meeting Summary: {title}",
             DELIVERY_EMAIL_ADDITIONAL_CONTENT: cfg.DELIVERY_EMAIL_ADDITIONAL_CONTENT?.value || "",
@@ -526,6 +529,7 @@ export default function ConfigPanel({ onClose }: Props) {
         LLM_TEMPERATURE: cfg.LLM_TEMPERATURE?.value || "0.1",
         GATE_RAW_REVIEW_ENABLED: cfg.GATE_RAW_REVIEW_ENABLED?.value || "false",
         GATE_DELIVERY_REVIEW_ENABLED: cfg.GATE_DELIVERY_REVIEW_ENABLED?.value || "false",
+        KEEP_MODELS_WARM: cfg.KEEP_MODELS_WARM?.value || "false",
         PIPELINE_TIMEOUT_MINUTES: cfg.PIPELINE_TIMEOUT_MINUTES?.value || "15",
         DELIVERY_RECIPIENT_EMAILS: cfg.DELIVERY_RECIPIENT_EMAILS?.value || "",
         DELIVERY_EMAIL_SUBJECT: cfg.DELIVERY_EMAIL_SUBJECT?.value || "Meeting Summary: {title}",
@@ -1465,8 +1469,8 @@ The system provides existing memory context at the start of each pipeline run. U
                           </span>
                         </label>
                         <p className="config-field-hint" style={{ marginTop: 4 }}>
-                          When enabled, the pipeline pauses after ASR and speaker labeling so you can review and edit the raw
-                          transcript before it is sent to the LLM for summarization and analysis.
+                          When enabled, the pipeline pauses after ASR and speaker labeling so you can review and edit the raw transcript before it is
+                          sent to the LLM for summarization and analysis.
                         </p>
                       </div>
 
@@ -1486,8 +1490,29 @@ The system provides existing memory context at the start of each pipeline run. U
                           </span>
                         </label>
                         <p className="config-field-hint" style={{ marginTop: 4 }}>
-                          When enabled, the agent pauses after generating the summary and analysis so you can review the
-                          deliverable before it is saved to memory and sent via email.
+                          When enabled, the agent pauses after generating the summary and analysis so you can review the deliverable before it is
+                          saved to memory and sent via email.
+                        </p>
+                      </div>
+
+                      {/* Keep Models Warm — toggle */}
+                      <div className="config-field">
+                        <label className="config-label">Keep Models Warm</label>
+                        <label className="config-toggle">
+                          <input
+                            type="checkbox"
+                            checked={values.KEEP_MODELS_WARM === "true"}
+                            onChange={(e) => handleChange("KEEP_MODELS_WARM", e.target.checked ? "true" : "false")}
+                            disabled={activeJobs.length > 0}
+                          />
+                          <span className="config-toggle-slider" />
+                          <span className="config-toggle-label">
+                            {values.KEEP_MODELS_WARM === "true" ? "Models stay loaded between jobs" : "Models unloaded after each job"}
+                          </span>
+                        </label>
+                        <p className="config-field-hint" style={{ marginTop: 4 }}>
+                          When enabled, ML models (whisper + diarization) remain loaded between transcription jobs. Subsequent jobs start faster with
+                          no HuggingFace dependency, but memory usage stays high. Disable on Apple Silicon if you experience out-of-memory errors.
                         </p>
                       </div>
                     </>
@@ -1687,7 +1712,7 @@ The system provides existing memory context at the start of each pipeline run. U
                         </div>
                       ))}
                     </>
-                  ) : sectionName !== "LLM Provider" ? (
+                  ) : !["LLM Provider", "Pipeline", "Services", "Delivery Config", "Auto-Update"].includes(sectionName) ? (
                     fields.map((field) => (
                       <div key={field.key} className="config-field">
                         <label className="config-label">
