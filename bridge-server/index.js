@@ -121,6 +121,14 @@ function sanitizeValue(data, depth = 0) {
 
 const FETCH_TIMEOUT_MS = parseInt(process.env.BRIDGE_FETCH_TIMEOUT || "30000", 10);
 
+class PythonNetworkError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "PythonNetworkError";
+    this.statusCode = 502;
+  }
+}
+
 async function callPython(method, path, body = null) {
   const url = `${PYTHON_API}${path}`;
   const controller = new AbortController();
@@ -133,6 +141,15 @@ async function callPython(method, path, body = null) {
   let resp;
   try {
     resp = await fetch(url, opts);
+  } catch (fetchErr) {
+    clearTimeout(timeout);
+    const elapsed = Date.now() - startTime;
+    if (fetchErr.name === "AbortError") {
+      console.error(`[bridge]   ← Python TIMEOUT after ${elapsed}ms`);
+      throw new PythonNetworkError(`Python backend timed out after ${FETCH_TIMEOUT_MS}ms — ${method} ${path}`);
+    }
+    console.error(`[bridge]   ← Python NETWORK ERROR after ${elapsed}ms: ${fetchErr.message}`);
+    throw new PythonNetworkError(`Python backend unreachable: ${fetchErr.message}`);
   } finally {
     clearTimeout(timeout);
   }
@@ -428,6 +445,29 @@ async function dispatch(tool, args) {
     case "transcribe_upsert_job":
       // CamelCase keys from JS are mapped to snake_case by the Python endpoint
       return await callPython("POST", "/transcribe/job/upsert", args);
+
+    case "transcribe_update_status":
+      // Directly write a status update to status.json on disk (no Python dependency).
+      // Used by the agent runner to set pending_delivery_review etc.
+      try {
+        const storage = TRANSCRIPTION_STORAGE || path.resolve(__dirname, "..", "storage");
+        const statusPath = path.join(storage, args.jobId, "status.json");
+        if (!fs.existsSync(statusPath)) {
+          return { error: `Job ${args.jobId} not found` };
+        }
+        const status = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+        const updates = args.updates || {};
+        Object.assign(status, updates);
+        // Atomic write
+        const tmp = statusPath + ".tmp";
+        fs.writeFileSync(tmp, JSON.stringify(status, null, 2), "utf8");
+        fs.renameSync(tmp, statusPath);
+        console.log(`[bridge]   ✅ Status updated for ${args.jobId?.slice(0, 8)}: ${JSON.stringify(updates)}`);
+        return { ok: true, job_id: args.jobId, updates };
+      } catch (err) {
+        console.error(`[bridge]   ❌ Failed to update status for ${args.jobId?.slice(0, 8)}: ${err.message}`);
+        throw new Error(`Failed to update status: ${err.message}`);
+      }
 
     case "transcribe_fail_job":
       return await callPython("POST", `/transcribe/fail/${args.jobId}?error=${encodeURIComponent(args.error || "Processing failed")}`);

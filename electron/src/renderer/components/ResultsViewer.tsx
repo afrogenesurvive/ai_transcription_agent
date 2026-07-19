@@ -75,6 +75,7 @@ interface Props {
     discussion_points?: string[];
     action_items?: { description: string; assignee?: string; deadline?: string }[];
   };
+  onSummaryUpdate?: (updated: NonNullable<Props["summary"]>) => void;
   metadata?: {
     title?: string;
     originalFilename?: string;
@@ -321,7 +322,15 @@ function escapeHtml(text: string): string {
 
 /* ── Tab: Summary ── */
 
-function SummaryTab({ summary, jobId }: { summary?: Props["summary"]; jobId: string }) {
+function SummaryTab({
+  summary,
+  jobId,
+  onSavedSummary,
+}: {
+  summary?: Props["summary"];
+  jobId: string;
+  onSavedSummary?: (updated: NonNullable<Props["summary"]>) => void;
+}) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editedSummary, setEditedSummary] = useState<NonNullable<Props["summary"]>>({ ...(summary || {}) });
@@ -365,6 +374,7 @@ function SummaryTab({ summary, jobId }: { summary?: Props["summary"]; jobId: str
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to save summary");
+      onSavedSummary?.(editedSummary);
       setEditing(false);
     } catch (err: any) {
       setSaveError(err.message || "Save failed");
@@ -443,7 +453,9 @@ function SummaryTab({ summary, jobId }: { summary?: Props["summary"]; jobId: str
           {/* Executive Summary - editable textarea */}
           <div className="rv-summary-card">
             <div className="rv-summary-card-header">
-              <span className="rv-summary-card-icon"><Icon name="article" size="16" color="accent" /></span>
+              <span className="rv-summary-card-icon">
+                <Icon name="article" size="16" color="accent" />
+              </span>
               <h3>Executive Summary</h3>
             </div>
             <textarea
@@ -458,9 +470,13 @@ function SummaryTab({ summary, jobId }: { summary?: Props["summary"]; jobId: str
           {/* Discussion Points - editable list */}
           <div className="rv-summary-card">
             <div className="rv-summary-card-header">
-              <span className="rv-summary-card-icon"><Icon name="chat" size="16" color="accent" /></span>
+              <span className="rv-summary-card-icon">
+                <Icon name="chat" size="16" color="accent" />
+              </span>
               <h3>Discussion Points</h3>
-              <button className="rv-edit-inline-add" onClick={() => addListItem("discussion_points")}>+ Add</button>
+              <button className="rv-edit-inline-add" onClick={() => addListItem("discussion_points")}>
+                + Add
+              </button>
             </div>
             {(editedSummary.discussion_points || []).map((p, i) => (
               <div key={i} className="rv-edit-list-row">
@@ -470,7 +486,9 @@ function SummaryTab({ summary, jobId }: { summary?: Props["summary"]; jobId: str
                   value={p}
                   onChange={(e) => updateListItem("discussion_points", i, e.target.value)}
                 />
-                <button className="rv-edit-list-remove" onClick={() => removeListItem("discussion_points", i)}>✕</button>
+                <button className="rv-edit-list-remove" onClick={() => removeListItem("discussion_points", i)}>
+                  ✕
+                </button>
               </div>
             ))}
           </div>
@@ -478,9 +496,13 @@ function SummaryTab({ summary, jobId }: { summary?: Props["summary"]; jobId: str
           {/* Key Decisions - editable list */}
           <div className="rv-summary-card">
             <div className="rv-summary-card-header">
-              <span className="rv-summary-card-icon"><Icon name="check_circle" size="16" color="green" /></span>
+              <span className="rv-summary-card-icon">
+                <Icon name="check_circle" size="16" color="green" />
+              </span>
               <h3>Key Decisions</h3>
-              <button className="rv-edit-inline-add" onClick={() => addListItem("key_decisions")}>+ Add</button>
+              <button className="rv-edit-inline-add" onClick={() => addListItem("key_decisions")}>
+                + Add
+              </button>
             </div>
             {(editedSummary.key_decisions || []).map((d, i) => (
               <div key={i} className="rv-edit-list-row">
@@ -490,7 +512,9 @@ function SummaryTab({ summary, jobId }: { summary?: Props["summary"]; jobId: str
                   value={d}
                   onChange={(e) => updateListItem("key_decisions", i, e.target.value)}
                 />
-                <button className="rv-edit-list-remove" onClick={() => removeListItem("key_decisions", i)}>✕</button>
+                <button className="rv-edit-list-remove" onClick={() => removeListItem("key_decisions", i)}>
+                  ✕
+                </button>
               </div>
             ))}
           </div>
@@ -498,9 +522,13 @@ function SummaryTab({ summary, jobId }: { summary?: Props["summary"]; jobId: str
           {/* Action Items - editable fields */}
           <div className="rv-summary-card">
             <div className="rv-summary-card-header">
-              <span className="rv-summary-card-icon"><Icon name="push_pin" size="16" color="accent" /></span>
+              <span className="rv-summary-card-icon">
+                <Icon name="push_pin" size="16" color="accent" />
+              </span>
               <h3>Action Items</h3>
-              <button className="rv-edit-inline-add" onClick={addActionItem}>+ Add</button>
+              <button className="rv-edit-inline-add" onClick={addActionItem}>
+                + Add
+              </button>
             </div>
             {(editedSummary.action_items || []).map((a, i) => (
               <div key={i} className="rv-edit-action-row">
@@ -522,7 +550,9 @@ function SummaryTab({ summary, jobId }: { summary?: Props["summary"]; jobId: str
                   onChange={(e) => updateActionItem(i, "deadline", e.target.value)}
                   placeholder="Deadline"
                 />
-                <button className="rv-edit-list-remove" onClick={() => removeActionItem(i)}>✕</button>
+                <button className="rv-edit-list-remove" onClick={() => removeActionItem(i)}>
+                  ✕
+                </button>
               </div>
             ))}
           </div>
@@ -532,7 +562,9 @@ function SummaryTab({ summary, jobId }: { summary?: Props["summary"]; jobId: str
           {summary!.executive_summary && (
             <div className="rv-summary-card">
               <div className="rv-summary-card-header">
-                <span className="rv-summary-card-icon"><Icon name="article" size="16" color="accent" /></span>
+                <span className="rv-summary-card-icon">
+                  <Icon name="article" size="16" color="accent" />
+                </span>
                 <h3>Executive Summary</h3>
               </div>
               <p className="rv-summary-text">{summary!.executive_summary}</p>
@@ -542,7 +574,9 @@ function SummaryTab({ summary, jobId }: { summary?: Props["summary"]; jobId: str
           {summary!.discussion_points && summary!.discussion_points.length > 0 && (
             <div className="rv-summary-card">
               <div className="rv-summary-card-header">
-                <span className="rv-summary-card-icon"><Icon name="chat" size="16" color="accent" /></span>
+                <span className="rv-summary-card-icon">
+                  <Icon name="chat" size="16" color="accent" />
+                </span>
                 <h3>Discussion Points</h3>
               </div>
               <ul className="rv-summary-list">
@@ -556,7 +590,9 @@ function SummaryTab({ summary, jobId }: { summary?: Props["summary"]; jobId: str
           {summary!.key_decisions && summary!.key_decisions.length > 0 && (
             <div className="rv-summary-card">
               <div className="rv-summary-card-header">
-                <span className="rv-summary-card-icon"><Icon name="check_circle" size="16" color="green" /></span>
+                <span className="rv-summary-card-icon">
+                  <Icon name="check_circle" size="16" color="green" />
+                </span>
                 <h3>Key Decisions</h3>
               </div>
               <ul className="rv-summary-list rv-list--decisions">
@@ -570,7 +606,9 @@ function SummaryTab({ summary, jobId }: { summary?: Props["summary"]; jobId: str
           {summary!.action_items && summary!.action_items.length > 0 && (
             <div className="rv-summary-card">
               <div className="rv-summary-card-header">
-                <span className="rv-summary-card-icon"><Icon name="push_pin" size="16" color="accent" /></span>
+                <span className="rv-summary-card-icon">
+                  <Icon name="push_pin" size="16" color="accent" />
+                </span>
                 <h3>Action Items</h3>
               </div>
               <ul className="rv-action-items">
@@ -597,7 +635,15 @@ function SummaryTab({ summary, jobId }: { summary?: Props["summary"]; jobId: str
 
 /* ── Tab: Analysis ── */
 
-function AnalysisTab({ analysis, jobId, onAnalysisUpdate }: { analysis: AnalysisData | null; jobId: string; onAnalysisUpdate?: (updated: AnalysisData) => void }) {
+function AnalysisTab({
+  analysis,
+  jobId,
+  onAnalysisUpdate,
+}: {
+  analysis: AnalysisData | null;
+  jobId: string;
+  onAnalysisUpdate?: (updated: AnalysisData) => void;
+}) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editedAnalysis, setEditedAnalysis] = useState<AnalysisData>({ ...(analysis || {}) });
@@ -705,19 +751,20 @@ function AnalysisTab({ analysis, jobId, onAnalysisUpdate }: { analysis: Analysis
             {/* Topics - editable tag list */}
             <div className="rv-analysis-card">
               <div className="rv-analysis-card-header">
-                <span className="rv-analysis-icon"><Icon name="label" size="16" color="accent" /></span>
+                <span className="rv-analysis-icon">
+                  <Icon name="label" size="16" color="accent" />
+                </span>
                 <h3>Topics Discussed</h3>
-                <button className="rv-edit-inline-add" onClick={() => addListItem("topics")}>+ Add</button>
+                <button className="rv-edit-inline-add" onClick={() => addListItem("topics")}>
+                  + Add
+                </button>
               </div>
               {(editedAnalysis.topics || []).map((t, i) => (
                 <div key={i} className="rv-edit-list-row">
-                  <input
-                    className="rv-edit-input"
-                    value={t}
-                    onChange={(e) => updateListItem("topics", i, e.target.value)}
-                    placeholder="Topic"
-                  />
-                  <button className="rv-edit-list-remove" onClick={() => removeListItem("topics", i)}>✕</button>
+                  <input className="rv-edit-input" value={t} onChange={(e) => updateListItem("topics", i, e.target.value)} placeholder="Topic" />
+                  <button className="rv-edit-list-remove" onClick={() => removeListItem("topics", i)}>
+                    ✕
+                  </button>
                 </div>
               ))}
             </div>
@@ -725,7 +772,9 @@ function AnalysisTab({ analysis, jobId, onAnalysisUpdate }: { analysis: Analysis
             {/* Sentiment - editable textarea */}
             <div className="rv-analysis-card">
               <div className="rv-analysis-card-header">
-                <span className="rv-analysis-icon"><Icon name="sentiment_satisfied" size="16" color="accent" /></span>
+                <span className="rv-analysis-icon">
+                  <Icon name="sentiment_satisfied" size="16" color="accent" />
+                </span>
                 <h3>Meeting Sentiment</h3>
               </div>
               <textarea
@@ -740,9 +789,13 @@ function AnalysisTab({ analysis, jobId, onAnalysisUpdate }: { analysis: Analysis
             {/* Key Entities - editable list */}
             <div className="rv-analysis-card">
               <div className="rv-analysis-card-header">
-                <span className="rv-analysis-icon"><Icon name="key" size="16" color="accent" /></span>
+                <span className="rv-analysis-icon">
+                  <Icon name="key" size="16" color="accent" />
+                </span>
                 <h3>Key Entities</h3>
-                <button className="rv-edit-inline-add" onClick={() => addListItem("key_entities")}>+ Add</button>
+                <button className="rv-edit-inline-add" onClick={() => addListItem("key_entities")}>
+                  + Add
+                </button>
               </div>
               {(editedAnalysis.key_entities || []).map((e, i) => (
                 <div key={i} className="rv-edit-list-row">
@@ -752,7 +805,9 @@ function AnalysisTab({ analysis, jobId, onAnalysisUpdate }: { analysis: Analysis
                     onChange={(e) => updateListItem("key_entities", i, e.target.value)}
                     placeholder="Entity"
                   />
-                  <button className="rv-edit-list-remove" onClick={() => removeListItem("key_entities", i)}>✕</button>
+                  <button className="rv-edit-list-remove" onClick={() => removeListItem("key_entities", i)}>
+                    ✕
+                  </button>
                 </div>
               ))}
             </div>
@@ -760,7 +815,9 @@ function AnalysisTab({ analysis, jobId, onAnalysisUpdate }: { analysis: Analysis
             {/* Effectiveness - editable textarea */}
             <div className="rv-analysis-card">
               <div className="rv-analysis-card-header">
-                <span className="rv-analysis-icon"><Icon name="trending_up" size="16" color="accent" /></span>
+                <span className="rv-analysis-icon">
+                  <Icon name="trending_up" size="16" color="accent" />
+                </span>
                 <h3>Meeting Effectiveness</h3>
               </div>
               <textarea
@@ -775,9 +832,13 @@ function AnalysisTab({ analysis, jobId, onAnalysisUpdate }: { analysis: Analysis
             {/* Follow-Ups - editable list */}
             <div className="rv-analysis-card">
               <div className="rv-analysis-card-header">
-                <span className="rv-analysis-icon"><Icon name="outgoing_mail" size="16" color="accent" /></span>
+                <span className="rv-analysis-icon">
+                  <Icon name="outgoing_mail" size="16" color="accent" />
+                </span>
                 <h3>Follow-Ups</h3>
-                <button className="rv-edit-inline-add" onClick={() => addListItem("follow_ups")}>+ Add</button>
+                <button className="rv-edit-inline-add" onClick={() => addListItem("follow_ups")}>
+                  + Add
+                </button>
               </div>
               {(editedAnalysis.follow_ups || []).map((f, i) => (
                 <div key={i} className="rv-edit-list-row">
@@ -788,7 +849,9 @@ function AnalysisTab({ analysis, jobId, onAnalysisUpdate }: { analysis: Analysis
                     onChange={(e) => updateListItem("follow_ups", i, e.target.value)}
                     placeholder="Follow-up item…"
                   />
-                  <button className="rv-edit-list-remove" onClick={() => removeListItem("follow_ups", i)}>✕</button>
+                  <button className="rv-edit-list-remove" onClick={() => removeListItem("follow_ups", i)}>
+                    ✕
+                  </button>
                 </div>
               ))}
             </div>
@@ -798,12 +861,16 @@ function AnalysisTab({ analysis, jobId, onAnalysisUpdate }: { analysis: Analysis
             {analysis!.topics && analysis!.topics.length > 0 && (
               <div className="rv-analysis-card">
                 <div className="rv-analysis-card-header">
-                  <span className="rv-analysis-icon"><Icon name="label" size="16" color="accent" /></span>
+                  <span className="rv-analysis-icon">
+                    <Icon name="label" size="16" color="accent" />
+                  </span>
                   <h3>Topics Discussed</h3>
                 </div>
                 <div className="rv-tag-list">
                   {analysis!.topics.map((t, i) => (
-                    <span key={i} className="rv-tag">{t}</span>
+                    <span key={i} className="rv-tag">
+                      {t}
+                    </span>
                   ))}
                 </div>
               </div>
@@ -812,7 +879,9 @@ function AnalysisTab({ analysis, jobId, onAnalysisUpdate }: { analysis: Analysis
             {analysis!.sentiment && (
               <div className="rv-analysis-card">
                 <div className="rv-analysis-card-header">
-                  <span className="rv-analysis-icon"><Icon name="sentiment_satisfied" size="16" color="accent" /></span>
+                  <span className="rv-analysis-icon">
+                    <Icon name="sentiment_satisfied" size="16" color="accent" />
+                  </span>
                   <h3>Meeting Sentiment</h3>
                 </div>
                 <p className="rv-analysis-text">{analysis!.sentiment}</p>
@@ -822,7 +891,9 @@ function AnalysisTab({ analysis, jobId, onAnalysisUpdate }: { analysis: Analysis
             {analysis!.key_entities && analysis!.key_entities.length > 0 && (
               <div className="rv-analysis-card">
                 <div className="rv-analysis-card-header">
-                  <span className="rv-analysis-icon"><Icon name="key" size="16" color="accent" /></span>
+                  <span className="rv-analysis-icon">
+                    <Icon name="key" size="16" color="accent" />
+                  </span>
                   <h3>Key Entities</h3>
                 </div>
                 <ul className="rv-entity-list">
@@ -836,7 +907,9 @@ function AnalysisTab({ analysis, jobId, onAnalysisUpdate }: { analysis: Analysis
             {analysis!.effectiveness && (
               <div className="rv-analysis-card">
                 <div className="rv-analysis-card-header">
-                  <span className="rv-analysis-icon"><Icon name="trending_up" size="16" color="accent" /></span>
+                  <span className="rv-analysis-icon">
+                    <Icon name="trending_up" size="16" color="accent" />
+                  </span>
                   <h3>Meeting Effectiveness</h3>
                 </div>
                 <p className="rv-analysis-text">{analysis!.effectiveness}</p>
@@ -846,7 +919,9 @@ function AnalysisTab({ analysis, jobId, onAnalysisUpdate }: { analysis: Analysis
             {analysis!.follow_ups && analysis!.follow_ups.length > 0 && (
               <div className="rv-analysis-card">
                 <div className="rv-analysis-card-header">
-                  <span className="rv-analysis-icon"><Icon name="outgoing_mail" size="16" color="accent" /></span>
+                  <span className="rv-analysis-icon">
+                    <Icon name="outgoing_mail" size="16" color="accent" />
+                  </span>
                   <h3>Follow-Ups</h3>
                 </div>
                 <ul className="rv-entity-list">
@@ -2975,7 +3050,7 @@ function ConfigTab({ jobId }: { jobId: string }) {
 
 /* ── Main ResultsViewer ── */
 
-export default function ResultsViewer({ jobId, segments, summary, metadata, jobStatus, jobProgress, jobError }: Props) {
+export default function ResultsViewer({ jobId, segments, summary, metadata, jobStatus, jobProgress, jobError, onSummaryUpdate }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>("pipeline");
   const [activeDevSubTab, setActiveDevSubTab] = useState<TabId>("tokens");
 
@@ -3105,7 +3180,7 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
         {activeTab === "pipeline" && <PipelineTab status={jobStatus || "unknown"} progress={jobProgress ?? 0} error={jobError} />}
         {activeTab === "audio" && <AudioTab jobId={jobId} metadata={metadata} />}
         {activeTab === "transcript" && <TranscriptTab segments={segments} />}
-        {activeTab === "summary" && <SummaryTab summary={summary} jobId={jobId} />}
+        {activeTab === "summary" && <SummaryTab summary={summary} jobId={jobId} onSavedSummary={onSummaryUpdate} />}
         {activeTab === "analysis" &&
           (analysisLoading ? (
             <div className="rv-tab-content">

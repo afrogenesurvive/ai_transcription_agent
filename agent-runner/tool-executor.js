@@ -144,6 +144,7 @@ const HANDLERS = {
   transcribe_list_attendees: (a) => callBridge("transcribe_list_attendees", a),
   transcribe_search_attendees: (a) => callBridge("transcribe_search_attendees", a),
   transcribe_upsert_job: (a) => callBridge("transcribe_upsert_job", a),
+  transcribe_update_status: (a) => callBridge("transcribe_update_status", a),
   transcribe_fail_job: (a) => callBridge("transcribe_fail_job", a),
   transcribe_complete_job: (a) => callBridge("transcribe_complete_job", a),
   send_delivery_email: (a) => sendEmail(a.to, a.subject, a.body),

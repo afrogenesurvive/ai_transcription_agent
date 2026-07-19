@@ -324,6 +324,24 @@ export default function App() {
     }
   }, [statusHook.data]);
 
+  // ── Auto-switch to "Current" view when pipeline pauses for user input ──
+  // Speaker labeling, raw transcript review (Gate 1), and delivery review (Gate 2)
+  // all render modals that are only visible when sidebarView === "current" and
+  // showHistory/showNewForm are false. This effect ensures the user sees the modal
+  // regardless of which sidebar view they were browsing.
+  React.useEffect(() => {
+    const modalStatuses = new Set(["paused_for_labeling", "pending_raw_review", "pending_delivery_review"]);
+    if (statusData?.status && modalStatuses.has(statusData.status)) {
+      // Only switch if we're not already showing the "Current" view — avoid
+      // unnecessary re-renders when the user is already looking at the pipeline.
+      if (sidebarView !== "current" || showHistory || showNewForm) {
+        setSidebarView("current");
+        setShowHistory(false);
+        setShowNewForm(false);
+      }
+    }
+  }, [statusData?.status]);
+
   // When pipeline pauses for labeling, fetch speaker clips and show the modal
   React.useEffect(() => {
     if (statusHook.state === "paused" && jobId && !showSpeakerModal && !speakerClips) {
@@ -451,6 +469,7 @@ export default function App() {
     try {
       await api.cancelJob(jobId);
       statusHook.stopPolling();
+      setView("results");
       setShowSpeakerModal(false);
       setStatusData({ status: "failed", error: "Cancelled by user", progress: 0.0 });
       notify("Job cancelled");
@@ -458,6 +477,92 @@ export default function App() {
       notify(`Cancel failed: ${err.message}`);
     }
   }, [jobId, api, statusHook]);
+
+  // ── Gate 1: Approve or reject raw transcript review ──
+  const handleGate1Approve = useCallback(
+    async (body: { action: string; editedTranscript?: any[] }) => {
+      if (!jobId) return;
+      try {
+        const result = await api.approveGate1(jobId, body);
+        console.log("Gate 1 approve result", result);
+        notify("Raw transcript approved — agent pipeline starting");
+      } catch (err: any) {
+        const errMsg = err.message || "Failed to approve";
+        notify(`Gate 1 approval failed: ${errMsg}`);
+        throw err; // Re-throw so ProgressPanel can show the error
+      }
+    },
+    [jobId, api],
+  );
+
+  const handleGate1Reject = useCallback(
+    async (action: "cancel" | "retry") => {
+      if (!jobId) return;
+      try {
+        await api.approveGate1(jobId, { action: action === "cancel" ? "reject_cancel" : "reject_retry" });
+        if (action === "cancel") {
+          statusHook.stopPolling();
+          setView("results");
+          setStatusData({ status: "failed", error: "Rejected at raw transcript review (Gate 1)", progress: 0.0 });
+          notify("Transcript rejected — job cancelled");
+        } else {
+          notify("Transcript rejected — pipeline retrying");
+        }
+      } catch (err: any) {
+        notify(`Gate 1 reject failed: ${err.message}`);
+        throw err;
+      }
+    },
+    [jobId, api, statusHook],
+  );
+
+  // ── Gate 2: Approve or reject delivery review ──
+  const handleGate2Approve = useCallback(
+    async (body: {
+      action: string;
+      editedTranscript?: any[];
+      editedSummary?: any;
+      editedAnalysis?: any;
+      deliveryOptions?: { recipients?: string[]; destinations?: string[] };
+      feedback?: string;
+    }) => {
+      if (!jobId) return;
+      try {
+        const result = await api.approveGate2(jobId, body);
+        console.log("Gate 2 approve result", result);
+        notify("Delivery approved — saving to memory and delivering");
+      } catch (err: any) {
+        const errMsg = err.message || "Failed to approve delivery";
+        notify(`Gate 2 approval failed: ${errMsg}`);
+        throw err;
+      }
+    },
+    [jobId, api],
+  );
+
+  const handleGate2Reject = useCallback(
+    async (action: "cancel" | "retry", feedback?: string) => {
+      if (!jobId) return;
+      try {
+        await api.approveGate2(jobId, {
+          action: action === "cancel" ? "reject_cancel" : "reject_retry",
+          feedback,
+        });
+        if (action === "cancel") {
+          statusHook.stopPolling();
+          setView("results");
+          setStatusData({ status: "failed", error: "Rejected at delivery review (Gate 2)", progress: 0.0 });
+          notify("Delivery rejected — job cancelled");
+        } else {
+          notify("Delivery rejected — agent pipeline retrying");
+        }
+      } catch (err: any) {
+        notify(`Gate 2 reject failed: ${err.message}`);
+        throw err;
+      }
+    },
+    [jobId, api, statusHook],
+  );
 
   // Handle upload submit
   const handleUpload = async (
@@ -496,6 +601,7 @@ export default function App() {
     try {
       await api.cancelJob(jobId);
       statusHook.stopPolling();
+      setView("results");
       // Immediately update statusData so the UI reflects cancellation instead
       // of showing the stale pre-cancel status (e.g. "processing_diarization").
       setStatusData({ status: "failed", error: "Cancelled by user", progress: 0.0 });
@@ -911,6 +1017,11 @@ export default function App() {
                                   setShowNewForm(true);
                                   setSidebarView("current");
                                 }}
+                                jobId={historyJobId || jobId || undefined}
+                                onApproveGate1={handleGate1Approve}
+                                onRejectGate1={handleGate1Reject}
+                                onApproveGate2={handleGate2Approve}
+                                onRejectGate2={handleGate2Reject}
                               />
                             )}
 
@@ -988,6 +1099,7 @@ export default function App() {
                             jobStatus={historyJobStatus?.status}
                             jobProgress={historyJobStatus?.progress}
                             jobError={historyJobStatus?.error}
+                            onSummaryUpdate={(updated) => setHistoryTranscript((prev: any) => (prev ? { ...prev, summary: updated } : prev))}
                           />
                         )}
                         {/* Processing placeholder — hidden when viewing history */}
@@ -1011,6 +1123,7 @@ export default function App() {
                             jobStatus={statusData?.status}
                             jobProgress={statusData?.progress}
                             jobError={statusData?.error}
+                            onSummaryUpdate={(updated) => setTranscript((prev: any) => (prev ? { ...prev, summary: updated } : prev))}
                           />
                         )}
                       </div>

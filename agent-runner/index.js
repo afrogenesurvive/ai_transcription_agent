@@ -47,6 +47,8 @@ const PID_FILE = path.resolve(__dirname, ".runner.pid");
 const QUEUE_DIR = process.env.TRANSCRIPTION_QUEUE_DIR || path.resolve(__dirname, "..", "queue");
 const TRIGGER_FILE = path.join(QUEUE_DIR, ".transcription-trigger");
 const TASK_CHECK_INTERVAL = parseInt(process.env.TASK_CHECK_INTERVAL || "60000", 10);
+// Use TRANSCRIPTION_STORAGE env var if set (matches Python backend), otherwise fall back to project-relative path.
+const STORAGE_BASE = process.env.TRANSCRIPTION_STORAGE || path.resolve(__dirname, "..", "storage");
 
 const LLM_PROVIDER = process.env.LLM_PROVIDER || "deepseek";
 
@@ -175,53 +177,6 @@ async function processEvent(event) {
     return;
   }
 
-  // ── Delivery approved event ──
-  // The user approved Gate 2 (delivery review). Restore saved pipeline state
-  // and continue from where we left off (save_context → prepare_delivery → deliver).
-  if (event.type === "delivery_approved") {
-    console.log(`\n   ⏩ [RUNNER] Delivery approved — resuming pipeline for job ${tag}`);
-    const storageDir = path.join(STORAGE_BASE, jobData.jobId || eventId);
-    const reviewStatePath = path.join(storageDir, "delivery-review-state.json");
-
-    if (!fs.existsSync(reviewStatePath)) {
-      console.log(`❌ [RUNNER] No saved delivery review state found at ${reviewStatePath}`);
-      console.log(`❌ [RUNNER] Falling back — processing as ready_for_processing`);
-      // Fall through to normal processing below
-    } else {
-      try {
-        const reviewState = JSON.parse(fs.readFileSync(reviewStatePath, "utf8"));
-        context = reviewState.context || "";
-        existingSteps = reviewState.tokenUsage || existingSteps;
-        if (Array.isArray(existingSteps)) {
-          totalPromptTokens = existingSteps.reduce((sum, s) => sum + (s.prompt_tokens || 0), 0);
-          totalCompletionTokens = existingSteps.reduce((sum, s) => sum + (s.completion_tokens || 0), 0);
-          totalTokens = existingSteps.reduce((sum, s) => sum + (s.total_tokens || 0), 0);
-        }
-
-        // Append approval context so the LLM knows what happened
-        const editsNotice = jobData.edits_made?.length
-          ? `User edited: ${jobData.edits_made.join(", ")}`
-          : "No edits made by user";
-        context += `\n\n[Delivery Approved] ${editsNotice}. Proceed with save_context, prepare_delivery, then deliver.`;
-
-        // Rebuild available tools — unlock delivery tools
-        if (jobData.skip_steps) {
-          skippedTools.clear();
-          for (const s of (jobData.skip_steps || [])) skippedTools.add(s);
-        }
-        availableTools = TOOLS.filter((t) => !skippedTools.has(t.name));
-
-        console.log(`✅ [RUNNER] Delivery review state restored — context: ${context.length} chars, ${availableTools.length} tools`);
-        console.log(`✅ [RUNNER] Pipeline will resume from step ${reviewState.pausedAtStep || "?"}`);
-        // Continue to the pipeline loop below — context is already set
-      } catch (err) {
-        console.log(`⚠️  [RUNNER] Failed to restore delivery review state: ${err.message}`);
-        console.log(`⚠️  [RUNNER] Falling back — processing as ready_for_processing`);
-        context = buildInitialContext(event, transcript, safeTitle, safeAttendees, eventId);
-      }
-    }
-  }
-
   // ── Empty transcript guard ──
   // If the ML pipeline failed (no transcript produced), skip LLM processing
   // entirely to avoid wasting tokens on empty content. The job is marked as
@@ -252,9 +207,6 @@ async function processEvent(event) {
   let context = buildInitialContext(event, transcript, safeTitle, safeAttendees, eventId);
   const initialContextLength = context.length;
   console.log(`📝 [RUNNER] Initial context built: ${context.length} chars`);
-
-  // Use TRANSCRIPTION_STORAGE env var if set (matches Python backend), otherwise fall back to project-relative path.
-  const STORAGE_BASE = process.env.TRANSCRIPTION_STORAGE || path.resolve(__dirname, "..", "storage");
 
   // ── Phase B: Enrich the job's config_snapshot with agent-runner config ──
   // The Python backend captured its own config at upload time (Phase A).
@@ -623,6 +575,51 @@ async function processEvent(event) {
     }
   }
 
+  // ── Delivery approved event ──
+  // The user approved Gate 2 (delivery review). Restore saved pipeline state
+  // and continue from where we left off (save_context → prepare_delivery → deliver).
+  if (event.type === "delivery_approved") {
+    console.log(`\n   ⏩ [RUNNER] Delivery approved — resuming pipeline for job ${tag}`);
+    const storageDir = path.join(STORAGE_BASE, jobData.jobId || eventId);
+    const reviewStatePath = path.join(storageDir, "delivery-review-state.json");
+
+    if (!fs.existsSync(reviewStatePath)) {
+      console.log(`❌ [RUNNER] No saved delivery review state found at ${reviewStatePath}`);
+      console.log(`❌ [RUNNER] Falling back — processing as ready_for_processing`);
+      // Fall through to normal processing below
+    } else {
+      try {
+        const reviewState = JSON.parse(fs.readFileSync(reviewStatePath, "utf8"));
+        context = reviewState.context || "";
+        existingSteps = reviewState.tokenUsage || existingSteps;
+        if (Array.isArray(existingSteps)) {
+          totalPromptTokens = existingSteps.reduce((sum, s) => sum + (s.prompt_tokens || 0), 0);
+          totalCompletionTokens = existingSteps.reduce((sum, s) => sum + (s.completion_tokens || 0), 0);
+          totalTokens = existingSteps.reduce((sum, s) => sum + (s.total_tokens || 0), 0);
+        }
+
+        // Append approval context so the LLM knows what happened
+        const editsNotice = jobData.edits_made?.length ? `User edited: ${jobData.edits_made.join(", ")}` : "No edits made by user";
+        context += `\n\n[Delivery Approved] ${editsNotice}. Proceed with save_context, prepare_delivery, then deliver.`;
+
+        // Rebuild available tools — unlock delivery tools
+        if (jobData.skip_steps) {
+          skippedTools.clear();
+          for (const s of jobData.skip_steps || []) skippedTools.add(s);
+        }
+        availableTools = TOOLS.filter((t) => !skippedTools.has(t.name));
+
+        console.log(`✅ [RUNNER] Delivery review state restored — context: ${context.length} chars, ${availableTools.length} tools`);
+        console.log(`✅ [RUNNER] Pipeline will resume from step ${reviewState.pausedAtStep || "?"}`);
+        // Continue to the pipeline loop below — context is already set
+      } catch (err) {
+        console.log(`⚠️  [RUNNER] Failed to restore delivery review state: ${err.message}`);
+        console.log(`⚠️  [RUNNER] Falling back — processing as ready_for_processing`);
+        context = buildInitialContext(event, transcript, safeTitle, safeAttendees, eventId);
+      }
+    }
+  }
+
   // ── Multi-step pipeline loop ──
   // Each iteration: LLM picks one tool → executes it → result appended to context
   // Loop ends when a terminal tool is called, LLM returns nothing, or max steps hit.
@@ -889,16 +886,18 @@ async function processEvent(event) {
         };
         const storageDir = path.join(STORAGE_BASE, jobData.jobId || eventId);
         fs.mkdirSync(storageDir, { recursive: true });
-        fs.writeFileSync(
-          path.join(storageDir, "delivery-review-state.json"),
-          JSON.stringify(reviewState, null, 2),
-          "utf8",
-        );
+        fs.writeFileSync(path.join(storageDir, "delivery-review-state.json"), JSON.stringify(reviewState, null, 2), "utf8");
 
-        // 2. Update job status on the backend
+        // 2. Update job status on the backend (ephemeral DB + status.json)
         await executeToolCall("transcribe_upsert_job", {
           jobId: jobData.jobId || eventId,
           result: "pending",
+        });
+        // Also write pending_delivery_review to status.json so the frontend
+        // polling (transcribe_status) can detect it and show the Gate 2 panel.
+        await executeToolCall("transcribe_update_status", {
+          jobId: jobData.jobId || eventId,
+          updates: { status: "pending_delivery_review", progress: 0.96 },
         });
 
         console.log(`✅ [RUNNER] Delivery review state saved (${JSON.stringify(reviewState).length} chars)`);
@@ -915,7 +914,7 @@ async function processEvent(event) {
 
       // 3. Exit the pipeline loop — don't mark as complete/failed
       pipelineComplete = true;
-      deliveryHandled = true;  // prevents post-loop complete/fail
+      deliveryHandled = true; // prevents post-loop complete/fail
       break;
     }
 
@@ -1283,8 +1282,7 @@ function buildInitialContext(event, transcript, safeTitle, safeAttendees, eventI
       substitutions.push({ var: "{{transcript_preview}}", value: `${Math.min(transcript.length, 50)} segments preview` });
     if (event.type === "labeling_needed")
       substitutions.push({ var: "{{speaker_details}}", value: `${(jobData.unknownSpeakers || []).length} unknown speakers` });
-    if (event.type === "delivery_approved")
-      substitutions.push({ var: "{{edits_summary}}", value: (jobData.edits_made || []).join(", ") || "none" });
+    if (event.type === "delivery_approved") substitutions.push({ var: "{{edits_summary}}", value: (jobData.edits_made || []).join(", ") || "none" });
     console.log(`📝 [BUILD-CONTEXT]   Variable substitutions: ${substitutions.map((s) => `${s.var} → ${s.value}`).join(", ")}`);
 
     const nonSpeakingList = (jobData.nonSpeakingAttendees || []).join(", ") || "none";

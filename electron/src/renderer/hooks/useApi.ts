@@ -10,7 +10,16 @@ async function bridgeCall(tool: string, args: Record<string, unknown> = {}) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ tool, args }),
   });
-  if (!res.ok) throw new Error(`Bridge error: ${res.status}`);
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const body = await res.json();
+      detail = body.error || body.detail || "";
+    } catch {
+      /* ignore parse failures */
+    }
+    throw new Error(`Bridge error ${res.status}${detail ? `: ${detail}` : ""}`);
+  }
   return res.json();
 }
 
@@ -200,6 +209,36 @@ export function useApi() {
         error?: string;
         title?: string;
         metadata?: any;
+      }>;
+    },
+
+    /** Approve or reject Gate 1 (raw transcript review) */
+    approveGate1: async (jobId: string, body: { action: string; editedTranscript?: any[] }) => {
+      return bridgeCall("transcribe_approve_gate1", { jobId, ...body }) as Promise<{
+        job_id: string;
+        status: string;
+        action?: string;
+        applied_labels?: number;
+      }>;
+    },
+
+    /** Approve or reject Gate 2 (delivery review) */
+    approveGate2: async (
+      jobId: string,
+      body: {
+        action: string;
+        editedTranscript?: any[];
+        editedSummary?: any;
+        editedAnalysis?: any;
+        deliveryOptions?: { recipients?: string[]; destinations?: string[] };
+        feedback?: string;
+      },
+    ) => {
+      return bridgeCall("transcribe_approve_gate2", { jobId, ...body }) as Promise<{
+        job_id: string;
+        status: string;
+        action?: string;
+        edits_made?: string[];
       }>;
     },
   };

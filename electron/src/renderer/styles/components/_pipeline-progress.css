@@ -560,3 +560,357 @@
   border-radius: var(--radius);
   color: var(--red);
 }
+
+/* ═══════════════════════════════════════════════
+   Gate Review Panels (Gate 1 & Gate 2)
+   ═══════════════════════════════════════════════ */
+
+.pp-gate-panel {
+  margin: 8px 16px 16px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.pp-gate-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  background: rgba(88, 166, 255, 0.08);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  font-size: var(--fs-13);
+  color: var(--accent);
+}
+
+.pp-gate-body {
+  padding: 12px 14px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.pp-gate-section {
+  margin-bottom: 14px;
+}
+
+.pp-gate-section:last-child {
+  margin-bottom: 0;
+}
+
+.pp-gate-section-title {
+  font-size: var(--fs-11);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+/* ── Transcript lines ── */
+
+.pp-gate-transcript-line {
+  font-size: var(--fs-12);
+  line-height: 1.5;
+  padding: 2px 0;
+  border-bottom: 1px solid rgba(139, 148, 158, 0.08);
+  color: var(--text);
+}
+
+.pp-gate-transcript-line:last-child {
+  border-bottom: none;
+}
+
+.pp-gate-transcript-speaker {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.pp-gate-transcript-time {
+  font-size: var(--fs-10);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  margin-right: 6px;
+}
+
+/* ── Textareas for editing ── */
+
+.pp-gate-textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: var(--fs-12);
+  line-height: 1.5;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.pp-gate-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.2);
+}
+
+/* ── Summary / Analysis display ── */
+
+.pp-gate-summary-block {
+  font-size: var(--fs-12);
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg);
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.pp-gate-item-list {
+  font-size: var(--fs-12);
+  line-height: 1.5;
+  color: var(--text);
+  padding-left: 16px;
+  margin: 4px 0;
+}
+
+.pp-gate-item-list li {
+  margin-bottom: 3px;
+}
+
+/* ── Delivery options ── */
+
+.pp-gate-delivery-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.pp-gate-delivery-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: rgba(63, 185, 80, 0.1);
+  border: 1px solid rgba(63, 185, 80, 0.3);
+  border-radius: 12px;
+  font-size: var(--fs-11);
+  color: var(--green);
+  font-weight: 500;
+}
+
+.pp-gate-recipient-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: rgba(88, 166, 255, 0.08);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: var(--fs-11);
+  color: var(--text);
+}
+
+/* ── Action buttons ── */
+
+.pp-gate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.pp-gate-btn {
+  padding: 7px 16px;
+  border-radius: var(--radius);
+  font-size: var(--fs-12);
+  font-weight: 500;
+  cursor: pointer;
+  font-family: var(--font);
+  border: 1px solid var(--border);
+  transition: all 0.15s;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.pp-gate-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pp-gate-btn--approve {
+  background: rgba(63, 185, 80, 0.1);
+  border-color: var(--green);
+  color: var(--green);
+}
+
+.pp-gate-btn--approve:hover:not(:disabled) {
+  background: var(--green);
+  color: #fff;
+}
+
+.pp-gate-btn--edit {
+  background: rgba(88, 166, 255, 0.08);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.pp-gate-btn--edit:hover:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+}
+
+.pp-gate-btn--reject {
+  background: rgba(248, 81, 73, 0.08);
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.pp-gate-btn--reject:hover:not(:disabled) {
+  background: var(--red);
+  color: #fff;
+}
+
+.pp-gate-btn--secondary {
+  background: var(--bg);
+  border-color: var(--border);
+  color: var(--text-muted);
+}
+
+.pp-gate-btn--secondary:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--text-muted);
+  color: var(--text);
+}
+
+/* ── Sub-actions (edit mode expand, reject options) ── */
+
+.pp-gate-sub-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 14px 0;
+}
+
+.pp-gate-feedback-input {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: var(--fs-12);
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 50px;
+}
+
+.pp-gate-feedback-input:focus {
+  outline: none;
+  border-color: var(--red);
+  box-shadow: 0 0 0 2px rgba(248, 81, 73, 0.15);
+}
+
+/* ── Loading / Error states ── */
+
+.pp-gate-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--text-muted);
+  font-size: var(--fs-12);
+}
+
+.pp-gate-error {
+  margin: 8px 16px;
+  padding: 10px 12px;
+  background: rgba(248, 81, 73, 0.08);
+  border: 1px solid var(--red);
+  border-radius: var(--radius);
+  color: var(--red);
+  font-size: var(--fs-12);
+  line-height: 1.5;
+}
+
+.pp-gate-conflict-banner {
+  margin: 0 14px 8px;
+  padding: 10px 12px;
+  background: rgba(210, 153, 34, 0.1);
+  border: 1px solid var(--orange);
+  border-radius: var(--radius);
+  font-size: var(--fs-11);
+  color: var(--orange);
+  line-height: 1.5;
+}
+
+.pp-gate-conflict-banner strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+/* ── Edit mode toggle ── */
+
+.pp-gate-edit-toggle {
+  font-size: var(--fs-11);
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  background: none;
+  border: none;
+  font-family: var(--font);
+  padding: 0;
+  margin-top: 4px;
+}
+
+.pp-gate-edit-toggle:hover {
+  color: #6cb3ff;
+}
+
+/* ═══════════════════════════════════════════════
+   Gate Review Modal Overlay (Gate 1 & Gate 2)
+   ═══════════════════════════════════════════════ */
+
+.pp-gate-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 24px;
+  animation: pp-confirm-fadein 0.15s ease-out;
+}
+
+.pp-gate-modal-dialog {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  max-width: 680px;
+  width: 100%;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+
+/* Inner container inside the modal dialog (replaces inline .pp-gate-panel) */
+.pp-gate-panel-inner {
+  overflow: hidden;
+}

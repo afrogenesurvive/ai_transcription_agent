@@ -53,6 +53,8 @@ export function useJobStatus(jobId: string | null, fetcher: (id: string) => Prom
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
+    setState("idle");
+    setError(null);
   }, []);
 
   // Auto-start polling whenever jobId becomes non-null
@@ -107,8 +109,12 @@ export function useJobStatus(jobId: string | null, fetcher: (id: string) => Prom
           return;
         }
 
-        // Paused for labeling
-        if (result.status === "paused_for_labeling") {
+        // Paused for labeling, raw transcript review, or delivery review
+        if (
+          result.status === "paused_for_labeling" ||
+          result.status === "pending_raw_review" ||
+          result.status === "pending_delivery_review"
+        ) {
           setState("paused");
           return;
         }
@@ -134,7 +140,12 @@ export function useJobStatus(jobId: string | null, fetcher: (id: string) => Prom
         }
 
         // If we were paused and now the status changed
-        if (state === "paused" && result.status !== "paused_for_labeling") {
+        if (
+          state === "paused" &&
+          result.status !== "paused_for_labeling" &&
+          result.status !== "pending_raw_review" &&
+          result.status !== "pending_delivery_review"
+        ) {
           setState("polling");
         }
 

@@ -11,6 +11,7 @@
 import React, { useState } from "react";
 import Icon from "./Icon";
 import Tooltip from "./Tooltip";
+import GateReviewModal from "./GateReviewModal";
 
 interface Props {
   status: string;
@@ -28,6 +29,21 @@ interface Props {
   skippedSteps?: Set<string>;
   /** Called when the user clicks "New Job" after a failure */
   onNewJob?: () => void;
+  /** Job ID — needed for gate panels to fetch transcript/summary/analysis data */
+  jobId?: string;
+  /** Gate 1 (Raw Transcript Review) handlers */
+  onApproveGate1?: (body: { action: string; editedTranscript?: any[] }) => Promise<void>;
+  onRejectGate1?: (action: "cancel" | "retry") => Promise<void>;
+  /** Gate 2 (Delivery Review) handlers */
+  onApproveGate2?: (body: {
+    action: string;
+    editedTranscript?: any[];
+    editedSummary?: any;
+    editedAnalysis?: any;
+    deliveryOptions?: { recipients?: string[]; destinations?: string[] };
+    feedback?: string;
+  }) => Promise<void>;
+  onRejectGate2?: (action: "cancel" | "retry", feedback?: string) => Promise<void>;
 }
 
 /* ── Pipeline stages (non-technical friendly labels) ── */
@@ -85,6 +101,13 @@ const PIPELINE: StageDef[] = [
     matches: ["aligning"],
   },
   {
+    key: "review",
+    icon: "rate_review",
+    label: "Review Transcript",
+    description: "Reviewing the raw transcript",
+    matches: ["pending_raw_review"],
+  },
+  {
     key: "agent",
     icon: "smart_toy",
     label: "AI Processing",
@@ -99,11 +122,18 @@ const PIPELINE: StageDef[] = [
     matches: ["analyzed"],
   },
   {
+    key: "delivery_review",
+    icon: "fact_check",
+    label: "Review Deliverable",
+    description: "Reviewing the deliverable package",
+    matches: ["pending_delivery_review"],
+  },
+  {
     key: "delivery",
     icon: "mail",
     label: "Delivering Results",
     description: "Sending via email, Trello & Drive",
-    matches: ["delivered"],
+    matches: ["delivered", "delivery_approved"],
   },
 ];
 
@@ -140,6 +170,11 @@ export default function PipelineProgress({
   diarizationAvailable,
   skippedSteps,
   onNewJob,
+  jobId,
+  onApproveGate1,
+  onRejectGate1,
+  onApproveGate2,
+  onRejectGate2,
 }: Props) {
   const [showConfirmCancel, setShowConfirmCancel] = useState(false);
   const pct = Math.round(progress * 100);
@@ -224,6 +259,17 @@ export default function PipelineProgress({
           );
         })}
       </div>
+
+      {/* ── Gate Review Modal (overlay for Gate 1 & Gate 2) ── */}
+      <GateReviewModal
+        visible={status === "pending_raw_review" || status === "pending_delivery_review"}
+        gate={status === "pending_raw_review" ? "gate1" : "gate2"}
+        jobId={jobId}
+        onApproveGate1={onApproveGate1}
+        onRejectGate1={onRejectGate1}
+        onApproveGate2={onApproveGate2}
+        onRejectGate2={onRejectGate2}
+      />
 
       {/* ── Diarization unavailable warning ── */}
       {diarizationAvailable === false && (
