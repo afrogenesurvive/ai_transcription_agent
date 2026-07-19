@@ -372,6 +372,11 @@ async function processEvent(event) {
   // Filter the available tools: remove any that are in the skip list
   let availableTools = TOOLS.filter((t) => !skippedTools.has(t.name));
   let summarizeCalled = false;
+  let hasReadTranscript = false;
+  let hasCalledAnalyze = false;
+  let hasSavedContext = false;
+  let forcedStepRetries = 0;
+  const MAX_FORCED_STEP_RETRIES = 3;
 
   // ── Render the system prompt ──
   // Generate a version of the system prompt with skipped sections removed
@@ -648,11 +653,58 @@ async function processEvent(event) {
     }
 
     if (!decision || !decision.name) {
+      // ── Forced step enforcement ──
+      // When the LLM returns null without calling a tool, check whether a mandatory
+      // pipeline step is pending. If so, re-prompt with a strong directive instead
+      // of ending the pipeline. This prevents the LLM from skipping summarization,
+      // analysis, or memory persistence.
+      if (hasReadTranscript && !summarizeCalled) {
+        forcedStepRetries++;
+        if (forcedStepRetries >= MAX_FORCED_STEP_RETRIES) {
+          console.log(`⏭️  [RUNNER] Forced step retry limit reached (${MAX_FORCED_STEP_RETRIES}) — ending pipeline`);
+          logAction({ eventId, eventType: event.type, action: "complete", detail: `ended at step ${step}, forced step retry limit` });
+          pipelineComplete = true;
+          break;
+        }
+        const msg = `[System: Pipeline requires summarization. You MUST call transcribe_summarize now to generate a structured summary of the transcript you have read. This step is mandatory before the pipeline can proceed.]`;
+        console.log(`⏭️  [RUNNER] No decision — re-prompting: must call transcribe_summarize (retry ${forcedStepRetries}/${MAX_FORCED_STEP_RETRIES})`);
+        context += `\n\n${msg}`;
+        continue;
+      }
+      if (summarizeCalled && !hasCalledAnalyze) {
+        forcedStepRetries++;
+        if (forcedStepRetries >= MAX_FORCED_STEP_RETRIES) {
+          console.log(`⏭️  [RUNNER] Forced step retry limit reached (${MAX_FORCED_STEP_RETRIES}) — ending pipeline`);
+          logAction({ eventId, eventType: event.type, action: "complete", detail: `ended at step ${step}, forced step retry limit` });
+          pipelineComplete = true;
+          break;
+        }
+        const msg = `[System: Pipeline requires analysis. You MUST call transcribe_analyze now to analyze topics, sentiment, entities, and follow-ups. This step is mandatory before the pipeline can proceed.]`;
+        console.log(`⏭️  [RUNNER] No decision — re-prompting: must call transcribe_analyze (retry ${forcedStepRetries}/${MAX_FORCED_STEP_RETRIES})`);
+        context += `\n\n${msg}`;
+        continue;
+      }
+      if (hasCalledAnalyze && !hasSavedContext) {
+        forcedStepRetries++;
+        if (forcedStepRetries >= MAX_FORCED_STEP_RETRIES) {
+          console.log(`⏭️  [RUNNER] Forced step retry limit reached (${MAX_FORCED_STEP_RETRIES}) — ending pipeline`);
+          logAction({ eventId, eventType: event.type, action: "complete", detail: `ended at step ${step}, forced step retry limit` });
+          pipelineComplete = true;
+          break;
+        }
+        const msg = `[System: Pipeline requires saving to memory. You MUST call transcribe_save_context now to persist the meeting context to semantic and ephemeral memory. This step is mandatory before the pipeline can proceed.]`;
+        console.log(`⏭️  [RUNNER] No decision — re-prompting: must call transcribe_save_context (retry ${forcedStepRetries}/${MAX_FORCED_STEP_RETRIES})`);
+        context += `\n\n${msg}`;
+        continue;
+      }
       console.log(`⏭️  [RUNNER] No decision — pipeline complete`);
       logAction({ eventId, eventType: event.type, action: "complete", detail: `ended at step ${step}, no LLM decision` });
       pipelineComplete = true;
       break;
     }
+
+    // Reset forced-step retry counter on any successful tool call
+    forcedStepRetries = 0;
 
     // ── Validate: reject tools that are no longer in the available set ──
     // The LLM can sometimes return tool calls for tools that were locked
@@ -778,6 +830,7 @@ async function processEvent(event) {
     // Also lock speaker-labeling tools — the LLM must summarize before labeling,
     // otherwise it gets sidetracked and never returns to call transcribe_summarize.
     if (decision.name === "transcribe_get_transcript") {
+      hasReadTranscript = true;
       availableTools = availableTools.filter(
         (t) => t.name !== "transcribe_get_transcript" && t.name !== "transcribe_label_speaker" && t.name !== "transcribe_list_voiceprints",
       );
@@ -788,6 +841,12 @@ async function processEvent(event) {
     // The LLM frequently calls transcribe_get_summary (read-only) instead of
     // transcribe_summarize (write), getting a "Summary not ready" 404. Lock the
     // read tool and unlock it only after summarize succeeds.
+    if (decision.name === "transcribe_analyze") {
+      hasCalledAnalyze = true;
+    }
+    if (decision.name === "transcribe_save_context") {
+      hasSavedContext = true;
+    }
     if (!summarizeCalled) {
       if (decision.name === "transcribe_summarize") {
         summarizeCalled = true;

@@ -3015,7 +3015,10 @@ function FrontendTestingTab() {
   const [devMode, setDevMode] = useState<boolean | null>(null);
 
   useEffect(() => {
-    window.electronAPI?.checkDevMode().then((r) => setDevMode(r.devMode)).catch(() => setDevMode(false));
+    window.electronAPI
+      ?.checkDevMode()
+      .then((r) => setDevMode(r.devMode))
+      .catch(() => setDevMode(false));
   }, []);
 
   // ── Prerequisite live status ──
@@ -3296,11 +3299,9 @@ function FrontendTestingTab() {
                 color: "var(--orange)",
                 lineHeight: 1.6,
               }}>
-              <strong>Dev-only feature</strong> — Playwright screenshot tests require a development environment. Run{' '}
-              <code style={{ fontSize: "var(--fs-10)", background: "var(--bg)", padding: "1px 4px", borderRadius: 3 }}>
-                npm run test
-              </code>{" "}
-              from the project directory instead.
+              <strong>Dev-only feature</strong> — Playwright screenshot tests require a development environment. Run{" "}
+              <code style={{ fontSize: "var(--fs-10)", background: "var(--bg)", padding: "1px 4px", borderRadius: 3 }}>npm run test</code> from the
+              project directory instead.
             </div>
           )}
         </div>

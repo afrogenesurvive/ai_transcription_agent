@@ -98,6 +98,13 @@ export function useForeignJobs() {
             }
           }
         }
+        // Remove any job IDs that got null results (back-to-back with chunk
+        // means the bridge returned 404 or was unreachable — job doesn't exist).
+        for (const id of chunk) {
+          if (!statusUpdates.has(id)) {
+            discovered.delete(id);
+          }
+        }
       }
       setForeignJobsStatus(statusUpdates);
     } else {

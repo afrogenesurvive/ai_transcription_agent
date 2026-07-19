@@ -548,7 +548,6 @@ ipcMain.handle("testbot:getRunningJobs", async () => {
     // Skip error placeholders (e.g. "error-1")
     if (jobId.startsWith("error-")) continue;
 
-    let found = false;
     for (const dir of statusDirs) {
       const statusPath = path.join(dir, jobId, "status.json");
       if (!fs.existsSync(statusPath)) continue;
@@ -558,15 +557,15 @@ ipcMain.handle("testbot:getRunningJobs", async () => {
         if (!TERMINAL_STATUSES.has(s)) {
           running.push({ job_id: jobId, status: s });
         }
-        found = true;
-        break;
+        break; // found a status file in this dir — don't check others
       } catch {
         // Corrupted status.json — skip this dir
       }
     }
-    if (!found) {
-      running.push({ job_id: jobId, status: "unknown" });
-    }
+    // If no status.json was found on disk, the job was likely deleted/cleared
+    // or the log entry is stale. Skip silently instead of returning with status
+    // "unknown" which would cause the foreign jobs hook to query the backend
+    // and get 404 "Job not found" errors.
   }
   return running;
 });
