@@ -119,6 +119,7 @@ export default function App() {
   const [speakerClips, setSpeakerClips] = useState<any>(null);
   const [showSpeakerModal, setShowSpeakerModal] = useState(false);
   const [labelingSubmitting, setLabelingSubmitting] = useState(false);
+  const [labelingError, setLabelingError] = useState<string | null>(null);
 
   // Guard ref to prevent duplicate labeling notifications on repeated poll cycles
   const labelingNotifiedRef = useRef(false);
@@ -426,6 +427,7 @@ export default function App() {
   const handleLabelConfirm = useCallback(
     async (labels: Array<{ speaker_id: string; name: string; email?: string }>) => {
       if (!jobId) return;
+      setLabelingError(null); // Clear any previous error before re-submit
       setLabelingSubmitting(true);
       try {
         const result = await api.labelAndResume(jobId, labels);
@@ -433,7 +435,9 @@ export default function App() {
         setShowSpeakerModal(false);
         notify(`Speaker labels applied — pipeline resuming`);
       } catch (err: any) {
-        notify(`Failed to apply labels: ${err.message}`);
+        const errMsg = err.message || "Unknown error applying labels";
+        setLabelingError(errMsg);
+        notify(`Failed to apply labels: ${errMsg}`);
       } finally {
         setLabelingSubmitting(false);
       }
@@ -443,6 +447,7 @@ export default function App() {
 
   const handleLabelCancel = useCallback(async () => {
     if (!jobId) return;
+    setLabelingError(null);
     try {
       await api.cancelJob(jobId);
       statusHook.stopPolling();
@@ -632,6 +637,8 @@ export default function App() {
           onConfirm={handleLabelConfirm}
           onCancel={handleLabelCancel}
           submitting={labelingSubmitting}
+          error={labelingError}
+          onClearError={() => setLabelingError(null)}
         />
       )}
 
@@ -699,9 +706,9 @@ export default function App() {
             <button
               className={`sidebar-btn ${showNewForm ? "sidebar-btn--active" : ""}`}
               onClick={() => {
+                handleNew();
                 setShowNewForm(true);
                 setSidebarView("current");
-                setShowHistory(false);
               }}
               disabled={isJobRunning}
               title={
@@ -900,9 +907,9 @@ export default function App() {
                                 diarizationAvailable={diarizationAvailable}
                                 skippedSteps={computeSkippedStages(statusData)}
                                 onNewJob={() => {
+                                  handleNew();
                                   setShowNewForm(true);
                                   setSidebarView("current");
-                                  setShowHistory(false);
                                 }}
                               />
                             )}

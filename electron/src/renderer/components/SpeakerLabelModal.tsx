@@ -62,6 +62,8 @@ interface Props {
   onCancel: () => void;
   submitting: boolean;
   nonSpeakingAttendees?: NonSpeakingInfo[];
+  error?: string | null;
+  onClearError?: () => void;
 }
 
 export default function SpeakerLabelModal({
@@ -72,6 +74,8 @@ export default function SpeakerLabelModal({
   onCancel,
   submitting,
   nonSpeakingAttendees = [],
+  error,
+  onClearError,
 }: Props) {
   const [labels, setLabels] = useState<Record<string, string>>({});
   const [emails, setEmails] = useState<Record<string, string>>({});
@@ -418,7 +422,10 @@ export default function SpeakerLabelModal({
                       className="speaker-name-input"
                       placeholder={`Name for ${spk.speaker_id}`}
                       value={labels[spk.speaker_id] ?? ""}
-                      onChange={(e) => setLabels((prev) => ({ ...prev, [spk.speaker_id]: e.target.value }))}
+                      onChange={(e) => {
+                        setLabels((prev) => ({ ...prev, [spk.speaker_id]: e.target.value }));
+                        onClearError?.();
+                      }}
                       onBlur={() => handleNameBlur(spk.speaker_id)}
                       autoFocus={idx === 0 && !spk.suggested_name}
                       title="Enter a name for this speaker"
@@ -435,6 +442,7 @@ export default function SpeakerLabelModal({
                       value={emails[spk.speaker_id] ?? ""}
                       onChange={(e) => {
                         const val = e.target.value;
+                        onClearError?.();
                         setEmails((prev) => ({ ...prev, [spk.speaker_id]: val }));
                         if (!val) {
                           setEmailErrors((prev) => ({ ...prev, [spk.speaker_id]: "Email is required" }));
@@ -614,6 +622,17 @@ export default function SpeakerLabelModal({
               {unregisteredNames.length === 1 ? "an attendee" : "attendees"} for this meeting. They will be added to the attendee list.
             </span>
             <button className="btn-icon speaker-unregistered-dismiss" onClick={() => setDismissedUnregistered(true)} title="Dismiss">
+              <Icon name="close" size="12" color="muted" />
+            </button>
+          </div>
+        )}
+
+        {/* ── Backend error banner ── */}
+        {error && (
+          <div className="speaker-label-error-banner">
+            <Icon name="error" size="16" color="red" />
+            <span className="speaker-label-error-text">{error}</span>
+            <button className="btn-icon speaker-label-error-dismiss" onClick={() => onClearError?.()} title="Dismiss">
               <Icon name="close" size="12" color="muted" />
             </button>
           </div>

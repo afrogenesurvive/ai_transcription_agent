@@ -91,6 +91,7 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
   const [attendeeName, setAttendeeName] = useState("");
   const [attendeeEmail, setAttendeeEmail] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const [attendeeConflict, setAttendeeConflict] = useState<string | null>(null);
   const [skipSteps, setSkipSteps] = useState<string[]>(initialSkipSteps ?? DEFAULT_SKIP_STEPS);
   const [savedAttendees, setSavedAttendees] = useState<AttendeeEntry[]>(loadSavedAttendees);
   const [registeredAttendees, setRegisteredAttendees] = useState<AttendeeEntry[]>([]);
@@ -209,13 +210,13 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
   // Close suggestions when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (
-        nameSuggestRef.current &&
-        !nameSuggestRef.current.contains(e.target as Node) &&
-        emailSuggestRef.current &&
-        !emailSuggestRef.current.contains(e.target as Node)
-      ) {
+      // Check each suggestion dropdown independently so clicking one input
+      // dismisses the other's suggestions even when the other dropdown isn't
+      // rendered yet (ref would be null in a combined && chain).
+      if (nameSuggestRef.current && !nameSuggestRef.current.contains(e.target as Node)) {
         setShowNameSuggestions(false);
+      }
+      if (emailSuggestRef.current && !emailSuggestRef.current.contains(e.target as Node)) {
         setShowEmailSuggestions(false);
       }
     };
@@ -278,7 +279,7 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
             const conflicts = (conflictData as any).conflicts || [];
             if (conflicts.length > 0) {
               const messages = conflicts.map((c: any) => c.message).join(" ");
-              setFormError(messages);
+              setAttendeeConflict(messages);
               return; // Don't add — conflicts need user attention
             }
           }
@@ -288,6 +289,7 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
       }
 
       setFormError(null);
+      setAttendeeConflict(null);
       const entry: AttendeeEntry = { name: resolvedName, email: resolvedEmail };
       setAttendeeList((prev) => [...prev, entry]);
       setAttendeeName("");
@@ -524,6 +526,13 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
             Names map positionally to detected speakers for labeling. Email is required for every attendee (voiceprint matching and delivery).
           </span>
 
+          {attendeeConflict && (
+            <div className="attendee-conflict-banner">
+              <span className="attendee-conflict-icon">⚠️</span>
+              <span className="attendee-conflict-text">{attendeeConflict}</span>
+            </div>
+          )}
+
           <div className="attendee-input-row">
             <div className="attendee-autocomplete-wrap">
               <Tooltip content="Enter attendee name — maps positionally to a detected speaker">
@@ -534,6 +543,8 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
                   value={attendeeName}
                   onChange={(e) => {
                     setAttendeeName(e.target.value);
+                    setAttendeeConflict(null);
+                    setFormError(null);
                     if (e.target.value || !disabled) setShowNameSuggestions(true);
                   }}
                   onFocus={() => setShowNameSuggestions(true)}
@@ -571,6 +582,8 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
                   value={attendeeEmail}
                   onChange={(e) => {
                     setAttendeeEmail(e.target.value);
+                    setAttendeeConflict(null);
+                    setFormError(null);
                     if (e.target.value || !disabled) setShowEmailSuggestions(true);
                   }}
                   onFocus={() => setShowEmailSuggestions(true)}

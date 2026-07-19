@@ -22,7 +22,7 @@ from datetime import datetime
 # the process.  0.7 = raise error at ~70% MPS usage (catchable).
 # 0.0 = unlimited (macOS may SIGKILL the process instead).
 # DO NOT set to 0.0 — it disables the safety valve and causes hard crashes.
-os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.7")
+os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.0")
 
 # ── Apply third-party compatibility patches FIRST (before any pyannote imports) ──
 import patches  # noqa: F401  (monkey-patches speechbrain + torchaudio + pyannote)
@@ -1960,8 +1960,8 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
 
         # ── Step 3: ASR Transcription ──
         jlog.log(f"\n   🎤 [PIPELINE] Step 3/5: ASR transcription (Whisper)...")
-        _update_active(job_id, "processing_transcription", 0.5)
         if _check_cancelled(job_id): return
+        _update_active(job_id, "processing_transcription", 0.5)
         _check_pipeline_timeout(job_id, _pipeline_start, jlog)
         t_asr = time.time()
         transcription = engine.run_transcription(audio_path)
@@ -1969,8 +1969,8 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
 
         # ── Step 4: Alignment ──
         jlog.log(f"\n   🔗 [PIPELINE] Step 4/5: Aligning diarization with transcript...")
-        _update_active(job_id, "aligning", 0.7)
         if _check_cancelled(job_id): return
+        _update_active(job_id, "aligning", 0.7)
         _check_pipeline_timeout(job_id, _pipeline_start, jlog)
         t_align = time.time()
         aligned = engine.align_transcript(transcription, diarization)
@@ -3374,6 +3374,10 @@ def _cleanup_pipeline_resources():
 
 def _update_active(job_id: str, status: str, progress: float, **extra):
     """Update the in-memory active job tracker and persist to disk."""
+    # Don't re-add jobs that have been cancelled — the thread may still be
+    # running an ML operation when the cancel endpoint already popped the job.
+    if job_id in _pipeline_cancel:
+        return
     _active_jobs[job_id] = {**_active_jobs.get(job_id, {}), "status": status, "progress": progress}
     _active_jobs[job_id].update(extra)
     update_kwargs = {"status": status, "progress": progress}
@@ -3410,8 +3414,8 @@ def _run_pipeline_sync(job_id: str):
 
         # ── Step 1: Diarization ──
         jlog.log(f"\n   🔬 [PIPELINE] Step 1/5: Diarization (identifying speakers)...")
-        _update_active(job_id, "processing_diarization", 0.2)
         if _check_cancelled(job_id): return
+        _update_active(job_id, "processing_diarization", 0.2)
         _check_pipeline_timeout(job_id, _pipeline_start, jlog)
         t_diar = time.time()
         diarization = engine.run_diarization(audio_path)
@@ -3483,8 +3487,8 @@ def _run_pipeline_sync(job_id: str):
 
         # ── Step 2: Voiceprint matching ──
         jlog.log(f"\n   🧬 [PIPELINE] Step 2/5: Voiceprint matching...")
-        _update_active(job_id, "matching_voiceprints", 0.35)
         if _check_cancelled(job_id): return
+        _update_active(job_id, "matching_voiceprints", 0.35)
         _check_pipeline_timeout(job_id, _pipeline_start, jlog)
         t_vp = time.time()
         attendees = metadata.get("attendees", [])
@@ -3620,8 +3624,8 @@ def _run_pipeline_sync(job_id: str):
 
         # ── Step 3: ASR Transcription ──
         jlog.log(f"\n   🎤 [PIPELINE] Step 3/5: ASR transcription (Whisper)...")
-        _update_active(job_id, "processing_transcription", 0.5)
         if _check_cancelled(job_id): return
+        _update_active(job_id, "processing_transcription", 0.5)
         _check_pipeline_timeout(job_id, _pipeline_start, jlog)
         t_asr = time.time()
         transcription = engine.run_transcription(audio_path)
@@ -3644,8 +3648,8 @@ def _run_pipeline_sync(job_id: str):
 
         # ── Step 4: Alignment ──
         jlog.log(f"\n   🔗 [PIPELINE] Step 4/5: Aligning diarization with transcript...")
-        _update_active(job_id, "aligning", 0.7)
         if _check_cancelled(job_id): return
+        _update_active(job_id, "aligning", 0.7)
         t_align = time.time()
         aligned = engine.align_transcript(transcription, diarization)
         align_elapsed = time.time() - t_align

@@ -139,6 +139,33 @@
   margin-top: 6px;
 }
 
+/* ── Voiceprint conflict banner (shown above the input row) ── */
+
+.attendee-conflict-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 8px;
+  margin-bottom: 4px;
+  padding: 8px 10px;
+  background: rgba(248, 81, 73, 0.1);
+  border: 1px solid rgba(248, 81, 73, 0.3);
+  border-radius: 6px;
+  font-size: var(--fs-12);
+  color: #f85149;
+  line-height: 1.4;
+}
+
+.attendee-conflict-icon {
+  flex-shrink: 0;
+  font-size: var(--fs-14);
+  margin-top: 1px;
+}
+
+.attendee-conflict-text {
+  flex: 1;
+}
+
 /* ── Attendee autocomplete wrapper (positions the dropdown) ── */
 
 .attendee-autocomplete-wrap {

@@ -667,7 +667,9 @@ async function processEvent(event) {
           break;
         }
         const msg = `[System: Pipeline requires summarization. You MUST call transcribe_summarize now to generate a structured summary of the transcript you have read. This step is mandatory before the pipeline can proceed.]`;
-        console.log(`⏭️  [RUNNER] No decision — re-prompting: must call transcribe_summarize (retry ${forcedStepRetries}/${MAX_FORCED_STEP_RETRIES})`);
+        console.log(
+          `⏭️  [RUNNER] No decision — re-prompting: must call transcribe_summarize (retry ${forcedStepRetries}/${MAX_FORCED_STEP_RETRIES})`,
+        );
         context += `\n\n${msg}`;
         continue;
       }
@@ -693,7 +695,9 @@ async function processEvent(event) {
           break;
         }
         const msg = `[System: Pipeline requires saving to memory. You MUST call transcribe_save_context now to persist the meeting context to semantic and ephemeral memory. This step is mandatory before the pipeline can proceed.]`;
-        console.log(`⏭️  [RUNNER] No decision — re-prompting: must call transcribe_save_context (retry ${forcedStepRetries}/${MAX_FORCED_STEP_RETRIES})`);
+        console.log(
+          `⏭️  [RUNNER] No decision — re-prompting: must call transcribe_save_context (retry ${forcedStepRetries}/${MAX_FORCED_STEP_RETRIES})`,
+        );
         context += `\n\n${msg}`;
         continue;
       }
