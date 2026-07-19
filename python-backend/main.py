@@ -2299,6 +2299,17 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
             )
             return  # Exit pipeline — resume via POST /transcribe/label_and_resume
         else:
+            # ── Gate 1: Raw Transcript Review ──
+            if config.GATE_RAW_REVIEW_ENABLED:
+                _update_active(job_id, "pending_raw_review", 0.95)
+                jlog.log(f"\n   ⏸️  [PIPELINE] Gate 1 active — pausing for raw transcript review")
+                jlog.log(f"[pipeline] ⏸️  Pipeline paused — waiting for user to review/edit transcript")
+                # Register attendees before pausing so the approval panel has access to them
+                _register_attendees_after_reconciliation(
+                    job_id, metadata, reconciliation, source="manual_labeling"
+                )
+                return  # Exit pipeline — resume via POST /transcribe/approve_gate1/{job_id}
+
             _update_active(job_id, "ready_for_agent", 0.95)
             skip = metadata.get("skip_steps")
             jlog.log(f"[pipeline] All speakers known — enqueueing ready_for_processing")

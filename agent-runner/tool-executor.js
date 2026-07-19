@@ -129,6 +129,7 @@ async function saveToDrive(folder, title, summary) {
 const HANDLERS = {
   transcribe_refine: (a) => callBridge("transcribe_refine", a),
   transcribe_analyze: (a) => callBridge("transcribe_analyze", a),
+  transcribe_approve_delivery: (a) => callBridge("transcribe_approve_delivery", a),
   transcribe_get_transcript: (a) => callBridge("transcribe_get_transcript", a),
   transcribe_get_summary: (a) => callBridge("transcribe_get_summary", a),
   transcribe_summarize: (a) => callBridge("transcribe_summarize", a),
