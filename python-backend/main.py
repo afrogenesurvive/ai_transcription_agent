@@ -830,6 +830,25 @@ async def agent_label_speakers(req: LabelRequest):
             },
         )
 
+    # ── Back-sync attendee registry with voiceprint emails ──
+    # After successfully saving each voiceprint, update the ephemeral DB
+    # attendee record with the resolved email (including @voiceprint.local
+    # fallback) so the attendee registry key matches the voiceprint key.
+    for label in req.labels:
+        name = label.name.strip()
+        if not name:
+            continue
+        resolved_email = VoiceprintManager._make_email(name, label.email or "")
+        try:
+            ephemeral_memory.register_attendee(
+                name, resolved_email,
+                source="agent_labeling", job_id=req.job_id,
+            )
+            print(f"[api]   ✅ Synced attendee '{name}' → email '{resolved_email}' "
+                  f"after voiceprint save")
+        except Exception as _e:
+            print(f"[api]   ⚠️  Could not sync attendee '{name}': {_e}")
+
     if transcript_data:
         mapping = {l.speaker_id: l.name for l in req.labels}
         for seg in transcript_data:
@@ -1811,11 +1830,15 @@ async def label_and_resume(job_id: str, labels: list = Body(...)):
         ))
         all_attendee_emails = []
         for name in all_attendee_names:
-            email = next(
+            raw_email = next(
                 (s.get("email", "") for s in matched_speakers if s["name"] == name),
                 next((ns.get("email", "") for ns in non_speaking if ns["name"] == name), "")
             )
-            all_attendee_emails.append(email)
+            # Resolve empty email against voiceprint so the attendee
+            # registry key matches the voiceprint key
+            all_attendee_emails.append(
+                _resolve_attendee_email(name, raw_email)
+            )
 
         try:
             ephemeral_memory.register_attendees(
@@ -3159,6 +3182,29 @@ def _reconcile_attendees(metadata_attendees: list, attendee_emails: list,
     }
 
 
+def _resolve_attendee_email(name: str, email: str) -> str:
+    """Resolve an attendee email, falling back to voiceprint if empty.
+
+    If the provided email is empty, looks up the voiceprint by speaker
+    name and uses the voiceprint's resolved email (even the
+    ``@voiceprint.local`` fallback). This ensures the ephemeral DB
+    attendee record matches the voiceprint key so the frontend can
+    link them for the voice sample play button.
+    """
+    if email and email.strip():
+        return email.strip()
+    # Empty email — try to resolve from voiceprint by name
+    try:
+        vp = vp_manager.get_voiceprint(name)
+        if vp and vp.get("email"):
+            return vp["email"]
+    except Exception:
+        pass
+    # No voiceprint either — derive deterministically so it still
+    # matches what _make_email would produce for this name
+    return VoiceprintManager._make_email(name, "")
+
+
 def _register_attendees_after_reconciliation(
     job_id: str, metadata: dict,
     reconciliation: dict, source: str = "new_job_form"
@@ -3176,13 +3222,33 @@ def _register_attendees_after_reconciliation(
     all_attendees = []
     all_emails = []
 
+    # Cross-check resolved emails against email_recipients for delivery gap logging
+    email_recipients = set()
+    try:
+        meta_recip = metadata.get("email_recipients", [])
+        if isinstance(meta_recip, list):
+            email_recipients = set(e.lower() for e in meta_recip if e)
+    except Exception:
+        pass
+
     for s in reconciliation.get("matched_speakers", []):
-        all_attendees.append(s["name"])
-        all_emails.append(s.get("email", ""))
+        name = s["name"]
+        resolved = _resolve_attendee_email(name, s.get("email", ""))
+        all_attendees.append(name)
+        all_emails.append(resolved)
+        # Log delivery gap
+        if resolved.lower() not in email_recipients:
+            print(f"[reconciliation] ⚠️  Attendee '{name}' ({resolved}) is NOT in "
+                  f"email_recipients — will not receive email delivery")
 
     for ns in reconciliation.get("non_speaking_attendees", []):
-        all_attendees.append(ns["name"])
-        all_emails.append(ns.get("email", ""))
+        name = ns["name"]
+        resolved = _resolve_attendee_email(name, ns.get("email", ""))
+        all_attendees.append(name)
+        all_emails.append(resolved)
+        if resolved.lower() not in email_recipients:
+            print(f"[reconciliation] ⚠️  Non-speaking attendee '{name}' ({resolved}) "
+                  f"is NOT in email_recipients — will not receive email delivery")
 
     if not all_attendees:
         return

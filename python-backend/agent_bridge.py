@@ -62,10 +62,21 @@ class AgentBridge:
         """
         if skip_steps is None:
             skip_steps = config.DEFAULT_SKIP_STEPS
+
+        # Build attendee → email map so the agent runner can show
+        # per-attendee delivery status in the LLM context.
+        meta_attendees = metadata.get("attendees", [])
+        meta_attendee_emails = metadata.get("attendeeEmails", [])
+        attendee_email_map = {}
+        for i, name in enumerate(meta_attendees):
+            email = meta_attendee_emails[i] if i < len(meta_attendee_emails) else ""
+            attendee_email_map[name] = email
+
         return self.enqueue("ready_for_processing", {
             "jobId": job_id,
             "title": metadata.get("title", "Untitled Meeting"),
-            "attendees": metadata.get("attendees", []),
+            "attendees": meta_attendees,
+            "attendeeEmails": attendee_email_map,
             "emailRecipients": metadata.get("email_recipients", []),
             "eventType": metadata.get("event_type", "internal"),
             "transcript": transcript,

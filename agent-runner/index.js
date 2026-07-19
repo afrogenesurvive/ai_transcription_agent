@@ -1147,10 +1147,22 @@ function buildInitialContext(event, transcript, safeTitle, safeAttendees, eventI
   const deliverySubject = process.env.DELIVERY_EMAIL_SUBJECT || "Meeting Summary: {title}";
   const deliveryExtraContent = process.env.DELIVERY_EMAIL_ADDITIONAL_CONTENT || "";
   const deliveryDriveFolder = process.env.DELIVERY_DRIVE_FOLDER || "Meeting Transcripts";
+  // Build per-attendee delivery status
+  const attendeeEmailsMap = jobData.attendeeEmails || {};
+  const recipientSet = new Set(emailRecipients.map((e) => e.toLowerCase()));
+  const deliveryStatusLines = safeAttendees.map((name) => {
+    const email = attendeeEmailsMap[name] || "(no email)";
+    const willReceive = email && email !== "(no email)" && recipientSet.has(email.toLowerCase());
+    const status = willReceive ? "✓ will receive delivery" : "✗ no delivery";
+    return `  ${name} <${email}> ${status}`;
+  });
+
   const lines = [
     `Transcription job: "${safeTitle}"`,
     `Attendees: ${safeAttendees.join(", ") || "none"}`,
     `Email recipients for delivery: ${emailRecipients.join(", ") || "none set (will use config defaults)"}`,
+    `Attendee delivery status:`,
+    ...deliveryStatusLines,
     `Delivery email subject template: "${deliverySubject}"`,
     deliveryExtraContent ? `Delivery email additional content: "${deliveryExtraContent}"` : null,
     `Delivery drive folder: "${deliveryDriveFolder}"`,

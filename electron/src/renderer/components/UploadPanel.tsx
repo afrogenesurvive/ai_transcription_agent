@@ -96,6 +96,10 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
   const [savedAttendees, setSavedAttendees] = useState<AttendeeEntry[]>(loadSavedAttendees);
   const [registeredAttendees, setRegisteredAttendees] = useState<AttendeeEntry[]>([]);
   const [voiceprintEmails, setVoiceprintEmails] = useState<Set<string>>(new Set());
+  const [voiceprintNames, setVoiceprintNames] = useState<Set<string>>(new Set());
+  /** Map from lowercased voiceprint name → email, for resolving audio URLs
+   *  when the attendee record has an empty email but a voiceprint exists. */
+  const [voiceprintEmailByName, setVoiceprintEmailByName] = useState<Map<string, string>>(new Map());
   const [showNameSuggestions, setShowNameSuggestions] = useState(false);
   const [showEmailSuggestions, setShowEmailSuggestions] = useState(false);
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
@@ -145,13 +149,24 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
         if (!cancelled && vpRes.ok) {
           const vpData = await vpRes.json();
           const vps: any[] = vpData.voiceprints || [];
+          const vpsWithSample = vps.filter((vp) => vp.sample_job_id);
           const emails = new Set<string>(
-            vps
-              .filter((vp) => vp.sample_job_id)
-              .map((vp) => vp.email)
-              .filter(Boolean),
+            vpsWithSample.map((vp) => vp.email).filter(Boolean),
           );
           setVoiceprintEmails(emails);
+          // Build name-based lookups so attendees without an email
+          // (but who have a voiceprint) can still show the play button
+          const names = new Set<string>();
+          const nameToEmail = new Map<string, string>();
+          for (const vp of vpsWithSample) {
+            const nameLower = (vp.name || "").toLowerCase();
+            if (nameLower) {
+              names.add(nameLower);
+              if (vp.email) nameToEmail.set(nameLower, vp.email);
+            }
+          }
+          setVoiceprintNames(names);
+          setVoiceprintEmailByName(nameToEmail);
         }
       } catch {
         // Bridge unavailable — use only saved attendees
@@ -379,6 +394,19 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
     setAttendeeList(attendeeList.filter((_, i) => i !== index));
     setFormError(null);
   };
+
+  /** Resolve the voiceprint email for a registered attendee, falling back
+   *  to name-based lookup when the attendee record has no email. */
+  const resolveVpEmail = useCallback(
+    (ra: AttendeeEntry): string | null => {
+      if (ra.email && voiceprintEmails.has(ra.email)) return ra.email;
+      if (voiceprintNames.has(ra.name.toLowerCase())) {
+        return voiceprintEmailByName.get(ra.name.toLowerCase()) || null;
+      }
+      return null;
+    },
+    [voiceprintEmails, voiceprintNames, voiceprintEmailByName],
+  );
 
   const handlePlayVoiceprint = useCallback(
     (email: string) => {
@@ -665,22 +693,29 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
                       <span className="registered-attendee-name">{ra.name}</span>
                       {ra.email && <span className="registered-attendee-email">{ra.email}</span>}
                       <div className="registered-attendee-actions">
-                        {ra.email && voiceprintEmails.has(ra.email) ? (
-                          <Tooltip content={playingVp === ra.email ? "Stop playback" : "Hear a 3-second voice sample of this attendee"}>
-                            <button
-                              className="btn-text attendee-play-btn"
-                              onClick={() => handlePlayVoiceprint(ra.email)}
-                              title={playingVp === ra.email ? "Stop playback" : "Play voice sample"}>
-                              <Icon name={playingVp === ra.email ? "stop" : "play_arrow"} size="14" color="accent" />
-                            </button>
-                          </Tooltip>
-                        ) : ra.email ? (
-                          <Tooltip content="This attendee does not have an enrolled voiceprint with a sample recording">
-                            <span className="btn-text attendee-play-btn attendee-play-btn--disabled" title="No voice sample available">
-                              <Icon name="play_arrow" size="14" color="muted" />
-                            </span>
-                          </Tooltip>
-                        ) : null}
+                        {(() => {
+                          const vpEmail = resolveVpEmail(ra);
+                          if (vpEmail) {
+                            return (
+                              <Tooltip content={playingVp === vpEmail ? "Stop playback" : "Hear a 3-second voice sample of this attendee"}>
+                                <button
+                                  className="btn-text attendee-play-btn"
+                                  onClick={() => handlePlayVoiceprint(vpEmail)}
+                                  title={playingVp === vpEmail ? "Stop playback" : "Play voice sample"}>
+                                  <Icon name={playingVp === vpEmail ? "stop" : "play_arrow"} size="14" color="accent" />
+                                </button>
+                              </Tooltip>
+                            );
+                          }
+                          // No voiceprint for this attendee at all
+                          return ra.email ? (
+                            <Tooltip content="This attendee does not have an enrolled voiceprint with a sample recording">
+                              <span className="btn-text attendee-play-btn attendee-play-btn--disabled" title="No voice sample available">
+                                <Icon name="play_arrow" size="14" color="muted" />
+                              </span>
+                            </Tooltip>
+                          ) : null;
+                        })()}
                         <Tooltip content={`Click to add ${ra.name} to the meeting participant list`}>
                           <button
                             className="btn-text attendee-add-btn"
