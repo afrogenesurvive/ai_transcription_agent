@@ -3011,6 +3011,13 @@ function FrontendTestingTab() {
     return () => clearInterval(interval);
   }, []);
 
+  // ── Dev mode check (Playwright tests are dev-only) ──
+  const [devMode, setDevMode] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    window.electronAPI?.checkDevMode().then((r) => setDevMode(r.devMode)).catch(() => setDevMode(false));
+  }, []);
+
   // ── Prerequisite live status ──
   const [backendStatus, setBackendStatus] = useState<{ python: boolean; bridge: boolean; agent: boolean } | null>(null);
   const [fileExists, setFileExists] = useState<boolean | null>(null);
@@ -3163,7 +3170,7 @@ function FrontendTestingTab() {
   };
 
   // All prerequisite checks must have resolved (not null) before the button enables
-  const allChecksComplete = backendStatus !== null && appBuilt !== null && fileExists !== null;
+  const allChecksComplete = backendStatus !== null && appBuilt !== null && fileExists !== null && devMode !== null;
   const allPrereqsMet =
     allChecksComplete &&
     backendStatus!.python &&
@@ -3171,7 +3178,8 @@ function FrontendTestingTab() {
     backendStatus!.agent &&
     appBuilt === true &&
     fileExists === true &&
-    namesValid;
+    namesValid &&
+    devMode === true;
 
   const outputColor = exitCode === null ? "var(--text-muted)" : exitCode === 0 ? "var(--green)" : "var(--red)";
   const outputIcon = exitCode === null ? "info" : exitCode === 0 ? "check_circle" : "error";
@@ -3251,6 +3259,9 @@ function FrontendTestingTab() {
             <span>
               {statusIcon(namesValid)} 20 speaker names {statusText(namesValid, "Valid", "Need ≥20", "—")}
             </span>
+            <span>
+              {statusIcon(devMode)} Dev mode {statusText(devMode, "Yes", "No (packaged)", "Checking…")}
+            </span>
           </div>
           {!allPrereqsMet && (
             <div style={{ marginTop: 6, color: "var(--orange)", fontSize: "var(--fs-10)" }}>
@@ -3271,6 +3282,25 @@ function FrontendTestingTab() {
               }}>
               <strong>Testing blocked</strong> — {activeJobs.length} pipeline/bot job{activeJobs.length > 1 ? "s" : ""} currently running. Wait for
               jobs to complete before running or editing tests.
+            </div>
+          )}
+          {devMode === false && (
+            <div
+              style={{
+                marginTop: 8,
+                padding: "10px 14px",
+                background: "color-mix(in srgb, var(--orange) 15%, transparent)",
+                border: "1px solid var(--orange)",
+                borderRadius: "var(--radius)",
+                fontSize: "var(--fs-11)",
+                color: "var(--orange)",
+                lineHeight: 1.6,
+              }}>
+              <strong>Dev-only feature</strong> — Playwright screenshot tests require a development environment. Run{' '}
+              <code style={{ fontSize: "var(--fs-10)", background: "var(--bg)", padding: "1px 4px", borderRadius: 3 }}>
+                npm run test
+              </code>{" "}
+              from the project directory instead.
             </div>
           )}
         </div>

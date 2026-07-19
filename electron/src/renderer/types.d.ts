@@ -221,6 +221,7 @@ export interface ElectronAPI {
   fileExists: (filePath: string) => Promise<boolean>;
 
   // ── Playwright Testing ──
+  checkDevMode: () => Promise<{ devMode: boolean }>;
   runPlaywrightTests: (vars: Record<string, string>) => Promise<{ exitCode: number; output: string }>;
   onPlaywrightOutput: (callback: (text: string) => void) => () => void;
   checkPlaywrightBuild: () => Promise<{ exists: boolean; builtAt: string | null }>;

@@ -404,9 +404,14 @@ ipcMain.handle("app:guide", () => {
 /** ML pipeline statuses returned by Python /transcribe/active — jobs that are
  *  actively running in the ML pipeline (diarization, ASR, alignment). */
 const ML_PIPELINE_STATUSES = new Set([
-  "uploaded", "initializing", "processing_diarization",
-  "matching_voiceprints", "processing_transcription", "aligning",
-  "paused_for_labeling", "resuming",
+  "uploaded",
+  "initializing",
+  "processing_diarization",
+  "matching_voiceprints",
+  "processing_transcription",
+  "aligning",
+  "paused_for_labeling",
+  "resuming",
 ]);
 
 /** Terminal statuses — a job with one of these is definitely done. */
@@ -439,16 +444,22 @@ function scanAgentStageJobs(storageDir: string): Array<{ job_id: string; status:
             const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
             title = meta.title || title;
           }
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
         results.push({
           job_id: status.job_id || entry.name,
           status: s,
           progress: status.progress || 0,
           title,
         });
-      } catch { /* skip corrupt status files */ }
+      } catch {
+        /* skip corrupt status files */
+      }
     }
-  } catch { /* storage dir not readable */ }
+  } catch {
+    /* storage dir not readable */
+  }
   return results;
 }
 
@@ -490,7 +501,9 @@ ipcMain.handle("testbot:getRunningJobs", async () => {
       const projectRoot = app.isPackaged ? path.join(process.resourcesPath, "..") : path.join(app.getAppPath(), "..");
       const candidate = path.join(projectRoot, "storage");
       return fs.existsSync(candidate) ? candidate : null;
-    } catch { return null; }
+    } catch {
+      return null;
+    }
   })();
 
   // Try both paths for the log file, prefer the primary
@@ -513,9 +526,13 @@ ipcMain.handle("testbot:getRunningJobs", async () => {
           const entry = JSON.parse(line);
           const jobIds: string[] = entry.jobIds || [];
           for (const id of jobIds) allJobIds.add(id);
-        } catch { /* skip malformed line */ }
+        } catch {
+          /* skip malformed line */
+        }
       }
-    } catch { /* skip unreadable */ }
+    } catch {
+      /* skip unreadable */
+    }
   }
 
   if (allJobIds.size === 0) return [];
@@ -1292,6 +1309,10 @@ ipcMain.handle("labels:verify", async (_event, payload: { jobId: string; labels:
 
 // ── Playwright Testing IPC ──
 
+ipcMain.handle("testing:checkDevMode", async () => {
+  return { devMode: !app.isPackaged };
+});
+
 ipcMain.handle("testing:run", async (_event, vars: Record<string, string>) => {
   addLog("main", "info", "[testing] Starting Playwright screenshot tests");
   try {
@@ -1380,9 +1401,28 @@ ipcMain.handle("testing:checkBuild", async () => {
 
 let botProcess: import("child_process").ChildProcess | null = null;
 
+/** Resolve the directory where the bot test script is stored.
+ *  In packaged mode, uses userData (writable); in dev, uses the project scripts/ dir. */
+function getBotScriptDir(): string {
+  if (app.isPackaged) {
+    return path.join(app.getPath("userData"), "scripts");
+  }
+  return path.join(app.getAppPath(), "..", "scripts");
+}
+
+/** Resolve the bundled Node.js binary path, or null if not found. */
+function getBundledNodePath(): string | null {
+  if (app.isPackaged) {
+    const bundled = path.join(process.resourcesPath, "node-bin", process.platform === "win32" ? "node.exe" : "node");
+    return fs.existsSync(bundled) ? bundled : null;
+  }
+  // Dev: check dist-resources/node-bin/
+  const devPath = path.join(app.getAppPath(), "..", "dist-resources", "node-bin", process.platform === "win32" ? "node.exe" : "node");
+  return fs.existsSync(devPath) ? devPath : null;
+}
+
 ipcMain.handle("testing:bot:read", async () => {
-  const rootDir = app.isPackaged ? path.join(process.resourcesPath, "..") : path.join(app.getAppPath(), "..");
-  const scriptPath = path.join(rootDir, "scripts", "test-bot.mjs");
+  const scriptPath = path.join(getBotScriptDir(), "test-bot.mjs");
   try {
     if (!fs.existsSync(scriptPath)) return "";
     return fs.readFileSync(scriptPath, "utf-8");
@@ -1393,8 +1433,7 @@ ipcMain.handle("testing:bot:read", async () => {
 });
 
 ipcMain.handle("testing:bot:save", async (_event, content: string) => {
-  const rootDir = app.isPackaged ? path.join(process.resourcesPath, "..") : path.join(app.getAppPath(), "..");
-  const scriptDir = path.join(rootDir, "scripts");
+  const scriptDir = getBotScriptDir();
   const scriptPath = path.join(scriptDir, "test-bot.mjs");
   try {
     fs.mkdirSync(scriptDir, { recursive: true });
@@ -1409,8 +1448,9 @@ ipcMain.handle("testing:bot:save", async (_event, content: string) => {
 });
 
 ipcMain.handle("testing:bot:run", async () => {
-  const rootDir = app.isPackaged ? path.join(process.resourcesPath, "..") : path.join(app.getAppPath(), "..");
-  const scriptPath = path.join(rootDir, "scripts", "test-bot.mjs");
+  const scriptDir = getBotScriptDir();
+  const scriptPath = path.join(scriptDir, "test-bot.mjs");
+  const cwd = app.isPackaged ? path.join(app.getPath("userData"), "scripts") : path.join(app.getAppPath(), "..");
 
   if (!fs.existsSync(scriptPath)) {
     return { exitCode: -1, output: "Script not found — save it first" };
@@ -1421,13 +1461,13 @@ ipcMain.handle("testing:bot:run", async () => {
   // Resolve node binary — prefer the bundled one, fall back to PATH
   let nodeBin = "node";
   try {
-    const bundledNode = path.join(rootDir, "dist-resources", "node-bin", process.platform === "win32" ? "node.exe" : "node");
-    if (fs.existsSync(bundledNode)) nodeBin = bundledNode;
+    const bundledNode = getBundledNodePath();
+    if (bundledNode) nodeBin = bundledNode;
   } catch {}
 
   return new Promise<{ exitCode: number; output: string }>((resolve) => {
     botProcess = spawn(nodeBin, [scriptPath], {
-      cwd: rootDir,
+      cwd,
       stdio: ["pipe", "pipe", "pipe"],
       env: {
         ...process.env,
@@ -1464,22 +1504,46 @@ ipcMain.handle("testing:bot:run", async () => {
 });
 
 ipcMain.handle("testing:bot:stop", async () => {
-  if (botProcess) {
-    addLog("main", "info", "[bot] Stopping bot script");
-    botProcess.kill("SIGTERM");
-    // Force kill after 3s if it hasn't exited
+  const pid = botProcess!.pid;
+  if (pid === undefined) {
+    return { success: false, message: "No bot script running" };
+  }
+  addLog("main", "info", `[bot] Stopping bot script (PID ${pid})`);
+
+  if (process.platform === "win32") {
+    // Windows: use taskkill to terminate the entire process tree
+    try {
+      execSync(`taskkill /pid ${pid} /T /F`, { stdio: "ignore" });
+    } catch {
+      // process already gone
+    }
+  } else {
+    // Unix: SIGTERM first, then SIGKILL after timeout
+    botProcess!.kill("SIGTERM");
     setTimeout(() => {
       if (botProcess) {
-        botProcess.kill("SIGKILL");
-        botProcess = null;
+        try {
+          process.kill(pid, 0); // check if still alive
+          botProcess.kill("SIGKILL");
+        } catch {
+          // process already exited
+        }
       }
     }, 3000);
-    return { success: true };
   }
-  return { success: false, message: "No bot script running" };
+
+  botProcess = null;
+  return { success: true };
 });
 
 ipcMain.handle("testing:bot:checkNode", async () => {
+  // 1. Check bundled Node.js binary first (packaged or dev)
+  const bundled = getBundledNodePath();
+  if (bundled) {
+    return { available: true, path: bundled };
+  }
+
+  // 2. Fall back to system PATH
   try {
     execSync("node --version", { stdio: "pipe" });
     return { available: true, path: "node" };

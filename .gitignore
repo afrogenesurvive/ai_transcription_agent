@@ -95,3 +95,4 @@ copilot-instructions.md
 
 assets/private
 *.tsbuildinfo
+.github/prompts

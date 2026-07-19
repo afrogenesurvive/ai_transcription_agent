@@ -69,14 +69,32 @@ def detect_device() -> str:
 
 
 class TranscriptionEngine:
-    def __init__(self, model_size: Optional[str] = None, device: Optional[str] = None):
+    def __init__(self, model_size: Optional[str] = None, device: Optional[str] = None,
+                 cpu_fallback: bool = False):
+        """Initialize the transcription engine.
+
+        Args:
+            model_size: Whisper model size ("medium", "large", etc.).
+            device: Target compute device ("mps", "cuda", "cpu", or None for auto-detect).
+            cpu_fallback: If True, force CPU regardless of detected device. Used when
+                          a previous MPS OOM error has been detected in the pipeline.
+        """
+        detected = device or detect_device()
+        if cpu_fallback and detected == "mps":
+            detected = "cpu"
+            print(f"[transcription] ⚠️  CPU fallback requested — forcing device='cpu' "
+                  f"(detected was 'mps')")
         self.model_size = model_size or config.WHISPER_MODEL_SIZE
-        self.device = device or detect_device()
+        self.device = detected
         self.platform = detect_platform()
         self._whisper = None
         self._diarization = None
         self._initial_prompt_enabled = config.WHISPER_INITIAL_PROMPT_ENABLED
         self._initial_prompt = config.WHISPER_INITIAL_PROMPT
+        # Set True when an MPS OOM error is caught during inference.
+        # The pipeline reads this after each ML step to decide whether
+        # to fall back to CPU for subsequent steps.
+        self.mps_oom_occurred = False
 
     # ── Step 1: Diarization (who spoke when) ──
 
@@ -139,7 +157,8 @@ class TranscriptionEngine:
                 print(f"[transcription] ✅ Diarization model loaded on {device_for_model}")
             except RuntimeError as e:
                 # If model fails on MPS (common with some pyannote ops), try CPU
-                if self.device == "mps" and ("mps" in str(e).lower() or "metal" in str(e).lower()):
+                if self.device == "mps" and ("mps" in str(e).lower() or "metal" in str(e).lower() or "out of memory" in str(e).lower()):
+                    self.mps_oom_occurred = True
                     print(f"[transcription] ⚠️  MPS device error, falling back to CPU: {e}")
                     try:
                         t_cpu = time.time()
@@ -306,7 +325,18 @@ class TranscriptionEngine:
         if self._whisper is None:
             t_load = time.time()
             print(f"[transcription]   📦 Loading openai-whisper model '{self.model_size}' on {self.device}...")
-            self._whisper = whisper.load_model(self.model_size, device=self.device)
+            try:
+                self._whisper = whisper.load_model(self.model_size, device=self.device)
+            except Exception as _load_err:
+                err_lower = str(_load_err).lower()
+                if self.device == "mps" and ("mps" in err_lower or "out of memory" in err_lower or "metal" in err_lower):
+                    print(f"[transcription] ⚠️  MPS OOM loading Whisper model: {_load_err}")
+                    print(f"[transcription]    Retrying on CPU...")
+                    self.mps_oom_occurred = True
+                    self.device = "cpu"
+                    self._whisper = whisper.load_model(self.model_size, device="cpu")
+                else:
+                    raise
             print(f"[transcription]   ✅ Model loaded in {time.time()-t_load:.1f}s")
         t_infer = time.time()
         print(f"[transcription]   ⏳ Transcribing (openai-whisper, verbose)...")
@@ -317,7 +347,16 @@ class TranscriptionEngine:
         if self._initial_prompt_enabled and self._initial_prompt:
             transcribe_kwargs["initial_prompt"] = self._initial_prompt
             print(f"[transcription]   🧠 Using initial_prompt ({len(self._initial_prompt)} chars)")
-        result = self._whisper.transcribe(audio_path, **transcribe_kwargs)
+        try:
+            result = self._whisper.transcribe(audio_path, **transcribe_kwargs)
+        except Exception as _infer_err:
+            err_lower = str(_infer_err).lower()
+            if "mps" in err_lower or "out of memory" in err_lower or "metal" in err_lower:
+                print(f"[transcription] ⚠️  MPS OOM during Whisper inference: {_infer_err}")
+                self.mps_oom_occurred = True
+                # Return empty result — pipeline will fall back to CPU
+                return {"text": "", "segments": [], "words": []}
+            raise
         print(f"[transcription]   ⏱️  Inference done in {time.time()-t_infer:.1f}s")
         return self._extract_words(result)
 

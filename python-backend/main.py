@@ -14,13 +14,15 @@ import asyncio
 import numpy as np
 from datetime import datetime
 
-# ── MPS memory limit workaround (Apple Silicon) ──
+# ── MPS memory limit (Apple Silicon) ──
 # PyTorch's MPS backend enforces a high-water mark (~90% of available VRAM).
 # When running large models (whisper-medium + pyannote diarization), the combined
 # allocation can exceed this limit and crash with "MPS backend out of memory".
-# Disabling the limit lets macOS gracefully handle memory pressure via
-# unified memory architecture (RAM swapping if needed).
-os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.0")
+# The watermark ratio tells PyTorch when to raise OOMError BEFORE macOS kills
+# the process.  0.7 = raise error at ~70% MPS usage (catchable).
+# 0.0 = unlimited (macOS may SIGKILL the process instead).
+# DO NOT set to 0.0 — it disables the safety valve and causes hard crashes.
+os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.7")
 
 # ── Apply third-party compatibility patches FIRST (before any pyannote imports) ──
 import patches  # noqa: F401  (monkey-patches speechbrain + torchaudio + pyannote)
@@ -63,6 +65,16 @@ _pipeline_semaphore = asyncio.Semaphore(config.MAX_CONCURRENT_PIPELINES)
 # In-memory active job tracking (replaces disk-scanning in /transcribe/active)
 # Keyed by job_id; values are {status, progress, title}
 _active_jobs: dict[str, dict] = {}
+
+# MPS OOM flag — set when an ML step hits an MPS out-of-memory error.
+# The pipeline reads this after each ML step and falls back to CPU for
+# subsequent steps to avoid cascading failures.
+_mps_oom_occurred: bool = False
+
+# Timestamp of the last pipeline completion — used to insert a cooldown
+# delay between sequential jobs so MPS fragmented memory can settle.
+_last_pipeline_end_time: float = 0.0
+_MIN_INTERJOB_COOLDOWN_SEC = 5.0
 
 # ML pipeline statuses that indicate a job is actively running in the pipeline.
 # Shared across upload endpoints, active job listing, and cleanup logic.
@@ -127,6 +139,34 @@ async def lifespan(app: FastAPI):
         print(f"   🧹 [startup] Cleaned {cleaned} orphaned job(s)")
     else:
         print(f"   ✅ [startup] No orphaned jobs found")
+
+    # ── Startup DB recovery: handle ChromaDB corruption from prior crash ──
+    # If the process was killed mid-write (SIGKILL from OOM), ChromaDB's
+    # SQLite database can be left in a corrupted state. Try to open it;
+    # if it fails, delete and recreate so the app starts fresh.
+    if semantic_memory is not None:
+        chroma_dir = semantic_memory.persist_dir
+        chroma_db = os.path.join(chroma_dir, "chroma.sqlite3")
+        if os.path.exists(chroma_db):
+            try:
+                import sqlite3 as _sc
+                _test_conn = _sc.connect(chroma_db)
+                _test_conn.execute("SELECT 1")
+                _test_conn.close()
+            except Exception as _db_err:
+                print(f"   ⚠️  [startup] ChromaDB appears corrupted ({_db_err}). Deleting and recreating...")
+                try:
+                    _test_conn.close()
+                except Exception:
+                    pass
+                import shutil as _sh
+                try:
+                    _sh.rmtree(chroma_dir)
+                    os.makedirs(chroma_dir, exist_ok=True)
+                    print(f"   ✅ [startup] ChromaDB directory recreated at {chroma_dir}")
+                except Exception as _rm_err:
+                    print(f"   ❌ [startup] Could not delete corrupted ChromaDB: {_rm_err}")
+
     yield
 
     # ── Shutdown: close SQLite connections to prevent leaks ──
@@ -3207,6 +3247,22 @@ async def _run_pipeline_async(job_id: str):
     is cooperative — the thread checks ``_pipeline_cancel`` between steps.
     """
     async with _pipeline_semaphore:
+        # ── Inter-job cooldown ──
+        # After the previous pipeline finishes, give the MPS driver time to
+        # reclaim fragmented memory pages before loading models again.
+        # This prevents cumulative memory pressure across sequential jobs.
+        global _last_pipeline_end_time
+        if _last_pipeline_end_time > 0:
+            elapsed_since_last = time.time() - _last_pipeline_end_time
+            if elapsed_since_last < _MIN_INTERJOB_COOLDOWN_SEC:
+                wait = _MIN_INTERJOB_COOLDOWN_SEC - elapsed_since_last
+                print(f"[pipeline] ⏳ Inter-job cooldown: waiting {wait:.1f}s for MPS memory to settle...")
+                await asyncio.sleep(wait)
+
+        # Reset the MPS OOM flag before each new pipeline run
+        global _mps_oom_occurred
+        _mps_oom_occurred = False
+
         print(f"\n{'='*60}")
         print(f"   🎬 [PIPELINE] Starting pipeline for job {job_id}")
         print(f"{'='*60}")
@@ -3233,67 +3289,85 @@ async def _run_pipeline_async(job_id: str):
             print(f"\n   ❌ [pipeline] ERROR in job {job_id}: {e}")
             import traceback
             traceback.print_exc()
-            uploader.update_status(job_id, {"status": "failed", "error": str(e)})
-            agent_bridge.enqueue_failed(job_id, str(e), {})
+            # If it was an MPS OOM, surface that clearly in the error message
+            err_str = str(e).lower()
+            if "mps" in err_str or "out of memory" in err_str:
+                enhanced = f"MPS out of memory — device='{detect_device()}', try setting DEVICE=cpu in .env: {e}"
+                uploader.update_status(job_id, {"status": "failed", "error": enhanced})
+                agent_bridge.enqueue_failed(job_id, enhanced, {})
+            else:
+                uploader.update_status(job_id, {"status": "failed", "error": str(e)})
+                agent_bridge.enqueue_failed(job_id, str(e), {})
         finally:
             _pipeline_tasks.pop(job_id, None)
             _pipeline_cancel.discard(job_id)
             _active_jobs.pop(job_id, None)
+            _last_pipeline_end_time = time.time()
             _cleanup_pipeline_resources()
 
 
 def _cleanup_pipeline_resources():
     """Free ML resources after a pipeline completes.
 
-    Call this when no jobs are active to reclaim MPS memory and unload
-    ML models. Safe to call even if models are already unloaded.
+    Unloads ALL ML models regardless of whether other jobs are active.
+    Previously this guarded with ``if len(_active_jobs) == 0`` to keep
+    models warm between sequential jobs, but on Apple Silicon the MPS
+    memory driver does NOT reclaim fragmented pages until the model
+    objects are fully released AND a GC cycle runs.  Only by eagerly
+    unloading can we prevent cumulative fragmentation from causing
+    an OOM crash on the next job.
+
+    Safe to call even if models are already unloaded.
     """
     try:
         import gc
         import torch
+        global engine, vp_manager
 
-        # 1. Clear PyTorch MPS allocation cache
-        if hasattr(torch, "mps") and torch.backends.mps.is_available():
-            torch.mps.empty_cache()
-            print(f"[pipeline]   \U0001f9f9 MPS cache cleared")
-
-        # 2. Unload models only when no jobs are active
-        #    (model stays loaded between sequential jobs for speed)
-        if len(_active_jobs) == 0:
-            global engine, vp_manager
-
-            # Unload diarization model from TranscriptionEngine
-            if engine is not None and hasattr(engine, "_diarization"):
+        # 1. Break reference cycles by deliberately deleting model refs
+        #    before setting to None.  Python's GC can miss cycles involving
+        #    torch.nn.Module objects (which hold references to CUDA/MPS
+        #    allocations) if we only set to None.
+        if engine is not None:
+            if hasattr(engine, "_diarization") and engine._diarization is not None:
+                del engine._diarization
                 engine._diarization = None
                 print(f"[pipeline]   \U0001f9f9 Diarization model unloaded")
-
-            # Unload Whisper ASR model (openai-whisper / faster-whisper)
-            if engine is not None and hasattr(engine, "_whisper"):
+            if hasattr(engine, "_whisper") and engine._whisper is not None:
+                del engine._whisper
                 engine._whisper = None
                 print(f"[pipeline]   \U0001f9f9 Whisper model unloaded")
-
             # Clear MLX metal cache on Apple Silicon (mlx-whisper internal cache)
-            if engine is not None:
-                try:
-                    import mlx.core as mx
-                    mx.metal.clear_cache()
-                    print(f"[pipeline]   \U0001f9f9 MLX metal cache cleared")
-                except (ImportError, AttributeError):
-                    pass  # Not on macOS or mlx not installed — fine
-
-            # Unload embedding model from VoiceprintManager
-            if vp_manager is not None:
-                vp_manager.reset_model()
-                print(f"[pipeline]   \U0001f9f9 Embedding model unloaded")
-
-            # Release engine reference to help GC
+            try:
+                import mlx.core as mx
+                mx.metal.clear_cache()
+                print(f"[pipeline]   \U0001f9f9 MLX metal cache cleared")
+            except (ImportError, AttributeError):
+                pass  # Not on macOS or mlx not installed — fine
+            # Release engine itself
+            del engine
             engine = None
+            print(f"[pipeline]   \U0001f9f9 TranscriptionEngine released")
 
-            # Force garbage collection + final MPS cache clear
-            gc.collect()
-            if hasattr(torch, "mps") and torch.backends.mps.is_available():
-                torch.mps.empty_cache()
-                print(f"[pipeline]   \U0001f9f9 MPS cache cleared after GC")
+        # 2. Unload embedding model from VoiceprintManager
+        if vp_manager is not None:
+            vp_manager.reset_model()
+            print(f"[pipeline]   \U0001f9f9 Embedding model unloaded")
+
+        # 3. Force garbage collection to break any remaining cycles
+        gc.collect()
+        gc.collect()  # 2x pass — PyTorch objects often need two cycles
+
+        # 4. Clear MPS cache AFTER GC so the freed memory is actually released
+        if hasattr(torch, "mps") and torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+            print(f"[pipeline]   \U0001f9f9 MPS cache cleared after GC")
+
+        # 5. Brief sleep to let the MPS driver reclaim freed pages
+        #    Without this, subsequent model loads can still see stale
+        #    allocation tables and fail or fragment further.
+        import time
+        time.sleep(0.5)
     except Exception as e:
         print(f"[pipeline]   \u26a0\ufe0f Cleanup warning: {e}")
 
@@ -3320,8 +3394,15 @@ def _run_pipeline_sync(job_id: str):
     jlog = _setup_job_logger(job_id)
     try:
         _update_active(job_id, "initializing", 0.05)
-        global engine
-        engine = TranscriptionEngine()
+        global engine, _mps_oom_occurred
+
+        # Create the transcription engine, respecting any prior MPS OOM flag.
+        # If a previous job in this process hit an MPS OOM error, force CPU
+        # from the start for this job to prevent cascading failures.
+        initial_device = "cpu" if _mps_oom_occurred else None
+        if initial_device == "cpu":
+            jlog.log(f"[pipeline] ⚠️  Prior MPS OOM detected — forcing CPU fallback for this job")
+        engine = TranscriptionEngine(device=initial_device)
         metadata = uploader.get_metadata(job_id)
         audio_path = uploader.get_audio_path(job_id)
         jlog.log(f"[pipeline] Audio path: {audio_path}")
@@ -3338,6 +3419,21 @@ def _run_pipeline_sync(job_id: str):
         speakers_found = set(s["speaker"] for s in diarization)
         jlog.log(f"   ✅ [pipeline] Diarization: {len(diarization)} segments, {len(speakers_found)} speakers "
               f"({', '.join(sorted(speakers_found))}) in {diar_elapsed:.1f}s")
+
+        # ── MPS OOM check after diarization ──
+        # If the diarization run hit an MPS OOM error, fall back to CPU for
+        # the remaining ML steps (voiceprint + ASR + alignment).
+        if getattr(engine, 'mps_oom_occurred', False) or _mps_oom_occurred:
+            _mps_oom_occurred = True
+            jlog.log(f"[pipeline] ⚠️  MPS OOM detected during diarization — "
+                  f"recreating engine with CPU fallback for remaining steps")
+            engine = TranscriptionEngine(device="cpu")
+            jlog.log(f"[pipeline]    Re-running diarization on CPU...")
+            t_diar_cpu = time.time()
+            diarization = engine.run_diarization(audio_path)
+            cpu_diar_elapsed = time.time() - t_diar_cpu
+            jlog.log(f"   ✅ [pipeline] CPU diarization: {len(diarization)} segments in {cpu_diar_elapsed:.1f}s")
+            _mps_oom_occurred = False  # Reset flag — we've recovered
 
         # Group by speaker (use dicts consistently — no SimpleNamespace)
         speaker_segments = {}
@@ -3532,6 +3628,19 @@ def _run_pipeline_sync(job_id: str):
         asr_elapsed = time.time() - t_asr
         jlog.log(f"   ✅ [pipeline] ASR: {len(transcription.get('words', []))} words, "
               f"{len(transcription.get('segments', []))} segments in {asr_elapsed:.1f}s")
+
+        # ── MPS OOM check after ASR ──
+        # If ASR hit an MPS OOM error, the transcription may be empty.
+        # Fall back to CPU and re-run.
+        if (getattr(engine, 'mps_oom_occurred', False) or _mps_oom_occurred) and not transcription.get("words"):
+            _mps_oom_occurred = True
+            jlog.log(f"[pipeline] ⚠️  MPS OOM during ASR — retrying transcription on CPU...")
+            engine = TranscriptionEngine(device="cpu")
+            t_asr_cpu = time.time()
+            transcription = engine.run_transcription(audio_path)
+            asr_elapsed = time.time() - t_asr_cpu
+            jlog.log(f"   ✅ [pipeline] CPU ASR retry: {len(transcription.get('words', []))} words in {asr_elapsed:.1f}s")
+            _mps_oom_occurred = False
 
         # ── Step 4: Alignment ──
         jlog.log(f"\n   🔗 [PIPELINE] Step 4/5: Aligning diarization with transcript...")

@@ -205,6 +205,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   fileExists: (filePath: string): Promise<boolean> => ipcRenderer.invoke("fs:fileExists", filePath),
 
   // ── Playwright Testing ──
+  checkDevMode: (): Promise<{ devMode: boolean }> => ipcRenderer.invoke("testing:checkDevMode"),
   runPlaywrightTests: (vars: Record<string, string>): Promise<{ exitCode: number; output: string }> => ipcRenderer.invoke("testing:run", vars),
   checkPlaywrightBuild: (): Promise<{ exists: boolean; builtAt: string | null }> => ipcRenderer.invoke("testing:checkBuild"),
   onPlaywrightOutput: (callback: (text: string) => void) => {

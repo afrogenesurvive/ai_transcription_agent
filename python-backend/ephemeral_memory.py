@@ -80,6 +80,13 @@ class EphemeralMemory:
         conn = sqlite3.connect(self.db_path)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
+        # Recover any uncommitted WAL writes from a prior crash, then
+        # truncate the WAL files so a new crash doesn't leave stale
+        # .db-shm / .db-wal files that block subsequent startup.
+        try:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except Exception:
+            pass  # Non-critical — checkpoint may fail on read-only filesystems
 
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS jobs (

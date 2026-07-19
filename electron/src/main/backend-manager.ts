@@ -1274,7 +1274,7 @@ export function startHealthMonitoring(): void {
     }
 
     // Agent runner has no HTTP endpoint — check if process is alive
-    if (!agentProcess && !isAgentRunning()) {
+    if (!isAgentRunning()) {
       console.log(`[health] Agent runner is down — restarting...`);
       addLog("main", "warn", "Agent runner is down — restarting...");
       try {
