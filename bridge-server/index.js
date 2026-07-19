@@ -488,6 +488,32 @@ async function dispatch(tool, args) {
       };
     }
 
+    // ── Approval Gate dispatches ──
+
+    case "transcribe_approve_delivery":
+      // This is handled by the agent-runner pipeline loop (saves state + pauses).
+      // The bridge just confirms the tool is recognized.
+      return { ok: true, tool: "transcribe_approve_delivery", note: "Pipeline will pause for user approval" };
+
+    case "transcribe_approve_gate1":
+      return await callPython("POST", `/transcribe/approve_gate1/${args.jobId}`, args);
+
+    case "transcribe_approve_gate2":
+      return await callPython("POST", `/transcribe/approve_gate2/${args.jobId}`, args);
+
+    case "transcribe_get_delivery_review_state": {
+      // Read delivery-review-state.json from disk
+      const storage = TRANSCRIPTION_STORAGE || path.resolve(__dirname, "..", "storage");
+      const statePath = path.join(storage, args.jobId, "delivery-review-state.json");
+      if (fs.existsSync(statePath)) {
+        const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+        // Don't expose the full LLM context to the frontend — too large
+        const { context, ...safeState } = state;
+        return safeState;
+      }
+      return { error: "No delivery review state found" };
+    }
+
     case "voiceprint_check_conflicts":
       return await callPython("POST", "/voiceprints/check-conflicts", { names: args.attendees || [] });
 

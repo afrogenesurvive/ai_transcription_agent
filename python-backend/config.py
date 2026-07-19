@@ -82,5 +82,11 @@ class Config:
     DELIVERY_EMAIL_ADDITIONAL_CONTENT = os.getenv("DELIVERY_EMAIL_ADDITIONAL_CONTENT", "")
     DELIVERY_DRIVE_FOLDER = os.getenv("DELIVERY_DRIVE_FOLDER", "Meeting Transcripts")
 
+    # ── Approval Gates ──
+    # Gate 1: pause after ASR+alignment for raw transcript review/editing before LLM processing
+    GATE_RAW_REVIEW_ENABLED = os.getenv("GATE_RAW_REVIEW_ENABLED", "false").lower() in ("true", "1", "yes")
+    # Gate 2: pause after LLM analysis for transcript/summary/analysis review before memory save + delivery
+    GATE_DELIVERY_REVIEW_ENABLED = os.getenv("GATE_DELIVERY_REVIEW_ENABLED", "false").lower() in ("true", "1", "yes")
+
 
 config = Config()

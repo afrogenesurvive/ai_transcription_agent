@@ -82,6 +82,10 @@ export interface AppConfig {
   PLAYWRIGHT_GENERIC_NAMES: string;
   /** Pipeline wall-clock timeout (minutes) before a hung job fails itself */
   PIPELINE_TIMEOUT_MINUTES: string;
+  /** Gate 1: Pause after ASR+alignment for raw transcript review/editing before LLM processing */
+  GATE_RAW_REVIEW_ENABLED: string;
+  /** Gate 2: Pause after LLM analysis for transcript/summary/analysis review before memory save + delivery */
+  GATE_DELIVERY_REVIEW_ENABLED: string;
 }
 
 const DEFAULTS: AppConfig = {
@@ -121,6 +125,8 @@ const DEFAULTS: AppConfig = {
   PLAYWRIGHT_GENERIC_NAMES:
     "Alex,Blake,Casey,Drew,Ellis,Finley,Gray,Harper,Indigo,Jade,Kai,Logan,Morgan,Nico,Oakley,Parker,Quinn,Reese,Skyler,Taylor",
   PIPELINE_TIMEOUT_MINUTES: "15",
+  GATE_RAW_REVIEW_ENABLED: "false",
+  GATE_DELIVERY_REVIEW_ENABLED: "false",
 };
 
 /** Keys the UI considers "required" before the pipeline can run. */
@@ -276,6 +282,8 @@ export function getChildEnv(): NodeJS.ProcessEnv {
       process.env.PLAYWRIGHT_GENERIC_NAMES ||
       "Alex,Blake,Casey,Drew,Ellis,Finley,Gray,Harper,Indigo,Jade,Kai,Logan,Morgan,Nico,Oakley,Parker,Quinn,Reese,Skyler,Taylor",
     PIPELINE_TIMEOUT_MINUTES: config.PIPELINE_TIMEOUT_MINUTES || process.env.PIPELINE_TIMEOUT_MINUTES || "15",
+    GATE_RAW_REVIEW_ENABLED: config.GATE_RAW_REVIEW_ENABLED || process.env.GATE_RAW_REVIEW_ENABLED || "false",
+    GATE_DELIVERY_REVIEW_ENABLED: config.GATE_DELIVERY_REVIEW_ENABLED || process.env.GATE_DELIVERY_REVIEW_ENABLED || "false",
     // Storage paths — only override in packaged (prod) mode so DBs land in a
     // writable location. In dev the Python backend defaults to the project-
     // relative storage/ dir, which is already writable.

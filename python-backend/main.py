@@ -14,6 +14,10 @@ import asyncio
 import numpy as np
 from datetime import datetime
 
+# ── Load .env file (if present) for standalone Python runs ──
+from dotenv import load_dotenv
+load_dotenv()
+
 # ── MPS memory limit (Apple Silicon) ──
 # PyTorch's MPS backend enforces a high-water mark (~90% of available VRAM).
 # When running large models (whisper-medium + pyannote diarization), the combined
@@ -82,6 +86,7 @@ ML_PIPELINE_STATUSES = frozenset({
     "uploaded", "initializing", "processing_diarization",
     "matching_voiceprints", "processing_transcription", "aligning",
     "paused_for_labeling", "resuming",
+    "pending_raw_review", "pending_delivery_review",
 })
 
 # Maximum wall-clock time (seconds) for the entire ML pipeline before
@@ -1863,6 +1868,14 @@ async def label_and_resume(job_id: str, labels: list = Body(...)):
             print(f"[label_and_resume] Warning: could not update job record: {e}")
 
         non_speaking_names = [ns["name"] for ns in non_speaking]
+
+        # ── Gate 1: Raw Transcript Review (after labeling, before enqueue) ──
+        if config.GATE_RAW_REVIEW_ENABLED:
+            uploader.update_status(job_id, {"status": "pending_raw_review", "progress": 0.95})
+            print(f"[label_and_resume] ⏸️  Gate 1 active — pausing for raw transcript review after labeling")
+            _update_active(job_id, "pending_raw_review", 0.95)
+            return {"job_id": job_id, "status": "pending_raw_review", "applied_labels": len(label_map)}
+
         agent_bridge.enqueue_ready(
             job_id, aligned, metadata, skip_steps=skip,
             non_speaking_attendees=non_speaking_names,
@@ -1878,6 +1891,200 @@ async def label_and_resume(job_id: str, labels: list = Body(...)):
         if drift_entries:
             result["voice_match_conflicts"] = drift_entries
         return result
+
+
+# ── Approval Gate Endpoints ──
+
+@app.post("/transcribe/approve_gate1/{job_id}")
+async def approve_gate1(job_id: str, body: dict = Body(...)):
+    """Accept or reject the raw transcript at Gate 1 (post-ASR, pre-LLM).
+
+    Body:
+      action: "approve" | "approve_with_edits" | "reject_cancel" | "reject_retry"
+      edited_transcript: Optional[{speaker, text, start, end}[]] — full edited transcript
+
+    On approve/enqueue: passes the transcript to the agent runner for LLM processing.
+    On reject_cancel: marks the job as failed.
+    On reject_retry: re-runs the ML pipeline (ASR + alignment).
+    """
+    s = uploader.get_status(job_id)
+    if s["status"] == "not_found":
+        raise HTTPException(404, "Job not found")
+    if s["status"] != "pending_raw_review":
+        raise HTTPException(409, f"Job is not pending raw review (status={s['status']})")
+
+    action = body.get("action", "approve")
+    print(f"[api] POST /transcribe/approve_gate1/{job_id} action={action}")
+
+    if action in ("approve", "approve_with_edits"):
+        if action == "approve_with_edits" and body.get("edited_transcript"):
+            edited = body["edited_transcript"]
+            if isinstance(edited, list):
+                uploader.save_transcript(job_id, edited)
+                uploader.save_transcript_text(job_id, edited)
+                uploader.save_edit_action(job_id, "gate1_edit", {
+                    "target": "transcript",
+                    "segments_changed": len(edited),
+                })
+                print(f"[api]   ✏️  Gate 1: transcript edited ({len(edited)} segments saved)")
+        uploader.save_edit_action(job_id, "gate1_approve", {"action": action})
+        # Reload transcript (may have been edited) and enqueue for agent runner
+        p = os.path.join(config.STORAGE_PATH, job_id, "transcript.json")
+        aligned = json.load(open(p)) if os.path.exists(p) else []
+        metadata = uploader.get_metadata(job_id)
+        skip = metadata.get("skip_steps")
+        agent_bridge.enqueue_ready(
+            job_id, aligned, metadata, skip_steps=skip,
+            non_speaking_attendees=s.get("non_speaking_attendees", []),
+        )
+        uploader.update_status(job_id, {"status": "enqueued"})
+        print(f"[api]   ✅ Gate 1: approved — enqueued for agent runner")
+        return {"job_id": job_id, "status": "enqueued", "action": action}
+
+    elif action == "reject_cancel":
+        uploader.save_edit_action(job_id, "gate1_reject_cancel", {})
+        uploader.update_status(job_id, {
+            "status": "failed",
+            "error": "Rejected at raw transcript review (Gate 1)",
+        })
+        print(f"[api]   ❌ Gate 1: rejected and cancelled")
+        return {"job_id": job_id, "status": "failed"}
+
+    elif action == "reject_retry":
+        uploader.save_edit_action(job_id, "gate1_reject_retry", {})
+        uploader.update_status(job_id, {"status": "reprocessing", "progress": 0.0})
+        _start_pipeline_async(job_id)
+        print(f"[api]   🔄 Gate 1: rejected and retrying pipeline")
+        return {"job_id": job_id, "status": "reprocessing"}
+
+    else:
+        raise HTTPException(400, f"Unknown action: {action}")
+
+
+@app.post("/transcribe/approve_gate2/{job_id}")
+async def approve_gate2(job_id: str, body: dict = Body(...)):
+    """Accept or reject the delivery package at Gate 2 (post-LLM, pre-memory-save).
+
+    Called by the frontend when the user finishes reviewing the transcript,
+    summary, analysis, and delivery options. On approve, the agent runner
+    (which receives the delivery_approved event) will save to memory then deliver.
+
+    Body:
+      action: "approve" | "approve_with_edits" | "reject_cancel" | "reject_retry"
+      edited_transcript: Optional[{speaker, text, start, end}[]]
+      edited_summary: Optional[dict]
+      edited_analysis: Optional[dict]
+      delivery_options: Optional[{recipients: str[], destinations: str[]}]
+      feedback: Optional[str] — user feedback included in retry context
+    """
+    s = uploader.get_status(job_id)
+    if s["status"] == "not_found":
+        raise HTTPException(404, "Job not found")
+    if s["status"] != "pending_delivery_review":
+        raise HTTPException(409, f"Job is not pending delivery review (status={s['status']})")
+
+    action = body.get("action", "approve")
+    print(f"[api] POST /transcribe/approve_gate2/{job_id} action={action}")
+
+    if action in ("approve", "approve_with_edits"):
+        edits_made = []
+
+        # Save any user edits
+        if body.get("edited_transcript"):
+            edited = body["edited_transcript"]
+            if isinstance(edited, list):
+                uploader.save_transcript(job_id, edited)
+                uploader.save_transcript_text(job_id, edited)
+                uploader.save_edit_action(job_id, "gate2_edit_transcript", {
+                    "segments_changed": len(edited),
+                })
+                edits_made.append("transcript")
+
+        if body.get("edited_summary"):
+            summary = body["edited_summary"]
+            uploader.save_summary(job_id, summary)
+            uploader.save_edit_action(job_id, "gate2_edit_summary", {
+                "fields_changed": list(summary.keys()),
+            })
+            edits_made.append("summary")
+
+        if body.get("edited_analysis"):
+            analysis = body["edited_analysis"]
+            uploader.save_analysis(job_id, analysis)
+            uploader.save_edit_action(job_id, "gate2_edit_analysis", {
+                "fields_changed": list(analysis.keys()),
+            })
+            edits_made.append("analysis")
+
+        # Save delivery option changes
+        delivery_opts = body.get("delivery_options", {})
+        if delivery_opts:
+            recipients = delivery_opts.get("recipients", [])
+            destinations = delivery_opts.get("destinations", [])
+            meta = uploader.get_metadata(job_id)
+            if recipients:
+                meta["email_recipients"] = recipients
+            if destinations:
+                meta["skip_steps"] = [
+                    s for s in (meta.get("skip_steps") or [])
+                    if s not in destinations
+                ]
+            # Persist updated metadata
+            meta_path = os.path.join(config.STORAGE_PATH, job_id, "metadata.json")
+            with open(meta_path, "w") as f:
+                json.dump(meta, f, indent=2)
+            uploader.save_edit_action(job_id, "gate2_delivery_options", {
+                "recipients": recipients,
+                "destinations": destinations,
+            })
+            edits_made.append("delivery_options")
+
+        uploader.save_edit_action(job_id, "gate2_approve", {
+            "action": action,
+            "edits": edits_made,
+        })
+
+        # Enqueue delivery_approved event for the agent runner
+        agent_bridge.enqueue("delivery_approved", {
+            "jobId": job_id,
+            "title": s.get("title", "Untitled Meeting"),
+            "edits_made": edits_made,
+        })
+        uploader.update_status(job_id, {"status": "delivery_approved"})
+        print(f"[api]   ✅ Gate 2: approved — delivery_approved enqueued (edits: {edits_made})")
+        return {"job_id": job_id, "status": "delivery_approved", "edits_made": edits_made}
+
+    elif action == "reject_cancel":
+        err_msg = body.get("feedback", "") or "Rejected at delivery review (Gate 2)"
+        uploader.save_edit_action(job_id, "gate2_reject_cancel", {"feedback": body.get("feedback", "")})
+        uploader.update_status(job_id, {"status": "failed", "error": err_msg})
+        print(f"[api]   ❌ Gate 2: rejected and cancelled")
+        return {"job_id": job_id, "status": "failed"}
+
+    elif action == "reject_retry":
+        feedback = body.get("feedback", "")
+        uploader.save_edit_action(job_id, "gate2_reject_retry", {"feedback": feedback})
+        # Reset to enqueued so the agent runner re-processes from the beginning
+        metadata = uploader.get_metadata(job_id)
+        p = os.path.join(config.STORAGE_PATH, job_id, "transcript.json")
+        aligned = json.load(open(p)) if os.path.exists(p) else []
+        skip = metadata.get("skip_steps")
+        uploader.update_status(job_id, {"status": "enqueued"})
+        # Enqueue with retry flag + user feedback
+        agent_bridge.enqueue("ready_for_processing", {
+            "jobId": job_id,
+            "title": metadata.get("title", "Untitled Meeting"),
+            "attendees": metadata.get("attendees", []),
+            "transcript": aligned,
+            "skip_steps": skip,
+            "retry_feedback": feedback,
+            "retry_from_gate2": True,
+        })
+        print(f"[api]   🔄 Gate 2: rejected and retrying LLM pipeline (feedback: '{feedback[:100]}')")
+        return {"job_id": job_id, "status": "enqueued", "retry": True}
+
+    else:
+        raise HTTPException(400, f"Unknown action: {action}")
 
 
 def _start_resumed_pipeline(job_id: str, label_map: dict):
@@ -3819,10 +4026,6 @@ def _run_pipeline_sync(job_id: str):
             )
             return  # Exit pipeline — resume via POST /transcribe/label_and_resume
         else:
-            _update_active(job_id, "ready_for_agent", 0.95)
-            skip = metadata.get("skip_steps")
-            jlog.log(f"[pipeline] All speakers known — enqueueing ready_for_processing (skip_steps={skip})")
-
             # Register attendees in ephemeral DB AFTER full reconciliation
             _register_attendees_after_reconciliation(
                 job_id, metadata, reconciliation, source="new_job_form"
@@ -3839,6 +4042,16 @@ def _run_pipeline_sync(job_id: str):
             except Exception as e:
                 jlog.log(f"[pipeline] Warning: could not update job record: {e}")
 
+            # ── Gate 1: Raw Transcript Review ──
+            if config.GATE_RAW_REVIEW_ENABLED:
+                _update_active(job_id, "pending_raw_review", 0.95)
+                jlog.log(f"\n   ⏸️  [PIPELINE] Gate 1 active — pausing for raw transcript review")
+                jlog.log(f"[pipeline] ⏸️  Pipeline paused — waiting for user to review/edit transcript")
+                return  # Exit pipeline — resume via POST /transcribe/approve_gate1/{job_id}
+
+            _update_active(job_id, "ready_for_agent", 0.95)
+            skip = metadata.get("skip_steps")
+            jlog.log(f"[pipeline] All speakers known — enqueueing ready_for_processing (skip_steps={skip})")
             agent_bridge.enqueue_ready(
                 job_id, aligned, metadata, skip_steps=skip,
                 non_speaking_attendees=non_speaking_names,

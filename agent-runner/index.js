@@ -175,6 +175,53 @@ async function processEvent(event) {
     return;
   }
 
+  // ── Delivery approved event ──
+  // The user approved Gate 2 (delivery review). Restore saved pipeline state
+  // and continue from where we left off (save_context → prepare_delivery → deliver).
+  if (event.type === "delivery_approved") {
+    console.log(`\n   ⏩ [RUNNER] Delivery approved — resuming pipeline for job ${tag}`);
+    const storageDir = path.join(STORAGE_BASE, jobData.jobId || eventId);
+    const reviewStatePath = path.join(storageDir, "delivery-review-state.json");
+
+    if (!fs.existsSync(reviewStatePath)) {
+      console.log(`❌ [RUNNER] No saved delivery review state found at ${reviewStatePath}`);
+      console.log(`❌ [RUNNER] Falling back — processing as ready_for_processing`);
+      // Fall through to normal processing below
+    } else {
+      try {
+        const reviewState = JSON.parse(fs.readFileSync(reviewStatePath, "utf8"));
+        context = reviewState.context || "";
+        existingSteps = reviewState.tokenUsage || existingSteps;
+        if (Array.isArray(existingSteps)) {
+          totalPromptTokens = existingSteps.reduce((sum, s) => sum + (s.prompt_tokens || 0), 0);
+          totalCompletionTokens = existingSteps.reduce((sum, s) => sum + (s.completion_tokens || 0), 0);
+          totalTokens = existingSteps.reduce((sum, s) => sum + (s.total_tokens || 0), 0);
+        }
+
+        // Append approval context so the LLM knows what happened
+        const editsNotice = jobData.edits_made?.length
+          ? `User edited: ${jobData.edits_made.join(", ")}`
+          : "No edits made by user";
+        context += `\n\n[Delivery Approved] ${editsNotice}. Proceed with save_context, prepare_delivery, then deliver.`;
+
+        // Rebuild available tools — unlock delivery tools
+        if (jobData.skip_steps) {
+          skippedTools.clear();
+          for (const s of (jobData.skip_steps || [])) skippedTools.add(s);
+        }
+        availableTools = TOOLS.filter((t) => !skippedTools.has(t.name));
+
+        console.log(`✅ [RUNNER] Delivery review state restored — context: ${context.length} chars, ${availableTools.length} tools`);
+        console.log(`✅ [RUNNER] Pipeline will resume from step ${reviewState.pausedAtStep || "?"}`);
+        // Continue to the pipeline loop below — context is already set
+      } catch (err) {
+        console.log(`⚠️  [RUNNER] Failed to restore delivery review state: ${err.message}`);
+        console.log(`⚠️  [RUNNER] Falling back — processing as ready_for_processing`);
+        context = buildInitialContext(event, transcript, safeTitle, safeAttendees, eventId);
+      }
+    }
+  }
+
   // ── Empty transcript guard ──
   // If the ML pipeline failed (no transcript produced), skip LLM processing
   // entirely to avoid wasting tokens on empty content. The job is marked as
@@ -826,6 +873,52 @@ async function processEvent(event) {
       }
     }
 
+    // ── Approve Delivery (Gate 2) — save state and pause for user review ──
+    if (decision.name === "transcribe_approve_delivery") {
+      console.log(`⏸️  [RUNNER] Gate 2: pausing for delivery review — saving pipeline state`);
+
+      try {
+        // 1. Save full pipeline state for resumption
+        const reviewState = {
+          jobId: jobData.jobId || eventId,
+          title: safeTitle,
+          context: context,
+          tokenUsage: [...existingSteps, ...tokenUsage],
+          pausedAtStep: step,
+          savedAt: new Date().toISOString(),
+        };
+        const storageDir = path.join(STORAGE_BASE, jobData.jobId || eventId);
+        fs.mkdirSync(storageDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(storageDir, "delivery-review-state.json"),
+          JSON.stringify(reviewState, null, 2),
+          "utf8",
+        );
+
+        // 2. Update job status on the backend
+        await executeToolCall("transcribe_upsert_job", {
+          jobId: jobData.jobId || eventId,
+          result: "pending",
+        });
+
+        console.log(`✅ [RUNNER] Delivery review state saved (${JSON.stringify(reviewState).length} chars)`);
+        logAction({
+          eventId,
+          eventType: event.type,
+          action: "paused",
+          detail: "Gate 2: paused for delivery review",
+          toolName: "transcribe_approve_delivery",
+        });
+      } catch (saveErr) {
+        console.log(`⚠️  [RUNNER] Failed to save delivery review state: ${saveErr.message}`);
+      }
+
+      // 3. Exit the pipeline loop — don't mark as complete/failed
+      pipelineComplete = true;
+      deliveryHandled = true;  // prevents post-loop complete/fail
+      break;
+    }
+
     // ── One-shot tool removal ──
     // After a transcript has been read successfully, remove the read-transcript
     // tool from the available set so the LLM cannot loop on it. The transcript
@@ -1190,6 +1283,8 @@ function buildInitialContext(event, transcript, safeTitle, safeAttendees, eventI
       substitutions.push({ var: "{{transcript_preview}}", value: `${Math.min(transcript.length, 50)} segments preview` });
     if (event.type === "labeling_needed")
       substitutions.push({ var: "{{speaker_details}}", value: `${(jobData.unknownSpeakers || []).length} unknown speakers` });
+    if (event.type === "delivery_approved")
+      substitutions.push({ var: "{{edits_summary}}", value: (jobData.edits_made || []).join(", ") || "none" });
     console.log(`📝 [BUILD-CONTEXT]   Variable substitutions: ${substitutions.map((s) => `${s.var} → ${s.value}`).join(", ")}`);
 
     const nonSpeakingList = (jobData.nonSpeakingAttendees || []).join(", ") || "none";
@@ -1216,7 +1311,17 @@ function buildInitialContext(event, transcript, safeTitle, safeAttendees, eventI
       console.log(
         `   📝 [BUILD-CONTEXT]   Transcript preview: ${previewLines.length} segments, ${previewChars} chars${remaining > 0 ? ` (${remaining} more omitted)` : ""}`,
       );
-      lines.push(rendered.replace("{{transcript_preview}}", transcriptPreview));
+      const renderedWithPreview = rendered.replace("{{transcript_preview}}", transcriptPreview);
+
+      // Append retry feedback from Gate 2 if present
+      if (jobData.retry_feedback) {
+        const feedback = jobData.retry_feedback;
+        console.log(`📝 [BUILD-CONTEXT]   Retry feedback from Gate 2: "${feedback.slice(0, 100)}"`);
+        const feedbackNote = `\n\n[Previous delivery was rejected by user. Feedback: "${feedback}"]`;
+        lines.push(renderedWithPreview + feedbackNote);
+      } else {
+        lines.push(renderedWithPreview);
+      }
     } else if (event.type === "labeling_needed") {
       const speakerLines = [];
       for (const uk of jobData.unknownSpeakers || []) {
@@ -1224,6 +1329,10 @@ function buildInitialContext(event, transcript, safeTitle, safeAttendees, eventI
       }
       console.log(`📝 [BUILD-CONTEXT]   Unknown speakers: ${(jobData.unknownSpeakers || []).length} speaker(s) in preview`);
       lines.push(rendered.replace("{{speaker_details}}", speakerLines.join("\n")));
+    } else if (event.type === "delivery_approved") {
+      const editsSummary = (jobData.edits_made || []).join(", ") || "none";
+      console.log(`📝 [BUILD-CONTEXT]   Delivery approved — edits: ${editsSummary}`);
+      lines.push(rendered.replace("{{edits_summary}}", editsSummary));
     } else {
       lines.push(rendered);
     }
@@ -1246,6 +1355,10 @@ function buildInitialContext(event, transcript, safeTitle, safeAttendees, eventI
     } else if (event.type === "failed") {
       console.log(`📝 [BUILD-CONTEXT]   Fallback: inline error message`);
       lines.push(`Processing failed. Error: ${jobData.error || "unknown"}`);
+    } else if (event.type === "delivery_approved") {
+      console.log(`📝 [BUILD-CONTEXT]   Fallback: inline delivery approved notice`);
+      const edits = (jobData.edits_made || []).join(", ") || "none";
+      lines.push(`Delivery approved. Edits: ${edits}. Resume pipeline.`);
     }
   }
 

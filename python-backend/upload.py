@@ -159,6 +159,34 @@ class AudioUploader:
                 pass
             raise
 
+    def save_edit_action(self, job_id: str, action: str, details: dict):
+        """Append an edit action to the job's edits.jsonl for audit tracking.
+
+        Called at both approval gates to record user edits to transcript,
+        summary, analysis, or delivery options. The edits.jsonl file is
+        returned alongside other job files by the get_job_logs endpoint.
+
+        Args:
+            job_id: The job ID.
+            action: Short action name, e.g. "gate1_edit", "gate1_approve",
+                    "gate2_edit_summary", "gate2_approve", "gate2_reject".
+            details: Dict with contextual info about the edit, e.g.
+                     {"target": "transcript", "segments_changed": 3}.
+        """
+        job_dir = os.path.join(self.storage_path, job_id)
+        os.makedirs(job_dir, exist_ok=True)
+        edits_path = os.path.join(job_dir, "edits.jsonl")
+        entry = {
+            "action": action,
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
+            **details,
+        }
+        try:
+            with open(edits_path, "a") as f:
+                f.write(json.dumps(entry) + "\n")
+        except OSError as e:
+            print(f"[upload] ⚠️  Could not write edit action to {edits_path}: {e}")
+
     @staticmethod
     def _copy_file(src: str, dst: str):
         subprocess.run(["cp", src, dst], check=True)

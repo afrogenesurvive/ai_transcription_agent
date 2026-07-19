@@ -203,6 +203,16 @@ const FALLBACK_PIPELINE = {
     },
     {
       id: "step-5",
+      toolName: "transcribe_approve_delivery",
+      label: "Review & Approve Delivery",
+      description: "Pause pipeline for user to review transcript, summary, analysis and confirm or change delivery options",
+      systemPromptTemplate: "",
+      hintTemplate: "",
+      enabled: false,
+      isTerminal: false,
+    },
+    {
+      id: "step-6",
       toolName: "transcribe_save_context",
       label: "Save to Memory",
       description: "Persist meeting to semantic and ephemeral memory",
@@ -212,7 +222,7 @@ const FALLBACK_PIPELINE = {
       isTerminal: false,
     },
     {
-      id: "step-6",
+      id: "step-7",
       toolName: "transcribe_prepare_delivery",
       label: "Prepare Delivery",
       description: "Package results for delivery destinations",
@@ -222,7 +232,7 @@ const FALLBACK_PIPELINE = {
       isTerminal: false,
     },
     {
-      id: "step-7",
+      id: "step-8",
       toolName: "send_delivery_email",
       label: "Deliver via Email",
       description: "Send results via email",
@@ -232,7 +242,7 @@ const FALLBACK_PIPELINE = {
       isTerminal: true,
     },
     {
-      id: "step-8",
+      id: "step-9",
       toolName: "save_to_drive",
       label: "Save to Drive",
       description: "Save results to Google Drive",
@@ -242,7 +252,7 @@ const FALLBACK_PIPELINE = {
       isTerminal: true,
     },
     {
-      id: "step-9",
+      id: "step-10",
       toolName: "create_trello_action_items",
       label: "Create Trello Cards",
       description: "Create action items as Trello cards",
@@ -258,7 +268,8 @@ const FALLBACK_PIPELINE = {
     transcribe_get_transcript:
       "Next: Call transcribe_summarize to generate a structured summary from the transcript, then call transcribe_analyze to store analysis results...",
     transcribe_summarize: "Next: Call transcribe_analyze to store analysis of topics, sentiment, entities, and follow-ups...",
-    transcribe_analyze: "Next: Call transcribe_save_context to persist the meeting...",
+    transcribe_analyze: "Next: If delivery review is enabled, call transcribe_approve_delivery to pause for user approval. Otherwise call transcribe_save_context.",
+    transcribe_approve_delivery: "Next: After user approves, call transcribe_save_context to persist the meeting...",
     transcribe_save_context: "Next: Call transcribe_prepare_delivery to package results for delivery.",
     transcribe_prepare_delivery: "Next: Deliver results using send_delivery_email, save_to_drive, or create_trello_action_items.",
     transcribe_label_speaker: "Next: If more unknown speakers remain, call transcribe_label_speaker again; otherwise the pipeline is complete.",
