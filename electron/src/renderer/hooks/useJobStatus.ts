@@ -116,11 +116,7 @@ export function useJobStatus(jobId: string | null, fetcher: (id: string) => Prom
         }
 
         // Paused for labeling, raw transcript review, or delivery review
-        if (
-          result.status === "paused_for_labeling" ||
-          result.status === "pending_raw_review" ||
-          result.status === "pending_delivery_review"
-        ) {
+        if (result.status === "paused_for_labeling" || result.status === "pending_raw_review" || result.status === "pending_delivery_review") {
           setState("paused");
           return;
         }

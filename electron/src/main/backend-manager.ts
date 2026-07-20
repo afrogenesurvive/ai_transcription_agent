@@ -179,7 +179,7 @@ function resolvePythonBin(backendDir: string): { bin: string; args: string[] } {
     //   Flat:    <backendDir>/main(.exe)         — older PyInstaller or different distpath usage
     const candidates = [
       path.join(backendDir, "main", `main${ext}`), // nested
-      path.join(backendDir, `main${ext}`),          // flat
+      path.join(backendDir, `main${ext}`), // flat
     ];
 
     for (const pyBin of candidates) {

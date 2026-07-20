@@ -1893,10 +1893,10 @@ app.whenReady().then(async () => {
       dialog.showErrorBox(
         "Backend Error",
         `Could not start the transcription backend.\n\n` +
-        `Details: ${err.message}\n\n` +
-        `If you're running a development build, make sure Python 3 and Node.js are installed. ` +
-        `Packaged builds bundle all dependencies automatically.\n\n` +
-        `A startup log was saved to:\n${errorLogPath}`,
+          `Details: ${err.message}\n\n` +
+          `If you're running a development build, make sure Python 3 and Node.js are installed. ` +
+          `Packaged builds bundle all dependencies automatically.\n\n` +
+          `A startup log was saved to:\n${errorLogPath}`,
       );
     }
   }

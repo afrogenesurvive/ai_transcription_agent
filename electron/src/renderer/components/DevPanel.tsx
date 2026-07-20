@@ -3609,10 +3609,16 @@ function BackendTestingTab() {
         const seen = new Set<string>();
         const merged: Array<{ job_id: string; status: string; progress: number; title: string }> = [];
         for (const j of pipelineJobs) {
-          if (!seen.has(j.job_id)) { seen.add(j.job_id); merged.push(j); }
+          if (!seen.has(j.job_id)) {
+            seen.add(j.job_id);
+            merged.push(j);
+          }
         }
         for (const j of botJobs) {
-          if (!seen.has(j.job_id)) { seen.add(j.job_id); merged.push({ job_id: j.job_id, status: j.status, progress: 0, title: "Bot Job" }); }
+          if (!seen.has(j.job_id)) {
+            seen.add(j.job_id);
+            merged.push({ job_id: j.job_id, status: j.status, progress: 0, title: "Bot Job" });
+          }
         }
         setActiveJobs(merged);
       } catch {
@@ -3662,7 +3668,11 @@ function BackendTestingTab() {
             <Icon name={running ? "sync" : "play_arrow"} size="14" color={running || activeJobs.length > 0 ? "muted" : "accent"} />
             {running ? " Running..." : " Run"}
           </button>
-          <button className="dev-panel-btn" onClick={handleStop} disabled={!running && activeJobs.length === 0} title={activeJobs.length > 0 ? "Stop all running pipeline and bot jobs" : "Stop the running script"}>
+          <button
+            className="dev-panel-btn"
+            onClick={handleStop}
+            disabled={!running && activeJobs.length === 0}
+            title={activeJobs.length > 0 ? "Stop all running pipeline and bot jobs" : "Stop the running script"}>
             <Icon name="stop" size="14" color={running || activeJobs.length > 0 ? "red" : "muted"} />
             {activeJobs.length > 0 && !running ? "Stop Jobs" : "Stop"}
           </button>

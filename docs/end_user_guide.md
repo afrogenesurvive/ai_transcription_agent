@@ -74,16 +74,16 @@ The app has a clean, centered layout:
 
 **Sidebar buttons** on the left (drag the right edge to resize):
 
-| Button | Icon | Action |
-|--------|------|--------|
-| **New** | ➕ | Start a new transcription — opens the upload form. Disabled while a job is running. |
-| **Current** | 🏠 | View the active or most recent job — pipeline progress, transcript, results |
-| **History** | 📋 | Browse past transcription jobs — reload or delete previous sessions |
-| **Storage** | 💾 | View disk usage breakdown — jobs, logs, databases, and models |
-| **Dev** | 🛠️ | Developer tools — live logs, database browser, performance metrics, updates |
-| **Config** | ⚙️ | Configure API keys, LLM provider, delivery services, and agent pipeline settings |
-| **Appearance** | 🎨 | Customize theme, accent color, font size, and sidebar width |
-| **About** | ℹ️ | App version, name, and README |
+| Button         | Icon | Action                                                                              |
+| -------------- | ---- | ----------------------------------------------------------------------------------- |
+| **New**        | ➕   | Start a new transcription — opens the upload form. Disabled while a job is running. |
+| **Current**    | 🏠   | View the active or most recent job — pipeline progress, transcript, results         |
+| **History**    | 📋   | Browse past transcription jobs — reload or delete previous sessions                 |
+| **Storage**    | 💾   | View disk usage breakdown — jobs, logs, databases, and models                       |
+| **Dev**        | 🛠️   | Developer tools — live logs, database browser, performance metrics, updates         |
+| **Config**     | ⚙️   | Configure API keys, LLM provider, delivery services, and agent pipeline settings    |
+| **Appearance** | 🎨   | Customize theme, accent color, font size, and sidebar width                         |
+| **About**      | ℹ️   | App version, name, and README                                                       |
 
 A **pulsing orange badge** appears on the Current button when bot-created test jobs are running.
 
@@ -91,19 +91,20 @@ The sidebar can be **dragged wider or narrower** by clicking and dragging the re
 
 **Status Bar** at the bottom:
 
-| Element | Description |
-|---------|-------------|
-| **Config** dot | 🟢 green = LLM provider configured, 🔴 red = missing API key |
-| **Diarization** dot | 🟢 green = speaker diarization model available |
-| **Python / Bridge / Agent** dots | 🟢 = service running, 🔴 = stopped, ⚪ = checking |
-| **💰 Balance** | DeepSeek credit balance (click to see popover with details) |
-| **Per-service controls** | Click a running service's ■ button to stop it, or ▶ to restart a stopped service |
-| ⚙️ **Settings** | Open the configuration panel |
-| 📋 **History** | Browse past meetings |
-| 💾 **Storage** | View disk usage |
-| 🖥️ **Dev Tools** | Open developer tools |
+| Element                          | Description                                                                      |
+| -------------------------------- | -------------------------------------------------------------------------------- |
+| **Config** dot                   | 🟢 green = LLM provider configured, 🔴 red = missing API key                     |
+| **Diarization** dot              | 🟢 green = speaker diarization model available                                   |
+| **Python / Bridge / Agent** dots | 🟢 = service running, 🔴 = stopped, ⚪ = checking                                |
+| **💰 Balance**                   | DeepSeek credit balance (click to see popover with details)                      |
+| **Per-service controls**         | Click a running service's ■ button to stop it, or ▶ to restart a stopped service |
+| ⚙️ **Settings**                  | Open the configuration panel                                                     |
+| 📋 **History**                   | Browse past meetings                                                             |
+| 💾 **Storage**                   | View disk usage                                                                  |
+| 🖥️ **Dev Tools**                 | Open developer tools                                                             |
 
 **Header bar** at the top:
+
 - Shows the app title and a **Job Running indicator** when a transcription is active — displays the short job ID. Click on it to copy the full job ID to your clipboard.
 
 ---
@@ -154,6 +155,7 @@ Maximum file size: **500 MB**
 > **Tip:** If a second person tries to upload while the first meeting is still processing, the "New" sidebar button is disabled, and you'll see a message saying "A transcription job is already running." Wait for the current one to finish.
 >
 > The app also detects **bot-created jobs** (e.g., from the automated test script). When one is running:
+>
 > - A pulsing orange badge appears on the Current sidebar button
 > - The main panel shows a full pipeline stepper with the bot job's real-time status
 > - A "Bot / Test Job" badge appears in the pipeline header
@@ -165,6 +167,7 @@ Maximum file size: **500 MB**
 ## The Transcription Pipeline
 
 Once you upload, the app shows a **pipeline progress tracker** with a vertical stepper showing all stages. Each stage shows:
+
 - An icon, a friendly label, and a plain-English description
 - ✅ **Done** — green checkmark for completed stages
 - 🔄 **In progress** — spinning animation on the active stage with a pulsing "In progress" badge
@@ -255,6 +258,7 @@ If you've configured email, Drive, or Trello integrations, the results are sent 
 ### Stopping a Job
 
 While the pipeline is running, a **Stop Processing** button appears below the stepper. Clicking it opens a confirmation dialog:
+
 > **"Are you sure you want to stop processing? The partial results will be preserved."**
 
 Confirm to cancel the job. The results viewer opens showing whatever was completed so far, along with a "Cancelled by user" message.
@@ -318,6 +322,7 @@ A structured summary with:
 - Each section is collapsible
 
 **Editing:** Click the ✏️ **Edit** button in the toolbar to modify the summary content after the job completes. You can:
+
 - Edit the executive summary text
 - Add or remove discussion points and key decisions
 - Add, edit, or remove action items (description, assignee, deadline)
@@ -336,6 +341,7 @@ AI-generated analysis including:
 - **Follow-ups** — items that need future discussion
 
 **Editing:** Click the ✏️ **Edit** button in the toolbar to modify the analysis content after the job completes. You can:
+
 - Add or remove topics, key entities, and follow-ups
 - Edit the sentiment and effectiveness descriptions
 - Changes are saved to disk with an audit trail
@@ -456,26 +462,26 @@ The history panel has a **drag-to-resize** handle on its right edge — click an
 1. Click **💾 Storage** in the sidebar, or **💾 Storage** in the status bar
 2. See a visual breakdown of disk space across **6 categories**:
 
-| Category | Contents | Color |
-|----------|----------|-------|
-| **History** | Transcription job data (transcripts, audio, status files) | 🔵 Blue |
-| **Logs** | Application log files (.jsonl) | 🟡 Yellow |
-| **ChromaDB** | Vector store for semantic memory | 🟢 Green |
-| **Databases** | Ephemeral memory + voiceprint SQLite databases | 🟣 Purple |
-| **System** | Source code, config, dependencies | ⚪ Grey |
-| **Ollama Models** | Downloaded LLM models (~/.ollama) | 🔴 Red |
+| Category          | Contents                                                  | Color     |
+| ----------------- | --------------------------------------------------------- | --------- |
+| **History**       | Transcription job data (transcripts, audio, status files) | 🔵 Blue   |
+| **Logs**          | Application log files (.jsonl)                            | 🟡 Yellow |
+| **ChromaDB**      | Vector store for semantic memory                          | 🟢 Green  |
+| **Databases**     | Ephemeral memory + voiceprint SQLite databases            | 🟣 Purple |
+| **System**        | Source code, config, dependencies                         | ⚪ Grey   |
+| **Ollama Models** | Downloaded LLM models (~/.ollama)                         | 🔴 Red    |
 
 Each category shows the disk size and the file path on disk.
 
 **Developer Section** (collapsible) — for clearing data:
 
-| Action | Description |
-|--------|-------------|
-| 🗑️ **Clear All Logs** | Deletes all `.jsonl` log files from the logs directory |
+| Action                        | Description                                                     |
+| ----------------------------- | --------------------------------------------------------------- |
+| 🗑️ **Clear All Logs**         | Deletes all `.jsonl` log files from the logs directory          |
 | ⚠️ **Delete Error Logs Only** | Removes only log entries with errors (red-bordered danger zone) |
-| 🗑️ **Clear Job History** | Deletes all completed job data (confirmation required) |
-| 🗑️ **Clear Semantic Memory** | Wipes the ChromaDB vector store |
-| 🗑️ **Clear Databases** | Resets ephemeral memory and voiceprint databases |
+| 🗑️ **Clear Job History**      | Deletes all completed job data (confirmation required)          |
+| 🗑️ **Clear Semantic Memory**  | Wipes the ChromaDB vector store                                 |
+| 🗑️ **Clear Databases**        | Resets ephemeral memory and voiceprint databases                |
 
 All destructive actions require a confirmation dialog before proceeding. Storage usage auto-refreshes after any deletion.
 
@@ -528,10 +534,10 @@ Choose your AI provider:
 
 Configure optional approval gates:
 
-| Setting | Description |
-|---------|-------------|
-| **Raw Transcript Review (Gate 1)** | When enabled, the pipeline pauses after alignment for you to review the raw transcript before AI processing |
-| **Delivery Review (Gate 2)** | When enabled, the pipeline pauses after AI processing for you to review the deliverable package before sending |
+| Setting                            | Description                                                                                                    |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| **Raw Transcript Review (Gate 1)** | When enabled, the pipeline pauses after alignment for you to review the raw transcript before AI processing    |
+| **Delivery Review (Gate 2)**       | When enabled, the pipeline pauses after AI processing for you to review the deliverable package before sending |
 
 See the [Approval Gates](#approval-gates) section for details of each gate's workflow.
 
@@ -539,11 +545,11 @@ See the [Approval Gates](#approval-gates) section for details of each gate's wor
 
 Configure integrations for delivering results:
 
-| Service | Fields Required |
-|---------|----------------|
-| **Gmail** | Client ID, Client Secret, Refresh Token, User Email |
-| **Trello** | API Key, Token |
-| **Google Drive** | Uses the same Gmail OAuth credentials |
+| Service          | Fields Required                                     |
+| ---------------- | --------------------------------------------------- |
+| **Gmail**        | Client ID, Client Secret, Refresh Token, User Email |
+| **Trello**       | API Key, Token                                      |
+| **Google Drive** | Uses the same Gmail OAuth credentials               |
 
 Each service has a collapsible accordion — click to expand and fill in the credentials.
 
@@ -597,23 +603,23 @@ For advanced users: customize the AI pipeline behavior.
 
 Fine-tune how logs are recorded and displayed:
 
-| Setting | Description |
-|---------|-------------|
-| **LLM Data Logging** | When enabled, the full AI prompt and response for each pipeline step are saved to the job's storage directory. Useful for debugging AI behavior, but can produce large log files. |
-| **Collapse Repeated Log Lines** | When enabled, consecutive log entries with the same source and level are grouped into collapsible entries in the Results Viewer's Logs tab, reducing visual noise. |
-| **Log Sources** | Checkboxes to enable/disable disk logging per source (Python, Bridge, Agent, Main). Unchecked sources are still shown in the in-memory live log but NOT written to disk. |
-| **Log Level** | Minimum level to write to disk: `debug` (everything), `info`, `warn`, `error`, or `off` (nothing to disk). |
-| **Max File Size** | Maximum size per log file before rotation (default: 50 MB). |
-| **Max Files** | Maximum number of rotated log files to keep (default: 10). |
+| Setting                         | Description                                                                                                                                                                       |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **LLM Data Logging**            | When enabled, the full AI prompt and response for each pipeline step are saved to the job's storage directory. Useful for debugging AI behavior, but can produce large log files. |
+| **Collapse Repeated Log Lines** | When enabled, consecutive log entries with the same source and level are grouped into collapsible entries in the Results Viewer's Logs tab, reducing visual noise.                |
+| **Log Sources**                 | Checkboxes to enable/disable disk logging per source (Python, Bridge, Agent, Main). Unchecked sources are still shown in the in-memory live log but NOT written to disk.          |
+| **Log Level**                   | Minimum level to write to disk: `debug` (everything), `info`, `warn`, `error`, or `off` (nothing to disk).                                                                        |
+| **Max File Size**               | Maximum size per log file before rotation (default: 50 MB).                                                                                                                       |
+| **Max Files**                   | Maximum number of rotated log files to keep (default: 10).                                                                                                                        |
 
 ### Testing Tab (in Settings)
 
 Configure variables for the Playwright screenshot tests:
 
-| Field | Description |
-|-------|-------------|
-| **Audio File Path** | Absolute path to an audio file (MP3/WAV) used by screenshot tests |
-| **Test Title Template** | Meeting title template (`{autoNum}` auto-increments) |
+| Field                    | Description                                                                                  |
+| ------------------------ | -------------------------------------------------------------------------------------------- |
+| **Audio File Path**      | Absolute path to an audio file (MP3/WAV) used by screenshot tests                            |
+| **Test Title Template**  | Meeting title template (`{autoNum}` auto-increments)                                         |
 | **Default Speaker Name** | Fallback name (used if >20 speakers detected) — see built-in 20-name list in the test source |
 
 These same variables are also editable in **Dev Tools → Testing** tab, where you can run the tests directly.
@@ -643,17 +649,20 @@ Real-time log viewer showing log entries from all four services (Python, Bridge,
 Browse the app's internal databases with three sub-views:
 
 #### Ephemeral Memory
+
 - Lists all tables in the ephemeral memory SQLite database (action_items, contacts, budgets, decisions, etc.)
 - Click a table to browse up to 100 rows with column headers
 - Expand any row (▶) to see the full cell content
 - Resizable column headers — drag the right edge of any header to resize
 
 #### Semantic Memory (ChromaDB)
+
 - **Stats** — total chunks, unique meetings, chunks by type (summary, transcript, action_items), embedding dimension, HNSW space
 - **Cross-meeting overlap** — common attendees (appearing in 2+ meetings) with meeting tags; keyword overlap as an opacity-weighted tag cloud
 - **🔍 Search** — enter a query (e.g. "budget discussion", "Q4 planning") to search ChromaDB with relevance scores, meeting title, and document snippets
 
 #### Voiceprints
+
 - Lists all enrolled voiceprints with name, email, linked job ID, and sample availability
 - **Play button** ▶ — hear the voiceprint sample for any enrolled speaker
 - **Delete button** 🗑️ — remove a single voiceprint with confirmation
@@ -661,6 +670,7 @@ Browse the app's internal databases with three sub-views:
 ### Performance Tab
 
 Real-time CPU and memory monitoring across all jobs:
+
 - SVG line chart with CPU % (blue) and memory usage (green dashed line)
 - Pipeline stage transition markers (vertical dashed lines)
 - Auto-scaling Y axis and elapsed time X axis
@@ -675,14 +685,14 @@ Real-time CPU and memory monitoring across all jobs:
 
 Check for and install app updates:
 
-| Field | Description |
-|-------|-------------|
-| **Mode** | Dev (git-based) or Packaged (electron-updater) — auto-detected |
-| **Current Version** | The installed app version |
-| **Update Status** | Checking, Up-to-date, or Update Available |
-| **Last Check** | When the last update check was performed |
-| **Last Update** | When the app was last updated |
-| **Auto-check** | Toggle to enable/disable automatic update checking |
+| Field               | Description                                                    |
+| ------------------- | -------------------------------------------------------------- |
+| **Mode**            | Dev (git-based) or Packaged (electron-updater) — auto-detected |
+| **Current Version** | The installed app version                                      |
+| **Update Status**   | Checking, Up-to-date, or Update Available                      |
+| **Last Check**      | When the last update check was performed                       |
+| **Last Update**     | When the app was last updated                                  |
+| **Auto-check**      | Toggle to enable/disable automatic update checking             |
 
 Buttons: **Check for Updates**, **Download** (packaged mode only, with progress %), **Restart & Install**
 
@@ -746,20 +756,20 @@ Click the **🎨 Appearance** button in the sidebar to customize the look and fe
 
 Choose between three options:
 
-| Theme | Description |
-|-------|-------------|
-| **Dark** | Dark background with light text — easy on the eyes for low-light environments |
-| **Light** | Light background with dark text — bright appearance for well-lit environments |
-| **System** | Automatically follows your operating system's dark/light preference |
+| Theme      | Description                                                                   |
+| ---------- | ----------------------------------------------------------------------------- |
+| **Dark**   | Dark background with light text — easy on the eyes for low-light environments |
+| **Light**  | Light background with dark text — bright appearance for well-lit environments |
+| **System** | Automatically follows your operating system's dark/light preference           |
 
 ### Accent Color
 
 Choose from 8 preset colors or pick any custom color:
 
-| Preset | Color |
-|--------|-------|
-| Blue, Green, Purple, Pink, Orange, Red, Teal, Yellow | Click a swatch to apply instantly |
-| **Custom** | Use the color picker to select any hex color |
+| Preset                                               | Color                                        |
+| ---------------------------------------------------- | -------------------------------------------- |
+| Blue, Green, Purple, Pink, Orange, Red, Teal, Yellow | Click a swatch to apply instantly            |
+| **Custom**                                           | Use the color picker to select any hex color |
 
 The accent color is used for interactive elements, highlights, and progress indicators throughout the app.
 
@@ -767,12 +777,12 @@ The accent color is used for interactive elements, highlights, and progress indi
 
 Four preset sizes to adjust the overall text size:
 
-| Preset | Description |
-|--------|-------------|
-| **Small** | Compact — more content visible at once |
-| **Medium** | Default — balanced readability and density |
-| **Large** | Increased size for easier reading |
-| **Extra Large** | Maximum size for accessibility |
+| Preset          | Description                                |
+| --------------- | ------------------------------------------ |
+| **Small**       | Compact — more content visible at once     |
+| **Medium**      | Default — balanced readability and density |
+| **Large**       | Increased size for easier reading          |
+| **Extra Large** | Maximum size for accessibility             |
 
 ### Sidebar Width
 
@@ -790,16 +800,16 @@ When events occur during processing, a **toast notification** slides in from the
 
 You'll see toasts for:
 
-| Event | Example Message |
-|-------|----------------|
-| **Upload started** | "Sprint Review — transcription started" |
-| **Job started** | "Job a1b2c3d4 started — transcription processing" |
-| **Pipeline paused** | "Sprint Review — speaker identification needed" |
-| **Job complete** | "Sprint Review — transcription complete" |
-| **Job failed** | "Sprint Review — Processing failed — check the Logs tab for details" |
-| **Cancelled** | "Processing cancelled" |
-| **Config incomplete** | "Config incomplete: missing DEEPSEEK_API_KEY" |
-| **API error** | "Failed to apply labels: ..." |
+| Event                 | Example Message                                                      |
+| --------------------- | -------------------------------------------------------------------- |
+| **Upload started**    | "Sprint Review — transcription started"                              |
+| **Job started**       | "Job a1b2c3d4 started — transcription processing"                    |
+| **Pipeline paused**   | "Sprint Review — speaker identification needed"                      |
+| **Job complete**      | "Sprint Review — transcription complete"                             |
+| **Job failed**        | "Sprint Review — Processing failed — check the Logs tab for details" |
+| **Cancelled**         | "Processing cancelled"                                               |
+| **Config incomplete** | "Config incomplete: missing DEEPSEEK_API_KEY"                        |
+| **API error**         | "Failed to apply labels: ..."                                        |
 
 ### OS-Level Notifications
 
@@ -823,13 +833,13 @@ When one or more backend services (Python, Bridge, Agent, Diarization model, or 
 - **Check Now button** — manually trigger a service check at any time
 - **Collapsible Developer section** — shows detailed service status with individual restart buttons:
 
-  | Service | Restart Action |
-  |---------|----------------|
-  | Python | Restart the Python backend process |
-  | Bridge | Restart the bridge server |
-  | Agent | Restart the agent runner |
-  | Diarization | Opens Config to set up the Hugging Face token |
-  | Ollama | **Start Ollama** button (appears if Ollama is required but not running) |
+  | Service     | Restart Action                                                          |
+  | ----------- | ----------------------------------------------------------------------- |
+  | Python      | Restart the Python backend process                                      |
+  | Bridge      | Restart the bridge server                                               |
+  | Agent       | Restart the agent runner                                                |
+  | Diarization | Opens Config to set up the Hugging Face token                           |
+  | Ollama      | **Start Ollama** button (appears if Ollama is required but not running) |
 
 - **Restart All button** — restarts all services at once
 - The popover **closes automatically** once all services are back online (with a brief green confirmation)
@@ -849,13 +859,13 @@ If the popover is dismissed while services are still down, it will reappear on t
 
 ### Upload Fails
 
-| Error | Solution |
-|-------|----------|
-| "Unsupported format" | Convert your audio to WAV or MP3 and try again |
-| "File too large" | Files must be under 500 MB |
-| "A transcription job is already running" | Wait for the current job to finish, or cancel it from the pipeline stepper |
-| "Config incomplete" | Open **Config** (⚙️ in sidebar) and set your DeepSeek API Key and Hugging Face Token |
-| Attendee conflict warning | The name or email conflicts with an existing voiceprint. Check the warning banner for details and choose to overwrite or keep the existing entry. |
+| Error                                    | Solution                                                                                                                                          |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "Unsupported format"                     | Convert your audio to WAV or MP3 and try again                                                                                                    |
+| "File too large"                         | Files must be under 500 MB                                                                                                                        |
+| "A transcription job is already running" | Wait for the current job to finish, or cancel it from the pipeline stepper                                                                        |
+| "Config incomplete"                      | Open **Config** (⚙️ in sidebar) and set your DeepSeek API Key and Hugging Face Token                                                              |
+| Attendee conflict warning                | The name or email conflicts with an existing voiceprint. Check the warning banner for details and choose to overwrite or keep the existing entry. |
 
 ### Processing Stalls
 
