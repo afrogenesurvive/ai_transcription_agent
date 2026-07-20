@@ -21,3 +21,14 @@
     RMDir /r "$PROGRAMFILES\Ollama"
     Delete "$APPDATA\Transcription Agent\.ollama-auto-installed"
 !macroend
+
+!macro removeInstallDir
+  ; Remove the application install directory ($INSTDIR = %ProgramFiles%\Transcription Agent).
+  ; electron-builder's default uninstaller removes all files it installed, then attempts
+  ; RMDir on $INSTDIR. This macro ensures any untracked files (created at runtime, etc.)
+  ; are also cleaned up so no empty or orphaned directory is left behind.
+  ;
+  ; This should be called AFTER electron-builder's default uninstall section has run,
+  ; so that all tracked files are already removed.
+  RMDir /r "$INSTDIR"
+!macroend

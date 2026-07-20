@@ -194,9 +194,10 @@ FunctionEnd
 !macro UninstallProgressMessages
   DetailPrint ""
   DetailPrint "🗑️  Uninstalling Transcription Agent..."
-  DetailPrint "    • Removing application files"
+  DetailPrint "    • Removing application files from $INSTDIR"
   DetailPrint "    • Cleaning up user data (optional)"
   DetailPrint "    • Removing Ollama (if auto-installed)"
+  DetailPrint "    • Removing install directory"
   DetailPrint ""
 !macroend
 
@@ -217,7 +218,8 @@ FunctionEnd
 ;; NSIS uninstaller code. These macros handle cleanup beyond what
 ;; electron-builder's deleteAppDataOnUninstall provides.
 ;;
-;; Usage from electron-builder's default uninstall section:
-;;   !insertmacro removeUserData
-;;   !insertmacro removeOllamaIfAutoInstalled
+;; Usage from electron-builder's default uninstall section (in this order):
+;;   1. !insertmacro removeUserData
+;;   2. !insertmacro removeOllamaIfAutoInstalled
+;;   3. !insertmacro removeInstallDir       (after all tracked files are deleted)
 ;;
