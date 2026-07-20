@@ -53,7 +53,13 @@ export function useJobStatus(jobId: string | null, fetcher: (id: string) => Prom
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
-    setState("idle");
+    // Use functional updater to avoid React 18 batching override:
+    // when called after setState("complete")/setState("error") in the poll
+    // function, preserve the terminal state instead of wiping it to "idle".
+    setState((prev) => {
+      if (prev === "complete" || prev === "error") return prev;
+      return "idle";
+    });
     setError(null);
   }, []);
 

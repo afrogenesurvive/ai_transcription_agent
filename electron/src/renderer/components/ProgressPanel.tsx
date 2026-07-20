@@ -115,7 +115,7 @@ const PIPELINE: StageDef[] = [
     icon: "smart_toy",
     label: "AI Processing",
     description: "Refining, summarizing & analyzing",
-    matches: ["transcribed", "ready_for_agent", "labeling_needed", "refined", "summarized"],
+    matches: ["transcribed", "ready_for_agent", "labeling_needed", "refined", "summarized", "enqueued"],
   },
   {
     key: "memory",
