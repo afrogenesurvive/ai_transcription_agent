@@ -1,6 +1,6 @@
 {
   "name": "transcription-electron",
-  "version": "0.4.7",
+  "version": "0.4.9",
   "private": true,
   "description": "Electron desktop UI for AI Meeting Transcription Agent",
   "author": "afrogenesurvive",
