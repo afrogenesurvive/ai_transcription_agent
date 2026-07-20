@@ -39,7 +39,9 @@ import fs from "fs";
  */
 
 /** Absolute path to a short audio file for upload testing (MP3, WAV, etc.) */
-const AUDIO_FILE_PATH = process.env.PLAYWRIGHT_AUDIO_FILE_PATH || "/Users/michaelgrandison/Downloads/test-meeting.mp3";
+const AUDIO_FILE_PATH =
+  process.env.PLAYWRIGHT_AUDIO_FILE_PATH ||
+  "/Users/michaelgrandison/Downloads/Transcription_test_audio/Best update ever from caller with four baby mamas.mp3";
 
 /** Meeting title template. {autoNum} will be replaced with the auto-incremented number */
 const TITLE_TEMPLATE = process.env.PLAYWRIGHT_TITLE_TEMPLATE || "test {autoNum}";
@@ -69,7 +71,7 @@ interface AttendeeEntry {
 }
 
 /** Root directory for guide screenshots (always shows the latest run) */
-const SCREENSHOT_DIR_ROOT = path.resolve(__dirname, "../../docs/screenshots");
+const SCREENSHOT_DIR_ROOT = path.resolve(__dirname, "../../../docs/screenshots");
 
 /**
  * Timestamped subdirectory for this run (e.g. docs/screenshots/2026-07-14).

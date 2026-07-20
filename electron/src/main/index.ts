@@ -100,8 +100,10 @@ function createWindow() {
   // Maximize window on all platforms (avoiding fullscreen which hides the taskbar on Windows)
   mainWindow.maximize();
 
-  // In development, load from Vite dev server
-  const isProd = app.isPackaged;
+  // In development, load from Vite dev server.
+  // In test mode (NODE_ENV=test), load from pre-built renderer files since
+  // the Vite dev server isn't running during headless Playwright tests.
+  const isProd = app.isPackaged || process.env.NODE_ENV === "test";
   if (isProd) {
     mainWindow.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
   } else {
@@ -1829,57 +1831,59 @@ app.whenReady().then(async () => {
     addLog("main", "debug", `agent-config dir not found at ${agentConfigDir} (restart watcher deferred)`);
   }
 
-  // Then start backend services
-  try {
-    // Ensure ffmpeg is available for audio standardization
-    await ensureFfmpegAvailable();
-
-    // Python and Bridge don't need API keys — always safe to start
-    await startPythonBackend();
-    await startBridgeServer();
-
-    // Start Ollama eagerly only if it's the configured LLM provider
-    // (ensureOllamaRunning checks the config internally, but be explicit here too)
-    addLog("main", "debug", `[ollama] LLM_PROVIDER=${getConfig().LLM_PROVIDER} — will start Ollama only if set to "ollama"`);
-    await ensureOllamaRunning();
-
-    // Agent runner needs DEEPSEEK_API_KEY (or Ollama) — skip if missing
-    const cfg = checkConfig();
-
-    // Log whether Ollama is reachable, regardless of provider (for diagnostics)
+  // Then start backend services (skipped in test mode — run externally)
+  if (process.env.NODE_ENV !== "test") {
     try {
-      execSync("ollama list", { encoding: "utf8", stdio: "pipe", timeout: 3000 });
-      addLog("main", "info", "[ollama] Ollama server is reachable on this system");
-    } catch {
-      addLog("main", "debug", "[ollama] Ollama server is not reachable (not installed or not running)");
-    }
+      // Ensure ffmpeg is available for audio standardization
+      await ensureFfmpegAvailable();
 
-    if (cfg.ok) {
-      addLog("main", "info", `Config OK — starting agent runner`);
-      // Wire up job-started notification: forward agent [JOB_START] events
-      // to OS notification + renderer (in-app toast via App.tsx)
-      setOnJobStarted((jobId: string) => {
-        addLog("main", "info", `Job started: ${jobId.slice(0, 8)}`, "job-start");
-        sendNotification("Transcription Started", `Job ${jobId.slice(0, 8)} is processing`);
-        mainWindow?.webContents.send("job-started", { jobId });
-      });
-      await startAgentRunner();
-      sendNotification("Ready", "Transcription backend is running");
-      mainWindow?.webContents.send("notification", "Backend ready");
-    } else {
-      const msg = `Config incomplete — agent runner deferred. Missing: ${cfg.missing.join(", ")}`;
-      console.log(`[startup] ${msg}`);
-      addLog("main", "warn", msg);
-      mainWindow?.webContents.send("notification", "[config] needed — enter API key to start agent");
+      // Python and Bridge don't need API keys — always safe to start
+      await startPythonBackend();
+      await startBridgeServer();
+
+      // Start Ollama eagerly only if it's the configured LLM provider
+      // (ensureOllamaRunning checks the config internally, but be explicit here too)
+      addLog("main", "debug", `[ollama] LLM_PROVIDER=${getConfig().LLM_PROVIDER} — will start Ollama only if set to "ollama"`);
+      await ensureOllamaRunning();
+
+      // Agent runner needs DEEPSEEK_API_KEY (or Ollama) — skip if missing
+      const cfg = checkConfig();
+
+      // Log whether Ollama is reachable, regardless of provider (for diagnostics)
+      try {
+        execSync("ollama list", { encoding: "utf8", stdio: "pipe", timeout: 3000 });
+        addLog("main", "info", "[ollama] Ollama server is reachable on this system");
+      } catch {
+        addLog("main", "debug", "[ollama] Ollama server is not reachable (not installed or not running)");
+      }
+
+      if (cfg.ok) {
+        addLog("main", "info", `Config OK — starting agent runner`);
+        // Wire up job-started notification: forward agent [JOB_START] events
+        // to OS notification + renderer (in-app toast via App.tsx)
+        setOnJobStarted((jobId: string) => {
+          addLog("main", "info", `Job started: ${jobId.slice(0, 8)}`, "job-start");
+          sendNotification("Transcription Started", `Job ${jobId.slice(0, 8)} is processing`);
+          mainWindow?.webContents.send("job-started", { jobId });
+        });
+        await startAgentRunner();
+        sendNotification("Ready", "Transcription backend is running");
+        mainWindow?.webContents.send("notification", "Backend ready");
+      } else {
+        const msg = `Config incomplete — agent runner deferred. Missing: ${cfg.missing.join(", ")}`;
+        console.log(`[startup] ${msg}`);
+        addLog("main", "warn", msg);
+        mainWindow?.webContents.send("notification", "[config] needed — enter API key to start agent");
+      }
+    } catch (err: any) {
+      const msg = `Failed to start backend: ${err.message}`;
+      console.error(msg);
+      addLog("main", "error", msg);
+      dialog.showErrorBox(
+        "Backend Error",
+        "Could not start the transcription backend. If you're running a development build, make sure Python 3 and Node.js are installed. Packaged builds bundle all dependencies automatically.",
+      );
     }
-  } catch (err: any) {
-    const msg = `Failed to start backend: ${err.message}`;
-    console.error(msg);
-    addLog("main", "error", msg);
-    dialog.showErrorBox(
-      "Backend Error",
-      "Could not start the transcription backend. If you're running a development build, make sure Python 3 and Node.js are installed. Packaged builds bundle all dependencies automatically.",
-    );
   }
 
   // Start auto-updater (checks for repo updates every 12 hours)

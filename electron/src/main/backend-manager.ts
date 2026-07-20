@@ -172,7 +172,9 @@ async function killProcess(proc: ChildProcess): Promise<void> {
 function resolvePythonBin(backendDir: string): { bin: string; args: string[] } {
   // Production (packaged): use PyInstaller standalone binary
   if (isProd) {
-    const pyBin = path.join(backendDir, IS_WIN ? "main.exe" : "main");
+    // PyInstaller --onedir creates a subdirectory named after the binary (main/main.exe)
+    const pyBinDir = path.join(backendDir, "main");
+    const pyBin = path.join(pyBinDir, IS_WIN ? "main.exe" : "main");
     if (fs.existsSync(pyBin)) {
       console.log(`[backend] Using standalone Python binary: ${pyBin}`);
       return { bin: pyBin, args: [] };
