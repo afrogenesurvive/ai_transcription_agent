@@ -1879,9 +1879,24 @@ app.whenReady().then(async () => {
       const msg = `Failed to start backend: ${err.message}`;
       console.error(msg);
       addLog("main", "error", msg);
+
+      // Write startup error to a persistent log file for post-mortem diagnostics
+      const logDir = path.join(app.getPath("userData"), "logs");
+      const errorLogPath = path.join(logDir, "startup-error.log");
+      try {
+        fs.mkdirSync(logDir, { recursive: true });
+        fs.appendFileSync(errorLogPath, `${new Date().toISOString()} ERROR ${msg}\n`, "utf8");
+      } catch {
+        // non-critical — logging to in-memory buffer is sufficient
+      }
+
       dialog.showErrorBox(
         "Backend Error",
-        "Could not start the transcription backend. If you're running a development build, make sure Python 3 and Node.js are installed. Packaged builds bundle all dependencies automatically.",
+        `Could not start the transcription backend.\n\n` +
+        `Details: ${err.message}\n\n` +
+        `If you're running a development build, make sure Python 3 and Node.js are installed. ` +
+        `Packaged builds bundle all dependencies automatically.\n\n` +
+        `A startup log was saved to:\n${errorLogPath}`,
       );
     }
   }
