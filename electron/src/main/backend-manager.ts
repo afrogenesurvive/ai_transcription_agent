@@ -204,9 +204,22 @@ function resolvePythonBin(backendDir: string): { bin: string; args: string[] } {
 
 let pythonProcess: ChildProcess | null = null;
 
-async function waitForServer(url: string, timeoutMs = 15000): Promise<void> {
+/** Track the last few stderr lines from the Python process for diagnostics. */
+let pythonStderrTail: string[] = [];
+const PYTHON_STDERR_TAIL_SIZE = 10;
+
+async function waitForServer(url: string, timeoutMs = 15000, isAlive?: () => boolean): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
+    // If the process has already exited, fail fast with the actual stderr output
+    if (isAlive && !isAlive()) {
+      const stderrTail = pythonStderrTail.length > 0
+        ? "\n  Last stderr output:\n    " + pythonStderrTail.join("\n    ")
+        : "";
+      throw new Error(
+        `Server at ${url} did not start — process exited before becoming ready.${stderrTail}`,
+      );
+    }
     try {
       const res = await fetch(url);
       if (res.ok) return;
@@ -215,7 +228,11 @@ async function waitForServer(url: string, timeoutMs = 15000): Promise<void> {
     }
     await new Promise((r) => setTimeout(r, 500));
   }
-  throw new Error(`Server at ${url} did not start within ${timeoutMs}ms`);
+  // Timed out — include stderr tail for diagnostics
+  const stderrTail = pythonStderrTail.length > 0
+    ? "\n  Last stderr output:\n    " + pythonStderrTail.join("\n    ")
+    : "";
+  throw new Error(`Server at ${url} did not start within ${timeoutMs}ms.${stderrTail}`);
 }
 
 export async function startPythonBackend(port = 5001): Promise<void> {
@@ -293,6 +310,17 @@ export async function startPythonBackend(port = 5001): Promise<void> {
 
   pythonProcess.stderr?.on("data", (d: Buffer) => {
     stderrBuffer += d.toString();
+    // Keep a rolling tail of stderr for diagnostics when health check fails
+    const rawLines = stderrBuffer.split("\n");
+    for (const ln of rawLines.slice(0, -1)) {
+      const trimmed = ln.trim();
+      if (trimmed) {
+        pythonStderrTail.push(trimmed);
+        if (pythonStderrTail.length > PYTHON_STDERR_TAIL_SIZE) {
+          pythonStderrTail.shift();
+        }
+      }
+    }
     const lines = stderrBuffer.split("\n");
     stderrBuffer = lines.pop() || "";
 
@@ -322,7 +350,11 @@ export async function startPythonBackend(port = 5001): Promise<void> {
     pythonProcess = null;
   });
 
-  await waitForServer(`http://127.0.0.1:${port}/health`);
+  await waitForServer(
+    `http://127.0.0.1:${port}/health`,
+    60000, // 60s timeout — PyInstaller binary + PyTorch init can be slow on Windows
+    () => pythonProcess !== null && pythonProcess.exitCode === null,
+  );
   console.log(`[backend] Python backend is ready on :${port}`);
 }
 
