@@ -5,7 +5,7 @@
  * inline sections.
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Icon from "./Icon";
 import LoadingModal from "./LoadingModal";
 
@@ -32,10 +32,10 @@ interface Props {
 }
 
 export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, onRejectGate1, onApproveGate2, onRejectGate2 }: Props) {
-  if (!visible) return null;
-
   const isGate1 = gate === "gate1";
   const isGate2 = gate === "gate2";
+
+  if (!visible) return null;
 
   // ── Gate 1 state ──
   const [gate1Loading, setGate1Loading] = useState(false);
@@ -63,6 +63,34 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
   const [showGate2RejectConfirm, setShowGate2RejectConfirm] = useState(false);
   const [gate2RejectAction, setGate2RejectAction] = useState<"cancel" | "retry">("cancel");
   const [gate2Feedback, setGate2Feedback] = useState("");
+
+  // ── Dynamic overlay message based on current phase ──
+  const submitMessage =
+    gate1Submitting || gate2Submitting
+      ? isGate1
+        ? gate1EditMode
+          ? "Saving edits and approving transcript…"
+          : "Approving transcript — starting agent pipeline…"
+        : gate2EditMode
+          ? "Saving edits and approving deliverable…"
+          : "Approving deliverable — starting delivery…"
+      : undefined;
+
+  // ── Reset submitting state when modal hides (parent detected status change) ──
+  const wasVisibleRef = useRef(false);
+  useEffect(() => {
+    if (wasVisibleRef.current && !visible) {
+      setGate1Submitting(false);
+      setGate2Submitting(false);
+      setGate1Error(null);
+      setGate2Error(null);
+      setGate1VoiceConflict(null);
+      setGate2Feedback("");
+      setShowGate1RejectConfirm(false);
+      setShowGate2RejectConfirm(false);
+    }
+    wasVisibleRef.current = visible;
+  }, [visible]);
 
   // ── Fetch data when Gate 1 panel opens ──
   useEffect(() => {
@@ -271,14 +299,17 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
                           setGate1VoiceConflict(null);
                           try {
                             await onApproveGate1?.({ action: "approve" });
+                            // Success — keep overlay visible until parent
+                            // detects the status change.  The useEffect above
+                            // will reset submitting when visible → false.
                           } catch (err: any) {
+                            // Error — reset so user can retry
+                            setGate1Submitting(false);
                             if (err.message?.includes("voice_match_conflict")) {
                               setGate1VoiceConflict({ message: err.message });
                             } else {
                               setGate1Error(err.message || "Failed to approve");
                             }
-                          } finally {
-                            setGate1Submitting(false);
                           }
                         }}>
                         <Icon name="check" size="14" /> {gate1Submitting ? "Approving…" : "Approve & Continue"}
@@ -324,10 +355,12 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
                               return;
                             }
                             await onApproveGate1?.({ action: "approve_with_edits", editedTranscript: parsed });
+                            // Success — keep overlay visible until parent
+                            // detects the status change.
                           } catch (err: any) {
-                            setGate1Error(err.message || "Failed to approve with edits");
-                          } finally {
+                            // Error — reset so user can retry
                             setGate1Submitting(false);
+                            setGate1Error(err.message || "Failed to approve with edits");
                           }
                         }}>
                         <Icon name="check" size="14" /> {gate1Submitting ? "Saving…" : "Save Edits & Approve"}
@@ -552,10 +585,12 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
                               editedSummary,
                               editedAnalysis,
                             });
+                            // Success — keep overlay visible until parent
+                            // detects the status change.
                           } catch (err: any) {
-                            setGate2Error(err.message || "Failed to approve delivery");
-                          } finally {
+                            // Error — reset so user can retry
                             setGate2Submitting(false);
+                            setGate2Error(err.message || "Failed to approve delivery");
                           }
                         }}>
                         <Icon name="check" size="14" />{" "}
@@ -663,7 +698,7 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
           </>
         )}
         {/* ── Loading overlay during save/submit (visible for both gates) ── */}
-        <LoadingModal visible={gate1Submitting || gate2Submitting} message="Saving review edits…" />
+        <LoadingModal visible={gate1Submitting || gate2Submitting} message={submitMessage} />
       </div>
     </div>
   );
