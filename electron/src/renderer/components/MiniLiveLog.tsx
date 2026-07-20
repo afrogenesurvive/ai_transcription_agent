@@ -39,6 +39,7 @@ interface LogLine {
 export default function MiniLiveLog({ maxLines = 8 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [buffer, setBuffer] = useState<LogLine[]>([]);
+  const [collapsed, setCollapsed] = useState(false);
 
   // Subscribe to live log stream
   useEffect(() => {
@@ -52,10 +53,10 @@ export default function MiniLiveLog({ maxLines = 8 }: Props) {
     return () => unsub?.();
   }, []);
 
-  // Auto-scroll horizontally to the right when new messages arrive
+  // Reset horizontal scroll to the left when new messages arrive
   useEffect(() => {
     if (containerRef.current) {
-      containerRef.current.scrollLeft = containerRef.current.scrollWidth;
+      containerRef.current.scrollLeft = 0;
     }
   }, [buffer.length]);
 
@@ -63,29 +64,30 @@ export default function MiniLiveLog({ maxLines = 8 }: Props) {
 
   return (
     <div className="pp-mini-log">
+      {/* ── Collapsible header ── */}
+      <div className="pp-mini-log-header" onClick={() => setCollapsed((c) => !c)}>
+        <span className={`pp-mini-log-chevron${collapsed ? "" : " pp-mini-log-chevron--open"}`} />
+        <span className="pp-mini-log-header-label">Live Log</span>
+        <span className="pp-mini-log-header-count">{buffer.length} entries</span>
+      </div>
+
       {/* ── Log entries ── */}
-      <div className="pp-mini-log-body" ref={containerRef}>
-          {visible.length > 0 ? (
-            visible.map((line, i) => (
-              <div
-                key={`log-${buffer.length - visible.length + i}`}
-                className="pp-mini-log-entry"
-                title={line.message}>
-                <span
-                  className="pp-mini-log-dot"
-                  style={{ backgroundColor: SOURCE_COLORS[line.source] || "#8b949e" }}
-                />
-                {line.message}
-              </div>
-            ))
-          ) : (
-            PLACEHOLDER_LINES.slice(0, maxLines).map((line, i) => (
-              <div key={`ph-${i}`} className="pp-mini-log-entry pp-mini-log-entry--placeholder">
-                {line}
-              </div>
-            ))
-          )}
+      {!collapsed && (
+        <div className="pp-mini-log-body" ref={containerRef}>
+          {visible.length > 0
+            ? visible.map((line, i) => (
+                <div key={`log-${buffer.length - visible.length + i}`} className="pp-mini-log-entry" title={line.message}>
+                  <span className="pp-mini-log-dot" style={{ backgroundColor: SOURCE_COLORS[line.source] || "#8b949e" }} />
+                  {line.message}
+                </div>
+              ))
+            : PLACEHOLDER_LINES.slice(0, maxLines).map((line, i) => (
+                <div key={`ph-${i}`} className="pp-mini-log-entry pp-mini-log-entry--placeholder">
+                  {line}
+                </div>
+              ))}
         </div>
+      )}
     </div>
   );
 }

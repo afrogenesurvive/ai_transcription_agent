@@ -621,9 +621,6 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
               </div>
             )}
 
-            {/* ── Loading overlay during save/submit ── */}
-            <LoadingModal visible={gate1Submitting || gate2Submitting} message="Saving review edits…" />
-
             {/* Gate 2 reject confirm dialog */}
             {showGate2RejectConfirm && (
               <div className="pp-confirm-overlay" onClick={() => setShowGate2RejectConfirm(false)}>
@@ -665,6 +662,8 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
             )}
           </>
         )}
+        {/* ── Loading overlay during save/submit (visible for both gates) ── */}
+        <LoadingModal visible={gate1Submitting || gate2Submitting} message="Saving review edits…" />
       </div>
     </div>
   );

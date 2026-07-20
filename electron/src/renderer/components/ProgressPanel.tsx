@@ -32,6 +32,8 @@ interface Props {
   onNewJob?: () => void;
   /** Job ID — needed for gate panels to fetch transcript/summary/analysis data */
   jobId?: string;
+  /** When true, shows a "Bot / Test Job" badge in the header */
+  isForeignJob?: boolean;
   /** Gate 1 (Raw Transcript Review) handlers */
   onApproveGate1?: (body: { action: string; editedTranscript?: any[] }) => Promise<void>;
   onRejectGate1?: (action: "cancel" | "retry") => Promise<void>;
@@ -45,7 +47,6 @@ interface Props {
     feedback?: string;
   }) => Promise<void>;
   onRejectGate2?: (action: "cancel" | "retry", feedback?: string) => Promise<void>;
-
 }
 
 /* ── Pipeline stages (non-technical friendly labels) ── */
@@ -177,6 +178,7 @@ export default function PipelineProgress({
   onRejectGate1,
   onApproveGate2,
   onRejectGate2,
+  isForeignJob,
 }: Props) {
   const [showConfirmCancel, setShowConfirmCancel] = useState(false);
   const pct = Math.round(progress * 100);
@@ -201,6 +203,11 @@ export default function PipelineProgress({
                 size="20"
               />{" "}
               {friendlyMessage}
+              {isForeignJob && (
+                <span className="pp-foreign-badge">
+                  <Icon name="smart_toy" size="12" /> Bot / Test Job
+                </span>
+              )}
             </h2>
             <span className="pp-stage-label">{activeLabel}</span>
           </div>
@@ -217,180 +224,182 @@ export default function PipelineProgress({
 
         {/* ── Vertical pipeline stepper ── */}
         <div className="pp-stepper">
-        {PIPELINE.map((stage) => {
-          const state = getStageState(stage, status, isFailed, isComplete, skippedSteps);
-          return (
-            <div key={stage.key} className={`pp-step pp-step--${state}`}>
-              {/* Connector line */}
-              <div className="pp-step-line" />
+          {PIPELINE.map((stage) => {
+            const state = getStageState(stage, status, isFailed, isComplete, skippedSteps);
+            return (
+              <div key={stage.key} className={`pp-step pp-step--${state}`}>
+                {/* Connector line */}
+                <div className="pp-step-line" />
 
-              {/* Status dot / icon */}
-              <div className="pp-step-dot">
-                {state === "done" && (
-                  <span className="pp-step-check">
-                    <Icon name="check" size="12" />
-                  </span>
-                )}
-                {state === "active" && <span className="pp-step-spinner" />}
-                {state === "error" && (
-                  <span className="pp-step-error-icon">
-                    <Icon name="close" size="12" />
-                  </span>
-                )}
-                {state === "skipped" && (
-                  <span className="pp-step-skipped-icon">
-                    <Icon name="remove" size="12" />
-                  </span>
-                )}
-                {state === "pending" && <span className="pp-step-pending-dot" />}
-              </div>
-
-              {/* Content */}
-              <div className="pp-step-content">
-                <span className="pp-step-icon">
-                  <Icon name={stage.icon} size="14" />
-                </span>
-                <div className="pp-step-text">
-                  <span className="pp-step-label">{stage.label}</span>
-                  <span className="pp-step-desc">{stage.description}</span>
+                {/* Status dot / icon */}
+                <div className="pp-step-dot">
+                  {state === "done" && (
+                    <span className="pp-step-check">
+                      <Icon name="check" size="12" />
+                    </span>
+                  )}
+                  {state === "active" && <span className="pp-step-spinner" />}
+                  {state === "error" && (
+                    <span className="pp-step-error-icon">
+                      <Icon name="close" size="12" />
+                    </span>
+                  )}
+                  {state === "skipped" && (
+                    <span className="pp-step-skipped-icon">
+                      <Icon name="remove" size="12" />
+                    </span>
+                  )}
+                  {state === "pending" && <span className="pp-step-pending-dot" />}
                 </div>
-                {state === "active" && <span className="pp-step-active-badge">In progress</span>}
-                {state === "done" && <span className="pp-step-done-badge">Done</span>}
-                {state === "skipped" && <span className="pp-step-skipped-badge">Skipped</span>}
+
+                {/* Content */}
+                <div className="pp-step-content">
+                  <span className="pp-step-icon">
+                    <Icon name={stage.icon} size="14" />
+                  </span>
+                  <div className="pp-step-text">
+                    <span className="pp-step-label">{stage.label}</span>
+                    <span className="pp-step-desc">{stage.description}</span>
+                  </div>
+                  {state === "active" && <span className="pp-step-active-badge">In progress</span>}
+                  {state === "done" && <span className="pp-step-done-badge">Done</span>}
+                  {state === "skipped" && <span className="pp-step-skipped-badge">Skipped</span>}
+                </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* ── Gate Review Modal (overlay for Gate 1 & Gate 2) ── */}
-      <GateReviewModal
-        visible={status === "pending_raw_review" || status === "pending_delivery_review"}
-        gate={status === "pending_raw_review" ? "gate1" : "gate2"}
-        jobId={jobId}
-        onApproveGate1={onApproveGate1}
-        onRejectGate1={onRejectGate1}
-        onApproveGate2={onApproveGate2}
-        onRejectGate2={onRejectGate2}
-      />
-
-      {/* ── Diarization unavailable warning ── */}
-      {diarizationAvailable === false && (
-        <div className="pp-warning-box">
-          <span className="pp-warning-icon">
-            <Icon name="warning" color="orange" size="16" />
-          </span>
-          <div className="pp-warning-content">
-            <strong>Speaker identification unavailable</strong>
-            <p>
-              Speech-to-text will still work, but the transcript won't have speaker names or labels. Set a <strong>Hugging Face Token</strong> in
-              Config to enable speaker diarization.
-            </p>
-          </div>
+            );
+          })}
         </div>
-      )}
 
-      {/* ── Non-fatal error banner (e.g. network timeout — backend may be down) ── */}
-      {titleError && !isFailed && (
-        <div className="pp-warning-box" style={{ borderColor: "var(--red)", marginBottom: 8 }}>
-          <span className="pp-warning-icon">
-            <Icon name="warning" color="red" size="16" />
-          </span>
-          <div className="pp-warning-content">
-            <strong>Connection issue detected</strong>
-            <p>{titleError}</p>
-            <p style={{ fontSize: 12, marginTop: 4, color: "var(--text-muted)" }}>
-              The backend may have gone down. You can try stopping this job and restarting services, or wait for automatic recovery.
-            </p>
-          </div>
-        </div>
-      )}
+        {/* ── Gate Review Modal (overlay for Gate 1 & Gate 2) ── */}
+        <GateReviewModal
+          visible={status === "pending_raw_review" || status === "pending_delivery_review"}
+          gate={status === "pending_raw_review" ? "gate1" : "gate2"}
+          jobId={jobId}
+          onApproveGate1={onApproveGate1}
+          onRejectGate1={onRejectGate1}
+          onApproveGate2={onApproveGate2}
+          onRejectGate2={onRejectGate2}
+        />
 
-      {/* ── Stop button (during active processing) ── */}
-      {isProcessing && onCancel && (
-        <div className="pp-stop-row">
-          <Tooltip content="Cancels the running job — partial results may still be available">
-            <button
-              className="pp-stop-btn"
-              onClick={() => setShowConfirmCancel(true)}
-              disabled={cancelling}
-              title="Stop the current transcription job">
-              {cancelling ? (
-                <>
-                  <Icon name="hourglass_top" size="14" /> Stopping…
-                </>
-              ) : (
-                <>
-                  <Icon name="stop" size="14" /> Stop Processing
-                </>
-              )}
-            </button>
-          </Tooltip>
-          <span className="pp-stop-hint">Stops the pipeline and marks the job as cancelled.</span>
-        </div>
-      )}
-
-      {/* ── Stop confirmation dialog ── */}
-      {showConfirmCancel && (
-        <div className="pp-confirm-overlay" onClick={() => setShowConfirmCancel(false)}>
-          <div className="pp-confirm-dialog" onClick={(e) => e.stopPropagation()}>
-            <div className="pp-confirm-header">
-              <Icon name="stop" size="16" color="red" /> Stop Processing?
-            </div>
-            <p className="pp-confirm-body">
-              Are you sure you want to cancel this transcription job? The current progress will be lost and the job will be marked as cancelled. This
-              cannot be undone.
-            </p>
-            <div className="pp-confirm-actions">
-              <Tooltip content="Resume processing without cancelling">
-                <button className="pp-confirm-cancel-btn" onClick={() => setShowConfirmCancel(false)} title="Go back — do not cancel">
-                  Continue Processing
-                </button>
-              </Tooltip>
-              <Tooltip content="Permanently cancel the transcription job">
-                <button
-                  className="pp-confirm-stop-btn"
-                  onClick={() => {
-                    setShowConfirmCancel(false);
-                    onCancel?.();
-                  }}
-                  title="Confirm — cancel this job permanently">
-                  Yes, Stop It
-                </button>
-              </Tooltip>
+        {/* ── Diarization unavailable warning ── */}
+        {diarizationAvailable === false && (
+          <div className="pp-warning-box">
+            <span className="pp-warning-icon">
+              <Icon name="warning" color="orange" size="16" />
+            </span>
+            <div className="pp-warning-content">
+              <strong>Speaker identification unavailable</strong>
+              <p>
+                Speech-to-text will still work, but the transcript won't have speaker names or labels. Set a <strong>Hugging Face Token</strong> in
+                Config to enable speaker diarization.
+              </p>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* ── Error message ── */}
-      {isFailed && error && (
-        <div className="pp-error-box">
-          <div className="pp-error-header">
-            <Icon name="error" color="red" size="14" /> Something went wrong
+        {/* ── Non-fatal error banner (e.g. network timeout — backend may be down) ── */}
+        {titleError && !isFailed && (
+          <div className="pp-warning-box" style={{ borderColor: "var(--red)", marginBottom: 8 }}>
+            <span className="pp-warning-icon">
+              <Icon name="warning" color="red" size="16" />
+            </span>
+            <div className="pp-warning-content">
+              <strong>Connection issue detected</strong>
+              <p>{titleError}</p>
+              <p style={{ fontSize: 12, marginTop: 4, color: "var(--text-muted)" }}>
+                The backend may have gone down. You can try stopping this job and restarting services, or wait for automatic recovery.
+              </p>
+            </div>
           </div>
-          <p className="pp-error-message">{error}</p>
-          <p className="pp-error-hint">You can go back and try uploading again, or check the developer logs for details.</p>
-          {onNewJob && (
-            <Tooltip content="Clear the current failed job and start fresh">
-              <button className="pp-new-job-btn" onClick={onNewJob} title="Start a new transcription job">
-                <Icon name="add_circle" size="14" /> New Job
+        )}
+
+        {/* ── Stop button (during active processing) ── */}
+        {isProcessing && onCancel && (
+          <div className="pp-stop-row">
+            <Tooltip content="Cancels the running job — partial results may still be available">
+              <button
+                className="pp-stop-btn"
+                onClick={() => setShowConfirmCancel(true)}
+                disabled={cancelling}
+                title="Stop the current transcription job">
+                {cancelling ? (
+                  <>
+                    <Icon name="hourglass_top" size="14" /> Stopping…
+                  </>
+                ) : (
+                  <>
+                    <Icon name="stop" size="14" /> Stop Processing
+                  </>
+                )}
               </button>
             </Tooltip>
-          )}
-        </div>
-      )}
+            <span className="pp-stop-hint">Stops the pipeline and marks the job as cancelled.</span>
+          </div>
+        )}
 
-      {/* ── Complete message ── */}
-      {isComplete && !isFailed && (
-        <div className="pp-complete-box">
-          <p>Your meeting has been fully processed! Use the tabs on the right to browse the results.</p>
-        </div>
-      )}
-    </div>
+        {/* ── Stop confirmation dialog ── */}
+        {showConfirmCancel && (
+          <div className="pp-confirm-overlay" onClick={() => setShowConfirmCancel(false)}>
+            <div className="pp-confirm-dialog" onClick={(e) => e.stopPropagation()}>
+              <div className="pp-confirm-header">
+                <Icon name="stop" size="16" color="red" /> Stop Processing?
+              </div>
+              <p className="pp-confirm-body">
+                Are you sure you want to cancel this transcription job? The current progress will be lost and the job will be marked as cancelled.
+                This cannot be undone.
+              </p>
+              <div className="pp-confirm-actions">
+                <Tooltip content="Resume processing without cancelling">
+                  <button className="pp-confirm-cancel-btn" onClick={() => setShowConfirmCancel(false)} title="Go back — do not cancel">
+                    Continue Processing
+                  </button>
+                </Tooltip>
+                <Tooltip content="Permanently cancel the transcription job">
+                  <button
+                    className="pp-confirm-stop-btn"
+                    onClick={() => {
+                      setShowConfirmCancel(false);
+                      onCancel?.();
+                    }}
+                    title="Confirm — cancel this job permanently">
+                    Yes, Stop It
+                  </button>
+                </Tooltip>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Error message ── */}
+        {isFailed && error && (
+          <div className="pp-error-box">
+            <div className="pp-error-header">
+              <Icon name="error" color="red" size="14" /> Something went wrong
+            </div>
+            <p className="pp-error-message">{error}</p>
+            <p className="pp-error-hint">You can go back and try uploading again, or check the developer logs for details.</p>
+            {onNewJob && (
+              <Tooltip content="Clear the current failed job and start fresh">
+                <button className="pp-new-job-btn" onClick={onNewJob} title="Start a new transcription job">
+                  <Icon name="add_circle" size="14" /> New Job
+                </button>
+              </Tooltip>
+            )}
+          </div>
+        )}
+
+        {/* ── Complete message ── */}
+        {isComplete && !isFailed && (
+          <div className="pp-complete-box">
+            <p>Your meeting has been fully processed! Use the tabs on the right to browse the results.</p>
+          </div>
+        )}
+      </div>
 
       {/* ── Live logs ── */}
-      <MiniLiveLog />
+      <div className="pp-container pp-container--minilog">
+        <MiniLiveLog />
+      </div>
     </>
   );
 }

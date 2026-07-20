@@ -1032,28 +1032,30 @@ export default function App() {
                           />
                         ) : (
                           <>
-                            {(view === "processing" || view === "results") && statusData && (
-                              <PipelineProgress
-                                status={statusData.status}
-                                progress={statusData.progress}
-                                error={statusData.error}
-                                titleError={statusData.titleError}
-                                onCancel={handleCancel}
-                                cancelling={cancelling}
-                                diarizationAvailable={diarizationAvailable}
-                                skippedSteps={computeSkippedStages(statusData)}
-                                onNewJob={() => {
-                                  handleNew();
-                                  setShowNewForm(true);
-                                  setSidebarView("current");
-                                }}
-                                jobId={historyJobId || jobId || undefined}
-                                onApproveGate1={handleGate1Approve}
-                                onRejectGate1={handleGate1Reject}
-                                onApproveGate2={handleGate2Approve}
-                                onRejectGate2={handleGate2Reject}
-                              />
-                            )}
+                            {(view === "processing" || view === "results") &&
+                              statusData &&
+                              !(foreignJobs.hasForeignRunningJobs && (statusHook.state === "complete" || statusHook.state === "error")) && (
+                                <PipelineProgress
+                                  status={statusData.status}
+                                  progress={statusData.progress}
+                                  error={statusData.error}
+                                  titleError={statusData.titleError}
+                                  onCancel={handleCancel}
+                                  cancelling={cancelling}
+                                  diarizationAvailable={diarizationAvailable}
+                                  skippedSteps={computeSkippedStages(statusData)}
+                                  onNewJob={() => {
+                                    handleNew();
+                                    setShowNewForm(true);
+                                    setSidebarView("current");
+                                  }}
+                                  jobId={historyJobId || jobId || undefined}
+                                  onApproveGate1={handleGate1Approve}
+                                  onRejectGate1={handleGate1Reject}
+                                  onApproveGate2={handleGate2Approve}
+                                  onRejectGate2={handleGate2Reject}
+                                />
+                              )}
 
                             {view === "results" && statusHook.state === "error" && !statusData && (
                               <div className="panel">
@@ -1066,38 +1068,25 @@ export default function App() {
                               </div>
                             )}
 
-                            {!jobId && foreignJobs.hasForeignRunningJobs && (
-                              <div className="panel">
-                                <h2>
-                                  <Icon name="hourglass_top" color="accent" size="16" /> Bot Job Running
-                                </h2>
-                                <p className="placeholder" style={{ color: "var(--text-muted)" }}>
-                                  A test-bot job is currently processing. Controls are disabled until it completes.
-                                </p>
-                                {Array.from(foreignJobs.foreignJobsStatus.entries()).map(([id, info]) => (
-                                  <div key={id} style={{ fontSize: "var(--fs-12)", marginTop: 8, color: "var(--text-muted)" }}>
-                                    <code>{id.slice(0, 8)}</code> — {info.title} ({info.status})
-                                  </div>
-                                ))}
-                                <div style={{ marginTop: 16 }}>
-                                  <button
-                                    className="pp-stop-btn"
-                                    onClick={handleCancelForeign}
-                                    disabled={cancellingForeign}
-                                    title="Cancel all bot-created jobs — marks them as failed">
-                                    {cancellingForeign ? (
-                                      <>
-                                        <Icon name="hourglass_top" size="14" /> Stopping…
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Icon name="stop" size="14" /> Stop All Bot Jobs
-                                      </>
-                                    )}
-                                  </button>
-                                </div>
-                              </div>
-                            )}
+                            {!jobId &&
+                              foreignJobs.hasForeignRunningJobs &&
+                              (() => {
+                                const firstEntry = Array.from(foreignJobs.foreignJobsStatus.entries())[0];
+                                const [foreignJobId, foreignInfo] = firstEntry || [];
+                                if (!foreignInfo) return null;
+                                return (
+                                  <PipelineProgress
+                                    status={foreignInfo.status}
+                                    progress={foreignInfo.progress}
+                                    onCancel={handleCancelForeign}
+                                    cancelling={cancellingForeign}
+                                    diarizationAvailable={diarizationAvailable}
+                                    isForeignJob={true}
+                                    onNewJob={handleNew}
+                                    jobId={foreignJobId}
+                                  />
+                                );
+                              })()}
                             {!jobId && !foreignJobs.hasForeignRunningJobs && (
                               <div className="panel">
                                 <h2>No Active Job</h2>
