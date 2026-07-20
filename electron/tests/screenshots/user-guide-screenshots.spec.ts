@@ -206,9 +206,10 @@ test.afterAll(async () => {
 // ════════════════════════════════════════════════════════════════
 // SCREENSHOT 01: Main Window (Empty State)
 // ════════════════════════════════════════════════════════════════
-// Shows: The app just after launch — empty upload area, "No Active Job"
-//        placeholder, sidebar with New/Current/History/Storage/Dev/Config/
-//        Appearance/About buttons, and a status bar at the bottom.
+// Shows: The app just after launch — "No Active Job" placeholder,
+//        sidebar with all 8 buttons (New, Current, History, Storage,
+//        Dev, Config, Appearance, About), and the status bar at the
+//        bottom showing service health dots and controls.
 // Guide section: "Getting Started — Understanding the Interface"
 // Add to guide as: ![Main Window](screenshots/01-main-window-empty.png)
 test("01 - main window (empty state)", async () => {
@@ -240,12 +241,13 @@ test("02 - upload panel with file picker", async () => {
 });
 
 // ════════════════════════════════════════════════════════════════
-// SCREENSHOT 03: Configuration Panel — LLM Provider Tab
+// SCREENSHOT 03: Configuration Panel — LLM Provider Section
 // ════════════════════════════════════════════════════════════════
-// Shows: The Config panel with the LLM Provider section visible —
-//        API key fields for DeepSeek, Ollama settings, Hugging Face
-//        token, Whisper model size selector.
-// Guide section: "Settings & Configuration — LLM Provider Tab"
+// Shows: The Config tab with the LLM Provider section visible —
+//        DeepSeek/Ollama radio buttons, API key fields, Hugging Face
+//        token, Whisper model size selector, temperature, pipeline
+//        timeout, and keep-models-warm toggle.
+// Guide section: "Settings & Configuration — Config Tab — LLM Provider Section"
 // Add to guide as: ![LLM Provider Settings](screenshots/03-config-panel.png)
 test("03 - configuration panel", async () => {
   const configBtn = window.locator(".sidebar-btn", { hasText: "Config" });
@@ -260,9 +262,10 @@ test("03 - configuration panel", async () => {
 // ════════════════════════════════════════════════════════════════
 // SCREENSHOT 04: Appearance Settings
 // ════════════════════════════════════════════════════════════════
-// Shows: Theme selector (dark/light), accent color picker, font size
-//        slider, sidebar width adjustment.
-// Guide section: "Settings & Configuration (sidebar)"
+// Shows: Theme selector (dark/light/system), 8 accent color presets
+//        + custom color picker, font size presets (small/medium/large/
+//        extra large), sidebar width control.
+// Guide section: "Appearance Settings"
 // Add to guide as: ![Appearance Settings](screenshots/04-appearance-settings.png)
 test("04 - appearance settings", async () => {
   const appearanceBtn = window.locator(".sidebar-btn", { hasText: "Appearance" });
@@ -293,9 +296,10 @@ test("05 - about panel", async () => {
 // ════════════════════════════════════════════════════════════════
 // SCREENSHOT 06: Storage Panel
 // ════════════════════════════════════════════════════════════════
-// Shows: Disk usage breakdown with a stacked bar chart, per-category
-//        sizes (History, Logs, ChromaDB, Databases, System, Ollama),
-//        and the developer clear-actions section.
+// Shows: Disk usage breakdown with 6 categories (History, Logs,
+//        ChromaDB, Databases, System, Ollama), per-category sizes
+//        with file paths, and the collapsible developer clear-actions
+//        section for deleting logs, history, databases, and models.
 // Guide section: "Managing Past Meetings — Storage Management"
 // Add to guide as: ![Storage Panel](screenshots/06-storage-panel.png)
 test("06 - storage panel", async () => {
@@ -311,8 +315,10 @@ test("06 - storage panel", async () => {
 // ════════════════════════════════════════════════════════════════
 // SCREENSHOT 07: History Panel
 // ════════════════════════════════════════════════════════════════
-// Shows: List of past transcription jobs with status icons, titles,
-//        dates, attendee names, and delete buttons.
+// Shows: Left-column list of past transcription jobs with status
+//        icons, titles, relative timestamps, attendee names,
+//        expandable pipeline detail (▼), and delete buttons (🗑️).
+//        The right column shows the selected job's results.
 // Guide section: "Managing Past Meetings — Viewing History"
 // Add to guide as: ![History Panel](screenshots/07-history-panel.png)
 test("07 - history panel", async () => {
@@ -326,11 +332,12 @@ test("07 - history panel", async () => {
 });
 
 // ════════════════════════════════════════════════════════════════
-// SCREENSHOT 08: Dev Tools Panel
+// SCREENSHOT 08: Dev Tools Panel — Live Logs
 // ════════════════════════════════════════════════════════════════
-// Shows: The developer tools panel — live log viewer, database browser,
-//        performance metrics, and update section.
-// Guide section: "Troubleshooting — Dev Tools"
+// Shows: The Dev Tools panel with the Live Logs tab active — source
+//        filter, level filter, sub-source filter, search, auto-scroll
+//        toggle, and real-time log entries with color-coded sources.
+// Guide section: "Dev Tools — Live Logs Tab"
 // Add to guide as: ![Dev Tools](screenshots/08-dev-tools.png)
 test("08 - dev tools panel", async () => {
   const devBtn = window.locator(".sidebar-btn", { hasText: "Dev" });
@@ -343,11 +350,12 @@ test("08 - dev tools panel", async () => {
 });
 
 // ════════════════════════════════════════════════════════════════
-// SCREENSHOT 09: Config — Services Tab
+// SCREENSHOT 09: Config — Services Section
 // ════════════════════════════════════════════════════════════════
-// Shows: The Services section within Config panel — Gmail Client ID/
-//        Secret/Refresh Token, Trello API Key/Token fields.
-// Guide section: "Settings & Configuration — Services Tab"
+// Shows: The Services section within the Config tab — Gmail OAuth
+//        credentials (Client ID/Secret/Refresh Token/User Email) and
+//        Trello API Key/Token in collapsible accordions.
+// Guide section: "Settings & Configuration — Config Tab — Services Section"
 // Add to guide as: ![Services Settings](screenshots/09-config-services.png)
 test("09 - config services tab", async () => {
   // Navigate to Config panel first
@@ -366,11 +374,12 @@ test("09 - config services tab", async () => {
 });
 
 // ════════════════════════════════════════════════════════════════
-// SCREENSHOT 10: Config — Agent Instructions Tab
+// SCREENSHOT 10: Config — Agent Tab
 // ════════════════════════════════════════════════════════════════
-// Shows: The Agent Instructions tab with the draggable pipeline-step
-//        checklist, system prompt editor, and configuration JSON.
-// Guide section: "Settings & Configuration — Agent Instructions Tab"
+// Shows: The Agent tab with the draggable pipeline-step checklist
+//        (enable/disable toggles, drag handles, expand buttons),
+//        context window slider, max steps/retries/delay fields.
+// Guide section: "Settings & Configuration — Agent Tab"
 // Add to guide as: ![Agent Instructions](screenshots/10-config-agent.png)
 test("10 - config agent instructions tab", async () => {
   const configBtn = window.locator(".sidebar-btn", { hasText: "Config" });
@@ -392,8 +401,12 @@ test("10 - config agent instructions tab", async () => {
 // ════════════════════════════════════════════════════════════════
 // SCREENSHOT 11: Upload & Transcribe (Pipeline In Progress)
 // ════════════════════════════════════════════════════════════════
-// Shows: The 8-stage pipeline stepper with progress bar, current
-//        active stage highlighted, and estimated completion.
+// Shows: The pipeline progress tracker with progress bar, 11-stage
+//        vertical stepper (Uploading → Getting Ready → Identifying
+//        Speakers → Matching Voices → Transcribing Speech → Building
+//        Transcript → Review Transcript → AI Processing → Saving to
+//        Memory → Review Deliverable → Delivering Results), Mini Live
+//        Log at the bottom, and Stop Processing button.
 //        This test uploads a real audio file and captures mid-flight.
 // Guide section: "The Transcription Pipeline"
 // Add to guide as: ![Pipeline Progress](screenshots/11-pipeline-progress.png)
@@ -428,11 +441,13 @@ test("11 - pipeline progress", async () => {
 // ════════════════════════════════════════════════════════════════
 // SCREENSHOT 12: Speaker Labeling Modal (if pipeline pauses)
 // ════════════════════════════════════════════════════════════════
-// Shows: The speaker identification modal with audio clips and name
-//        input fields for each detected speaker.
+// Shows: The speaker identification modal with audio clips (play
+//        button per speaker), name input fields, email input fields
+//        (validated), and non-speaking attendee list. Conflict
+//        detection banner may appear if voiceprints exist.
 //        If the pipeline doesn't pause for labeling, this screenshot
 //        is skipped with a warning.
-// Guide section: "The Transcription Pipeline — Speaker Labeling"
+// Guide section: "The Transcription Pipeline — Matching Voices (Step 4)"
 // Add to guide as: ![Speaker Labeling](screenshots/12-speaker-labeling.png)
 test("12 - speaker labeling modal", async () => {
   // Wait for the modal to appear (2 min timeout — diarization takes a while)
@@ -472,8 +487,9 @@ test("12 - speaker labeling modal", async () => {
 // SCREENSHOT 13: Completion Notification Toast
 // ════════════════════════════════════════════════════════════════
 // Shows: The in-app notification toast at the top of the screen
-//        saying "Transcription Complete" (or failure message if job failed).
-// Guide section: "The Transcription Pipeline" / "Troubleshooting"
+//        saying "Transcription Complete" (or failure message if job
+//        failed), with a dismiss (✕) button.
+// Guide section: "Notifications — In-App Notification Toasts"
 // Add to guide as: ![Completion Notification](screenshots/13-notification.png)
 test("13 - completion notification", async () => {
   // Wait for the notification toast to appear (up to 10 min for full pipeline)
@@ -497,7 +513,8 @@ test("13 - completion notification", async () => {
 // SCREENSHOT 14: Results Viewer — Transcript Tab
 // ════════════════════════════════════════════════════════════════
 // Shows: The results viewer with the Transcript tab active —
-//        color-coded speaker labels, timestamps, search bar.
+//        color-coded speaker badges, timestamps (clickable to jump
+//        to audio), text search bar with match count, segment list.
 // Guide section: "Reviewing Results — Transcript Tab"
 // Add to guide as: ![Transcript View](screenshots/14-results-transcript.png)
 test("14 - results viewer transcript", async () => {
@@ -524,7 +541,8 @@ test("14 - results viewer transcript", async () => {
 // SCREENSHOT 15: Results Viewer — Summary Tab
 // ════════════════════════════════════════════════════════════════
 // Shows: The Summary tab with executive summary, key decisions,
-//        discussion points, and action items sections.
+//        discussion points, checkable action items, and export
+//        buttons (PDF/Word) + Edit button in toolbar.
 // Guide section: "Reviewing Results — Summary Tab"
 // Add to guide as: ![Meeting Summary](screenshots/15-results-summary.png)
 test("15 - results viewer summary", async () => {
@@ -542,8 +560,9 @@ test("15 - results viewer summary", async () => {
 // ════════════════════════════════════════════════════════════════
 // SCREENSHOT 16: Results Viewer — Analysis Tab
 // ════════════════════════════════════════════════════════════════
-// Shows: The Analysis tab with topics, sentiment, key entities,
-//        meeting effectiveness, and follow-up items.
+// Shows: The Analysis tab with topics (shown as tags), sentiment
+//        description, key entities list, meeting effectiveness,
+//        follow-ups, and export buttons + Edit button in toolbar.
 // Guide section: "Reviewing Results — Analysis Tab"
 // Add to guide as: ![Meeting Analysis](screenshots/16-results-analysis.png)
 test("16 - results viewer analysis", async () => {
@@ -561,8 +580,10 @@ test("16 - results viewer analysis", async () => {
 // ════════════════════════════════════════════════════════════════
 // SCREENSHOT 17: Results Viewer — Attendees Tab
 // ════════════════════════════════════════════════════════════════
-// Shows: The Attendees tab with voiceprint status, sample buttons,
-//        and per-attendee details (name, email, linked job).
+// Shows: The Attendees tab with summary cards (total/voiceprint-
+//        matched/registered-only), attendee cards with avatar, name,
+//        email, voiceprint status badge, play button for samples,
+//        export buttons in toolbar.
 // Guide section: "Reviewing Results — Attendees Tab"
 // Add to guide as: ![Meeting Attendees](screenshots/17-results-attendees.png)
 test("17 - results viewer attendees", async () => {
@@ -605,8 +626,9 @@ test("17 - results viewer attendees", async () => {
 // ════════════════════════════════════════════════════════════════
 // SCREENSHOT 18: Results Viewer — Delivery Tab
 // ════════════════════════════════════════════════════════════════
-// Shows: The Delivery tab with delivery status summary and
-//        per-delivery results (email, Drive, Trello).
+// Shows: The Delivery tab with summary cards (total/succeeded/failed),
+//        per-delivery cards with method icon, success/failure badge,
+//        expandable result details, and timestamps.
 // Guide section: "Reviewing Results — Delivery Tab"
 // Add to guide as: ![Delivery Results](screenshots/18-results-delivery.png)
 test("18 - results viewer delivery", async () => {
@@ -624,5 +646,88 @@ test("18 - results viewer delivery", async () => {
 
   await window.screenshot({
     path: path.join(SCREENSHOT_DIR, "18-results-delivery.png"),
+  });
+});
+
+// ════════════════════════════════════════════════════════════════
+// SCREENSHOT 19: Config — Pipeline Section
+// ════════════════════════════════════════════════════════════════
+// Shows: The Pipeline section within the Config tab — Gate 1 (Raw
+//        Transcript Review) toggle and Gate 2 (Delivery Review)
+//        toggle.
+// Guide section: "Settings & Configuration — Config Tab — Pipeline Section"
+// Add to guide as: ![Pipeline Gate Settings](screenshots/19-config-pipeline.png)
+test("19 - config pipeline section", async () => {
+  const configBtn = window.locator(".sidebar-btn", { hasText: "Config" });
+  await configBtn.click();
+  await window.waitForSelector(".config-panel");
+
+  // Click the "Pipeline" section heading
+  const pipelineSection = window.locator("text=Pipeline").first();
+  if (await pipelineSection.isVisible()) {
+    await pipelineSection.click();
+  }
+  await window.waitForTimeout(300);
+
+  await window.screenshot({
+    path: path.join(SCREENSHOT_DIR, "19-config-pipeline.png"),
+  });
+});
+
+// ════════════════════════════════════════════════════════════════
+// SCREENSHOT 20: Config — Logging Tab
+// ════════════════════════════════════════════════════════════════
+// Shows: The Logging tab in the Config panel — LLM Data Logging
+//        toggle, Collapse Repeated Lines toggle, per-source
+//        checkboxes (Python/Bridge/Agent/Main), log level dropdown,
+//        max file size, and max files settings.
+// Guide section: "Settings & Configuration — Logging Tab"
+// Add to guide as: ![Logging Settings](screenshots/20-config-logging.png)
+test("20 - config logging tab", async () => {
+  const configBtn = window.locator(".sidebar-btn", { hasText: "Config" });
+  await configBtn.click();
+  await window.waitForSelector(".config-panel");
+
+  // Click the "Logging" tab button in the config tab bar
+  const loggingTab = window.locator(".config-tab", { hasText: "Logging" });
+  if (await loggingTab.isVisible()) {
+    await loggingTab.click();
+  }
+  await window.waitForTimeout(500);
+
+  await window.screenshot({
+    path: path.join(SCREENSHOT_DIR, "20-config-logging.png"),
+  });
+});
+
+// ════════════════════════════════════════════════════════════════
+// SCREENSHOT 21: Dev Tools — Database Voiceprints
+// ════════════════════════════════════════════════════════════════
+// Shows: The Dev Tools Database tab with the Voiceprints sub-view
+//        active — list of enrolled voiceprints with name, email,
+//        linked job, play button, and delete button.
+// Guide section: "Dev Tools — Database Tab — Voiceprints"
+// Add to guide as: ![Voiceprint Database](screenshots/21-dev-database-voiceprints.png)
+test("21 - dev database voiceprints", async () => {
+  const devBtn = window.locator(".sidebar-btn", { hasText: "Dev" });
+  await devBtn.click();
+  await window.waitForTimeout(500);
+
+  // Click the "Database" tab
+  const dbTab = window.locator(".dev-panel-tab", { hasText: "Database" });
+  if (await dbTab.isVisible()) {
+    await dbTab.click();
+  }
+  await window.waitForTimeout(300);
+
+  // Click the "Voiceprints" sub-view button
+  const vpBtn = window.locator(".dev-panel-view-btn", { hasText: "Voiceprints" });
+  if (await vpBtn.isVisible()) {
+    await vpBtn.click();
+  }
+  await window.waitForTimeout(500);
+
+  await window.screenshot({
+    path: path.join(SCREENSHOT_DIR, "21-dev-database-voiceprints.png"),
   });
 });

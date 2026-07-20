@@ -7,6 +7,7 @@ import time
 import uuid
 import json
 import subprocess
+import shutil
 import tempfile
 from typing import Optional
 from config import config
@@ -190,7 +191,7 @@ class AudioUploader:
 
     @staticmethod
     def _copy_file(src: str, dst: str):
-        subprocess.run(["cp", src, dst], check=True)
+        shutil.copy2(src, dst)
 
     def _standardize_audio(self, input_path: str, output_path: str):
         """Convert to 16kHz mono WAV using ffmpeg."""

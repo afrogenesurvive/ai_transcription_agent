@@ -16,6 +16,15 @@ import { app } from "electron";
 import { addLog, setCurrentJobId } from "./logger";
 import { getChildEnv } from "./config";
 
+/** Cross-platform synchronous sleep using execSync. Falls back gracefully on all platforms. */
+function syncSleep(seconds: number): void {
+  if (process.platform === "win32") {
+    execSync(`timeout /t ${seconds} /nobreak >nul`, { stdio: "pipe", timeout: (seconds + 2) * 1000 });
+  } else {
+    execSync(`sleep ${seconds}`, { stdio: "pipe", timeout: (seconds + 2) * 1000 });
+  }
+}
+
 const isProd = app.isPackaged;
 const IS_WIN = process.platform === "win32";
 
@@ -778,7 +787,7 @@ export function stopOllamaServer(): void {
       const pkillOut = execSync("pkill -i ollama 2>&1; exit 0", { encoding: "utf8", timeout: 5000 }).trim();
       addLog("main", "info", `[ollama] pkill -i ollama: ${pkillOut || "no output (processes killed or none found)"}`);
       // Brief pause to let processes terminate gracefully
-      execSync("sleep 1", { stdio: "pipe", timeout: 2000 });
+      syncSleep(1);
       // Then force-kill any remaining processes with SIGKILL (-9)
       const pkill9Out = execSync("pkill -i -9 ollama 2>&1; exit 0", { encoding: "utf8", timeout: 5000 }).trim();
       if (pkill9Out) addLog("main", "info", `[ollama] pkill -9 follow-up: ${pkill9Out}`);
@@ -788,7 +797,7 @@ export function stopOllamaServer(): void {
       // First send SIGTERM, then SIGKILL after a brief pause
       const pkillOut = execSync("pkill -i ollama 2>&1; exit 0", { encoding: "utf8", timeout: 5000 }).trim();
       addLog("main", "info", `[ollama] pkill -i ollama: ${pkillOut || "no output (process killed or none found)"}`);
-      execSync("sleep 1", { stdio: "pipe", timeout: 2000 });
+      syncSleep(1);
       const pkill9Out = execSync("pkill -i -9 ollama 2>&1; exit 0", { encoding: "utf8", timeout: 5000 }).trim();
       if (pkill9Out) addLog("main", "info", `[ollama] pkill -9 follow-up: ${pkill9Out}`);
     }
