@@ -3578,8 +3578,54 @@ function BackendTestingTab() {
   }, [dirty, scriptContent]);
 
   const handleStop = useCallback(async () => {
+    // Kill the local child process first (if the script was started from this UI)
     await window.electronAPI?.stopBotScript();
-  }, []);
+
+    // Also cancel all known active jobs via the bridge API — this covers jobs
+    // started by external scripts (e.g. CLI-run test-bot.mjs) that aren't tracked
+    // via the `running` state.
+    if (activeJobs.length > 0) {
+      let cancelledCount = 0;
+      let failCount = 0;
+      for (const job of activeJobs) {
+        try {
+          await fetch("http://127.0.0.1:5010/tools/call", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ tool: "transcribe_cancel", args: { jobId: job.job_id } }),
+            signal: AbortSignal.timeout(5000),
+          });
+          cancelledCount++;
+        } catch {
+          failCount++;
+        }
+      }
+      // Re-fetch active jobs immediately to update UI state
+      try {
+        const [pipelineJobs, botJobs] = await Promise.all([
+          window.electronAPI?.getActiveJobs() ?? Promise.resolve([]),
+          window.electronAPI?.getRunningBotJobs() ?? Promise.resolve([]),
+        ]);
+        const seen = new Set<string>();
+        const merged: Array<{ job_id: string; status: string; progress: number; title: string }> = [];
+        for (const j of pipelineJobs) {
+          if (!seen.has(j.job_id)) { seen.add(j.job_id); merged.push(j); }
+        }
+        for (const j of botJobs) {
+          if (!seen.has(j.job_id)) { seen.add(j.job_id); merged.push({ job_id: j.job_id, status: j.status, progress: 0, title: "Bot Job" }); }
+        }
+        setActiveJobs(merged);
+      } catch {
+        setActiveJobs([]);
+      }
+      if (cancelledCount > 0) {
+        setOutput((prev) => [...prev, `Cancelled ${cancelledCount} job(s)\n`]);
+      }
+      if (failCount > 0) {
+        setOutput((prev) => [...prev, `Failed to cancel ${failCount} job(s)\n`]);
+      }
+    }
+  }, [activeJobs]);
 
   const outputColor = exitCode === null ? "var(--text-muted)" : exitCode === 0 ? "var(--green)" : "var(--orange)";
   const outputIcon = exitCode === null ? "info" : exitCode === 0 ? "check_circle" : "warning";
@@ -3616,9 +3662,9 @@ function BackendTestingTab() {
             <Icon name={running ? "sync" : "play_arrow"} size="14" color={running || activeJobs.length > 0 ? "muted" : "accent"} />
             {running ? " Running..." : " Run"}
           </button>
-          <button className="dev-panel-btn" onClick={handleStop} disabled={!running} title="Stop the running script">
-            <Icon name="stop" size="14" color="red" />
-            Stop
+          <button className="dev-panel-btn" onClick={handleStop} disabled={!running && activeJobs.length === 0} title={activeJobs.length > 0 ? "Stop all running pipeline and bot jobs" : "Stop the running script"}>
+            <Icon name="stop" size="14" color={running || activeJobs.length > 0 ? "red" : "muted"} />
+            {activeJobs.length > 0 && !running ? "Stop Jobs" : "Stop"}
           </button>
           <button className="dev-panel-btn" onClick={() => setOutput([])} disabled={output.length === 0} title="Clear output">
             Clear Output
@@ -3879,7 +3925,7 @@ function SubTabPill({ label, icon, active, onClick }: SubTabPillProps) {
 
 export default function DevPanel({ onClose }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("live");
-  const [testingSubTab, setTestingSubTab] = useState<"frontend" | "backend" | "logs">("frontend");
+  const [testingSubTab, setTestingSubTab] = useState<"frontend" | "backend" | "logs">("backend");
 
   return (
     <div className="dev-panel dev-panel--full">
@@ -3961,11 +4007,26 @@ export default function DevPanel({ onClose }: Props) {
         <>
           {/* Sub-tab pills */}
           <div style={{ padding: "8px 16px 0", display: "flex", gap: 8 }}>
-            <SubTabPill label="Frontend" icon="smartphone" active={testingSubTab === "frontend"} onClick={() => setTestingSubTab("frontend")} />
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                padding: "4px 12px",
+                borderRadius: 12,
+                border: "1px solid var(--border)",
+                background: "transparent",
+                color: "var(--text-muted)",
+                fontSize: "var(--fs-11)",
+                opacity: 0.4,
+                cursor: "not-allowed",
+              }}>
+              <Icon name="smartphone" size="12" color="muted" />
+              Frontend
+            </span>
             <SubTabPill label="Backend" icon="dns" active={testingSubTab === "backend"} onClick={() => setTestingSubTab("backend")} />
             <SubTabPill label="Logs" icon="article" active={testingSubTab === "logs"} onClick={() => setTestingSubTab("logs")} />
           </div>
-          {testingSubTab === "frontend" && <FrontendTestingTab />}
           {testingSubTab === "backend" && <BackendTestingTab />}
           {testingSubTab === "logs" && <TestingLogsTab />}
         </>

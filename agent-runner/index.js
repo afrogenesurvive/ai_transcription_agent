@@ -144,6 +144,34 @@ async function withRetry(fn, label, maxRetries) {
   throw lastErr;
 }
 
+/**
+ * Look up a friendly label for a pipeline tool name from PIPELINE_STEPS.
+ */
+function getStepLabel(toolName) {
+  const step = PIPELINE_STEPS.find((s) => s.toolName === toolName);
+  return step ? step.label : toolName.replace(/^transcribe_/, "").replace(/_/g, " ");
+}
+
+/**
+ * Push a simplified step message to the job's live log (displayed in the mini
+ * live log UI component under the pipeline stepper). Calls the bridge server
+ * which relays to the Python backend.
+ */
+async function logStepMessage(jobId, message) {
+  if (!jobId || !message) return;
+  try {
+    const BRIDGE = process.env.BRIDGE_URL || "http://127.0.0.1:5010";
+    await fetch(`${BRIDGE}/tools/call`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tool: "transcribe_add_step_message", args: { jobId, message } }),
+    });
+  } catch (err) {
+    // Non-fatal — the step message is purely cosmetic
+    console.log(`   ℹ️ [RUNNER] Could not log step message: ${err.message}`);
+  }
+}
+
 async function processEvent(event) {
   const eventId = event.id;
   const tag = eventId?.slice(0, 8) || "???";
@@ -212,9 +240,36 @@ async function processEvent(event) {
   // The Python backend captured its own config at upload time (Phase A).
   // Now we add the agent runner's config: LLM provider, tools, pipeline steps,
   // system prompt, delivery settings, and logging config.
+  // Phase B MERGES into the existing Phase A snapshot so that Phase A fields
+  // (whisper model, device, gate toggles, etc.) are preserved.
   {
     const jobId = jobData.jobId || eventId;
+
+    // Fetch the existing Phase A snapshot so we don't lose it on overwrite
+    let existingSnapshot = {};
+    try {
+      const BRIDGE = process.env.BRIDGE_URL || "http://127.0.0.1:5010";
+      const resp = await fetch(`${BRIDGE}/tools/call`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tool: "transcribe_get_job", args: { jobId } }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        const raw = data?.job?.config_snapshot;
+        if (raw) {
+          existingSnapshot = typeof raw === "string" ? JSON.parse(raw) : raw;
+        }
+      }
+    } catch (_e) {
+      // Non-fatal — if we can't fetch the existing record, just start fresh
+    }
+
     const agentConfigSnapshot = {
+      // Start with Phase A fields so they aren't lost
+      ...existingSnapshot,
+
+      // Then overlay Phase B fields (our own config)
       // ── LLM / Agent config ──
       llm_provider: process.env.LLM_PROVIDER || "deepseek",
       llm_model:
@@ -353,6 +408,7 @@ async function processEvent(event) {
       const memoryContextLen = memoryLines.join("\n").length;
       console.log(`✅ [RUNNER] Memory context injected (${memoryLines.length - 3} items, ${memoryContextLen} chars)`);
       console.log(`📝 [RUNNER] Context now: ${context.length} chars (was ${initialContextLength}, +${context.length - initialContextLength})`);
+      logStepMessage(jobData.jobId, "💾 Loading memory context...");
     } catch (err) {
       console.log(`⚠️  [RUNNER] Memory fetch failed (non-fatal): ${err.message}`);
     }
@@ -651,6 +707,7 @@ async function processEvent(event) {
       console.log(`❌ [RUNNER] ${pipelineError}`);
       logLlmData("step_error", { step, error: pipelineError });
       logAction({ eventId, eventType: event.type, action: "failed", detail: pipelineError });
+      logStepMessage(jobId, "❌ LLM call failed — retrying...");
       pipelineComplete = true;
       break;
     }
@@ -747,6 +804,7 @@ async function processEvent(event) {
       }
       console.log(`⏭️  [RUNNER] No decision — pipeline complete`);
       logAction({ eventId, eventType: event.type, action: "complete", detail: `ended at step ${step}, no LLM decision` });
+      logStepMessage(jobId, "✅ AI pipeline complete");
       pipelineComplete = true;
       break;
     }
@@ -781,6 +839,7 @@ async function processEvent(event) {
       pipelineError = `${decision.name} failed after ${toolRetries} retries: ${err.message}`;
       console.log(`❌ [RUNNER] ${pipelineError}`);
       logAction({ eventId, eventType: event.type, action: "failed", detail: pipelineError });
+      logStepMessage(jobId, `❌ ${getStepLabel(decision.name)} failed — retrying...`);
       pipelineComplete = true;
       break;
     }
@@ -835,6 +894,13 @@ async function processEvent(event) {
     }
 
     console.log(`✅ [RUNNER] ${decision.name} succeeded`);
+
+    // ── Push a step message for the mini live log ──
+    {
+      const label = getStepLabel(decision.name);
+      const stepLabel = label !== decision.name ? label : decision.name.replace(/^transcribe_/, "").replace(/_/g, " ");
+      logStepMessage(jobId, `🤖 Agent step ${step}: ${stepLabel}`);
+    }
 
     // ── Log voiceprint identification results ──
     if (decision.name === "transcribe_list_voiceprints") {
@@ -901,6 +967,7 @@ async function processEvent(event) {
         });
 
         console.log(`✅ [RUNNER] Delivery review state saved (${JSON.stringify(reviewState).length} chars)`);
+        logStepMessage(jobData.jobId || eventId, "⏸️ Paused — waiting for delivery review");
         logAction({
           eventId,
           eventType: event.type,
@@ -968,6 +1035,7 @@ async function processEvent(event) {
     if (TERMINAL_TOOLS.has(decision.name)) {
       console.log(`📬 [RUNNER] Delivery complete — pipeline finished`);
       logAction({ eventId, eventType: event.type, action: "complete", detail: `delivered via ${decision.name}` });
+      logStepMessage(jobId, "📬 Delivering results...");
       // Save delivery results and mark job complete immediately (within the delivery step)
       saveDeliveryResults();
 

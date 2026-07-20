@@ -52,9 +52,10 @@ function computeSkippedStages(statusData: any): Set<string> | undefined {
   const skipSteps: string[] | undefined = statusData?.metadata?.skip_steps;
   if (!skipSteps || skipSteps.length === 0) return undefined;
   const stages = new Set<string>();
-  // Delivery tools being skipped → mark the "delivery" stage as skipped
-  const deliveryTools = ["transcribe_prepare_delivery", "send_delivery_email", "save_to_drive", "create_trello_action_items"];
-  if (deliveryTools.some((t) => skipSteps.includes(t))) {
+  // Only mark the delivery stage as skipped when the primary email delivery
+  // tool itself is skipped.  Auxiliary tools (Drive, Trello) being disabled
+  // doesn't mean "no delivery at all" — email may still be active.
+  if (skipSteps.includes("send_delivery_email")) {
     stages.add("delivery");
   }
   return stages.size > 0 ? stages : undefined;
@@ -324,6 +325,28 @@ export default function App() {
     }
   }, [statusHook.data]);
 
+  // ── Clear stale job view when new foreign jobs appear after a completed job ──
+  // Without this, the "Current" view keeps showing the old job's results while a
+  // new bot-created job runs in the background.  By clearing jobId (it's already
+  // terminal), the existing `{!jobId && foreignJobs.hasForeignRunningJobs && (...)}`
+  // guard activates and shows the "Bot Job Running" panel instead.
+  const prevForeignRunningRef = useRef(false);
+  React.useEffect(() => {
+    const wasRunning = prevForeignRunningRef.current;
+    const nowRunning = foreignJobs.hasForeignRunningJobs;
+    prevForeignRunningRef.current = nowRunning;
+
+    // Only fire on the transition false → true, and only when the old job is done
+    if (nowRunning && !wasRunning && (statusHook.state === "complete" || statusHook.state === "error")) {
+      setJobId(null);
+      setTranscript(null);
+      setJobMetadata(null);
+      setStatusData(null);
+      setView("upload");
+      statusHook.stopPolling();
+    }
+  }, [foreignJobs.hasForeignRunningJobs, statusHook.state, statusHook]);
+
   // ── Auto-switch to "Current" view when pipeline pauses for user input ──
   // Speaker labeling, raw transcript review (Gate 1), and delivery review (Gate 2)
   // all render modals that are only visible when sidebarView === "current" and
@@ -389,35 +412,42 @@ export default function App() {
   getTranscriptRef.current = (id: string) => api.getTranscript(id);
   getSummaryRef.current = (id: string) => api.getSummary(id);
 
-  // When polling completes, fetch transcript + summary + metadata
+  // When polling completes, switch to results view IMMEDIATELY (don't wait for
+  // transcript/summary API calls — they can take seconds for large transcripts).
+  // Then load transcript + summary asynchronously and update state as data arrives.
   React.useEffect(() => {
     if (statusHook.state === "complete" && jobId) {
-      const stateSnapshot = statusHook.state;
       const jobTitle = jobMetadata?.title || "Untitled Meeting";
 
-      // Show in-app toast and top-level OS notification (macOS / Windows)
-      // If the user clicks the OS notification, they'll be taken to the results view
+      // Show in-app toast and top-level OS notification
       notify(`"${jobTitle}" — transcription complete`);
       window.electronAPI?.showNotification("Transcription Complete", `"${jobTitle}" — click to view results`, { action: "view_results", jobId });
 
-      Promise.all([
-        getTranscriptRef.current?.(jobId) ?? Promise.reject(new Error("no fetcher")),
-        (getSummaryRef.current?.(jobId) ?? Promise.reject(new Error("no fetcher"))).catch(() => null),
-      ])
-        .then(([transcriptData, summaryData]) => {
-          // Guard: only process if state is still "complete" (avoid stale closure)
-          if (stateSnapshot !== "complete") return;
+      // Switch to results view immediately — ResultsViewer shows loading states
+      // for tabs whose data hasn't loaded yet.
+      setView("results");
+
+      // Load transcript and summary asynchronously (no longer blocking the view switch)
+      getTranscriptRef
+        .current?.(jobId)
+        .then((transcriptData) => {
           if (transcriptData) {
-            setTranscript({ ...transcriptData, summary: summaryData });
-            setView("results");
+            // Load summary separately (non-blocking)
+            getSummaryRef
+              .current?.(jobId)
+              .then((summaryData) => {
+                setTranscript({ ...transcriptData, summary: summaryData });
+              })
+              .catch(() => {
+                // Summary is optional — set transcript without it
+                setTranscript({ ...transcriptData, summary: null });
+              });
           } else {
             notify("Transcription completed but transcript data unavailable");
-            setView("results");
           }
         })
         .catch((err) => {
           notify(`Failed to load transcript: ${err.message}`);
-          setView("results");
         });
     }
 

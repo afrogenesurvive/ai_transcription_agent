@@ -97,6 +97,27 @@ ML_PIPELINE_STATUSES = frozenset({
 # Editable from the Config UI as "Pipeline Timeout (minutes)".
 PIPELINE_TIMEOUT_SECONDS = config.PIPELINE_TIMEOUT_SECONDS
 
+# ── Simplified step messages for the mini live log ──
+# Maps backend status values → short human-readable messages shown in the UI.
+_STATUS_MESSAGES = {
+    "uploaded":                 "📤 Uploading audio...",
+    "initializing":             "🔧 Setting up transcription engine",
+    "processing_diarization":   "🔬 Diarizing speakers...",
+    "matching_voiceprints":     "🧬 Matching voice prints",
+    "paused_for_labeling":      "⏸️ Paused — waiting for speaker labels",
+    "resuming":                 "▶️ Resuming pipeline after labeling",
+    "processing_transcription": "🎤 Transcribing audio...",
+    "aligning":                 "🔗 Aligning transcript to speakers",
+    "transcribed":              "✅ Transcript ready — sending to AI",
+    "pending_raw_review":       "⏸️ Paused — waiting for transcript review",
+    "ready_for_agent":          "🤖 Starting AI agent processing",
+    "pending_delivery_review":  "⏸️ Paused — waiting for delivery review",
+    "delivered":                "📬 Results delivered!",
+    "complete":                 "✅ All done!",
+    "failed":                   "❌ Pipeline failed",
+}
+_MAX_STEP_MESSAGES = 30
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -330,7 +351,9 @@ async def upload_audio_by_path(req: UploadByPathRequest):
     if ext not in config.ALLOWED_EXTENSIONS:
         raise HTTPException(400, f"Unsupported format: {ext}. Allowed: {', '.join(sorted(config.ALLOWED_EXTENSIONS))}")
 
-    skip_steps = req.skip_steps or config.DEFAULT_SKIP_STEPS
+    # Use the provided skip_steps list as-is.  An empty list [] means "skip nothing"
+    # and must NOT fall through to DEFAULT_SKIP_STEPS — [] is falsy in Python.
+    skip_steps = req.skip_steps if req.skip_steps is not None else config.DEFAULT_SKIP_STEPS
     metadata = {
         "title": req.title,
         "attendees": req.attendees,
@@ -378,6 +401,16 @@ async def get_status(job_id: str):
         raise HTTPException(404, "Job not found")
     print(f"[api] GET /transcribe/status/{job_id} → {s['status']} (progress={s.get('progress', '?')})")
     return s
+
+
+@app.post("/transcribe/step_message/{job_id}")
+async def add_step_message(job_id: str, body: dict = Body(...)):
+    """Append a simplified step message to the job's live log (agent runner)."""
+    message = body.get("message", "")
+    if not message:
+        raise HTTPException(400, "message is required")
+    _add_step_message(job_id, message)
+    return {"ok": True}
 
 
 @app.get("/transcribe/active")
@@ -3834,10 +3867,30 @@ def _update_active(job_id: str, status: str, progress: float, **extra):
         return
     _active_jobs[job_id] = {**_active_jobs.get(job_id, {}), "status": status, "progress": progress}
     _active_jobs[job_id].update(extra)
+
+    # Append a simplified step message for the mini live log
+    msg = _STATUS_MESSAGES.get(status)
+    if msg:
+        msgs = _active_jobs[job_id].setdefault("step_messages", [])
+        msgs.append(msg)
+        _active_jobs[job_id]["step_messages"] = msgs[-_MAX_STEP_MESSAGES:]
+
     update_kwargs = {"status": status, "progress": progress}
     if extra:
         update_kwargs.update(extra)
     uploader.update_status(job_id, update_kwargs)
+
+
+def _add_step_message(job_id: str, message: str):
+    """Append a custom step message to a job's live log (used by agent runner)."""
+    if not message:
+        return
+    if job_id in _active_jobs:
+        msgs = _active_jobs[job_id].setdefault("step_messages", [])
+        msgs.append(message)
+        _active_jobs[job_id]["step_messages"] = msgs[-_MAX_STEP_MESSAGES:]
+    # Also persist to disk so the frontend can read it
+    uploader.update_status(job_id, {"step_messages": _active_jobs.get(job_id, {}).get("step_messages", [])})
 
 
 def _run_pipeline_sync(job_id: str):

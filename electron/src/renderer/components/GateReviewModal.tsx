@@ -7,6 +7,7 @@
 
 import React, { useState, useEffect } from "react";
 import Icon from "./Icon";
+import LoadingModal from "./LoadingModal";
 
 interface Props {
   /** Show or hide the modal */
@@ -233,14 +234,6 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
                           </div>
                         </div>
                       )}
-                      <button
-                        className="pp-gate-edit-toggle"
-                        onClick={() => {
-                          setGate1EditMode(true);
-                          setGate1EditedText(JSON.stringify(gate1Transcript, null, 2));
-                        }}>
-                        Edit transcript before approving
-                      </button>
                     </>
                   ) : (
                     <>
@@ -253,9 +246,6 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
                           onChange={(e) => setGate1EditedText(e.target.value)}
                         />
                       </div>
-                      <button className="pp-gate-edit-toggle" onClick={() => setGate1EditMode(false)}>
-                        Cancel editing — back to read-only view
-                      </button>
                     </>
                   )}
                 </div>
@@ -263,6 +253,15 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
                 <div className="pp-gate-actions">
                   {!gate1EditMode ? (
                     <>
+                      <button
+                        className="pp-gate-btn pp-gate-btn--secondary"
+                        disabled={gate1Submitting}
+                        onClick={() => {
+                          setGate1EditMode(true);
+                          setGate1EditedText(JSON.stringify(gate1Transcript, null, 2));
+                        }}>
+                        <Icon name="edit" size="14" /> Edit
+                      </button>
                       <button
                         className="pp-gate-btn pp-gate-btn--approve"
                         disabled={gate1Submitting}
@@ -467,22 +466,6 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
                     </div>
                   </div>
 
-                  {/* Edit toggle */}
-                  {!gate2EditMode && (
-                    <button
-                      className="pp-gate-edit-toggle"
-                      onClick={() => {
-                        setGate2EditMode(true);
-                        setGate2EditedSummary(
-                          typeof gate2Summary.executive_summary === "string" ? gate2Summary.executive_summary : JSON.stringify(gate2Summary, null, 2),
-                        );
-                        setGate2EditedAnalysis(gate2Analysis ? JSON.stringify(gate2Analysis, null, 2) : "");
-                        setGate2EditedTranscript(gate2Transcript ? JSON.stringify(gate2Transcript, null, 2) : "");
-                      }}>
-                      Edit summary & analysis before approving
-                    </button>
-                  )}
-
                   {/* Edit mode extras */}
                   {gate2EditMode && (
                     <>
@@ -495,9 +478,6 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
                           onChange={(e) => setGate2EditedTranscript(e.target.value)}
                         />
                       </div>
-                      <button className="pp-gate-edit-toggle" onClick={() => setGate2EditMode(false)}>
-                        Cancel editing — back to read-only view
-                      </button>
                     </>
                   )}
 
@@ -518,6 +498,27 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
                 <div className="pp-gate-actions">
                   {!showGate2RejectConfirm ? (
                     <>
+                      {!gate2EditMode ? (
+                        <button
+                          className="pp-gate-btn pp-gate-btn--secondary"
+                          disabled={gate2Submitting}
+                          onClick={() => {
+                            setGate2EditMode(true);
+                            setGate2EditedSummary(
+                              typeof gate2Summary.executive_summary === "string"
+                                ? gate2Summary.executive_summary
+                                : JSON.stringify(gate2Summary, null, 2),
+                            );
+                            setGate2EditedAnalysis(gate2Analysis ? JSON.stringify(gate2Analysis, null, 2) : "");
+                            setGate2EditedTranscript(gate2Transcript ? JSON.stringify(gate2Transcript, null, 2) : "");
+                          }}>
+                          <Icon name="edit" size="14" /> Edit
+                        </button>
+                      ) : (
+                        <button className="pp-gate-btn pp-gate-btn--secondary" onClick={() => setGate2EditMode(false)}>
+                          <Icon name="close" size="14" /> Cancel Edit
+                        </button>
+                      )}
                       <button
                         className="pp-gate-btn pp-gate-btn--approve"
                         disabled={gate2Submitting}
@@ -619,6 +620,9 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
                 </div>
               </div>
             )}
+
+            {/* ── Loading overlay during save/submit ── */}
+            <LoadingModal visible={gate1Submitting || gate2Submitting} message="Saving review edits…" />
 
             {/* Gate 2 reject confirm dialog */}
             {showGate2RejectConfirm && (

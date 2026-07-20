@@ -469,6 +469,11 @@ async function dispatch(tool, args) {
         throw new Error(`Failed to update status: ${err.message}`);
       }
 
+    case "transcribe_add_step_message":
+      // Push a simplified step message to the job's live log (mini live log in UI).
+      // Relays to the Python backend which maintains the step_messages array.
+      return await callPython("POST", `/transcribe/step_message/${args.jobId}`, { message: args.message });
+
     case "transcribe_fail_job":
       return await callPython("POST", `/transcribe/fail/${args.jobId}?error=${encodeURIComponent(args.error || "Processing failed")}`);
 

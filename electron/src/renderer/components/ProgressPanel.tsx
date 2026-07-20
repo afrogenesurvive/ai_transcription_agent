@@ -12,6 +12,7 @@ import React, { useState } from "react";
 import Icon from "./Icon";
 import Tooltip from "./Tooltip";
 import GateReviewModal from "./GateReviewModal";
+import MiniLiveLog from "./MiniLiveLog";
 
 interface Props {
   status: string;
@@ -44,6 +45,7 @@ interface Props {
     feedback?: string;
   }) => Promise<void>;
   onRejectGate2?: (action: "cancel" | "retry", feedback?: string) => Promise<void>;
+
 }
 
 /* ── Pipeline stages (non-technical friendly labels) ── */
@@ -187,33 +189,34 @@ export default function PipelineProgress({
   const friendlyMessage = isFailed ? "Something went wrong" : isComplete ? "All done!" : activeStage?.description || "Processing...";
 
   return (
-    <div className={`pp-container ${isFailed ? "pp-container--error" : ""} ${isComplete ? "pp-container--done" : ""}`}>
-      {/* ── Header ── */}
-      <div className="pp-header">
-        <div className="pp-header-left">
-          <h2 className="pp-title">
-            <Icon
-              name={isFailed ? "error" : isComplete ? "check_circle" : "sync"}
-              color={isFailed ? "red" : isComplete ? "green" : "accent"}
-              size="20"
-            />{" "}
-            {friendlyMessage}
-          </h2>
-          <span className="pp-stage-label">{activeLabel}</span>
+    <>
+      <div className={`pp-container ${isFailed ? "pp-container--error" : ""} ${isComplete ? "pp-container--done" : ""}`}>
+        {/* ── Header ── */}
+        <div className="pp-header">
+          <div className="pp-header-left">
+            <h2 className="pp-title">
+              <Icon
+                name={isFailed ? "error" : isComplete ? "check_circle" : "sync"}
+                color={isFailed ? "red" : isComplete ? "green" : "accent"}
+                size="20"
+              />{" "}
+              {friendlyMessage}
+            </h2>
+            <span className="pp-stage-label">{activeLabel}</span>
+          </div>
+          <span className={`pp-pct ${isFailed ? "pp-pct--error" : ""}`}>{isFailed ? "Failed" : isComplete ? "100%" : `${pct}%`}</span>
         </div>
-        <span className={`pp-pct ${isFailed ? "pp-pct--error" : ""}`}>{isFailed ? "Failed" : isComplete ? "100%" : `${pct}%`}</span>
-      </div>
 
-      {/* ── Progress bar ── */}
-      <div className="pp-bar-track">
-        <div
-          className={`pp-bar-fill ${isFailed ? "pp-bar-fill--error" : ""} ${isComplete ? "pp-bar-fill--done" : ""}`}
-          style={{ width: isComplete ? "100%" : `${pct}%` }}
-        />
-      </div>
+        {/* ── Progress bar ── */}
+        <div className="pp-bar-track">
+          <div
+            className={`pp-bar-fill ${isFailed ? "pp-bar-fill--error" : ""} ${isComplete ? "pp-bar-fill--done" : ""}`}
+            style={{ width: isComplete ? "100%" : `${pct}%` }}
+          />
+        </div>
 
-      {/* ── Vertical pipeline stepper ── */}
-      <div className="pp-stepper">
+        {/* ── Vertical pipeline stepper ── */}
+        <div className="pp-stepper">
         {PIPELINE.map((stage) => {
           const state = getStageState(stage, status, isFailed, isComplete, skippedSteps);
           return (
@@ -385,5 +388,9 @@ export default function PipelineProgress({
         </div>
       )}
     </div>
+
+      {/* ── Live logs ── */}
+      <MiniLiveLog />
+    </>
   );
 }

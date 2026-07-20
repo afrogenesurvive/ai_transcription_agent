@@ -914,3 +914,93 @@
 .pp-gate-panel-inner {
   overflow: hidden;
 }
+
+/* ═══════════════════════════════════════════════
+   Mini Live Log (under pipeline stepper)
+   ═══════════════════════════════════════════════ */
+
+.pp-mini-log {
+  margin: 0 16px 10px;
+  background: rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.pp-mini-log-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+
+.pp-mini-log-header:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.pp-mini-log-header-label {
+  font-size: var(--fs-11);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  flex: 1;
+}
+
+.pp-mini-log-header-count {
+  font-size: var(--fs-10);
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+.pp-mini-log-body {
+  padding: 4px 10px 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: calc(1.4em * 8 + 16px);
+  border-top: 1px solid var(--border);
+}
+
+.pp-mini-log-entry {
+  font-size: var(--fs-12);
+  color: var(--text);
+  line-height: 1.4;
+  white-space: pre;
+  animation: pp-mini-log-fadein 0.25s ease-out;
+  padding: 1px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pp-mini-log-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.pp-mini-log-entry--placeholder {
+  color: var(--text-muted);
+  opacity: 0.3;
+  animation: none;
+  white-space: nowrap;
+}
+
+@keyframes pp-mini-log-fadein {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
