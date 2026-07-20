@@ -15,9 +15,13 @@
 #
 # Output:
 #   dist-resources/python-backend/
-#   ├── main          (or main.exe on Windows)  ← standalone executable
-#   ├── _internal/                              ← bundled dependencies
-#   └── ...
+#   └── main/                                  ← bundle directory (name matches --name)
+#       ├── main          (or main.exe on Windows)  ← standalone executable
+#       └── _internal/                              ← bundled dependencies
+#
+# Note: The electron app's resolvePythonBin() checks both this nested layout
+#       and a flat layout (<distpath>/main.exe) for compatibility across
+#       different PyInstaller versions and platforms.
 #
 set -euo pipefail
 

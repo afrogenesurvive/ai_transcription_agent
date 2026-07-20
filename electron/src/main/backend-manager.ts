@@ -172,14 +172,24 @@ async function killProcess(proc: ChildProcess): Promise<void> {
 function resolvePythonBin(backendDir: string): { bin: string; args: string[] } {
   // Production (packaged): use PyInstaller standalone binary
   if (isProd) {
-    // PyInstaller --onedir creates a subdirectory named after the binary (main/main.exe)
-    const pyBinDir = path.join(backendDir, "main");
-    const pyBin = path.join(pyBinDir, IS_WIN ? "main.exe" : "main");
-    if (fs.existsSync(pyBin)) {
-      console.log(`[backend] Using standalone Python binary: ${pyBin}`);
-      return { bin: pyBin, args: [] };
+    const ext = IS_WIN ? ".exe" : "";
+
+    // Check both PyInstaller output layouts (varies by version/platform):
+    //   Nested:  <backendDir>/main/main(.exe)   — PyInstaller >=6 with --onedir --distpath <dir>
+    //   Flat:    <backendDir>/main(.exe)         — older PyInstaller or different distpath usage
+    const candidates = [
+      path.join(backendDir, "main", `main${ext}`), // nested
+      path.join(backendDir, `main${ext}`),          // flat
+    ];
+
+    for (const pyBin of candidates) {
+      if (fs.existsSync(pyBin)) {
+        console.log(`[backend] Using standalone Python binary: ${pyBin}`);
+        return { bin: pyBin, args: [] };
+      }
     }
-    console.log(`[backend] Standalone binary not found at ${pyBin} — falling back to system Python`);
+
+    console.log(`[backend] Standalone binary not found (tried: ${candidates.join(", ")}) — falling back to system Python`);
   }
 
   // Dev: try venv first, then system Python
@@ -440,9 +450,10 @@ function ollamaInstallPaths(): string[] {
 
 /** Check if the Ollama binary is installed on the system. */
 function isOllamaInstalled(): boolean {
+  const nullDevice = IS_WIN ? "nul" : "/dev/null";
   for (const p of ollamaInstallPaths()) {
     try {
-      const versionOutput = execSync(`"${p}" --version 2>/dev/null || ${p} --version`, {
+      const versionOutput = execSync(`"${p}" --version 2>${nullDevice} || ${p} --version 2>${nullDevice}`, {
         encoding: "utf8",
         stdio: "pipe",
         timeout: 5000,
@@ -848,9 +859,10 @@ function ffmpegDownloadUrl(): string {
 
 /** Check if ffmpeg is available (on PATH or already installed by us). */
 function isFfmpegInstalled(): boolean {
+  const nullDevice = IS_WIN ? "nul" : "/dev/null";
   for (const p of ffmpegInstallPaths()) {
     try {
-      execSync(`\"${p}\" -version 2>/dev/null || ${p} -version`, {
+      execSync(`\"${p}\" -version 2>${nullDevice} || ${p} -version 2>${nullDevice}`, {
         encoding: "utf8",
         stdio: "pipe",
         timeout: 5000,
