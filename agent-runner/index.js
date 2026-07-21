@@ -830,6 +830,21 @@ async function processEvent(event) {
       continue;
     }
 
+    // ── Validate jobId arguments ──
+    // The LLM sometimes passes the meeting title as jobId instead of the UUID
+    // (e.g. "001" instead of "1474bba3-..."). Intercept and correct before the
+    // tool executes to prevent bogus 404 "Transcript not ready" errors.
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (decision.arguments && typeof decision.arguments.jobId === "string") {
+      const providedJobId = decision.arguments.jobId;
+      const actualJobId = jobData.jobId || eventId;
+      if (providedJobId !== actualJobId && !UUID_RE.test(providedJobId)) {
+        console.log(`🔧 [RUNNER] LLM used "${providedJobId}" as jobId for ${decision.name} — correcting to "${actualJobId}"`);
+        decision.arguments.jobId = actualJobId;
+        context += `\n\n[Note: Your previous tool call used "${providedJobId}" as the jobId, but the correct Job ID is "${actualJobId}". Use the UUID, not the meeting title.]`;
+      }
+    }
+
     console.log(`🎯 [RUNNER] ${decision.name}`);
     let result;
     try {
@@ -1327,7 +1342,7 @@ function buildInitialContext(event, transcript, safeTitle, safeAttendees, eventI
     deliveryExtraContent ? `Delivery email additional content: "${deliveryExtraContent}"` : null,
     `Delivery drive folder: "${deliveryDriveFolder}"`,
     `Type: ${jobData.eventType || "unknown"}`,
-    `Job ID: ${jobData.jobId || eventId}`,
+    `Job UUID: ${jobData.jobId || eventId} (use this, not the meeting title, when calling tools)`,
     ``,
   ].filter(Boolean);
 

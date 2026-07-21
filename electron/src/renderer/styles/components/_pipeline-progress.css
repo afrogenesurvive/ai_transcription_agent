@@ -10,7 +10,8 @@
   border-radius: var(--radius);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   max-height: 100%;
 }
 
@@ -335,6 +336,9 @@
   background: rgba(248, 81, 73, 0.08);
   border: 1px solid var(--red);
   border-radius: var(--radius);
+  max-height: 300px;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .pp-error-header {

@@ -119,6 +119,26 @@ function sanitizeValue(data, depth = 0) {
   return data;
 }
 
+/**
+ * Parse a string value back to its original type if it looks like
+ * a JSON-encoded string. The LLM sometimes returns complex nested
+ * objects (summary, analysis, action items) as JSON-encoded strings
+ * within the tool call arguments. This undoes that double-encoding.
+ */
+function parseIfString(val) {
+  if (typeof val === "string") {
+    try {
+      return JSON.parse(val);
+    } catch {
+      return val;
+    }
+  }
+  if (Array.isArray(val)) {
+    return val.map((item) => (typeof item === "string" ? parseIfString(item) : item));
+  }
+  return val;
+}
+
 // ── Python API proxy ──
 
 const FETCH_TIMEOUT_MS = parseInt(process.env.BRIDGE_FETCH_TIMEOUT || "30000", 10);
@@ -223,13 +243,13 @@ async function dispatch(tool, args) {
     case "transcribe_analyze":
       return await callPython("POST", "/agent/analyze", {
         job_id: args.jobId,
-        analysis: args.analysis || {},
+        analysis: parseIfString(args.analysis) || {},
       });
 
     case "transcribe_summarize":
       return await callPython("POST", "/agent/summarize", {
         job_id: args.jobId,
-        summary: args.summary || {},
+        summary: parseIfString(args.summary) || {},
       });
 
     case "transcribe_label_speaker":
@@ -307,10 +327,10 @@ async function dispatch(tool, args) {
         title: args.title || "",
         attendees: args.attendees || [],
         transcript_text: args.transcriptText || "",
-        summary: args.summary || {},
-        action_items: args.actionItems || [],
-        budgets: args.budgets || [],
-        decisions: args.decisions || [],
+        summary: parseIfString(args.summary) || {},
+        action_items: (args.actionItems || []).map((i) => parseIfString(i)),
+        budgets: (args.budgets || []).map((i) => parseIfString(i)),
+        decisions: (args.decisions || []).map((i) => parseIfString(i)),
       });
 
     // ── Database browsing (read-only, for DevPanel) ──
@@ -562,10 +582,10 @@ async function dispatch(tool, args) {
     }
 
     case "transcribe_save_summary":
-      return await callPython("POST", `/transcribe/save_summary/${args.jobId}`, { summary: args.summary });
+      return await callPython("POST", `/transcribe/save_summary/${args.jobId}`, { summary: parseIfString(args.summary) });
 
     case "transcribe_save_analysis":
-      return await callPython("POST", `/transcribe/save_analysis/${args.jobId}`, { analysis: args.analysis });
+      return await callPython("POST", `/transcribe/save_analysis/${args.jobId}`, { analysis: parseIfString(args.analysis) });
 
     case "voiceprint_check_conflicts":
       return await callPython("POST", "/voiceprints/check-conflicts", { names: args.attendees || [] });

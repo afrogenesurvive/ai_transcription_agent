@@ -273,9 +273,105 @@ ipcMain.handle("tray:status", () => {
 
 // ── Notifications ──
 
-function sendNotification(title: string, body: string, clickPayload?: Record<string, unknown>) {
-  // Show a top-level OS notification regardless of window focus
-  const notif = new Notification({ title, body });
+type NotificationType = "info" | "success" | "error" | "started" | "paused";
+
+interface SendNotificationOptions {
+  title: string;
+  body: string;
+  clickPayload?: Record<string, unknown>;
+  type?: NotificationType;
+  silent?: boolean;
+  subtitle?: string;
+  actions?: Electron.NotificationAction[];
+}
+
+/** Draw a small programmatic icon for notification types — no asset files needed */
+function createNotificationIcon(type: NotificationType): Electron.NativeImage | undefined {
+  // macOS doesn't show custom notification icons, skip on Darwin
+  if (process.platform === "darwin") return undefined;
+
+  const size = 48;
+  const buf = Buffer.alloc(size * size * 4);
+  buf.fill(0); // transparent background
+
+  function setPixel(x: number, y: number, r: number, g: number, b: number, a = 255) {
+    if (x < 0 || x >= size || y < 0 || y >= size) return;
+    const idx = (y * size + x) * 4;
+    buf[idx] = r;
+    buf[idx + 1] = g;
+    buf[idx + 2] = b;
+    buf[idx + 3] = a;
+  }
+
+  function drawCircle(cx: number, cy: number, radius: number, r: number, g: number, b: number) {
+    for (let y = cy - radius; y <= cy + radius; y++) {
+      for (let x = cx - radius; x <= cx + radius; x++) {
+        if ((x - cx) ** 2 + (y - cy) ** 2 <= radius ** 2) {
+          setPixel(x, y, r, g, b);
+        }
+      }
+    }
+  }
+
+  switch (type) {
+    case "success": {
+      // Green circle with white checkmark
+      drawCircle(24, 24, 20, 60, 200, 80);
+      for (let i = 0; i <= 8; i++) {
+        setPixel(16 + i, 24 + i, 255, 255, 255);
+        setPixel(24 + i, 24 - i, 255, 255, 255);
+      }
+      break;
+    }
+    case "error": {
+      // Red circle with white X
+      drawCircle(24, 24, 20, 220, 60, 60);
+      for (let i = -8; i <= 8; i++) {
+        setPixel(24 + i, 24 + i, 255, 255, 255);
+        setPixel(24 + i, 24 - i, 255, 255, 255);
+      }
+      break;
+    }
+    case "started": {
+      // Blue circle with play triangle
+      drawCircle(24, 24, 20, 60, 130, 220);
+      for (let y = 16; y <= 32; y++) {
+        for (let x = 18; x <= 30; x++) {
+          const halfW = (y - 16) * 0.4 + 2;
+          const cx = 18 + halfW;
+          if (x >= 18 && x <= cx) setPixel(x, y, 255, 255, 255);
+        }
+      }
+      break;
+    }
+    case "paused": {
+      // Yellow/orange circle with two vertical bars
+      drawCircle(24, 24, 20, 230, 180, 40);
+      for (let y = 15; y <= 33; y++) {
+        for (let x = 17; x <= 20; x++) setPixel(x, y, 255, 255, 255);
+        for (let x = 27; x <= 30; x++) setPixel(x, y, 255, 255, 255);
+      }
+      break;
+    }
+    // "info" — no icon, fall back to default app icon
+    default:
+      return undefined;
+  }
+
+  return nativeImage.createFromBuffer(buf, { width: size, height: size });
+}
+
+function sendNotification(opts: SendNotificationOptions) {
+  const { title, body, clickPayload, type = "info", silent = false, subtitle, actions } = opts;
+
+  const icon = createNotificationIcon(type);
+  const notifOptions: Electron.NotificationConstructorOptions = { title, body, silent };
+  if (icon) notifOptions.icon = icon;
+  if (subtitle && process.platform === "darwin") (notifOptions as any).subtitle = subtitle;
+  // Actions are only supported on Windows 10+
+  if (actions && actions.length > 0 && process.platform === "win32") notifOptions.actions = actions;
+
+  const notif = new Notification(notifOptions);
   if (clickPayload) {
     notif.on("click", () => {
       // When the user clicks the notification, forward the payload to the renderer
@@ -291,8 +387,8 @@ function sendNotification(title: string, body: string, clickPayload?: Record<str
 
 // ── IPC Handlers ──
 
-ipcMain.handle("notification:show", (_event, title: string, body: string, clickPayload?: Record<string, unknown>) => {
-  sendNotification(title, body, clickPayload);
+ipcMain.handle("notification:show", (_event, opts: SendNotificationOptions) => {
+  sendNotification(opts);
 });
 
 ipcMain.handle("dialog:selectAudio", async () => {
@@ -2064,8 +2160,7 @@ app.whenReady().then(async () => {
   // Notify the user if agent config was initialized from templates (fresh clone)
   if (initResult.created && initResult.fromTemplates) {
     addLog("main", "info", "Agent config initialized from templates — customize via ConfigPanel > Agent tab");
-    mainWindow?.webContents.send("notification",
-      "Agent pipeline initialized with default settings. Customize in Settings > Agent tab.");
+    mainWindow?.webContents.send("notification", "Agent pipeline initialized with default settings. Customize in Settings > Agent tab.");
   }
 
   // ── Watch agent-config restart flag ──
@@ -2127,11 +2222,11 @@ app.whenReady().then(async () => {
         // to OS notification + renderer (in-app toast via App.tsx)
         setOnJobStarted((jobId: string) => {
           addLog("main", "info", `Job started: ${jobId.slice(0, 8)}`, "job-start");
-          sendNotification("Transcription Started", `Job ${jobId.slice(0, 8)} is processing`);
+          sendNotification({ title: "Transcription Started", body: `Job ${jobId.slice(0, 8)} is processing`, type: "started" });
           mainWindow?.webContents.send("job-started", { jobId });
         });
         await startAgentRunner();
-        sendNotification("Ready", "Transcription backend is running");
+        sendNotification({ title: "Ready", body: "Transcription backend is running", type: "info" });
         mainWindow?.webContents.send("notification", "Backend ready");
       } else {
         const msg = `Config incomplete — agent runner deferred. Missing: ${cfg.missing.join(", ")}`;

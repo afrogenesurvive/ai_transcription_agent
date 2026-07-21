@@ -123,8 +123,10 @@ export default function App() {
   const [labelingSubmitting, setLabelingSubmitting] = useState(false);
   const [labelingError, setLabelingError] = useState<string | null>(null);
 
-  // Guard ref to prevent duplicate labeling notifications on repeated poll cycles
+  // Guard refs to prevent duplicate notifications on repeated poll cycles
   const labelingNotifiedRef = useRef(false);
+  const gate1NotifiedRef = useRef(false);
+  const gate2NotifiedRef = useRef(false);
 
   // Ref to manage notification auto-dismiss timeout — prevents stale timeouts
   // from prematurely dismissing newer notifications.
@@ -375,6 +377,34 @@ export default function App() {
     }
   }, [statusData?.status]);
 
+  // When pipeline pauses for Gate 1 (raw transcript review), fire notification
+  React.useEffect(() => {
+    if (statusData?.status === "pending_raw_review" && jobId && !gate1NotifiedRef.current) {
+      gate1NotifiedRef.current = true;
+      const jobTitle = jobMetadata?.title || "Untitled Meeting";
+      notify(`"${jobTitle}" — raw transcript review needed`);
+      window.electronAPI?.showNotification({
+        title: "Raw Transcript Review Needed",
+        body: `"${jobTitle}" — click to review and approve the transcript`,
+        type: "paused",
+        subtitle: jobTitle,
+        clickPayload: { action: "view_results", jobId },
+      });
+    }
+    if (statusData?.status === "pending_delivery_review" && jobId && !gate2NotifiedRef.current) {
+      gate2NotifiedRef.current = true;
+      const jobTitle = jobMetadata?.title || "Untitled Meeting";
+      notify(`"${jobTitle}" — delivery review needed`);
+      window.electronAPI?.showNotification({
+        title: "Delivery Review Needed",
+        body: `"${jobTitle}" — click to review and approve delivery`,
+        type: "paused",
+        subtitle: jobTitle,
+        clickPayload: { action: "view_results", jobId },
+      });
+    }
+  }, [statusData?.status, jobId]);
+
   // When pipeline pauses for labeling, fetch speaker clips and show the modal
   React.useEffect(() => {
     if (statusHook.state === "paused" && jobId && !showSpeakerModal && !speakerClips) {
@@ -385,9 +415,12 @@ export default function App() {
         labelingNotifiedRef.current = true;
         const jobTitle = jobMetadata?.title || "Untitled Meeting";
         notify(`"${jobTitle}" — speaker identification needed`);
-        window.electronAPI?.showNotification("Speaker Labels Needed", `"${jobTitle}" — click to identify speakers`, {
-          action: "view_results",
-          jobId,
+        window.electronAPI?.showNotification({
+          title: "Speaker Labels Needed",
+          body: `"${jobTitle}" — click to identify speakers`,
+          type: "paused",
+          subtitle: jobTitle,
+          clickPayload: { action: "view_results", jobId },
         });
       }
 
@@ -410,9 +443,11 @@ export default function App() {
       setShowSpeakerModal(false);
       setSpeakerClips(null);
     }
-    // Reset the labeling notification guard when leaving paused state
+    // Reset all notification guard refs when leaving paused state
     if (statusHook.state !== "paused") {
       labelingNotifiedRef.current = false;
+      gate1NotifiedRef.current = false;
+      gate2NotifiedRef.current = false;
     }
   }, [statusHook.state]);
 
@@ -431,7 +466,13 @@ export default function App() {
 
       // Show in-app toast and top-level OS notification
       notify(`"${jobTitle}" — transcription complete`);
-      window.electronAPI?.showNotification("Transcription Complete", `"${jobTitle}" — click to view results`, { action: "view_results", jobId });
+      window.electronAPI?.showNotification({
+        title: "Transcription Complete",
+        body: `"${jobTitle}" — click to view results`,
+        type: "success",
+        subtitle: jobTitle,
+        clickPayload: { action: "view_results", jobId },
+      });
 
       // Switch to results view immediately — ResultsViewer shows loading states
       // for tabs whose data hasn't loaded yet.
@@ -467,7 +508,13 @@ export default function App() {
       const errMsg = statusHook.data?.error || statusHook.error || "Processing failed — check the Logs tab for details";
       const jobTitle = jobMetadata?.title || "Untitled Meeting";
       notify(errMsg);
-      window.electronAPI?.showNotification("Transcription Failed", `"${jobTitle}" — ${errMsg}`, { action: "view_results", jobId });
+      window.electronAPI?.showNotification({
+        title: "Transcription Failed",
+        body: `"${jobTitle}" — ${errMsg}`,
+        type: "error",
+        subtitle: jobTitle,
+        clickPayload: { action: "view_results", jobId },
+      });
       // Transition to results view so the user can see the error + logs
       setView("results");
 
@@ -513,10 +560,18 @@ export default function App() {
       setShowSpeakerModal(false);
       setStatusData({ status: "failed", error: "Cancelled by user", progress: 0.0 });
       notify("Job cancelled");
+      const cancelTitle = jobMetadata?.title || "Untitled Meeting";
+      window.electronAPI?.showNotification({
+        title: "Transcription Cancelled",
+        body: `"${cancelTitle}" — speaker labelling cancelled`,
+        type: "error",
+        subtitle: cancelTitle,
+        clickPayload: { action: "view_results", jobId },
+      });
     } catch (err: any) {
       notify(`Cancel failed: ${err.message}`);
     }
-  }, [jobId, api, statusHook]);
+  }, [jobId, api, statusHook, jobMetadata]);
 
   // ── Gate 1: Approve or reject raw transcript review ──
   const handleGate1Approve = useCallback(
@@ -545,6 +600,14 @@ export default function App() {
           setView("results");
           setStatusData({ status: "failed", error: "Rejected at raw transcript review (Gate 1)", progress: 0.0 });
           notify("Transcript rejected — job cancelled");
+          const gate1Title = jobMetadata?.title || "Untitled Meeting";
+          window.electronAPI?.showNotification({
+            title: "Transcription Cancelled",
+            body: `"${gate1Title}" — rejected at raw transcript review`,
+            type: "error",
+            subtitle: gate1Title,
+            clickPayload: { action: "view_results", jobId },
+          });
         } else {
           notify("Transcript rejected — pipeline retrying");
         }
@@ -553,7 +616,7 @@ export default function App() {
         throw err;
       }
     },
-    [jobId, api, statusHook],
+    [jobId, api, statusHook, jobMetadata],
   );
 
   // ── Gate 2: Approve or reject delivery review ──
@@ -593,6 +656,14 @@ export default function App() {
           setView("results");
           setStatusData({ status: "failed", error: "Rejected at delivery review (Gate 2)", progress: 0.0 });
           notify("Delivery rejected — job cancelled");
+          const gate2Title = jobMetadata?.title || "Untitled Meeting";
+          window.electronAPI?.showNotification({
+            title: "Transcription Cancelled",
+            body: `"${gate2Title}" — rejected at delivery review`,
+            type: "error",
+            subtitle: gate2Title,
+            clickPayload: { action: "view_results", jobId },
+          });
         } else {
           notify("Delivery rejected — agent pipeline retrying");
         }
@@ -625,7 +696,13 @@ export default function App() {
       setShowNewForm(false);
       // Polling starts automatically via useJobStatus when jobId changes
       notify(`"${title}" — transcription started`);
-      window.electronAPI?.showNotification("Transcription Started", `"${title}"`, { action: "view_results", jobId: result.job_id });
+      window.electronAPI?.showNotification({
+        title: "Transcription Started",
+        body: `"${title}"`,
+        type: "started",
+        subtitle: title,
+        clickPayload: { action: "view_results", jobId: result.job_id },
+      });
     } catch (err: any) {
       notify(`Upload failed: ${err.message}`);
     } finally {
@@ -646,12 +723,20 @@ export default function App() {
       // of showing the stale pre-cancel status (e.g. "processing_diarization").
       setStatusData({ status: "failed", error: "Cancelled by user", progress: 0.0 });
       notify("Processing cancelled");
+      const cancelTitle = jobMetadata?.title || "Untitled Meeting";
+      window.electronAPI?.showNotification({
+        title: "Transcription Cancelled",
+        body: `"${cancelTitle}" — processing was cancelled`,
+        type: "error",
+        subtitle: cancelTitle,
+        clickPayload: { action: "view_results", jobId },
+      });
     } catch (err: any) {
       notify(`Cancel failed: ${err.message}`);
     } finally {
       setCancelling(false);
     }
-  }, [jobId, api, statusHook]);
+  }, [jobId, api, statusHook, jobMetadata]);
 
   // Cancel all foreign (bot-created) jobs
   const handleCancelForeign = useCallback(async () => {
