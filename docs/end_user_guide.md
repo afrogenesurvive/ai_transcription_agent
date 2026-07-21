@@ -93,18 +93,18 @@ The sidebar can be **dragged wider or narrower** by clicking and dragging the re
 
 **Status Bar** at the bottom:
 
-| Element                          | Description                                                                      |
-| -------------------------------- | -------------------------------------------------------------------------------- |
-| **Config** dot                   | 🟢 green = LLM provider configured, 🔴 red = missing API key                     |
-| **Diarization** dot              | 🟢 green = speaker diarization model available                                   |
-| **Python / Bridge / Agent** dots | 🟢 = service running, 🔴 = stopped, ⚪ = checking                                |
-| **Ollama** dot                  | 🟢 = Ollama server running, 🔴 = offline, ⚪ = not the active provider. Shown dimmed when Ollama is not the active LLM provider |
-| **💰 Balance**                   | DeepSeek credit balance (click to see popover with details)                      |
-| **Per-service controls**         | Click a running service's ■ button to stop it, or ▶ to restart a stopped service |
-| ⚙️ **Settings**                  | Open the configuration panel                                                     |
-| 📋 **History**                   | Browse past meetings                                                             |
-| 💾 **Storage**                   | View disk usage                                                                  |
-| 🖥️ **Dev Tools**                 | Open developer tools                                                             |
+| Element                          | Description                                                                                                                     |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| **Config** dot                   | 🟢 green = LLM provider configured, 🔴 red = missing API key                                                                    |
+| **Diarization** dot              | 🟢 green = speaker diarization model available                                                                                  |
+| **Python / Bridge / Agent** dots | 🟢 = service running, 🔴 = stopped, ⚪ = checking                                                                               |
+| **Ollama** dot                   | 🟢 = Ollama server running, 🔴 = offline, ⚪ = not the active provider. Shown dimmed when Ollama is not the active LLM provider |
+| **💰 Balance**                   | DeepSeek credit balance (click to see popover with details)                                                                     |
+| **Per-service controls**         | Click a running service's ■ button to stop it, or ▶ to restart a stopped service                                                |
+| ⚙️ **Settings**                  | Open the configuration panel                                                                                                    |
+| 📋 **History**                   | Browse past meetings                                                                                                            |
+| 💾 **Storage**                   | View disk usage                                                                                                                 |
+| 🖥️ **Dev Tools**                 | Open developer tools                                                                                                            |
 
 **Header bar** at the top:
 

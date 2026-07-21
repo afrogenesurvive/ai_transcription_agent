@@ -8,18 +8,18 @@ Transcription Agent is a full-stack desktop application that automatically trans
 
 ## ✨ Features
 
-| Feature                      | Description                                                                                          |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------- |
-| **Automatic Transcription**  | Upload MP3, WAV, M4A, FLAC, OGG, or WebM audio — get a full speaker-labeled transcript               |
-| **Speaker Identification**   | Uses voiceprint matching to recognize and label known speakers across meetings                       |
-| **Smart Summaries**          | Executive summary, key decisions, discussion points, and action items — no need to re-listen         |
-| **Semantic Memory**          | ChromaDB-powered vector search across past meetings — find related discussions instantly             |
-| **Cross-Meeting Context**    | Ephemeral memory tracks recurring action items, budgets, decisions, and contacts                     |
-| **Delivery Integrations**    | Send summaries via Gmail, save transcripts to Google Drive, create Trello cards                      |
-| **Job History**              | Every transcription is saved — browse, search, and revisit past meetings anytime                     |
-| **Visual Pipeline Progress** | Clear multi-stage stepper shows exactly what's happening at each step (up to 11 stages with approval gates)                                    |
-| **Manual Speaker Labeling**  | If speaker count doesn't match attendees, the pipeline pauses with playable audio clips for labeling |
-| **Self-Updating**            | Dev mode: git-based auto-updates. Packaged: electron-updater with GitHub Releases                    |
+| Feature                      | Description                                                                                                 |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| **Automatic Transcription**  | Upload MP3, WAV, M4A, FLAC, OGG, or WebM audio — get a full speaker-labeled transcript                      |
+| **Speaker Identification**   | Uses voiceprint matching to recognize and label known speakers across meetings                              |
+| **Smart Summaries**          | Executive summary, key decisions, discussion points, and action items — no need to re-listen                |
+| **Semantic Memory**          | ChromaDB-powered vector search across past meetings — find related discussions instantly                    |
+| **Cross-Meeting Context**    | Ephemeral memory tracks recurring action items, budgets, decisions, and contacts                            |
+| **Delivery Integrations**    | Send summaries via Gmail, save transcripts to Google Drive, create Trello cards                             |
+| **Job History**              | Every transcription is saved — browse, search, and revisit past meetings anytime                            |
+| **Visual Pipeline Progress** | Clear multi-stage stepper shows exactly what's happening at each step (up to 11 stages with approval gates) |
+| **Manual Speaker Labeling**  | If speaker count doesn't match attendees, the pipeline pauses with playable audio clips for labeling        |
+| **Self-Updating**            | Dev mode: git-based auto-updates. Packaged: electron-updater with GitHub Releases                           |
 
 ---
 
@@ -152,16 +152,17 @@ npm run electron:dev
 
 ## 📚 Documentation
 
-| Document                                                                     | Description                                                 |
-| ---------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| [System Overview](docs/system_overview.md)                                   | High-level architecture, data flow, and design decisions    |
-| [Backend Architecture](docs/backend_architecture.md)                         | Python backend modules, ML pipeline, memory systems         |
-| [Electron Architecture](docs/electron_architecture.md)                       | Main process, renderer, IPC, component tree                 |
-| [Development Setup](docs/dev_setup_installation.md)                          | Step-by-step dev setup, build instructions, troubleshooting |
-| [API Endpoints](docs/api_endpoints.md)                                       | Full API reference for Python backend and bridge server     |
-| [Testing Checklist](docs/testing_checklist.md)                               | Manual and automated test cases for all features            |
-| [Windows Install/Uninstall/Update](docs/windows_install_uninstall_update.md) | Installer behavior, update mechanism, uninstall process     |
-| [End User Guide](docs/end_user_guide.md) | Non-technical guide for using the app — upload, pipeline, results, troubleshooting |
+| Document                                                                     | Description                                                                        |
+| ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| [System Overview](docs/system_overview.md)                                   | High-level architecture, data flow, and design decisions                           |
+| [Backend Architecture](docs/backend_architecture.md)                         | Python backend modules, ML pipeline, memory systems                                |
+| [Electron Architecture](docs/electron_architecture.md)                       | Main process, renderer, IPC, component tree                                        |
+| [Development Setup](docs/dev_setup_installation.md)                          | Step-by-step dev setup, build instructions, troubleshooting                        |
+| [API Endpoints](docs/api_endpoints.md)                                       | Full API reference for Python backend and bridge server                            |
+| [Testing Checklist](docs/testing_checklist.md)                               | Manual and automated test cases for all features                                   |
+| [Windows Install/Uninstall/Update](docs/windows_install_uninstall_update.md) | Installer behavior, update mechanism, uninstall process                            |
+| [End User Guide](docs/end_user_guide.md)                                     | Non-technical guide for using the app — upload, pipeline, results, troubleshooting |
+
 ---
 
 ## 🛠️ Development Scripts
