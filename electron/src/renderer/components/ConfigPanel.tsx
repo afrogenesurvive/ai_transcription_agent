@@ -383,6 +383,8 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
   const [importResult, setImportResult] = useState<string | null>(null);
   const [clearingConfig, setClearingConfig] = useState(false);
   const [clearResult, setClearResult] = useState<string | null>(null);
+  const [restoringUserDefaults, setRestoringUserDefaults] = useState(false);
+  const [restoreUserDefaultsResult, setRestoreUserDefaultsResult] = useState<string | null>(null);
 
   const handleExport = useCallback(async () => {
     setExporting(true);
@@ -409,8 +411,12 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
     try {
       const result = await window.electronAPI?.importConfig();
       if (result?.success) {
-        const agentMsg = result.agentConfigImported ? " (agent instructions included)" : "";
-        setImportResult(`Configuration imported successfully${agentMsg}`);
+        const parts: string[] = [];
+        if (result.agentConfigImported) parts.push("agent instructions");
+        if (result.defaultsImported) parts.push("agent defaults");
+        if (result.userDefaultsImported) parts.push("user defaults");
+        const detail = parts.length > 0 ? ` (${parts.join(", ")} included)` : "";
+        setImportResult(`Configuration imported successfully${detail}`);
         // Reload config values after import
         window.electronAPI?.getConfigWithSources().then((cfg) => {
           setValues({
@@ -526,6 +532,65 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
       setClearResult(`Clear failed: ${err.message}`);
     } finally {
       setClearingConfig(false);
+    }
+  }, []);
+
+  const handleRestoreUserDefaults = useCallback(async () => {
+    const confirmed = window.confirm(
+      "Restore user configuration to shipped defaults?\n\nThis will overwrite ALL saved API keys, provider settings, and delivery credentials with the factory defaults that were shipped with this install.\n\nThe agent runner will be restarted.\n\nThis cannot be undone.",
+    );
+    if (!confirmed) return;
+
+    setRestoringUserDefaults(true);
+    setRestoreUserDefaultsResult(null);
+    try {
+      const result = await window.electronAPI?.restoreDefaultUserConfig();
+      if (result?.success) {
+        // Reload config values (will now show defaults)
+        window.electronAPI?.getConfigWithSources().then((cfg) => {
+          setValues({
+            DEEPSEEK_API_KEY: cfg.DEEPSEEK_API_KEY?.value || "",
+            LLM_PROVIDER: cfg.LLM_PROVIDER?.value || "deepseek",
+            OLLAMA_BASE_URL: cfg.OLLAMA_BASE_URL?.value || "http://127.0.0.1:11434/v1",
+            OLLAMA_MODEL: cfg.OLLAMA_MODEL?.value || "",
+            OLLAMA_NUM_CTX: cfg.OLLAMA_NUM_CTX?.value || "32768",
+            EMBEDDING_PROVIDER: cfg.EMBEDDING_PROVIDER?.value || "",
+            HUGGING_FACE_TOKEN: cfg.HUGGING_FACE_TOKEN?.value || "",
+            GITHUB_TOKEN: cfg.GITHUB_TOKEN?.value || "",
+            WHISPER_MODEL_SIZE: cfg.WHISPER_MODEL_SIZE?.value || "medium",
+            KEEP_TRANSCRIPT_TIMESTAMPS: cfg.KEEP_TRANSCRIPT_TIMESTAMPS?.value || "false",
+            WHISPER_INITIAL_PROMPT_ENABLED: cfg.WHISPER_INITIAL_PROMPT_ENABLED?.value || "false",
+            WHISPER_INITIAL_PROMPT: cfg.WHISPER_INITIAL_PROMPT?.value || "",
+            GMAIL_CLIENT_ID: cfg.GMAIL_CLIENT_ID?.value || "",
+            GMAIL_CLIENT_SECRET: cfg.GMAIL_CLIENT_SECRET?.value || "",
+            GMAIL_REFRESH_TOKEN: cfg.GMAIL_REFRESH_TOKEN?.value || "",
+            GMAIL_USER: cfg.GMAIL_USER?.value || "",
+            TRELLO_KEY: cfg.TRELLO_KEY?.value || "",
+            TRELLO_TOKEN: cfg.TRELLO_TOKEN?.value || "",
+            LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
+            LOG_COLLAPSE_REPEATED_PREFIXES: cfg.LOG_COLLAPSE_REPEATED_PREFIXES?.value || "true",
+            LLM_TEMPERATURE: cfg.LLM_TEMPERATURE?.value || "0.1",
+            PIPELINE_TIMEOUT_MINUTES: cfg.PIPELINE_TIMEOUT_MINUTES?.value || "15",
+            GATE_RAW_REVIEW_ENABLED: cfg.GATE_RAW_REVIEW_ENABLED?.value || "false",
+            GATE_DELIVERY_REVIEW_ENABLED: cfg.GATE_DELIVERY_REVIEW_ENABLED?.value || "false",
+            KEEP_MODELS_WARM: cfg.KEEP_MODELS_WARM?.value || "false",
+            DELIVERY_RECIPIENT_EMAILS: cfg.DELIVERY_RECIPIENT_EMAILS?.value || "",
+            DELIVERY_EMAIL_SUBJECT: cfg.DELIVERY_EMAIL_SUBJECT?.value || "Meeting Summary: {title}",
+            DELIVERY_EMAIL_ADDITIONAL_CONTENT: cfg.DELIVERY_EMAIL_ADDITIONAL_CONTENT?.value || "",
+            DELIVERY_DRIVE_FOLDER: cfg.DELIVERY_DRIVE_FOLDER?.value || "Meeting Transcripts",
+          });
+          setSourceInfo(cfg);
+        });
+        setRestoreUserDefaultsResult("User configuration restored to shipped defaults");
+      } else if (result?.blocked) {
+        setRestoreUserDefaultsResult(result.error || "Cannot restore: jobs are running");
+      } else {
+        setRestoreUserDefaultsResult(result?.error || "Failed to restore defaults");
+      }
+    } catch (err: any) {
+      setRestoreUserDefaultsResult(`Restore failed: ${err.message}`);
+    } finally {
+      setRestoringUserDefaults(false);
     }
   }, []);
 
@@ -2383,11 +2448,35 @@ The system provides existing memory context at the start of each pipeline run. U
                 completion.
               </span>
             ) : (
-              <Tooltip content="Save all API keys, provider settings, and delivery config to disk">
-                <button className="config-save-btn" onClick={handleSave} disabled={saving || saved} title="Save all configuration values to disk">
-                  {saving ? "Saving…" : saved ? "Saved ✓" : "Save Configuration"}
-                </button>
-              </Tooltip>
+              <div className="config-footer-actions">
+                <Tooltip content="Save all API keys, provider settings, and delivery config to disk">
+                  <button className="config-save-btn" onClick={handleSave} disabled={saving || saved} title="Save all configuration values to disk">
+                    {saving ? "Saving…" : saved ? "Saved ✓" : "Save Configuration"}
+                  </button>
+                </Tooltip>
+                <Tooltip content="Restore user configuration to the shipped defaults — all API keys and settings revert to factory values">
+                  <button
+                    className="config-restore-btn"
+                    onClick={handleRestoreUserDefaults}
+                    disabled={saving || restoringUserDefaults || activeJobs.length > 0}
+                    title="Restore the factory-default user config (API keys, provider settings, delivery config)">
+                    {restoringUserDefaults ? (
+                      <span>
+                        <Icon name="sync" size="14" /> Restoring...
+                      </span>
+                    ) : (
+                      <span>
+                        <Icon name="restore" size="14" /> Restore Defaults
+                      </span>
+                    )}
+                  </button>
+                </Tooltip>
+                {restoreUserDefaultsResult && (
+                  <span className={`config-footer-result ${restoreUserDefaultsResult.includes("restored") ? "config-footer-result--ok" : "config-footer-result--err"}`}>
+                    {restoreUserDefaultsResult}
+                  </span>
+                )}
+              </div>
             )}
           </>
         )}

@@ -1215,6 +1215,21 @@
   gap: 8px;
   align-items: center;
   margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.config-footer-result {
+  font-size: var(--fs-11);
+  width: 100%;
+  margin-top: 4px;
+}
+
+.config-footer-result--ok {
+  color: var(--green);
+}
+
+.config-footer-result--err {
+  color: #f85149;
 }
 
 .config-restore-btn {

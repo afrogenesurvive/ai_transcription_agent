@@ -1,10 +1,13 @@
 /**
  * Config Manager — reads/writes app configuration.
  *
- * All configuration comes from a single file:
- *   User config file (app.getPath("userData")/config.json) — UI-written values
+ * Two user-level config files in app.getPath("userData"):
+ *   config.json          — UI-written values (user overrides)
+ *   config.defaults.json — shipped-defaults snapshot (first-launch copy)
  *
- * Hardcoded defaults are used as fallback when no value is set in config.json.
+ * Hardcoded DEFAULTS are used as fallback when no value is set in config.json.
+ * config.defaults.json is snapshotted once on first launch so users can restore
+ * the original shipped defaults, symmetric to agent-config/.defaults/.
  *
  * The user config file is written by the ConfigPanel in the renderer.
  */
@@ -136,12 +139,73 @@ const DEFAULTS: AppConfig = {
 export const REQUIRED_CONFIG_KEYS: (keyof AppConfig)[] = ["DEEPSEEK_API_KEY"];
 
 let userConfigPath: string;
+let userConfigDefaultsPath: string;
 let cachedConfig: AppConfig | null = null;
 
 function ensureUserDataDir(): void {
   const dir = app.getPath("userData");
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   userConfigPath = path.join(dir, "config.json");
+  userConfigDefaultsPath = path.join(dir, "config.defaults.json");
+  ensureUserConfigDefaults();
+}
+
+/**
+ * Snapshot the shipped DEFAULTS to config.defaults.json on first launch.
+ * Only writes if the file does not already exist (once-per-install).
+ * Symmetric to how the bridge snapshots agent-config/.defaults/.
+ */
+function ensureUserConfigDefaults(): void {
+  try {
+    if (fs.existsSync(userConfigDefaultsPath)) return;
+    // Merge DEFAULTS with any already-saved user values so the snapshot
+    // captures the full picture of what was originally shipped.
+    const existing: Partial<AppConfig> = {};
+    if (fs.existsSync(userConfigPath)) {
+      try {
+        const raw = fs.readFileSync(userConfigPath, "utf8");
+        Object.assign(existing, JSON.parse(raw));
+      } catch {
+        // ignore parse errors
+      }
+    }
+    const snapshot = { ...DEFAULTS, ...existing };
+    fs.writeFileSync(userConfigDefaultsPath, JSON.stringify(snapshot, null, 2), "utf8");
+  } catch {
+    // Non-fatal — defaults just won't be snapshotted
+  }
+}
+
+/** Read the user config defaults file. Returns empty object if missing. */
+export function readUserConfigDefaults(): Partial<AppConfig> {
+  try {
+    if (!userConfigDefaultsPath) ensureUserDataDir();
+    if (!fs.existsSync(userConfigDefaultsPath)) return {};
+    return JSON.parse(fs.readFileSync(userConfigDefaultsPath, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Restore user config from the defaults snapshot.
+ * Copies config.defaults.json over config.json, invalidates cache.
+ */
+export function restoreUserConfigDefaults(): AppConfig {
+  invalidateConfigCache();
+  ensureUserDataDir();
+  if (!fs.existsSync(userConfigDefaultsPath)) {
+    // No snapshot yet — write DEFAULTS as both snapshot and live config
+    ensureUserConfigDefaults();
+  }
+  const defaults = readUserConfigDefaults();
+  // Only keep keys that are in DEFAULTS (strip any stale/unknown keys)
+  const clean: Partial<AppConfig> = {};
+  for (const key of Object.keys(DEFAULTS) as (keyof AppConfig)[]) {
+    if (defaults[key] !== undefined) clean[key] = defaults[key];
+  }
+  fs.writeFileSync(userConfigPath, JSON.stringify(clean, null, 2), "utf8");
+  return getConfig();
 }
 
 /** Read the user config file from app.getPath("userData")/config.json. */

@@ -71,7 +71,7 @@ import {
   setOnJobStarted,
 } from "./backend-manager";
 import { subscribe, getLogs, clearLogs, addLog, setStorageBase, setCurrentJobId, listJobLogFiles, readLogFile } from "./logger";
-import { getConfig, getChildEnv, saveConfig, checkConfig, getConfigWithSources, clearConfig } from "./config";
+import { getConfig, getChildEnv, saveConfig, checkConfig, getConfigWithSources, clearConfig, readUserConfigDefaults, restoreUserConfigDefaults } from "./config";
 import { startAutoUpdater, stopAutoUpdater, registerAutoUpdateIpc, getUpdateState, checkAndUpdate } from "./auto-updater";
 import { uninstall } from "./cleanup";
 
@@ -852,6 +852,9 @@ ipcMain.handle("config:export", async () => {
       userConfig = JSON.parse(raw);
     }
 
+    // Read user config defaults snapshot
+    const userDefaultsConfig = readUserConfigDefaults();
+
     // Try to read agent config from bridge
     let agentConfig: any = null;
     try {
@@ -875,9 +878,10 @@ ipcMain.handle("config:export", async () => {
     }
 
     const exportData = {
-      version: 2,
+      version: 3,
       exportedAt: new Date().toISOString(),
       userConfig,
+      userDefaultsConfig,
       agentConfig,
       defaultsConfig,
     };
@@ -1019,6 +1023,19 @@ ipcMain.handle("config:import", async () => {
       }
     }
 
+    // Import user config defaults if present (user defaults snapshot to config.defaults.json)
+    let userDefaultsImported = false;
+    if (importData.userDefaultsConfig) {
+      try {
+        const defaultsPath = path.join(app.getPath("userData"), "config.defaults.json");
+        fs.writeFileSync(defaultsPath, JSON.stringify(importData.userDefaultsConfig, null, 2), "utf8");
+        userDefaultsImported = true;
+        addLog("main", "info", "User config defaults imported successfully to config.defaults.json");
+      } catch (err: any) {
+        addLog("main", "warn", `User config defaults import failed: ${err.message}`);
+      }
+    }
+
     // Import defaults config if present (shipped-defaults snapshot to .defaults/)
     let defaultsImported = false;
     if (importData.defaultsConfig) {
@@ -1045,9 +1062,81 @@ ipcMain.handle("config:import", async () => {
       }
     }
 
-    return { success: true, agentConfigImported, defaultsImported, filePath };
+    return { success: true, agentConfigImported, defaultsImported, userDefaultsImported, filePath };
   } catch (err: any) {
     addLog("main", "error", `Config import failed: ${err.message}`);
+    return { success: false, error: err.message };
+  }
+});
+
+// ── User Config Defaults IPC ──
+
+ipcMain.handle("config:defaults", async () => {
+  addLog("main", "info", "[config] defaults requested");
+  try {
+    const defaults = readUserConfigDefaults();
+    return { success: true, defaults };
+  } catch (err: any) {
+    addLog("main", "error", `Failed to read user config defaults: ${err.message}`);
+    return { success: false, error: err.message, defaults: {} };
+  }
+});
+
+ipcMain.handle("config:restore-defaults", async () => {
+  addLog("main", "info", "[config] restore-defaults requested");
+  try {
+    // Check for active jobs before allowing restore
+    let hasActiveJobs = false;
+    try {
+      const activeRes = await fetch("http://127.0.0.1:5001/transcribe/active", {
+        signal: AbortSignal.timeout(3000),
+      });
+      if (activeRes.ok) {
+        const activeData = await activeRes.json();
+        hasActiveJobs = (activeData.active_jobs || []).length > 0;
+      }
+    } catch {
+      // backend unreachable
+    }
+
+    if (hasActiveJobs) {
+      addLog("main", "warn", "[config] restore-defaults blocked — active jobs running");
+      return { success: false, blocked: true, error: "Cannot restore defaults while jobs are running. Wait for jobs to complete." };
+    }
+
+    const config = restoreUserConfigDefaults();
+    addLog("main", "info", "User config restored from defaults snapshot");
+
+    // If Ollama was started by us, ensure it's still running
+    if (config.LLM_PROVIDER === "ollama") {
+      try {
+        const started = await ensureOllamaRunning();
+        if (!started) {
+          addLog("main", "warn", "[ollama] Server did not start after restore");
+        }
+      } catch (err: any) {
+        addLog("main", "error", `[ollama] Error starting Ollama: ${err.message}`);
+      }
+    } else if (ollamaStartedByUs()) {
+      addLog("main", "info", "[ollama] Provider switched away from Ollama — stopping server");
+      stopOllamaServer();
+    }
+
+    // Restart all services so they pick up the restored config
+    try {
+      if (isAgentRunning()) {
+        await restartAgentRunner();
+      } else {
+        await startAgentRunner();
+      }
+      addLog("main", "info", "Agent runner restarted after user config restore");
+    } catch (err: any) {
+      addLog("main", "error", `Failed to restart agent runner after user config restore: ${err.message}`);
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    addLog("main", "error", `User config restore failed: ${err.message}`);
     return { success: false, error: err.message };
   }
 });

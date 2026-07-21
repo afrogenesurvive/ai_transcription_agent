@@ -99,7 +99,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
     cancelled?: boolean;
     blocked?: boolean;
     agentConfigImported?: boolean;
+    defaultsImported?: boolean;
+    userDefaultsImported?: boolean;
   }> => ipcRenderer.invoke("config:import"),
+  getDefaultUserConfig: (): Promise<{ success: boolean; defaults: Record<string, string>; error?: string }> =>
+    ipcRenderer.invoke("config:defaults"),
+  restoreDefaultUserConfig: (): Promise<{ success: boolean; error?: string; blocked?: boolean }> =>
+    ipcRenderer.invoke("config:restore-defaults"),
 
   // ── Agent Instructions Configuration ──
   getAgentConfig: (): Promise<{ tools?: any; pipeline?: any; systemPrompt?: string; error?: string }> => ipcRenderer.invoke("agent-config:get"),
