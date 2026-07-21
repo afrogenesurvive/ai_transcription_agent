@@ -53,6 +53,8 @@ jobs:
             --hidden-import "functools" --hidden-import "typing" \
             --hidden-import "email.mime.text" --hidden-import "email.mime.multipart" --hidden-import "email.mime.base" \
             --hidden-import "httpx" --hidden-import "anyio" --hidden-import "sniffio" \
+            --hidden-import "faster_whisper" \
+            --hidden-import "ctranslate2" \
             --hidden-import "starlette" --hidden-import "starlette.middleware" --hidden-import "starlette.middleware.cors" \
             --hidden-import "starlette.routing" --hidden-import "starlette.applications" --hidden-import "starlette.requests" \
             --hidden-import "starlette.responses" --hidden-import "starlette.datastructures" --hidden-import "multidict" \

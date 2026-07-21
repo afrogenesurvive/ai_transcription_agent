@@ -69,6 +69,13 @@
       {
         "from": "version.json",
         "to": "version.json"
+      },
+      {
+        "from": "../agent-config",
+        "to": "agent-config",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "mac": {
