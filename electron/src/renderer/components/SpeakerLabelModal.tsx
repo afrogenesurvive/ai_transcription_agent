@@ -507,7 +507,11 @@ export default function SpeakerLabelModal({
               {nonSpeakingAttendees.map((ns, i) => (
                 <li key={i} className="speaker-non-speaking-item">
                   <span className="speaker-non-speaking-name">{ns.name}</span>
-                  {ns.email && <span className="speaker-non-speaking-email">{ns.email}</span>}
+                  {ns.email ? (
+                    <span className="speaker-non-speaking-email">{ns.email}</span>
+                  ) : (
+                    <span className="speaker-non-speaking-email-missing">(no email)</span>
+                  )}
                 </li>
               ))}
             </ul>
@@ -630,8 +634,15 @@ export default function SpeakerLabelModal({
         {/* ── Backend error banner ── */}
         {error && (
           <div className="speaker-label-error-banner">
-            <Icon name="error" size="16" color="red" />
-            <span className="speaker-label-error-text">{error}</span>
+            <Icon name="error" size="18" color="red" />
+            <div className="speaker-label-error-content">
+              <strong className="speaker-label-error-title">Could not save labels</strong>
+              <span className="speaker-label-error-text">{error}</span>
+              <p className="speaker-label-error-hint">
+                A voice conflict was detected — this person&apos;s voice matches an existing enrolled voiceprint under a different name. Check the
+                inline conflict notice for each speaker above, or re-submit if the labels are correct.
+              </p>
+            </div>
             <button className="btn-icon speaker-label-error-dismiss" onClick={() => onClearError?.()} title="Dismiss">
               <Icon name="close" size="12" color="muted" />
             </button>

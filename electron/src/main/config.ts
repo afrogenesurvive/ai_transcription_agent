@@ -202,6 +202,14 @@ export function invalidateConfigCache(): void {
   cachedConfig = null;
 }
 
+/** Clear all user config values, reverting all values to defaults. */
+export function clearConfig(): AppConfig {
+  invalidateConfigCache();
+  ensureUserDataDir();
+  fs.writeFileSync(userConfigPath, "{}", "utf8");
+  return getConfig();
+}
+
 /** Save config values to user config file. Merges with existing. */
 export function saveConfig(values: Partial<AppConfig>): AppConfig {
   invalidateConfigCache();

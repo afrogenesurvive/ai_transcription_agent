@@ -357,6 +357,13 @@
   font-size: 11px;
 }
 
+.speaker-non-speaking-email-missing {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-style: italic;
+  opacity: 0.65;
+}
+
 /* ── Unregistered name warning banner ── */
 
 .speaker-unregistered-banner {
@@ -404,9 +411,33 @@
   line-height: 1.5;
 }
 
-.speaker-label-error-text {
+.speaker-label-error-content {
   flex: 1;
+  min-width: 0;
+}
+
+.speaker-label-error-title {
+  display: block;
+  font-size: 14px;
+  margin-bottom: 4px;
+  color: var(--red, #e06c75);
+}
+
+.speaker-label-error-text {
+  display: block;
   word-break: break-word;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.speaker-label-error-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  padding: 6px 8px;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
 }
 
 .speaker-label-error-dismiss {

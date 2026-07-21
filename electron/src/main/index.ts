@@ -71,7 +71,7 @@ import {
   setOnJobStarted,
 } from "./backend-manager";
 import { subscribe, getLogs, clearLogs, addLog, setStorageBase, setCurrentJobId, listJobLogFiles, readLogFile } from "./logger";
-import { getConfig, getChildEnv, saveConfig, checkConfig, getConfigWithSources } from "./config";
+import { getConfig, getChildEnv, saveConfig, checkConfig, getConfigWithSources, clearConfig } from "./config";
 import { startAutoUpdater, stopAutoUpdater, registerAutoUpdateIpc, getUpdateState, checkAndUpdate } from "./auto-updater";
 import { uninstall } from "./cleanup";
 
@@ -788,7 +788,57 @@ ipcMain.handle("api:checkDeepSeekBalance", async () => {
   }
 });
 
-// ── Config Export / Import IPC ──
+// ── Config Export / Import / Clear IPC ──
+
+ipcMain.handle("config:clear", async () => {
+  addLog("main", "info", "[config] clear requested");
+  try {
+    // Check for active jobs before allowing clear
+    let hasActiveJobs = false;
+    try {
+      const activeRes = await fetch("http://127.0.0.1:5001/transcribe/active", {
+        signal: AbortSignal.timeout(3000),
+      });
+      if (activeRes.ok) {
+        const activeData = await activeRes.json();
+        hasActiveJobs = (activeData.active_jobs || []).length > 0;
+      }
+    } catch {
+      // backend unreachable
+    }
+
+    if (hasActiveJobs) {
+      addLog("main", "warn", "[config] clear blocked — active jobs running");
+      return { success: false, blocked: true, error: "Cannot clear configuration while jobs are running. Wait for jobs to complete." };
+    }
+
+    clearConfig();
+    addLog("main", "info", "User config cleared — all values reverted to defaults");
+
+    // If Ollama was started by us, stop it
+    if (ollamaStartedByUs()) {
+      addLog("main", "info", "[ollama] Stopping server after config clear");
+      stopOllamaServer();
+    }
+
+    // Restart agent runner so it picks up empty config
+    try {
+      if (isAgentRunning()) {
+        await restartAgentRunner();
+      } else {
+        await startAgentRunner();
+      }
+      addLog("main", "info", "Agent runner restarted after config clear");
+    } catch (err: any) {
+      addLog("main", "error", `Failed to restart agent runner after config clear: ${err.message}`);
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    addLog("main", "error", `Config clear failed: ${err.message}`);
+    return { success: false, error: err.message };
+  }
+});
 
 ipcMain.handle("config:export", async () => {
   addLog("main", "info", "[config] export requested");
@@ -813,11 +863,23 @@ ipcMain.handle("config:export", async () => {
       addLog("main", "warn", "Agent config unavailable for export — bridge not reachable");
     }
 
+    // Try to read shipped defaults from bridge
+    let defaultsConfig: any = null;
+    try {
+      const res = await fetch("http://127.0.0.1:5010/agent/config/defaults", {
+        signal: AbortSignal.timeout(3000),
+      });
+      if (res.ok) defaultsConfig = await res.json();
+    } catch {
+      addLog("main", "debug", "Defaults config unavailable for export — bridge not reachable");
+    }
+
     const exportData = {
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
       userConfig,
       agentConfig,
+      defaultsConfig,
     };
 
     // Show save dialog
@@ -957,7 +1019,33 @@ ipcMain.handle("config:import", async () => {
       }
     }
 
-    return { success: true, agentConfigImported, filePath };
+    // Import defaults config if present (shipped-defaults snapshot to .defaults/)
+    let defaultsImported = false;
+    if (importData.defaultsConfig) {
+      try {
+        const defaultsPayload: any = {};
+        if (importData.defaultsConfig.systemPrompt !== undefined) defaultsPayload.systemPrompt = importData.defaultsConfig.systemPrompt;
+        if (importData.defaultsConfig.pipeline !== undefined) defaultsPayload.pipeline = importData.defaultsConfig.pipeline;
+        if (importData.defaultsConfig.tools !== undefined) defaultsPayload.tools = importData.defaultsConfig.tools;
+
+        const res = await fetch("http://127.0.0.1:5010/agent/config/defaults", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(defaultsPayload),
+          signal: AbortSignal.timeout(5000),
+        });
+        if (res.ok) {
+          defaultsImported = true;
+          addLog("main", "info", "Defaults config imported successfully to .defaults/");
+        } else {
+          addLog("main", "warn", `Defaults config import returned status ${res.status}`);
+        }
+      } catch {
+        addLog("main", "warn", "Defaults config import skipped — bridge not reachable");
+      }
+    }
+
+    return { success: true, agentConfigImported, defaultsImported, filePath };
   } catch (err: any) {
     addLog("main", "error", `Config import failed: ${err.message}`);
     return { success: false, error: err.message };

@@ -448,6 +448,50 @@
   cursor: not-allowed;
 }
 
+/* ── Config Panel — separator between import/export and clear ── */
+
+.config-separator {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+/* ── Config Panel — import button highlighted when config is missing ── */
+
+.config-io-btn--import-highlight {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(88, 166, 255, 0.08);
+  box-shadow: 0 0 0 1px var(--accent);
+  animation: config-import-pulse 2s ease-in-out infinite;
+}
+
+.config-io-btn--import-highlight:hover:not(:disabled) {
+  background: rgba(88, 166, 255, 0.15);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+@keyframes config-import-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px var(--accent); }
+  50% { box-shadow: 0 0 0 2px var(--accent), 0 0 8px rgba(88, 166, 255, 0.3); }
+}
+
+/* ── Config Panel — danger button for clear config ── */
+
+.config-io-btn--danger {
+  color: var(--red);
+  border-color: var(--red);
+}
+
+.config-io-btn--danger:hover:not(:disabled) {
+  background: rgba(255, 60, 60, 0.1);
+  color: var(--red);
+  border-color: var(--red);
+}
+
 /* ── Config Panel — section sub-tabs ── */
 
 .config-section-tabs {

@@ -21,6 +21,7 @@ import type { PipelineStep, ConfigValueSource } from "../types";
 
 interface Props {
   onClose: () => void;
+  configOk?: boolean;
 }
 
 type ConfigTab = "config" | "agent" | "logging";
@@ -225,7 +226,7 @@ function formatOllamaSize(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
-export default function ConfigPanel({ onClose }: Props) {
+export default function ConfigPanel({ onClose, configOk }: Props) {
   const [activeTab, setActiveTab] = useState<ConfigTab>("config");
   const [configSection, setConfigSection] = useState<string>("LLM Provider");
   const [values, setValues] = useState<ConfigValues>({} as ConfigValues);
@@ -380,6 +381,8 @@ export default function ConfigPanel({ onClose }: Props) {
   const [importing, setImporting] = useState(false);
   const [exportResult, setExportResult] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<string | null>(null);
+  const [clearingConfig, setClearingConfig] = useState(false);
+  const [clearResult, setClearResult] = useState<string | null>(null);
 
   const handleExport = useCallback(async () => {
     setExporting(true);
@@ -464,6 +467,65 @@ export default function ConfigPanel({ onClose }: Props) {
       setImportResult(`Import failed: ${err.message}`);
     } finally {
       setImporting(false);
+    }
+  }, []);
+
+  const handleClearConfig = useCallback(async () => {
+    const confirmed = window.confirm(
+      "Clear all configuration?\n\nThis will remove ALL saved API keys, provider settings, and delivery credentials. Configuration will revert to defaults.\n\nThe agent runner will be restarted.\n\nThis cannot be undone.",
+    );
+    if (!confirmed) return;
+
+    setClearingConfig(true);
+    setClearResult(null);
+    try {
+      const result = await window.electronAPI?.clearConfig();
+      if (result?.success) {
+        // Reload config values (will now show defaults)
+        window.electronAPI?.getConfigWithSources().then((cfg) => {
+          setValues({
+            DEEPSEEK_API_KEY: cfg.DEEPSEEK_API_KEY?.value || "",
+            LLM_PROVIDER: cfg.LLM_PROVIDER?.value || "deepseek",
+            OLLAMA_BASE_URL: cfg.OLLAMA_BASE_URL?.value || "http://127.0.0.1:11434/v1",
+            OLLAMA_MODEL: cfg.OLLAMA_MODEL?.value || "",
+            OLLAMA_NUM_CTX: cfg.OLLAMA_NUM_CTX?.value || "32768",
+            EMBEDDING_PROVIDER: cfg.EMBEDDING_PROVIDER?.value || "",
+            HUGGING_FACE_TOKEN: cfg.HUGGING_FACE_TOKEN?.value || "",
+            GITHUB_TOKEN: cfg.GITHUB_TOKEN?.value || "",
+            WHISPER_MODEL_SIZE: cfg.WHISPER_MODEL_SIZE?.value || "medium",
+            KEEP_TRANSCRIPT_TIMESTAMPS: cfg.KEEP_TRANSCRIPT_TIMESTAMPS?.value || "false",
+            WHISPER_INITIAL_PROMPT_ENABLED: cfg.WHISPER_INITIAL_PROMPT_ENABLED?.value || "false",
+            WHISPER_INITIAL_PROMPT: cfg.WHISPER_INITIAL_PROMPT?.value || "",
+            GMAIL_CLIENT_ID: cfg.GMAIL_CLIENT_ID?.value || "",
+            GMAIL_CLIENT_SECRET: cfg.GMAIL_CLIENT_SECRET?.value || "",
+            GMAIL_REFRESH_TOKEN: cfg.GMAIL_REFRESH_TOKEN?.value || "",
+            GMAIL_USER: cfg.GMAIL_USER?.value || "",
+            TRELLO_KEY: cfg.TRELLO_KEY?.value || "",
+            TRELLO_TOKEN: cfg.TRELLO_TOKEN?.value || "",
+            LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
+            LOG_COLLAPSE_REPEATED_PREFIXES: cfg.LOG_COLLAPSE_REPEATED_PREFIXES?.value || "true",
+            LLM_TEMPERATURE: cfg.LLM_TEMPERATURE?.value || "0.1",
+            PIPELINE_TIMEOUT_MINUTES: cfg.PIPELINE_TIMEOUT_MINUTES?.value || "15",
+            GATE_RAW_REVIEW_ENABLED: cfg.GATE_RAW_REVIEW_ENABLED?.value || "false",
+            GATE_DELIVERY_REVIEW_ENABLED: cfg.GATE_DELIVERY_REVIEW_ENABLED?.value || "false",
+            KEEP_MODELS_WARM: cfg.KEEP_MODELS_WARM?.value || "false",
+            DELIVERY_RECIPIENT_EMAILS: cfg.DELIVERY_RECIPIENT_EMAILS?.value || "",
+            DELIVERY_EMAIL_SUBJECT: cfg.DELIVERY_EMAIL_SUBJECT?.value || "Meeting Summary: {title}",
+            DELIVERY_EMAIL_ADDITIONAL_CONTENT: cfg.DELIVERY_EMAIL_ADDITIONAL_CONTENT?.value || "",
+            DELIVERY_DRIVE_FOLDER: cfg.DELIVERY_DRIVE_FOLDER?.value || "Meeting Transcripts",
+          });
+          setSourceInfo(cfg);
+        });
+        setClearResult("Configuration cleared — all values reset to defaults");
+      } else if (result?.blocked) {
+        setClearResult(result.error || "Cannot clear: jobs are running");
+      } else {
+        setClearResult(result?.error || "Failed to clear configuration");
+      }
+    } catch (err: any) {
+      setClearResult(`Clear failed: ${err.message}`);
+    } finally {
+      setClearingConfig(false);
     }
   }, []);
 
@@ -930,8 +992,22 @@ The system provides existing memory context at the start of each pipeline run. U
             </button>
           </Tooltip>
           <Tooltip content="Load configuration from a previously exported JSON file">
-            <button className="config-io-btn" onClick={handleImport} disabled={importing} title="Import configuration from a JSON file">
+            <button
+              className={`config-io-btn ${!configOk ? "config-io-btn--import-highlight" : ""}`}
+              onClick={handleImport}
+              disabled={importing}
+              title="Import configuration from a JSON file">
               {importing ? <Icon name="sync" size="14" /> : <Icon name="download" size="14" />} Import
+            </button>
+          </Tooltip>
+          <div className="config-separator" />
+          <Tooltip content="Clear ALL configuration values and revert to defaults">
+            <button
+              className="config-io-btn config-io-btn--danger"
+              onClick={handleClearConfig}
+              disabled={clearingConfig}
+              title="Clear all saved configuration values">
+              {clearingConfig ? <Icon name="sync" size="14" /> : <Icon name="delete" size="14" />} Clear
             </button>
           </Tooltip>
         </div>
@@ -2289,6 +2365,7 @@ The system provides existing memory context at the start of each pipeline run. U
       <div className="config-footer">
         {exportResult && <span className="config-success">{exportResult}</span>}
         {importResult && <span className="config-success">{importResult}</span>}
+        {clearResult && <span className="config-success">{clearResult}</span>}
         {error && <span className="config-error">{error}</span>}
         {saved && !restartNeeded && <span className="config-success">✓ Configuration saved</span>}
         {saved && restartNeeded && (

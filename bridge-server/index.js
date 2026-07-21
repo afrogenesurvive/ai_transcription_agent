@@ -894,6 +894,48 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: `Failed to restore defaults: ${err.message}` }));
       }
+
+      // ── POST /agent/config/defaults — write shipped-defaults snapshot from export data ──
+    } else if (req.method === "POST" && url.pathname === "/agent/config/defaults") {
+      console.log(`[bridge] POST /agent/config/defaults`);
+      try {
+        const { tools, pipeline, systemPrompt } = JSON.parse(body);
+
+        // Ensure defaults directory exists
+        if (!fs.existsSync(DEFAULTS_DIR)) {
+          fs.mkdirSync(DEFAULTS_DIR, { recursive: true });
+        }
+
+        const written = [];
+        if (tools !== undefined) {
+          const toolsPath = path.join(DEFAULTS_DIR, "tools.json");
+          fs.writeFileSync(toolsPath + ".tmp", JSON.stringify(tools, null, 2), "utf8");
+          fs.renameSync(toolsPath + ".tmp", toolsPath);
+          written.push("tools.json");
+          console.log(`[bridge]   .defaults/tools.json written`);
+        }
+        if (pipeline !== undefined) {
+          const pipelinePath = path.join(DEFAULTS_DIR, "pipeline.json");
+          fs.writeFileSync(pipelinePath + ".tmp", JSON.stringify(pipeline, null, 2), "utf8");
+          fs.renameSync(pipelinePath + ".tmp", pipelinePath);
+          written.push("pipeline.json");
+          console.log(`[bridge]   .defaults/pipeline.json written`);
+        }
+        if (systemPrompt !== undefined) {
+          const promptPath = path.join(DEFAULTS_DIR, "system-prompt.md");
+          fs.writeFileSync(promptPath + ".tmp", systemPrompt, "utf8");
+          fs.renameSync(promptPath + ".tmp", promptPath);
+          written.push("system-prompt.md");
+          console.log(`[bridge]   .defaults/system-prompt.md written`);
+        }
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true, written }));
+      } catch (err) {
+        console.error(`[bridge] POST /agent/config/defaults error: ${err.message}`);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: `Failed to write defaults: ${err.message}` }));
+      }
     } else {
       console.log(`[bridge] 404 ${req.method} ${url.pathname}`);
       res.writeHead(404);

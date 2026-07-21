@@ -24,7 +24,7 @@ import crypto from "crypto";
 
 const CONFIG = {
   /** Absolute path to the audio file to use for all 3 jobs */
-  audioPath: "/Users/michaelgrandison/Downloads/Transcription_test_audio/Best update ever from caller with four baby mamas.mp3",
+  audioPath: "/path/to/your/audio/file.mp3",
 
   /** Base name for jobs — auto-incremented (#1, #2, #3) */
   baseJobName: "Bot Test Meeting",
@@ -37,11 +37,11 @@ const CONFIG = {
 
   /** Test attendee list — used as the pool for all 3 jobs */
   attendeeList: [
-    { name: "Alice Johnson", email: "michael.grandison@gmail.com" },
-    { name: "Bob Smith", email: "african.genetic.survival@gmail.com" },
-    { name: "Charlie Brown", email: "mgrandison@smartterm.io" },
-    { name: "Diana Prince", email: "stonedrone001@gmail.com" },
-    { name: "Daniel Prince", email: "stonedrone002@gmail.com" },
+    { name: "Alice Johnson", email: "alice@example.com" },
+    { name: "Bob Smith", email: "bob@example.com" },
+    { name: "Charlie Brown", email: "charlie@example.com" },
+    { name: "Diana Prince", email: "diana@example.com" },
+    { name: "Daniel Prince", email: "daniel@example.com" },
   ],
 };
 

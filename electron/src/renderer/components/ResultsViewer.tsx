@@ -326,10 +326,12 @@ function SummaryTab({
   summary,
   jobId,
   onSavedSummary,
+  exportNamePrefix,
 }: {
   summary?: Props["summary"];
   jobId: string;
   onSavedSummary?: (updated: NonNullable<Props["summary"]>) => void;
+  exportNamePrefix: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -429,8 +431,8 @@ function SummaryTab({
   return (
     <div className="rv-tab-content rv-tab-content--summary">
       <div className="rv-export-toolbar">
-        <ExportButton format="pdf" content={summaryHtml} defaultName="Meeting_Summary" />
-        <ExportButton format="word" content={summaryHtml} defaultName="Meeting_Summary" />
+        <ExportButton format="pdf" content={summaryHtml} defaultName={`${exportNamePrefix}_Summary`} />
+        <ExportButton format="word" content={summaryHtml} defaultName={`${exportNamePrefix}_Summary`} />
         {!editing ? (
           <button className="rv-export-btn" onClick={() => setEditing(true)} title="Edit summary content">
             <Icon name="edit" size="12" /> Edit
@@ -639,10 +641,12 @@ function AnalysisTab({
   analysis,
   jobId,
   onAnalysisUpdate,
+  exportNamePrefix,
 }: {
   analysis: AnalysisData | null;
   jobId: string;
   onAnalysisUpdate?: (updated: AnalysisData) => void;
+  exportNamePrefix: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -726,8 +730,8 @@ function AnalysisTab({
   return (
     <div className="rv-tab-content rv-tab-content--analysis">
       <div className="rv-export-toolbar">
-        <ExportButton format="pdf" content={analysisHtml} defaultName="Meeting_Analysis" />
-        <ExportButton format="word" content={analysisHtml} defaultName="Meeting_Analysis" />
+        <ExportButton format="pdf" content={analysisHtml} defaultName={`${exportNamePrefix}_Analysis`} />
+        <ExportButton format="word" content={analysisHtml} defaultName={`${exportNamePrefix}_Analysis`} />
         {!editing ? (
           <button className="rv-export-btn" onClick={() => setEditing(true)} title="Edit analysis content">
             <Icon name="edit" size="12" /> Edit
@@ -2180,7 +2184,7 @@ interface JobAttendee {
   sample_end: number | null;
 }
 
-function AttendeesTab({ jobId }: { jobId: string }) {
+function AttendeesTab({ jobId, exportNamePrefix }: { jobId: string; exportNamePrefix: string }) {
   const [attendees, setAttendees] = useState<JobAttendee[]>([]);
   const [deliveryEmails, setDeliveryEmails] = useState<Set<string>>(new Set());
   const [hasDeliveryData, setHasDeliveryData] = useState(false);
@@ -2351,8 +2355,8 @@ function AttendeesTab({ jobId }: { jobId: string }) {
   return (
     <div className="rv-tab-content rv-tab-content--attendees">
       <div className="rv-export-toolbar">
-        <ExportButton format="pdf" content={attendeeExportHtml} defaultName="Meeting_Attendees" />
-        <ExportButton format="word" content={attendeeExportHtml} defaultName="Meeting_Attendees" />
+        <ExportButton format="pdf" content={attendeeExportHtml} defaultName={`${exportNamePrefix}_Attendees`} />
+        <ExportButton format="word" content={attendeeExportHtml} defaultName={`${exportNamePrefix}_Attendees`} />
       </div>
       <LoadingModal visible={loading} message="Loading attendees…" />
 
@@ -3102,6 +3106,17 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
     return def || { id: "pipeline" as TabId, label: "Pipeline", icon: "timeline" };
   })();
 
+  // ── Derive a filesystem-safe name for export filenames ──
+  const exportNamePrefix = (() => {
+    const raw = metadata?.title || metadata?.originalFilename || jobId;
+    return raw
+      .replace(/[^a-zA-Z0-9_\- ]/g, "_")
+      .replace(/\s+/g, "_")
+      .replace(/_+/g, "_")
+      .replace(/^_|_$/g, "")
+      .slice(0, 80);
+  })();
+
   return (
     <div className="rv-container">
       {/* Tab navigation */}
@@ -3180,7 +3195,7 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
         {activeTab === "pipeline" && <PipelineTab status={jobStatus || "unknown"} progress={jobProgress ?? 0} error={jobError} />}
         {activeTab === "audio" && <AudioTab jobId={jobId} metadata={metadata} />}
         {activeTab === "transcript" && <TranscriptTab segments={segments} />}
-        {activeTab === "summary" && <SummaryTab summary={summary} jobId={jobId} onSavedSummary={onSummaryUpdate} />}
+        {activeTab === "summary" && <SummaryTab summary={summary} jobId={jobId} onSavedSummary={onSummaryUpdate} exportNamePrefix={exportNamePrefix} />}
         {activeTab === "analysis" &&
           (analysisLoading ? (
             <div className="rv-tab-content">
@@ -3189,9 +3204,9 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
               </div>
             </div>
           ) : (
-            <AnalysisTab analysis={analysis} jobId={jobId} onAnalysisUpdate={(updated) => setAnalysis(updated)} />
+            <AnalysisTab analysis={analysis} jobId={jobId} onAnalysisUpdate={(updated) => setAnalysis(updated)} exportNamePrefix={exportNamePrefix} />
           ))}
-        {activeTab === "attendees" && <AttendeesTab jobId={jobId} />}
+        {activeTab === "attendees" && <AttendeesTab jobId={jobId} exportNamePrefix={exportNamePrefix} />}
         {activeTab === "delivery" && <DeliveryTab jobId={jobId} />}
 
         {/* Developer grouped tabs */}
