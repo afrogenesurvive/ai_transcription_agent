@@ -48,6 +48,8 @@ Everything runs on your computer. Your audio and transcripts stay private unless
    - **Hugging Face Token** — needed for speaker identification (get one free at huggingface.co/settings/tokens)
 5. **Close Settings** — the app is ready to use
 
+> **Config Required Overlay:** If you close Settings without entering an API key, a full-screen overlay appears blocking other views. Click **Open Settings** to return to the Config panel, or **Import Config** to load a previously exported config JSON file. The overlay auto-hides once configuration is complete.
+
 ### Understanding the Interface
 
 The app has a clean, centered layout:
@@ -67,7 +69,7 @@ The app has a clean, centered layout:
 │  🎨  │   bar, mini live log) │                                   │
 │  ℹ️  │                       │                                   │
 ├──────┴───────────────────────────────────────────────────────────┤
-│ Status Bar  🟢Config 🟢Diar 🟢Py 🟢Bridge 🟢Agent  💰$12.34    │
+│ Status Bar  🟢Config 🟢Diar 🟢Py 🟢Bridge 🟢Agent 🟢Ollama 💰$12.34 │
 │  ⚙️ 📋 💾 🖥️                                                │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -96,6 +98,7 @@ The sidebar can be **dragged wider or narrower** by clicking and dragging the re
 | **Config** dot                   | 🟢 green = LLM provider configured, 🔴 red = missing API key                     |
 | **Diarization** dot              | 🟢 green = speaker diarization model available                                   |
 | **Python / Bridge / Agent** dots | 🟢 = service running, 🔴 = stopped, ⚪ = checking                                |
+| **Ollama** dot                  | 🟢 = Ollama server running, 🔴 = offline, ⚪ = not the active provider. Shown dimmed when Ollama is not the active LLM provider |
 | **💰 Balance**                   | DeepSeek credit balance (click to see popover with details)                      |
 | **Per-service controls**         | Click a running service's ■ button to stop it, or ▶ to restart a stopped service |
 | ⚙️ **Settings**                  | Open the configuration panel                                                     |
@@ -612,17 +615,7 @@ Fine-tune how logs are recorded and displayed:
 | **Max File Size**               | Maximum size per log file before rotation (default: 50 MB).                                                                                                                       |
 | **Max Files**                   | Maximum number of rotated log files to keep (default: 10).                                                                                                                        |
 
-### Testing Tab (in Settings)
-
-Configure variables for the Playwright screenshot tests:
-
-| Field                    | Description                                                                                  |
-| ------------------------ | -------------------------------------------------------------------------------------------- |
-| **Audio File Path**      | Absolute path to an audio file (MP3/WAV) used by screenshot tests                            |
-| **Test Title Template**  | Meeting title template (`{autoNum}` auto-increments)                                         |
-| **Default Speaker Name** | Fallback name (used if >20 speakers detected) — see built-in 20-name list in the test source |
-
-These same variables are also editable in **Dev Tools → Testing** tab, where you can run the tests directly.
+The Testing tab is located in **Dev Tools → Testing** — see the [Dev Tools → Testing Tab](#testing-tab) section below for full details.
 
 ---
 

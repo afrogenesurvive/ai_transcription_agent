@@ -3195,7 +3195,9 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
         {activeTab === "pipeline" && <PipelineTab status={jobStatus || "unknown"} progress={jobProgress ?? 0} error={jobError} />}
         {activeTab === "audio" && <AudioTab jobId={jobId} metadata={metadata} />}
         {activeTab === "transcript" && <TranscriptTab segments={segments} />}
-        {activeTab === "summary" && <SummaryTab summary={summary} jobId={jobId} onSavedSummary={onSummaryUpdate} exportNamePrefix={exportNamePrefix} />}
+        {activeTab === "summary" && (
+          <SummaryTab summary={summary} jobId={jobId} onSavedSummary={onSummaryUpdate} exportNamePrefix={exportNamePrefix} />
+        )}
         {activeTab === "analysis" &&
           (analysisLoading ? (
             <div className="rv-tab-content">

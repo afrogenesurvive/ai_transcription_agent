@@ -475,8 +475,15 @@
 }
 
 @keyframes config-import-pulse {
-  0%, 100% { box-shadow: 0 0 0 1px var(--accent); }
-  50% { box-shadow: 0 0 0 2px var(--accent), 0 0 8px rgba(88, 166, 255, 0.3); }
+  0%,
+  100% {
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px var(--accent),
+      0 0 8px rgba(88, 166, 255, 0.3);
+  }
 }
 
 /* ── Config Panel — danger button for clear config ── */

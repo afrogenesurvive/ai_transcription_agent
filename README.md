@@ -17,7 +17,7 @@ Transcription Agent is a full-stack desktop application that automatically trans
 | **Cross-Meeting Context**    | Ephemeral memory tracks recurring action items, budgets, decisions, and contacts                     |
 | **Delivery Integrations**    | Send summaries via Gmail, save transcripts to Google Drive, create Trello cards                      |
 | **Job History**              | Every transcription is saved — browse, search, and revisit past meetings anytime                     |
-| **Visual Pipeline Progress** | Clear 8-stage stepper shows exactly what's happening at each step                                    |
+| **Visual Pipeline Progress** | Clear multi-stage stepper shows exactly what's happening at each step (up to 11 stages with approval gates)                                    |
 | **Manual Speaker Labeling**  | If speaker count doesn't match attendees, the pipeline pauses with playable audio clips for labeling |
 | **Self-Updating**            | Dev mode: git-based auto-updates. Packaged: electron-updater with GitHub Releases                    |
 
