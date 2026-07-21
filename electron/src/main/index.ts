@@ -71,7 +71,16 @@ import {
   setOnJobStarted,
 } from "./backend-manager";
 import { subscribe, getLogs, clearLogs, addLog, setStorageBase, setCurrentJobId, listJobLogFiles, readLogFile } from "./logger";
-import { getConfig, getChildEnv, saveConfig, checkConfig, getConfigWithSources, clearConfig, readUserConfigDefaults, restoreUserConfigDefaults } from "./config";
+import {
+  getConfig,
+  getChildEnv,
+  saveConfig,
+  checkConfig,
+  getConfigWithSources,
+  clearConfig,
+  readUserConfigDefaults,
+  restoreUserConfigDefaults,
+} from "./config";
 import { startAutoUpdater, stopAutoUpdater, registerAutoUpdateIpc, getUpdateState, checkAndUpdate } from "./auto-updater";
 import { uninstall } from "./cleanup";
 

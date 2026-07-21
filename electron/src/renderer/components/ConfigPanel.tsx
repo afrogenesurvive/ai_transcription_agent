@@ -2472,7 +2472,8 @@ The system provides existing memory context at the start of each pipeline run. U
                   </button>
                 </Tooltip>
                 {restoreUserDefaultsResult && (
-                  <span className={`config-footer-result ${restoreUserDefaultsResult.includes("restored") ? "config-footer-result--ok" : "config-footer-result--err"}`}>
+                  <span
+                    className={`config-footer-result ${restoreUserDefaultsResult.includes("restored") ? "config-footer-result--ok" : "config-footer-result--err"}`}>
                     {restoreUserDefaultsResult}
                   </span>
                 )}
