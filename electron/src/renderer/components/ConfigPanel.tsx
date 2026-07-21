@@ -385,6 +385,9 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
   const [clearResult, setClearResult] = useState<string | null>(null);
   const [restoringUserDefaults, setRestoringUserDefaults] = useState(false);
   const [restoreUserDefaultsResult, setRestoreUserDefaultsResult] = useState<string | null>(null);
+  const [showClearConfigConfirm, setShowClearConfigConfirm] = useState(false);
+  const [showRestoreUserDefaultsConfirm, setShowRestoreUserDefaultsConfirm] = useState(false);
+  const [showRestoreDefaultsConfirm, setShowRestoreDefaultsConfirm] = useState(false);
 
   const handleExport = useCallback(async () => {
     setExporting(true);
@@ -477,11 +480,7 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
   }, []);
 
   const handleClearConfig = useCallback(async () => {
-    const confirmed = window.confirm(
-      "Clear all configuration?\n\nThis will remove ALL saved API keys, provider settings, and delivery credentials. Configuration will revert to defaults.\n\nThe agent runner will be restarted.\n\nThis cannot be undone.",
-    );
-    if (!confirmed) return;
-
+    setShowClearConfigConfirm(false);
     setClearingConfig(true);
     setClearResult(null);
     try {
@@ -536,11 +535,7 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
   }, []);
 
   const handleRestoreUserDefaults = useCallback(async () => {
-    const confirmed = window.confirm(
-      "Restore user configuration to shipped defaults?\n\nThis will overwrite ALL saved API keys, provider settings, and delivery credentials with the factory defaults that were shipped with this install.\n\nThe agent runner will be restarted.\n\nThis cannot be undone.",
-    );
-    if (!confirmed) return;
-
+    setShowRestoreUserDefaultsConfirm(false);
     setRestoringUserDefaults(true);
     setRestoreUserDefaultsResult(null);
     try {
@@ -998,13 +993,7 @@ The system provides existing memory context at the start of each pipeline run. U
   }, [onClose]);
 
   const handleRestoreDefaults = useCallback(async () => {
-    if (
-      !window.confirm(
-        "Restore default agent configs?\n\nThis will overwrite your current system prompt, pipeline steps, and tool definitions with the original shipped defaults. The agent runner will need a restart.\n\nThis cannot be undone.",
-      )
-    ) {
-      return;
-    }
+    setShowRestoreDefaultsConfirm(false);
     setRestoringDefaults(true);
     setError(null);
     try {
@@ -1069,7 +1058,7 @@ The system provides existing memory context at the start of each pipeline run. U
           <Tooltip content="Clear ALL configuration values and revert to defaults">
             <button
               className="config-io-btn config-io-btn--danger"
-              onClick={handleClearConfig}
+              onClick={() => setShowClearConfigConfirm(true)}
               disabled={clearingConfig}
               title="Clear all saved configuration values">
               {clearingConfig ? <Icon name="sync" size="14" /> : <Icon name="delete" size="14" />} Clear
@@ -2457,7 +2446,7 @@ The system provides existing memory context at the start of each pipeline run. U
                 <Tooltip content="Restore user configuration to the shipped defaults — all API keys and settings revert to factory values">
                   <button
                     className="config-restore-btn"
-                    onClick={handleRestoreUserDefaults}
+                    onClick={() => setShowRestoreUserDefaultsConfirm(true)}
                     disabled={saving || restoringUserDefaults || activeJobs.length > 0}
                     title="Restore the factory-default user config (API keys, provider settings, delivery config)">
                     {restoringUserDefaults ? (
@@ -2548,7 +2537,7 @@ The system provides existing memory context at the start of each pipeline run. U
                 <Tooltip content="Reset agent configuration to factory defaults — tools, pipeline steps, and system prompt">
                   <button
                     className="config-restore-btn"
-                    onClick={handleRestoreDefaults}
+                    onClick={() => setShowRestoreDefaultsConfirm(true)}
                     disabled={saving || restoringDefaults || activeJobs.length > 0}
                     title="Restore the original shipped agent configs (tools, pipeline, system prompt)">
                     {restoringDefaults ? (
@@ -2574,6 +2563,87 @@ The system provides existing memory context at the start of each pipeline run. U
           </div>
         )}
       </div>
+
+      {/* ── Clear Config confirmation dialog ── */}
+      {showClearConfigConfirm && (
+        <div className="confirm-overlay" onClick={() => setShowClearConfigConfirm(false)}>
+          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3 className="confirm-dialog-title">
+              <Icon name="warning" size="16" color="red" /> Clear Configuration
+            </h3>
+            <p className="confirm-dialog-text">
+              This will remove ALL saved API keys, provider settings, and delivery credentials.
+              Configuration will revert to defaults. The agent runner will be restarted.
+              This cannot be undone.
+            </p>
+            <div className="confirm-dialog-actions">
+              <button className="btn-secondary" onClick={() => setShowClearConfigConfirm(false)}>
+                Cancel
+              </button>
+              <button
+                className="btn-danger"
+                onClick={handleClearConfig}
+                disabled={clearingConfig}>
+                {clearingConfig ? "Clearing..." : "Clear All"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Restore User Defaults confirmation dialog ── */}
+      {showRestoreUserDefaultsConfirm && (
+        <div className="confirm-overlay" onClick={() => setShowRestoreUserDefaultsConfirm(false)}>
+          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3 className="confirm-dialog-title">
+              <Icon name="warning" size="16" color="red" /> Restore Defaults
+            </h3>
+            <p className="confirm-dialog-text">
+              This will overwrite ALL saved API keys, provider settings, and delivery credentials
+              with the factory defaults that were shipped with this install.
+              The agent runner will be restarted. This cannot be undone.
+            </p>
+            <div className="confirm-dialog-actions">
+              <button className="btn-secondary" onClick={() => setShowRestoreUserDefaultsConfirm(false)}>
+                Cancel
+              </button>
+              <button
+                className="btn-danger"
+                onClick={handleRestoreUserDefaults}
+                disabled={restoringUserDefaults}>
+                {restoringUserDefaults ? "Restoring..." : "Restore Defaults"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Restore Agent Defaults confirmation dialog ── */}
+      {showRestoreDefaultsConfirm && (
+        <div className="confirm-overlay" onClick={() => setShowRestoreDefaultsConfirm(false)}>
+          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3 className="confirm-dialog-title">
+              <Icon name="warning" size="16" color="red" /> Restore Agent Defaults
+            </h3>
+            <p className="confirm-dialog-text">
+              This will overwrite your current system prompt, pipeline steps, and tool definitions
+              with the original shipped defaults. The agent runner will need a restart.
+              This cannot be undone.
+            </p>
+            <div className="confirm-dialog-actions">
+              <button className="btn-secondary" onClick={() => setShowRestoreDefaultsConfirm(false)}>
+                Cancel
+              </button>
+              <button
+                className="btn-danger"
+                onClick={handleRestoreDefaults}
+                disabled={restoringDefaults}>
+                {restoringDefaults ? "Restoring..." : "Restore Defaults"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
