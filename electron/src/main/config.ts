@@ -382,3 +382,65 @@ export function getChildEnv(): NodeJS.ProcessEnv {
       : {}),
   };
 }
+
+/** Agent config file names to write. */
+const AGENT_CONFIG_FILES = ["pipeline.json", "tools.json", "system-prompt.md"] as const;
+
+/** Result of writing agent config to disk. */
+export interface AgentConfigDiskResult {
+  success: boolean;
+  written: string[];
+  error?: string;
+}
+
+/**
+ * Write agent config files directly to userData/agent-config/ on disk.
+ *
+ * This bypasses the bridge server, so it works even on a clean install
+ * where the bridge isn't running yet. Uses atomic rename (write .tmp → rename)
+ * for crash safety.
+ *
+ * Also touches .restart-flag so the watcher in index.ts triggers a runner restart.
+ */
+export function saveAgentConfigToDisk(config: { systemPrompt?: string; pipeline?: any; tools?: any }): AgentConfigDiskResult {
+  const agentConfigDir = path.join(app.getPath("userData"), "agent-config");
+  const written: string[] = [];
+
+  try {
+    fs.mkdirSync(agentConfigDir, { recursive: true });
+
+    if (config.pipeline !== undefined) {
+      const filePath = path.join(agentConfigDir, "pipeline.json");
+      const tmpPath = filePath + ".tmp";
+      fs.writeFileSync(tmpPath, JSON.stringify(config.pipeline, null, 2), "utf8");
+      fs.renameSync(tmpPath, filePath);
+      written.push("pipeline.json");
+    }
+
+    if (config.tools !== undefined) {
+      const filePath = path.join(agentConfigDir, "tools.json");
+      const tmpPath = filePath + ".tmp";
+      fs.writeFileSync(tmpPath, JSON.stringify(config.tools, null, 2), "utf8");
+      fs.renameSync(tmpPath, filePath);
+      written.push("tools.json");
+    }
+
+    if (config.systemPrompt !== undefined) {
+      const filePath = path.join(agentConfigDir, "system-prompt.md");
+      const tmpPath = filePath + ".tmp";
+      fs.writeFileSync(tmpPath, config.systemPrompt, "utf8");
+      fs.renameSync(tmpPath, filePath);
+      written.push("system-prompt.md");
+    }
+
+    // Touch .restart-flag so the watcher restarts the runner
+    if (written.length > 0) {
+      const restartFlagPath = path.join(agentConfigDir, ".restart-flag");
+      fs.writeFileSync(restartFlagPath, JSON.stringify({ timestamp: new Date().toISOString(), source: "saveAgentConfigToDisk" }), "utf8");
+    }
+
+    return { success: true, written };
+  } catch (err: any) {
+    return { success: false, written, error: err.message };
+  }
+}

@@ -24,9 +24,13 @@ app.name = "Transcription Agent";
 // Required so that child processes (Python backend, bridge, agent runner)
 // inherit env vars like HUGGING_FACE_TOKEN that are set in the project .env file.
 // This runs before any backend services are spawned.
+//
+// In dev mode: reads from the project root (alongside package.json).
+// In packaged mode: reads from userData so users can place a .env file
+// in a writable location outside the read-only app bundle.
 (function loadDotEnv(): void {
   try {
-    const rootDir = app.isPackaged ? path.join(process.resourcesPath, "..") : path.join(app.getAppPath(), "..");
+    const rootDir = app.isPackaged ? app.getPath("userData") : path.join(app.getAppPath(), "..");
     const envPath = path.join(rootDir, ".env");
     if (!fs.existsSync(envPath)) return;
     const content = fs.readFileSync(envPath, "utf8");
@@ -69,6 +73,8 @@ import {
   ollamaStartedByUs,
   stopOllamaServer,
   setOnJobStarted,
+  initAgentConfigDir,
+  getUserDataAgentConfigDir,
 } from "./backend-manager";
 import { subscribe, getLogs, clearLogs, addLog, setStorageBase, setCurrentJobId, listJobLogFiles, readLogFile } from "./logger";
 import {
@@ -80,6 +86,7 @@ import {
   clearConfig,
   readUserConfigDefaults,
   restoreUserConfigDefaults,
+  saveAgentConfigToDisk,
 } from "./config";
 import { startAutoUpdater, stopAutoUpdater, registerAutoUpdateIpc, getUpdateState, checkAndUpdate } from "./auto-updater";
 import { uninstall } from "./cleanup";
@@ -1009,12 +1016,14 @@ ipcMain.handle("config:import", async () => {
     // Import agent config if present (agent-specific instructions like prompts & pipeline hints)
     let agentConfigImported = false;
     if (importData.agentConfig) {
-      try {
-        const agentPayload: any = {};
-        if (importData.agentConfig.systemPrompt) agentPayload.systemPrompt = importData.agentConfig.systemPrompt;
-        if (importData.agentConfig.pipeline) agentPayload.pipeline = importData.agentConfig.pipeline;
-        if (importData.agentConfig.tools) agentPayload.tools = importData.agentConfig.tools;
+      // Dual-path: try bridge first (live system), fall back to direct disk write (clean install)
+      let agentPayload: any = {};
+      if (importData.agentConfig.systemPrompt !== undefined) agentPayload.systemPrompt = importData.agentConfig.systemPrompt;
+      if (importData.agentConfig.pipeline !== undefined) agentPayload.pipeline = importData.agentConfig.pipeline;
+      if (importData.agentConfig.tools !== undefined) agentPayload.tools = importData.agentConfig.tools;
 
+      let bridgeOk = false;
+      try {
         const res = await fetch("http://127.0.0.1:5010/agent/config", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1022,13 +1031,29 @@ ipcMain.handle("config:import", async () => {
           signal: AbortSignal.timeout(5000),
         });
         if (res.ok) {
+          bridgeOk = true;
           agentConfigImported = true;
           addLog("main", "info", "Agent config imported successfully via bridge");
         } else {
-          addLog("main", "warn", `Agent config import returned status ${res.status}`);
+          addLog("main", "warn", `Agent config import via bridge returned status ${res.status} — falling back to direct write`);
         }
       } catch {
-        addLog("main", "warn", "Agent config import skipped — bridge not reachable");
+        addLog("main", "warn", "Bridge not reachable for agent config import — falling back to direct write");
+      }
+
+      if (!bridgeOk) {
+        // Write directly to userData/agent-config/ (works on clean install, no bridge dependency)
+        const result = saveAgentConfigToDisk({
+          systemPrompt: importData.agentConfig.systemPrompt,
+          pipeline: importData.agentConfig.pipeline,
+          tools: importData.agentConfig.tools,
+        });
+        if (result.success) {
+          agentConfigImported = true;
+          addLog("main", "info", `Agent config imported directly to disk: ${result.written.join(", ")}`);
+        } else {
+          addLog("main", "error", `Agent config direct write failed: ${result.error}`);
+        }
       }
     }
 
@@ -1048,6 +1073,8 @@ ipcMain.handle("config:import", async () => {
     // Import defaults config if present (shipped-defaults snapshot to .defaults/)
     let defaultsImported = false;
     if (importData.defaultsConfig) {
+      // Dual-path: try bridge first, fall back to direct write
+      let bridgeOk = false;
       try {
         const defaultsPayload: any = {};
         if (importData.defaultsConfig.systemPrompt !== undefined) defaultsPayload.systemPrompt = importData.defaultsConfig.systemPrompt;
@@ -1061,13 +1088,41 @@ ipcMain.handle("config:import", async () => {
           signal: AbortSignal.timeout(5000),
         });
         if (res.ok) {
+          bridgeOk = true;
           defaultsImported = true;
-          addLog("main", "info", "Defaults config imported successfully to .defaults/");
+          addLog("main", "info", "Defaults config imported successfully via bridge");
         } else {
-          addLog("main", "warn", `Defaults config import returned status ${res.status}`);
+          addLog("main", "warn", `Defaults config import via bridge returned status ${res.status} — falling back to direct write`);
         }
       } catch {
-        addLog("main", "warn", "Defaults config import skipped — bridge not reachable");
+        addLog("main", "warn", "Bridge not reachable for defaults import — falling back to direct write");
+      }
+
+      if (!bridgeOk) {
+        // Write directly to userData/agent-config/.defaults/
+        try {
+          const agentConfigDir = path.join(app.getPath("userData"), "agent-config", ".defaults");
+          fs.mkdirSync(agentConfigDir, { recursive: true });
+          const written: string[] = [];
+
+          if (importData.defaultsConfig.systemPrompt !== undefined) {
+            fs.writeFileSync(path.join(agentConfigDir, "system-prompt.md"), importData.defaultsConfig.systemPrompt, "utf8");
+            written.push("system-prompt.md");
+          }
+          if (importData.defaultsConfig.pipeline !== undefined) {
+            fs.writeFileSync(path.join(agentConfigDir, "pipeline.json"), JSON.stringify(importData.defaultsConfig.pipeline, null, 2), "utf8");
+            written.push("pipeline.json");
+          }
+          if (importData.defaultsConfig.tools !== undefined) {
+            fs.writeFileSync(path.join(agentConfigDir, "tools.json"), JSON.stringify(importData.defaultsConfig.tools, null, 2), "utf8");
+            written.push("tools.json");
+          }
+
+          defaultsImported = true;
+          addLog("main", "info", `Defaults config imported directly to disk: ${written.join(", ")}`);
+        } catch (err: any) {
+          addLog("main", "error", `Defaults config direct write failed: ${err.message}`);
+        }
       }
     }
 
@@ -1166,6 +1221,9 @@ ipcMain.handle("agent-config:get", async () => {
 
 ipcMain.handle("agent-config:save", async (_event, config: { tools?: any; pipeline?: any; systemPrompt?: string }) => {
   addLog("main", "info", "Agent config saving...");
+
+  // Dual-path: try bridge first (live system), fall back to direct disk write
+  let bridgeOk = false;
   try {
     const res = await fetch("http://127.0.0.1:5010/agent/config", {
       method: "POST",
@@ -1175,15 +1233,29 @@ ipcMain.handle("agent-config:save", async (_event, config: { tools?: any; pipeli
     });
     if (res.ok) {
       const result = await res.json();
-      addLog("main", "info", "Agent config saved");
+      addLog("main", "info", "Agent config saved via bridge");
+      bridgeOk = true;
       return result;
     }
     const errText = await res.text();
-    addLog("main", "error", `Agent config save failed: ${errText}`);
-    return { error: `Bridge returned ${res.status}: ${errText}` };
+    addLog("main", "warn", `Agent config save via bridge returned ${res.status}: ${errText} — falling back to direct write`);
   } catch (err: any) {
-    addLog("main", "error", `Agent config save failed: ${err.message}`);
-    return { error: `Bridge unreachable: ${err.message}` };
+    addLog("main", "warn", `Agent config save via bridge failed: ${err.message} — falling back to direct write`);
+  }
+
+  if (!bridgeOk) {
+    // Write directly to userData/agent-config/ (works even if bridge is restarting)
+    const result = saveAgentConfigToDisk({
+      systemPrompt: config.systemPrompt,
+      pipeline: config.pipeline,
+      tools: config.tools,
+    });
+    if (result.success) {
+      addLog("main", "info", `Agent config saved directly to disk: ${result.written.join(", ")}`);
+      return { success: true, written: result.written, direct: true };
+    }
+    addLog("main", "error", `Agent config direct write failed: ${result.error}`);
+    return { error: `Direct write failed: ${result.error}` };
   }
 });
 
@@ -1983,19 +2055,25 @@ app.whenReady().then(async () => {
   // Start periodic health monitoring
   startHealthMonitoring();
 
+  // ── Initialize writable agent-config in userData ──
+  // Copies bundled agent-config (read-only in production) to userData so the
+  // bridge can write edits and config import can restore saved values.
+  const initResult = initAgentConfigDir();
+  const userDataAgentConfigDir = initResult.path;
+
+  // Notify the user if agent config was initialized from templates (fresh clone)
+  if (initResult.created && initResult.fromTemplates) {
+    addLog("main", "info", "Agent config initialized from templates — customize via ConfigPanel > Agent tab");
+    mainWindow?.webContents.send("notification",
+      "Agent pipeline initialized with default settings. Customize in Settings > Agent tab.");
+  }
+
   // ── Watch agent-config restart flag ──
   // When the bridge touches agent-config/.restart-flag (via POST /agent/config/restart),
   // restart the agent runner so it picks up new tool/pipeline config.
-  const agentConfigDir = (() => {
-    const candidates = [path.join(app.getAppPath(), "..", "agent-config"), path.join(app.getAppPath(), "agent-config")];
-    if (app.isPackaged) {
-      candidates.unshift(path.join(process.resourcesPath, "agent-config"));
-    }
-    return candidates.find((d) => fs.existsSync(d)) || candidates[0];
-  })();
-
-  const restartFlagPath = path.join(agentConfigDir, ".restart-flag");
-  if (fs.existsSync(agentConfigDir)) {
+  // Watches the writable userData copy (bundled path is read-only in production).
+  const restartFlagPath = path.join(userDataAgentConfigDir, ".restart-flag");
+  if (fs.existsSync(userDataAgentConfigDir)) {
     try {
       fs.watch(restartFlagPath, (_eventType) => {
         addLog("main", "info", "Agent restart flag detected — restarting runner");
@@ -2014,7 +2092,7 @@ app.whenReady().then(async () => {
       addLog("main", "warn", "Could not watch restart flag (non-fatal)");
     }
   } else {
-    addLog("main", "debug", `agent-config dir not found at ${agentConfigDir} (restart watcher deferred)`);
+    addLog("main", "debug", `agent-config dir not found at ${userDataAgentConfigDir} (restart watcher deferred)`);
   }
 
   // Then start backend services (skipped in test mode — run externally)

@@ -579,7 +579,7 @@ Default settings for delivery:
 #### Auto-Update Section
 
 - **GitHub PAT** — only needed if the repository is private
-- Shows current version and checks for updates (auto-check every 12 hours in dev mode, hourly in packaged mode)
+- Shows current version and checks for updates (auto-check every 12 hours in both dev and packaged modes)
 - Manual **Check for Updates** button
 - When an update is available: **Download** button (packaged mode) with progress %, then **Install & Restart**
 

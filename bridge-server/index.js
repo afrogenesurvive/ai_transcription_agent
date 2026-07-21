@@ -21,12 +21,14 @@ const BRIDGE_PORT = parseInt(process.env.BRIDGE_PORT || "5010", 10);
 const ELECTRON_LOGS_DIR = process.env.ELECTRON_LOGS_DIR || null;
 const TRANSCRIPTION_STORAGE = process.env.TRANSCRIPTION_STORAGE || null;
 
-// Resolve agent-config directory (same logic as agent-runner/agent-config.js)
+// Resolve agent-config directory
+// Priority: AGENT_CONFIG_DIR env var (set by Electron main process) > bundled path > relative paths
 const CONFIG_DIR_CANDIDATES = [
+  process.env.AGENT_CONFIG_DIR && path.resolve(process.env.AGENT_CONFIG_DIR),
   path.resolve(__dirname, "..", "agent-config"),
   path.resolve(__dirname, "..", "..", "agent-config"),
   path.resolve(__dirname, "agent-config"),
-];
+].filter(Boolean);
 const AGENT_CONFIG_DIR = CONFIG_DIR_CANDIDATES.find((d) => fs.existsSync(d)) || path.resolve(__dirname, "..", "agent-config");
 
 // ── Defaults backup directory ──

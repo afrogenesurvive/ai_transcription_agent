@@ -141,6 +141,126 @@ function resourcePath(...segments: string[]): string {
 }
 
 /**
+ * User-data agent-config path — same for all callers.
+ * Resolves consistently so restart watcher, init, and import all agree.
+ */
+let _userDataAgentConfigDir: string | null = null;
+export function getUserDataAgentConfigDir(): string {
+  if (!_userDataAgentConfigDir) {
+    _userDataAgentConfigDir = path.join(app.getPath("userData"), "agent-config");
+  }
+  return _userDataAgentConfigDir;
+}
+
+/** Result of initializing agent-config in userData. */
+export interface AgentConfigInitResult {
+  path: string;
+  fromTemplates: boolean;
+  created: boolean;
+}
+
+/**
+ * Initialize a writable copy of agent-config in userData on first launch.
+ *
+ * Bundled agent-config (in extraResources) is read-only in production.
+ * This copies it to userData so the bridge can write edits and config
+ * import can restore saved values after uninstall/reinstall.
+ *
+ * Also seeds .defaults/ in userData from the bundled .defaults/ (or from
+ * live files if the bundled .defaults/ doesn't exist).
+ *
+ * If the bundled source has .template.* files instead of live files
+ * (after a fresh clone where the live files are gitignored), copies
+ * templates as the live files.
+ *
+ * Safe to call multiple times — only copies when userData copy is missing.
+ */
+export function initAgentConfigDir(): AgentConfigInitResult {
+  const destDir = getUserDataAgentConfigDir();
+
+  // Already initialized — nothing to do
+  if (fs.existsSync(destDir)) return { path: destDir, fromTemplates: false, created: false };
+
+  const srcDir = resourcePath("agent-config");
+  console.log(`[backend] Initializing agent-config in userData from ${srcDir}`);
+
+  if (!fs.existsSync(srcDir)) {
+    console.warn(`[backend] Bundled agent-config not found at ${srcDir} — creating empty dir`);
+    fs.mkdirSync(destDir, { recursive: true });
+    return { path: destDir, fromTemplates: false, created: true };
+  }
+
+  // Hoisted so the return below can read them even after the try/catch.
+  let fileMappings: { src: string; dest: string }[] = [];
+  let templateMappings: { src: string; dest: string }[] = [];
+
+  try {
+    fs.mkdirSync(destDir, { recursive: true });
+
+    fileMappings = [];
+    templateMappings = [];
+
+    // Check for live files first; fall back to .template.* files
+    for (const name of ["pipeline.json", "tools.json", "system-prompt.md"]) {
+      const liveSrc = path.join(srcDir, name);
+      const templateSrc = path.join(srcDir, name.replace(".json", ".template.json").replace(".md", ".template.md"));
+      const dest = path.join(destDir, name);
+
+      if (fs.existsSync(liveSrc)) {
+        fileMappings.push({ src: liveSrc, dest });
+      } else if (fs.existsSync(templateSrc)) {
+        templateMappings.push({ src: templateSrc, dest });
+      }
+    }
+
+    // Copy live files
+    for (const m of fileMappings) {
+      fs.copyFileSync(m.src, m.dest);
+      console.log(`[backend]   Copied: ${path.basename(m.src)}`);
+    }
+
+    // Copy template files as live files (fresh clone after gitignore)
+    for (const m of templateMappings) {
+      fs.copyFileSync(m.src, m.dest);
+      console.log(`[backend]   Copied template → ${path.basename(m.dest)}`);
+    }
+
+    // Seed .defaults/ in userData
+    const srcDefaults = path.join(srcDir, ".defaults");
+    const destDefaults = path.join(destDir, ".defaults");
+    if (fs.existsSync(srcDefaults)) {
+      fs.mkdirSync(destDefaults, { recursive: true });
+      for (const name of ["pipeline.json", "tools.json", "system-prompt.md"]) {
+        const s = path.join(srcDefaults, name);
+        const d = path.join(destDefaults, name);
+        if (fs.existsSync(s)) {
+          fs.copyFileSync(s, d);
+        }
+      }
+      console.log(`[backend]   Seeded .defaults/ from bundled snapshot`);
+    } else {
+      // No bundled .defaults/ — snapshot the live files we just copied
+      fs.mkdirSync(destDefaults, { recursive: true });
+      for (const m of [...fileMappings, ...templateMappings]) {
+        const name = path.basename(m.dest);
+        const d = path.join(destDefaults, name);
+        fs.copyFileSync(m.dest, d);
+      }
+      console.log(`[backend]   Seeded .defaults/ from live files (no bundled snapshot)`);
+    }
+
+    console.log(`[backend] ✅ Agent config initialized at ${destDir}`);
+  } catch (err: any) {
+    console.error(`[backend] ❌ Agent config init failed: ${err.message}`);
+    // Ensure dir exists even if copy failed partially
+    fs.mkdirSync(destDir, { recursive: true });
+  }
+
+  const fromTemplates = templateMappings.length > 0 && fileMappings.length === 0;
+  return { path: destDir, fromTemplates, created: true };
+}
+
+/**
  * Kill a child process — SIGTERM on Unix, taskkill on Windows.
  * On Windows, SIGTERM is not supported; taskkill /pid ensures
  * the entire process tree is terminated.
@@ -213,12 +333,8 @@ async function waitForServer(url: string, timeoutMs = 15000, isAlive?: () => boo
   while (Date.now() - start < timeoutMs) {
     // If the process has already exited, fail fast with the actual stderr output
     if (isAlive && !isAlive()) {
-      const stderrTail = pythonStderrTail.length > 0
-        ? "\n  Last stderr output:\n    " + pythonStderrTail.join("\n    ")
-        : "";
-      throw new Error(
-        `Server at ${url} did not start — process exited before becoming ready.${stderrTail}`,
-      );
+      const stderrTail = pythonStderrTail.length > 0 ? "\n  Last stderr output:\n    " + pythonStderrTail.join("\n    ") : "";
+      throw new Error(`Server at ${url} did not start — process exited before becoming ready.${stderrTail}`);
     }
     try {
       const res = await fetch(url);
@@ -229,9 +345,7 @@ async function waitForServer(url: string, timeoutMs = 15000, isAlive?: () => boo
     await new Promise((r) => setTimeout(r, 500));
   }
   // Timed out — include stderr tail for diagnostics
-  const stderrTail = pythonStderrTail.length > 0
-    ? "\n  Last stderr output:\n    " + pythonStderrTail.join("\n    ")
-    : "";
+  const stderrTail = pythonStderrTail.length > 0 ? "\n  Last stderr output:\n    " + pythonStderrTail.join("\n    ") : "";
   throw new Error(`Server at ${url} did not start within ${timeoutMs}ms.${stderrTail}`);
 }
 
@@ -386,6 +500,8 @@ export async function startBridgeServer(bridgePort = 5010, pythonPort = 5001): P
       PYTHON_API_URL: `http://127.0.0.1:${pythonPort}`,
       ELECTRON_LOGS_DIR: path.join(app.getPath("userData"), "logs"),
       TRANSCRIPTION_STORAGE: path.join(app.getPath("userData"), "storage"),
+      // Point the bridge at the writable userData copy of agent-config
+      AGENT_CONFIG_DIR: getUserDataAgentConfigDir(),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });

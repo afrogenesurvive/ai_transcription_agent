@@ -215,6 +215,67 @@ Steps can be reordered, enabled/disabled, and customized without touching code.
 
 ---
 
+## ⚙️ Configuration Workflow
+
+### Where Config Lives
+
+| Location                                             | Platform | Contents                              |
+| ---------------------------------------------------- | -------- | ------------------------------------- |
+| `~/Library/Application Support/Transcription Agent/` | macOS    | All user data — config, storage, logs |
+| `%APPDATA%\Transcription Agent\`                     | Windows  | All user data — config, storage, logs |
+
+Within that directory:
+
+| Path                            | Purpose                                               |
+| ------------------------------- | ----------------------------------------------------- |
+| `config.json`                   | UI-saved settings (API keys, preferences)             |
+| `config.defaults.json`          | Snapshot of shipped defaults (one-click restore)      |
+| `agent-config/pipeline.json`    | Pipeline step definitions (reorder, enable/disable)   |
+| `agent-config/tools.json`       | Tool schemas the LLM can invoke                       |
+| `agent-config/system-prompt.md` | LLM system prompt template                            |
+| `agent-config/.defaults/`       | Shipped defaults for agent config (one-click restore) |
+
+### Git Safety
+
+The following files are **gitignored** — they exist in your local checkout but are never committed:
+
+- `agent-config/pipeline.json`, `tools.json`, `system-prompt.md`
+- `agent-config/.defaults/`, `.restart-flag`
+- `.env`
+
+**Template copies** are committed to the repo as reference:
+
+- `agent-config/pipeline.template.json`
+- `agent-config/tools.template.json`
+- `agent-config/system-prompt.template.md`
+
+When you clone the repo, the app auto-copies these templates to `userData/agent-config/` on first run.
+
+**Never commit your `.env`, `config.json`, or agent-config live files to version control.**
+
+### Export / Import Between Machines
+
+1. Open **Settings** → **Config** tab
+2. Click **Export Configuration** — saves a single `.json` file
+3. Transfer the file to another machine (USB, cloud, etc.)
+4. On the new machine, open **Settings** → **Config** tab
+5. Click **Import Configuration** — all settings and agent configs are restored
+
+Export captures:
+
+- User settings (API keys, preferences)
+- Agent instructions (system prompt, pipeline steps, tools)
+- User defaults snapshot
+- Agent defaults snapshot
+
+After uninstall/reinstall (which wipes `userData`), import restores everything and the app runs immediately.
+
+### After `git pull`
+
+Your local configuration in `userData/agent-config/` is **untouched** by `git pull`. The repo template files may update with new defaults, but your live config stays as-is.
+
+---
+
 ## 🔒 Privacy
 
 - All audio processing (diarization + ASR) runs **locally** on your machine

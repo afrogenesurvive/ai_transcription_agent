@@ -198,7 +198,18 @@
         "table": { "type": "string", "enum": ["attendees", "action_items", "contacts", "budgets", "decisions", "notes"] },
         "data": {
           "type": "object",
-          "description": "Data payload. For attendees: {names: [str], emails: [str], source, job_id}. For action_items: {job_id, items: [{description, assignee, deadline, priority}], meeting_title}. For contacts: {name, email, org, role, phone, meeting}. For budgets: {job_id, items: [{description, amount, currency, category}], meeting_title}. For decisions: {job_id, items: [{description, rationale, made_by}], meeting_title}. For notes: {job_id, topic, content}."
+          "properties": {
+            "attendee_name": { "type": "string" },
+            "action": { "type": "string" },
+            "assignee": { "type": "string" },
+            "deadline": { "type": "string" },
+            "contact_name": { "type": "string" },
+            "contact_info": { "type": "string" },
+            "budget_item": { "type": "string" },
+            "amount": { "type": "string" },
+            "decision": { "type": "string" },
+            "note": { "type": "string" }
+          }
         }
       },
       "required": ["table", "data"]
@@ -206,22 +217,22 @@
   },
   {
     "name": "transcribe_query_ephemeral",
-    "description": "Query ephemeral memory for attendees, action items, contacts, budgets, decisions, or notes. Optionally filter by keyword.",
+    "description": "Query ephemeral memory tables for stored data (action items, contacts, budgets, decisions, notes). Use for cross-meeting lookup.",
     "terminal": false,
     "handler": "bridge",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "table": { "type": "string", "enum": ["attendees", "action_items", "contacts", "budgets", "decisions", "notes"], "default": "notes" },
-        "query": { "type": "string", "default": "", "description": "Optional keyword to filter results" },
+        "table": { "type": "string", "enum": ["attendees", "action_items", "contacts", "budgets", "decisions", "notes"] },
+        "query": { "type": "string", "description": "Search query string" },
         "limit": { "type": "number", "default": 10 }
       },
-      "required": []
+      "required": ["table"]
     }
   },
   {
     "name": "transcribe_save_context",
-    "description": "Save full meeting context to both semantic and ephemeral memory at once. Call this after summarization to make the meeting searchable.",
+    "description": "Save meeting context to semantic (ChromaDB) and ephemeral (SQLite) memory systems. Stores transcript, summary, action items, budgets, and decisions for cross-meeting retrieval.",
     "terminal": false,
     "handler": "bridge",
     "inputSchema": {
@@ -230,107 +241,88 @@
         "jobId": { "type": "string" },
         "title": { "type": "string" },
         "attendees": { "type": "array", "items": { "type": "string" } },
-        "transcriptText": { "type": "string", "description": "Full transcript as plain text" },
-        "summary": { "type": "object", "description": "Summary object with executive_summary, key_decisions, discussion_points" },
-        "actionItems": { "type": "array", "items": { "type": "object" }, "description": "List of {description, assignee, deadline, priority}" },
-        "budgets": { "type": "array", "items": { "type": "object" }, "description": "List of {description, amount, currency, category}" },
-        "decisions": { "type": "array", "items": { "type": "object" }, "description": "List of {description, rationale, made_by}" }
-      },
-      "required": ["jobId", "title"]
-    }
-  },
-  {
-    "name": "transcribe_approve_delivery",
-    "description": "Signal the pipeline to pause for user approval before saving to memory and delivering. Call this after analysis is complete — the transcript, summary, analysis, and delivery options are presented to the user for review. They can edit, approve, or reject. On approval, the pipeline resumes with save_context then prepare_delivery.",
-    "terminal": false,
-    "handler": "bridge",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "jobId": { "type": "string", "description": "Job UUID" }
+        "transcript_text": { "type": "string" },
+        "summary": { "type": "object" },
+        "action_items": { "type": "array", "items": { "type": "object" } },
+        "budgets": { "type": "array", "items": { "type": "object" } },
+        "decisions": { "type": "array", "items": { "type": "string" } }
       },
       "required": ["jobId"]
     }
   },
   {
     "name": "send_delivery_email",
-    "description": "Send email with meeting summary, analysis, and attendee data via Gmail.",
+    "description": "SEND an email with meeting summary and analysis to recipients. Attachments are generated and read from the job's delivery directory. Accepts custom From name and optional CC. Call this AFTER transcribe_prepare_delivery has run successfully. The actual email delivery happens asynchronously.",
     "terminal": true,
     "handler": "direct",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "to": { "type": "string" },
-        "subject": { "type": "string" },
-        "body": { "type": "string" }
+        "jobId": { "type": "string" },
+        "recipients": { "type": "array", "items": { "type": "string" } },
+        "cc": { "type": "array", "items": { "type": "string" } },
+        "fromName": { "type": "string" },
+        "subject": { "type": "string" }
       },
-      "required": ["to", "subject", "body"]
-    }
-  },
-  {
-    "name": "create_trello_action_items",
-    "description": "Create Trello cards for action items.",
-    "terminal": true,
-    "handler": "direct",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "listId": { "type": "string" },
-        "actionItems": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "description": { "type": "string" },
-              "assignee": { "type": "string" },
-              "deadline": { "type": "string" }
-            }
-          }
-        }
-      },
-      "required": ["listId", "actionItems"]
+      "required": ["jobId", "recipients"]
     }
   },
   {
     "name": "save_to_drive",
-    "description": "Save meeting summary and analysis to Google Drive.",
+    "description": "Upload meeting summary and analysis documents to Google Drive.",
     "terminal": true,
     "handler": "direct",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "folderName": { "type": "string" },
-        "title": { "type": "string" },
-        "summary": { "type": "string" }
+        "jobId": { "type": "string" },
+        "folderName": { "type": "string" }
       },
-      "required": ["title"]
+      "required": ["jobId"]
     }
   },
   {
-    "name": "transcribe_upsert_job",
-    "description": "Upsert a job record in the ephemeral jobs table. Accepts any subset of fields: token usage (totalPromptTokens, totalCompletionTokens, totalTokens, llmProvider, llmModel, inputCost, outputCost, totalCost), pipeline steps (pipelineSteps as JSON string), delivery results (deliveryAttempted, deliveryResults as JSON string), content metrics (transcriptSegmentCount, transcriptCharCount, summaryCharCount, hasAnalysis, analysisCharCount), and terminal state (result, errorMessage, completedAt). Safe to call multiple times — only provided fields are updated.",
+    "name": "create_trello_action_items",
+    "description": "Create action items from meeting as Trello cards on the specified list.",
+    "terminal": true,
+    "handler": "direct",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "jobId": { "type": "string" },
+        "listName": { "type": "string", "default": "Action Items" }
+      },
+      "required": ["jobId"]
+    }
+  },
+  {
+    "name": "transcribe_approve_delivery",
+    "description": "Pause the pipeline for user to review the transcript, summary, and analysis before delivery. The system will show the user the delivery preview. Wait for the approval event to continue the pipeline. After approval, call transcribe_save_context.",
     "terminal": false,
     "handler": "bridge",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "jobId": { "type": "string", "description": "Job UUID" },
-        "result": { "type": "string", "enum": ["pending", "success", "failed", "cancelled"], "description": "Terminal result status" },
-        "totalPromptTokens": { "type": "integer", "description": "Accumulated prompt tokens" },
-        "totalCompletionTokens": { "type": "integer", "description": "Accumulated completion tokens" },
-        "totalTokens": { "type": "integer", "description": "Total tokens used" },
-        "llmProvider": { "type": "string", "description": "LLM provider name (deepseek, ollama)" },
-        "llmModel": { "type": "string", "description": "Model name used" },
-        "inputCost": { "type": "number", "description": "Cost of input tokens in USD" },
-        "outputCost": { "type": "number", "description": "Cost of output tokens in USD" },
-        "totalCost": { "type": "number", "description": "Total cost in USD" },
-        "pipelineSteps": { "type": "string", "description": "JSON array of per-step usage records" },
-        "deliveryAttempted": { "type": "boolean", "description": "Whether delivery was attempted" },
-        "deliveryResults": { "type": "string", "description": "JSON array of delivery tool results" },
-        "errorMessage": { "type": "string", "description": "Failure reason" },
-        "completedAt": { "type": "string", "description": "ISO timestamp of completion" }
+        "jobId": { "type": "string" },
+        "transcript": { "type": "string" },
+        "summary": { "type": "object" },
+        "analysis": { "type": "object" },
+        "attendee_emails": { "type": "array", "items": { "type": "string" } }
       },
-      "required": ["jobId"]
+      "required": ["jobId", "transcript", "summary", "analysis"]
+    }
+  },
+  {
+    "name": "transcribe_delete_voiceprint",
+    "description": "Delete a voiceprint by email.",
+    "terminal": false,
+    "handler": "bridge",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" }
+      },
+      "required": ["email"]
     }
   }
 ]

@@ -368,7 +368,12 @@ async function checkPackagedUpdate(): Promise<{
     return { updateAvailable: false, details: null, error: "electron-updater not available" };
   }
   try {
-    autoUpdater.checkForUpdates();
+    const result = await autoUpdater.checkForUpdates();
+    const version = result?.updateInfo?.version;
+    if (version) {
+      state.updateAvailable = version;
+      return { updateAvailable: true, details: version, error: null };
+    }
     return { updateAvailable: false, details: null, error: null };
   } catch (err: any) {
     state.error = err.message;

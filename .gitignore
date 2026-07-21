@@ -67,6 +67,13 @@ legacy_mcp/
 AGENTS.md
 agent-runner/system-prompt.md
 
+# ── Agent Config (live files — each user customizes these locally) ──
+agent-config/pipeline.json
+agent-config/tools.json
+agent-config/system-prompt.md
+agent-config/.defaults/
+agent-config/.restart-flag
+
 # ── Editor / IDE ──
 .vscode/
 .idea/
@@ -96,3 +103,4 @@ copilot-instructions.md
 assets/private
 *.tsbuildinfo
 .github/prompts
+
