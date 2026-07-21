@@ -104,3 +104,4 @@ assets/private
 *.tsbuildinfo
 .github/prompts
 
+safe/
