@@ -819,15 +819,15 @@ You'll see toasts for:
 
 For important events, the app also sends a **native OS notification** that appears even if the app window is minimized or in the background:
 
-| Event | Title | Body | Icon |
-|---|---|---|---|
-| **Job started** | Transcription Started | "Sprint Review" | Blue play ▶ (Windows) |
-| **Speaker labels needed** | Speaker Labels Needed | "Sprint Review — click to identify speakers" | Yellow pause ⏸ (Windows) |
-| **Raw transcript review needed** (Gate 1) | Raw Transcript Review Needed | "Sprint Review — click to review and approve the transcript" | Yellow pause ⏸ (Windows) |
-| **Delivery review needed** (Gate 2) | Delivery Review Needed | "Sprint Review — click to review and approve delivery" | Yellow pause ⏸ (Windows) |
-| **Job complete** | Transcription Complete | "Sprint Review — click to view results" | Green checkmark ✓ (Windows) |
-| **Job failed** | Transcription Failed | "Sprint Review — [error message]" | Red X ✗ (Windows) |
-| **Job cancelled** | Transcription Cancelled | "Sprint Review — [reason]" | Red X ✗ (Windows) |
+| Event                                     | Title                        | Body                                                         | Icon                        |
+| ----------------------------------------- | ---------------------------- | ------------------------------------------------------------ | --------------------------- |
+| **Job started**                           | Transcription Started        | "Sprint Review"                                              | Blue play ▶ (Windows)       |
+| **Speaker labels needed**                 | Speaker Labels Needed        | "Sprint Review — click to identify speakers"                 | Yellow pause ⏸ (Windows)    |
+| **Raw transcript review needed** (Gate 1) | Raw Transcript Review Needed | "Sprint Review — click to review and approve the transcript" | Yellow pause ⏸ (Windows)    |
+| **Delivery review needed** (Gate 2)       | Delivery Review Needed       | "Sprint Review — click to review and approve delivery"       | Yellow pause ⏸ (Windows)    |
+| **Job complete**                          | Transcription Complete       | "Sprint Review — click to view results"                      | Green checkmark ✓ (Windows) |
+| **Job failed**                            | Transcription Failed         | "Sprint Review — [error message]"                            | Red X ✗ (Windows)           |
+| **Job cancelled**                         | Transcription Cancelled      | "Sprint Review — [reason]"                                   | Red X ✗ (Windows)           |
 
 - **Clicking** an OS notification brings the app window to the front and navigates to the relevant view.
 - **Icons** are drawn programmatically — shown on Windows, omitted on macOS (macOS uses the app icon).
