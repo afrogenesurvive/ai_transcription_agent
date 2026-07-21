@@ -38,6 +38,10 @@ All three together: `npm run transcribe:all`
 | `PLATFORM`                       | `auto`   | Whisper backend: `auto`, `mac`, `windows`, `linux`                                                                                                                            |
 | `GATE_RAW_REVIEW_ENABLED`        | `false`  | Pause after ASR+alignment for raw transcript review/editing before LLM processing                                                                                             |
 | `GATE_DELIVERY_REVIEW_ENABLED`   | `false`  | Pause after LLM analysis for transcript/summary/analysis review before memory save + delivery                                                                                 |
+| `DELIVERY_RECIPIENT_EMAILS`      | `""`     | Comma-separated email addresses for delivery recipients                                                                                                                       |
+| `DELIVERY_EMAIL_SUBJECT`         | `"Meeting Summary: {title}"` | Subject line template for delivery email (`{title}` replaced with meeting title)                                                                              |
+| `DELIVERY_EMAIL_ADDITIONAL_CONTENT` | `""`  | Additional text content to include in delivery email body                                                                                                                     |
+| `DELIVERY_DRIVE_FOLDER`          | `"Meeting Transcripts"` | Google Drive folder name for saving meeting summaries and analysis                                                                                                   |
 
 Set these in a `.env` file in `python-backend/` or export them in your shell.
 

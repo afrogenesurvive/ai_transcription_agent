@@ -31,12 +31,15 @@ graph LR
     A --> C[Speech Recognition]
     B --> D[Voiceprint Matching]
     C --> D
-    D --> E[LLM Pipeline]
+    D --> E[Fetch Memory Context]
     E --> F[Refine Transcript]
-    F --> G[Summarize]
-    G --> H[Analyze]
-    H --> I[Save to Memory]
-    I --> J[Deliver via Email/Drive/Trello]
+    F --> G[Read Transcript]
+    G --> H[Summarize]
+    H --> I[Analyze]
+    I --> J[Review &amp; Approve Delivery]
+    J --> K[Save to Memory]
+    K --> L[Prepare Delivery]
+    L --> M[Deliver via Email]
 ```
 
 1. **Record your meeting** using Zoom, Teams, or any recording tool
@@ -197,15 +200,16 @@ npm run electron:dev
 The agent pipeline is fully configurable via the **Agent Instructions** tab in ConfigPanel:
 
 1. **Fetch Memory Context** — retrieve past action items, decisions, and budgets
-2. **Refine Transcript** — remove filler words, redact PII
+2. **Refine Transcript** — redact PII from transcript
 3. **Read Transcript** — retrieve the refined speaker-labeled transcript
 4. **Summarize** — generate executive summary, key decisions, action items
 5. **Analyze** — extract topics, sentiment, entities, follow-ups
-6. **Save to Memory** — persist to semantic and ephemeral memory
-7. **Prepare Delivery** — package results for delivery (disabled by default)
-8. **Deliver via Email** — send summary to recipients (disabled by default)
-9. **Save to Drive** — save transcript to Google Drive (disabled by default)
-10. **Create Trello Cards** — create action items in Trello (disabled by default)
+6. **Review & Approve Delivery** — pause for user to review transcript, summary, and analysis before saving
+7. **Save to Memory** — persist to semantic and ephemeral memory
+8. **Prepare Delivery** — package results for delivery destinations
+9. **Deliver via Email** — send meeting summary and analysis to recipients
+10. **Save to Drive** — save meeting summary to Google Drive (disabled by default)
+11. **Create Trello Cards** — create action items in Trello (disabled by default)
 
 Steps can be reordered, enabled/disabled, and customized without touching code.
 

@@ -358,6 +358,11 @@ export function getChildEnv(): NodeJS.ProcessEnv {
       process.env.PLAYWRIGHT_GENERIC_NAMES ||
       "Alex,Blake,Casey,Drew,Ellis,Finley,Gray,Harper,Indigo,Jade,Kai,Logan,Morgan,Nico,Oakley,Parker,Quinn,Reese,Skyler,Taylor",
     PIPELINE_TIMEOUT_MINUTES: config.PIPELINE_TIMEOUT_MINUTES || process.env.PIPELINE_TIMEOUT_MINUTES || "15",
+    // Delivery config — forwarded to Python backend for email + drive delivery
+    DELIVERY_RECIPIENT_EMAILS: config.DELIVERY_RECIPIENT_EMAILS || process.env.DELIVERY_RECIPIENT_EMAILS || "",
+    DELIVERY_EMAIL_SUBJECT: config.DELIVERY_EMAIL_SUBJECT || process.env.DELIVERY_EMAIL_SUBJECT || "Meeting Summary: {title}",
+    DELIVERY_EMAIL_ADDITIONAL_CONTENT: config.DELIVERY_EMAIL_ADDITIONAL_CONTENT || process.env.DELIVERY_EMAIL_ADDITIONAL_CONTENT || "",
+    DELIVERY_DRIVE_FOLDER: config.DELIVERY_DRIVE_FOLDER || process.env.DELIVERY_DRIVE_FOLDER || "Meeting Transcripts",
     // Use parseUserConfig() instead of the merged config for gate flags so that
     // DEFAULTS (which are truthy strings like "false") don't prevent fallthrough
     // to process.env. This lets .env or host env vars override when the user

@@ -1,16 +1,29 @@
 {
-  "max_pipeline_steps": 25,
-  "max_retries": 3,
-  "retry_base_delay_ms": 2000,
+  "max_pipeline_steps": 40,
+  "max_retries": 6,
+  "retry_base_delay_ms": 4000,
   "ollama_max_retries": 5,
   "ollama_retry_base_delay_ms": 5000,
-  "terminal_tools": ["send_delivery_email", "save_to_drive", "create_trello_action_items"],
+  "llm_context_window": 0,
+  "terminal_tools": [
+    "send_delivery_email"
+  ],
   "pipeline_steps": [
+    {
+      "id": "step-0",
+      "toolName": "_fetch_memory_context",
+      "label": "Fetch Memory Context",
+      "description": "Retrieve existing action items, decisions, budgets, and similar past meetings for LLM context",
+      "systemPromptTemplate": "",
+      "hintTemplate": "",
+      "enabled": true,
+      "isTerminal": false
+    },
     {
       "id": "step-1",
       "toolName": "transcribe_refine",
       "label": "Refine Transcript",
-      "description": "Clean filler words and redact PII",
+      "description": "Redact PII",
       "systemPromptTemplate": "",
       "hintTemplate": "",
       "enabled": true,
@@ -48,6 +61,16 @@
     },
     {
       "id": "step-5",
+      "toolName": "transcribe_approve_delivery",
+      "label": "Review & Approve Delivery",
+      "description": "Pause pipeline for user to review transcript, summary, analysis and confirm or change delivery options",
+      "systemPromptTemplate": "",
+      "hintTemplate": "",
+      "enabled": true,
+      "isTerminal": false
+    },
+    {
+      "id": "step-6",
       "toolName": "transcribe_save_context",
       "label": "Save to Memory",
       "description": "Persist meeting to semantic and ephemeral memory",
@@ -57,7 +80,7 @@
       "isTerminal": false
     },
     {
-      "id": "step-6",
+      "id": "step-7",
       "toolName": "transcribe_prepare_delivery",
       "label": "Prepare Delivery",
       "description": "Package results for delivery destinations",
@@ -67,20 +90,10 @@
       "isTerminal": false
     },
     {
-      "id": "step-7",
+      "id": "step-8",
       "toolName": "send_delivery_email",
       "label": "Deliver via Email",
-      "description": "Send results via email",
-      "systemPromptTemplate": "",
-      "hintTemplate": "",
-      "enabled": true,
-      "isTerminal": true
-    },
-    {
-      "id": "step-8",
-      "toolName": "save_to_drive",
-      "label": "Save to Drive",
-      "description": "Save results to Google Drive",
+      "description": "Send meeting summary, analysis, and attendee data via email (transcript excluded)",
       "systemPromptTemplate": "",
       "hintTemplate": "",
       "enabled": true,
@@ -88,27 +101,39 @@
     },
     {
       "id": "step-9",
+      "toolName": "save_to_drive",
+      "label": "Save to Drive",
+      "description": "Save meeting summary and analysis to Google Drive",
+      "systemPromptTemplate": "",
+      "hintTemplate": "",
+      "enabled": false,
+      "isTerminal": true
+    },
+    {
+      "id": "step-10",
       "toolName": "create_trello_action_items",
       "label": "Create Trello Cards",
       "description": "Create action items as Trello cards",
       "systemPromptTemplate": "",
       "hintTemplate": "",
-      "enabled": true,
+      "enabled": false,
       "isTerminal": true
     }
   ],
   "pipeline_hints": {
-    "transcribe_refine": "Refinement cleaned filler words and PII (timestamps preserved). Next: Call transcribe_get_transcript to read the cleaned transcript, then call transcribe_summarize to generate a structured summary. Check the Memory Context above for continuity — reference past items where relevant.",
-    "transcribe_get_transcript": "Next: Call transcribe_summarize to generate a structured summary from the transcript, then call transcribe_analyze to store analysis results. Note recurring topics vs new topics compared to the Memory Context.",
-    "transcribe_summarize": "Next: Call transcribe_analyze to store analysis of topics, sentiment, entities, and follow-ups. Cross-reference with the Memory Context above — note which action items are recurring (still open from previous meetings) vs newly created. Repetition is signal, not noise.",
-    "transcribe_analyze": "Next: Call transcribe_save_context to persist the meeting to semantic + ephemeral memory. All entries are timestamped and preserved for audit — nothing is deduplicated at the code level.",
-    "transcribe_save_context": "Next: Call transcribe_prepare_delivery to package results for delivery.",
-    "transcribe_prepare_delivery": "Next: Deliver results using send_delivery_email, save_to_drive, or create_trello_action_items.",
-    "transcribe_label_speaker": "Next: If more unknown speakers remain, call transcribe_label_speaker again. Otherwise, call transcribe_summarize to generate a structured summary from the transcript you already read."
+    "transcribe_refine": "Next: Call `transcribe_get_transcript` to retrieve the refined speaker-labeled transcript.",
+    "transcribe_get_transcript": "Next: Call `transcribe_summarize` to generate and store a structured meeting summary.",
+    "transcribe_summarize": "Next: Call `transcribe_analyze` to analyze topics, sentiment, entities, and follow-ups.",
+    "transcribe_analyze": "Next: If delivery review is enabled, call `transcribe_approve_delivery` to pause and let the user review before saving. Otherwise call `transcribe_save_context`.",
+    "transcribe_approve_delivery": "Next: After user approves, call `transcribe_save_context` to persist meeting to semantic and ephemeral memory.",
+    "transcribe_save_context": "Next: Call `transcribe_prepare_delivery` to package results for delivery destinations.",
+    "transcribe_prepare_delivery": "Next: Call `send_delivery_email` to validate recipient emails. send results via email.",
+    "send_delivery_email": "Pipeline complete. Call a delivery tool (send_delivery_email, save_to_drive, create_trello_action_items) or finish."
   },
   "event_templates": {
     "ready_for_processing": "Actions: refine transcript (removes fillers and PII, preserves timestamps), extract action items, generate summary, generate analysis, prepare delivery.\nExisting memory context is provided below — use it for continuity and to identify recurring topics. Repetition is signal (e.g., same action item across weeks = blocker).\nIf an action item from a previous meeting is resolved here, note it as completed.\nNon-speaking attendees (present but did not speak): {{non_speaking_attendees}}\nTranscript ({{segment_count}} segments):\n{{transcript_preview}}",
     "labeling_needed": "Unknown speakers detected. List voiceprints, notify user, or apply labels if info available.\n{{speaker_details}}",
-    "failed": "Processing failed. Notify the user. Error: {{error}}"
+    "failed": "Processing failed. Notify the user. Error: {{error}}",
+    "delivery_approved": "User approved delivery after review. Resume the pipeline: save_context, prepare_delivery, then deliver via email. Edits made by user: {{edits_summary}}"
   }
 }

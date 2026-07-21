@@ -234,29 +234,40 @@ See the [Approval Gates](#approval-gates) section for full details.
 
 This is where the AI does its work:
 
-- **Refine** — removes filler words ("um", "uh", "like") and redacts sensitive information (emails, phone numbers)
+- **Fetch Memory Context** — retrieves past action items, decisions, and budgets from previous meetings for continuity
+- **Refine** — redacts sensitive information (emails, phone numbers, SSNs, credit cards)
 - **Summarize** — creates an executive summary, lists key decisions and action items
 - **Analyze** — identifies topics discussed, overall sentiment, and follow-up items
+- **Review & Approve Delivery** — pauses for you to review the transcript, summary, analysis, and delivery options before proceeding
 - **Save to Memory** — stores the meeting so the app can reference it in future meetings
 
 ### 8. 💾 Saving to Memory
 
 The meeting context (action items, decisions, budgets, contacts) is saved to **ephemeral memory** (structured data) and **semantic memory** (ChromaDB vector store) for future reference. The app can recall what was discussed in past meetings through the semantic search in Dev Tools.
 
-### 9a. 📬 Review Deliverable (optional)
+### 9a. 📬 Review Deliverable
 
-**If the Delivery Review gate is enabled** in Settings → Config → Pipeline section, the pipeline pauses here before sending results. A modal appears showing the prepared deliverables:
+The pipeline pauses here for you to review the deliverables before saving to memory and sending. A modal appears showing:
 
-- **View** the summary, analysis, and transcript that will be delivered
-- **Edit** the summary and analysis content
-- **Approve** the deliverable — delivery proceeds to email, Drive, and/or Trello
-- **Reject** the deliverable — optionally provide feedback, then choose **Cancel** or **Retry**
+- **Summary** — the executive summary, key decisions, discussion points, and action items
+- **Analysis** — topics, sentiment, key entities, and follow-ups
+- **Transcript** — the full refined speaker-labeled transcript
+- **Delivery options** — email recipients and optional content to include
+- **Edit** — click the **Edit** button to modify the summary and analysis content
+- **Approve** — the deliverable is saved to memory and delivery proceeds to the configured destinations
+- **Reject** — optionally provide feedback, then choose **Cancel** (stop the job) or **Retry** (re-run AI processing with feedback)
 
-See the [Approval Gates](#approval-gates) section for full details.
+You can disable this gate in **Settings → Config → Pipeline** by toggling the **Review & Approve Delivery** step off.
 
-### 9b. 📬 Delivery (optional)
+### 9b. 📬 Delivery
 
-If you've configured email, Drive, or Trello integrations, the results are sent to those destinations. The results viewer's **Delivery** tab shows per-destination success/failure status after completion.
+After you approve the deliverable, results are sent to the configured destinations:
+
+- **Email** — the meeting summary, analysis, and attendee data are sent to recipients (the full transcript is excluded by default)
+- **Google Drive** — saves a copy of the meeting summary and analysis (disabled by default; enable in Settings → Config → Pipeline)
+- **Trello** — creates action items as Trello cards (disabled by default; enable in Settings → Config → Pipeline)
+
+The results viewer's **Delivery** tab shows per-destination success/failure status after completion.
 
 ### Stopping a Job
 
