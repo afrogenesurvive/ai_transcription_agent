@@ -2,6 +2,7 @@
   "name": "copilot_agentic_task_helper",
   "version": "0.4.9",
   "private": true,
+  "license": "Apache-2.0",
   "description": "Remote Collaborator Chat — Trello-powered chat interface for GitHub Copilot agent interactions",
   "scripts": {
     "transcribe:backend": "cd python-backend && source venv/bin/activate && python3 main.py",
