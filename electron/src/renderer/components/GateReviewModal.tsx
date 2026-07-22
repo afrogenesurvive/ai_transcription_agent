@@ -317,21 +317,15 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
                       {onRejectGate1 && (
                         <>
                           <button
-                            className="pp-gate-btn pp-gate-btn--reject"
-                            disabled={gate1Submitting}
-                            onClick={() => {
-                              setGate1RejectAction("cancel");
-                              setShowGate1RejectConfirm(true);
-                            }}>
+                            className="pp-gate-btn pp-gate-btn--reject pp-gate-btn--reject-disabled"
+                            disabled={true}
+                            title="Reject is temporarily disabled">
                             <Icon name="close" size="14" /> Reject & Cancel
                           </button>
                           <button
-                            className="pp-gate-btn pp-gate-btn--reject"
-                            disabled={gate1Submitting}
-                            onClick={() => {
-                              setGate1RejectAction("retry");
-                              setShowGate1RejectConfirm(true);
-                            }}>
+                            className="pp-gate-btn pp-gate-btn--reject pp-gate-btn--reject-disabled"
+                            disabled={true}
+                            title="Reject is temporarily disabled">
                             <Icon name="refresh" size="14" /> Reject & Retry
                           </button>
                         </>
@@ -566,12 +560,12 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
                               try {
                                 editedSummary = JSON.parse(gate2EditedSummary);
                               } catch {
-                                editedSummary = { executive_summary: gate2EditedSummary };
+                                editedSummary = { ...gate2Summary, executive_summary: gate2EditedSummary };
                               }
                               try {
                                 editedAnalysis = JSON.parse(gate2EditedAnalysis);
                               } catch {
-                                editedAnalysis = gate2EditedAnalysis ? { note: gate2EditedAnalysis } : undefined;
+                                editedAnalysis = gate2EditedAnalysis ? { ...gate2Analysis, note: gate2EditedAnalysis } : undefined;
                               }
                               try {
                                 editedTranscript = JSON.parse(gate2EditedTranscript);
@@ -599,21 +593,15 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
                       {onRejectGate2 && (
                         <>
                           <button
-                            className="pp-gate-btn pp-gate-btn--reject"
-                            disabled={gate2Submitting}
-                            onClick={() => {
-                              setGate2RejectAction("cancel");
-                              setShowGate2RejectConfirm(true);
-                            }}>
+                            className="pp-gate-btn pp-gate-btn--reject pp-gate-btn--reject-disabled"
+                            disabled={true}
+                            title="Reject is temporarily disabled">
                             <Icon name="close" size="14" /> Reject & Cancel
                           </button>
                           <button
-                            className="pp-gate-btn pp-gate-btn--reject"
-                            disabled={gate2Submitting}
-                            onClick={() => {
-                              setGate2RejectAction("retry");
-                              setShowGate2RejectConfirm(true);
-                            }}>
+                            className="pp-gate-btn pp-gate-btn--reject pp-gate-btn--reject-disabled"
+                            disabled={true}
+                            title="Reject is temporarily disabled">
                             <Icon name="refresh" size="14" /> Reject & Retry
                           </button>
                         </>

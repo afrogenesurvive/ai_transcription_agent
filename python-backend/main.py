@@ -2069,29 +2069,6 @@ async def approve_gate2(job_id: str, body: dict = Body(...)):
                 })
                 edits_made.append("analysis")
 
-            # Save delivery option changes
-            delivery_opts = body.get("delivery_options", {})
-            if delivery_opts:
-                recipients = delivery_opts.get("recipients", [])
-                destinations = delivery_opts.get("destinations", [])
-                meta = uploader.get_metadata(job_id)
-                if recipients:
-                    meta["email_recipients"] = recipients
-                if destinations:
-                    meta["skip_steps"] = [
-                        s for s in (meta.get("skip_steps") or [])
-                        if s not in destinations
-                    ]
-                # Persist updated metadata
-                meta_path = os.path.join(config.STORAGE_PATH, job_id, "metadata.json")
-                with open(meta_path, "w") as f:
-                    json.dump(meta, f, indent=2)
-                uploader.save_edit_action(job_id, "gate2_delivery_options", {
-                    "recipients": recipients,
-                    "destinations": destinations,
-                })
-                edits_made.append("delivery_options")
-
             uploader.save_edit_action(job_id, "gate2_approve", {
                 "action": action,
                 "edits": edits_made,
@@ -2126,8 +2103,7 @@ async def approve_gate2(job_id: str, body: dict = Body(...)):
             except (FileNotFoundError, json.JSONDecodeError, OSError):
                 aligned = []
             skip = metadata.get("skip_steps")
-            uploader.update_status(job_id, {"status": "enqueued"})
-            # Enqueue with retry flag + user feedback
+            # Enqueue with retry flag + user feedback (enqueue BEFORE status update)
             agent_bridge.enqueue("ready_for_processing", {
                 "jobId": job_id,
                 "title": metadata.get("title", "Untitled Meeting"),
@@ -2137,6 +2113,7 @@ async def approve_gate2(job_id: str, body: dict = Body(...)):
                 "retry_feedback": feedback,
                 "retry_from_gate2": True,
             })
+            uploader.update_status(job_id, {"status": "enqueued"})
             print(f"[api]   🔄 Gate 2: rejected and retrying LLM pipeline (feedback: '{feedback[:100]}')")
             return {"job_id": job_id, "status": "enqueued", "retry": True}
 
@@ -2148,9 +2125,6 @@ async def approve_gate2(job_id: str, body: dict = Body(...)):
         tb = traceback.format_exc()
         print(f"[api]   ❌ Gate 2 approval failed with exception:\n{tb}")
         raise HTTPException(500, f"Gate 2 approval failed: {e}")
-
-    else:
-        raise HTTPException(400, f"Unknown action: {action}")
 
 
 def _start_resumed_pipeline(job_id: str, label_map: dict):

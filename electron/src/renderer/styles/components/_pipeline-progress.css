@@ -806,6 +806,15 @@
   color: #fff;
 }
 
+.pp-gate-btn--reject-disabled {
+  background: rgba(248, 81, 73, 0.04);
+  border-color: var(--border);
+  color: var(--text-muted);
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .pp-gate-btn--secondary {
   background: var(--bg);
   border-color: var(--border);

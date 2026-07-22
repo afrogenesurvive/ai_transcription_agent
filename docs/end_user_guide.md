@@ -137,7 +137,7 @@ Maximum file size: **500 MB**
 
    **Email validation:** Each attendee must have a valid email address. The app checks the format before adding them to the list.
 
-   **Conflict detection:** When you add an attendee, the app checks the name and email against the attendee registry and voiceprint database. If a name/email mismatch is detected, a warning banner appears with details.
+   **Conflict detection:** When you add an attendee, the app checks the name and email against the attendee registry and voiceprint database. If a mismatch is detected, a warning banner appears with details. For example, if you enter an email that is already registered under a different name, or a name that already has a different email on file, the warning explains the conflict so you can correct the entry before uploading.
 
    **Registered attendee indicators:** Previously registered attendees show a play button — click it to hear their voiceprint sample from an earlier meeting.
 
@@ -203,7 +203,11 @@ If the app has heard a speaker before (from a previous meeting), it automaticall
 - **Audio clips** for each detected speaker — click the play button to hear a sample of their longest speech segment before assigning a name. Only one clip plays at a time.
 - **Name and email input fields** — email is required and validated for proper format
 - **Voiceprint conflict detection** (3 layers):
-  1. **Name/Email Conflict** — if the entered name or email already has a voiceprint enrolled, a dialog shows the existing details (name, email, which job it came from). Choose **Overwrite** (per-name) or **Keep Existing**.
+  1. **Name/Email Conflict** — if the entered name or email already has a voiceprint enrolled under a **different** name, a conflict dialog appears showing the existing details (name, email, and which job it came from).
+     - _Example: If you enter the name "Jane Smith" with email "john@example.com", but "john@example.com" is already enrolled under "John Doe" from a previous meeting, the dialog shows "Jane Smith ← currently enrolled as John Doe"._
+     - **How to resolve:**
+       - **Overwrite** — check the **"Overwrite with this recording"** checkbox, then click **Confirm Labels**. This replaces the existing voiceprint record (name, email, and voiceprint embedding) with the current speaker's data. Future meetings will auto-identify this voice as the new name.
+       - **Keep Existing** — click **Cancel** to dismiss the dialog. This returns you to the speaker list where you can edit the name or email to avoid the conflict, then re-submit. The existing voiceprint is left untouched.
   2. **Voice-Match Verification** — after resolving name conflicts, the system compares proposed labels against all enrolled voiceprints. If a person's voice matches an existing voiceprint under a different name, a warning appears with similarity scores, the source job ID, and per-conflict **Accept**/**Reject** checkboxes before you can proceed. This is a hard block — unresolved conflicts prevent submission.
   3. **Unregistered Name Warning** — if a label matches no voiceprint at all, a non-blocking informational note is shown.
 - **Inline per-speaker conflict warnings** — as you type a name or tab away from a name input, the system checks that single speaker against the voiceprint database. If a conflict is found, an inline warning appears below the email input with **Use "ExistingName"** / **Keep "NewName"** buttons, so you can resolve conflicts one at a time without waiting for the final confirmation dialog.
@@ -226,7 +230,7 @@ The app combines "who spoke when" (from step 3) with "what was said" (from step 
 - **View** the full raw transcript before AI processing
 - **Edit** the transcript text inline — click the **Edit** button to make changes
 - **Approve** the transcript as-is or with edits — the pipeline continues to AI processing
-- **Reject** the transcript — choose **Cancel** (stop the job) or **Retry** (re-run the alignment stage)
+- **Reject** — temporarily disabled (buttons are greyed out in the modal). The pipeline must be approved to continue.
 
 See the [Approval Gates](#approval-gates) section for full details.
 
@@ -255,7 +259,7 @@ The pipeline pauses here for you to review the deliverables before saving to mem
 - **Delivery options** — email recipients and optional content to include
 - **Edit** — click the **Edit** button to modify the summary and analysis content
 - **Approve** — the deliverable is saved to memory and delivery proceeds to the configured destinations
-- **Reject** — optionally provide feedback, then choose **Cancel** (stop the job) or **Retry** (re-run AI processing with feedback)
+- **Reject** — temporarily disabled (buttons are greyed out in the modal). The pipeline must be approved to continue.
 
 You can disable this gate in **Settings → Config → Pipeline** by toggling the **Review & Approve Delivery** step off.
 
@@ -290,9 +294,7 @@ When enabled, the pipeline pauses after the transcript is built but **before** A
 - **Raw transcript** — the unrefined, unedited transcript text (before filler-word removal and PII redaction)
 - **Edit mode** — click the **Edit** button in the action row to open an editable textarea. Make changes to the raw text, then click **Save**.
 - **Approve** — accepts the transcript (with or without edits). The pipeline resumes to AI processing.
-- **Reject** — opens a confirmation with two options:
-  - **Cancel** — stops the job entirely
-  - **Retry** — re-runs the alignment stage to regenerate the transcript
+- **Reject** — temporarily disabled (buttons are greyed out in the modal). The pipeline must be approved to continue.
 
 ### Gate 2: Delivery Review
 
@@ -303,9 +305,7 @@ When enabled, the pipeline pauses after AI processing is complete but **before**
 - **Transcript** — the refined speaker-labeled transcript
 - **Edit mode** — click **Edit** in the action row to open editable fields for the summary (textareas for each section, add/remove action items) and analysis (textareas, add/remove topics and entities). Click **Save** when done.
 - **Approve** — accepts the deliverable package. Results are saved to memory and delivered to configured destinations.
-- **Reject with feedback** — optionally enter feedback text explaining why, then choose:
-  - **Cancel** — stops the job
-  - **Retry** — re-runs the AI processing stage with the feedback included in the LLM context
+- **Reject** — temporarily disabled (buttons are greyed out in the modal). The pipeline must be approved to continue.
 
 ---
 
@@ -452,6 +452,8 @@ The **Summary** and **Analysis** tabs include export buttons for sharing results
 Click **Export PDF** or **Export Word** in the toolbar at the top of the Summary or Analysis tab. A native file dialog opens where you choose the save location and filename.
 
 ---
+
+T8210P3421270A30
 
 ## Managing Past Meetings
 
@@ -870,13 +872,13 @@ If the popover is dismissed while services are still down, it will reappear on t
 
 ### Upload Fails
 
-| Error                                    | Solution                                                                                                                                          |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| "Unsupported format"                     | Convert your audio to WAV or MP3 and try again                                                                                                    |
-| "File too large"                         | Files must be under 500 MB                                                                                                                        |
-| "A transcription job is already running" | Wait for the current job to finish, or cancel it from the pipeline stepper                                                                        |
-| "Config incomplete"                      | Open **Config** (⚙️ in sidebar) and set your DeepSeek API Key and Hugging Face Token                                                              |
-| Attendee conflict warning                | The name or email conflicts with an existing voiceprint. Check the warning banner for details and choose to overwrite or keep the existing entry. |
+| Error                                    | Solution                                                                                                                                                                                                                                                                 |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| "Unsupported format"                     | Convert your audio to WAV or MP3 and try again                                                                                                                                                                                                                           |
+| "File too large"                         | Files must be under 500 MB                                                                                                                                                                                                                                               |
+| "A transcription job is already running" | Wait for the current job to finish, or cancel it from the pipeline stepper                                                                                                                                                                                               |
+| "Config incomplete"                      | Open **Config** (⚙️ in sidebar) and set your DeepSeek API Key and Hugging Face Token                                                                                                                                                                                     |
+| Attendee conflict warning                | A warning appeared during attendee entry (upload form) or a conflict dialog appeared during speaker labeling. See the [Matching Voices](#4-%EF%B8%8F-matching-voices) section for how to resolve name/email conflicts and what **Overwrite** vs **Keep Existing** means. |
 
 ### Processing Stalls
 
