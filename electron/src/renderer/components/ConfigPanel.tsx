@@ -2572,18 +2572,14 @@ The system provides existing memory context at the start of each pipeline run. U
               <Icon name="warning" size="16" color="red" /> Clear Configuration
             </h3>
             <p className="confirm-dialog-text">
-              This will remove ALL saved API keys, provider settings, and delivery credentials.
-              Configuration will revert to defaults. The agent runner will be restarted.
-              This cannot be undone.
+              This will remove ALL saved API keys, provider settings, and delivery credentials. Configuration will revert to defaults. The agent
+              runner will be restarted. This cannot be undone.
             </p>
             <div className="confirm-dialog-actions">
               <button className="btn-secondary" onClick={() => setShowClearConfigConfirm(false)}>
                 Cancel
               </button>
-              <button
-                className="btn-danger"
-                onClick={handleClearConfig}
-                disabled={clearingConfig}>
+              <button className="btn-danger" onClick={handleClearConfig} disabled={clearingConfig}>
                 {clearingConfig ? "Clearing..." : "Clear All"}
               </button>
             </div>
@@ -2599,18 +2595,14 @@ The system provides existing memory context at the start of each pipeline run. U
               <Icon name="warning" size="16" color="red" /> Restore Defaults
             </h3>
             <p className="confirm-dialog-text">
-              This will overwrite ALL saved API keys, provider settings, and delivery credentials
-              with the factory defaults that were shipped with this install.
-              The agent runner will be restarted. This cannot be undone.
+              This will overwrite ALL saved API keys, provider settings, and delivery credentials with the factory defaults that were shipped with
+              this install. The agent runner will be restarted. This cannot be undone.
             </p>
             <div className="confirm-dialog-actions">
               <button className="btn-secondary" onClick={() => setShowRestoreUserDefaultsConfirm(false)}>
                 Cancel
               </button>
-              <button
-                className="btn-danger"
-                onClick={handleRestoreUserDefaults}
-                disabled={restoringUserDefaults}>
+              <button className="btn-danger" onClick={handleRestoreUserDefaults} disabled={restoringUserDefaults}>
                 {restoringUserDefaults ? "Restoring..." : "Restore Defaults"}
               </button>
             </div>
@@ -2626,18 +2618,14 @@ The system provides existing memory context at the start of each pipeline run. U
               <Icon name="warning" size="16" color="red" /> Restore Agent Defaults
             </h3>
             <p className="confirm-dialog-text">
-              This will overwrite your current system prompt, pipeline steps, and tool definitions
-              with the original shipped defaults. The agent runner will need a restart.
-              This cannot be undone.
+              This will overwrite your current system prompt, pipeline steps, and tool definitions with the original shipped defaults. The agent
+              runner will need a restart. This cannot be undone.
             </p>
             <div className="confirm-dialog-actions">
               <button className="btn-secondary" onClick={() => setShowRestoreDefaultsConfirm(false)}>
                 Cancel
               </button>
-              <button
-                className="btn-danger"
-                onClick={handleRestoreDefaults}
-                disabled={restoringDefaults}>
+              <button className="btn-danger" onClick={handleRestoreDefaults} disabled={restoringDefaults}>
                 {restoringDefaults ? "Restoring..." : "Restore Defaults"}
               </button>
             </div>

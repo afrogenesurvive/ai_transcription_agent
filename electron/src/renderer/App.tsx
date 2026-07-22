@@ -538,6 +538,7 @@ export default function App() {
         const result = await api.labelAndResume(jobId, labels);
         console.log("Label & resume result", result);
         setShowSpeakerModal(false);
+        setSpeakerClips(null);
         notify(`Speaker labels applied — pipeline resuming`);
       } catch (err: any) {
         const errMsg = err.message || "Unknown error applying labels";
@@ -558,6 +559,7 @@ export default function App() {
       statusHook.stopPolling();
       setView("results");
       setShowSpeakerModal(false);
+      setSpeakerClips(null);
       setStatusData({ status: "failed", error: "Cancelled by user", progress: 0.0 });
       notify("Job cancelled");
       const cancelTitle = jobMetadata?.title || "Untitled Meeting";

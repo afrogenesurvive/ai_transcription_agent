@@ -199,7 +199,7 @@ async function processEvent(event) {
   if (event.type === "failed") {
     const errMsg = jobData.error || "Unknown pipeline error";
     console.log(`⏭️  [RUNNER] Skipping failed event (event.type=failed): ${errMsg}`);
-    logAction({ eventId, eventType: event.type, action: "skipped", detail: `Pipeline failed: ${errMsg}` });
+    logAction({ eventId, jobId: jobData.jobId || eventId, eventType: event.type, action: "skipped", detail: `Pipeline failed: ${errMsg}` });
     markCleared(eventId);
     releaseLock(eventId);
     return;
@@ -213,7 +213,13 @@ async function processEvent(event) {
   if (!transcriptHasContent && (event.type === "ready_for_processing" || event.type === "labeling_needed")) {
     console.log(`⏭️  [RUNNER] Empty transcript — skipping LLM processing (event.type=${event.type})`);
     console.log(`⏭️  [RUNNER]   Transcript has ${transcript.length} segment(s), 0 words of text`);
-    logAction({ eventId, eventType: event.type, action: "skipped", detail: "Empty transcript — no LLM processing needed" });
+    logAction({
+      eventId,
+      jobId: jobData.jobId || eventId,
+      eventType: event.type,
+      action: "skipped",
+      detail: "Empty transcript — no LLM processing needed",
+    });
     try {
       const jobId = jobData.jobId || eventId;
       const errorMsg = "ML pipeline produced empty transcript — check pipeline logs for details";
@@ -706,7 +712,7 @@ async function processEvent(event) {
       pipelineError = `LLM call failed after ${llmRetries} retries: ${err.message}`;
       console.log(`❌ [RUNNER] ${pipelineError}`);
       logLlmData("step_error", { step, error: pipelineError });
-      logAction({ eventId, eventType: event.type, action: "failed", detail: pipelineError });
+      logAction({ eventId, jobId: jobData.jobId || eventId, eventType: event.type, action: "failed", detail: pipelineError });
       logStepMessage(jobId, "❌ LLM call failed — retrying...");
       pipelineComplete = true;
       break;
@@ -763,7 +769,13 @@ async function processEvent(event) {
         forcedStepRetries++;
         if (forcedStepRetries >= MAX_FORCED_STEP_RETRIES) {
           console.log(`⏭️  [RUNNER] Forced step retry limit reached (${MAX_FORCED_STEP_RETRIES}) — ending pipeline`);
-          logAction({ eventId, eventType: event.type, action: "complete", detail: `ended at step ${step}, forced step retry limit` });
+          logAction({
+            eventId,
+            jobId: jobData.jobId || eventId,
+            eventType: event.type,
+            action: "complete",
+            detail: `ended at step ${step}, forced step retry limit`,
+          });
           pipelineComplete = true;
           break;
         }
@@ -778,7 +790,13 @@ async function processEvent(event) {
         forcedStepRetries++;
         if (forcedStepRetries >= MAX_FORCED_STEP_RETRIES) {
           console.log(`⏭️  [RUNNER] Forced step retry limit reached (${MAX_FORCED_STEP_RETRIES}) — ending pipeline`);
-          logAction({ eventId, eventType: event.type, action: "complete", detail: `ended at step ${step}, forced step retry limit` });
+          logAction({
+            eventId,
+            jobId: jobData.jobId || eventId,
+            eventType: event.type,
+            action: "complete",
+            detail: `ended at step ${step}, forced step retry limit`,
+          });
           pipelineComplete = true;
           break;
         }
@@ -791,7 +809,13 @@ async function processEvent(event) {
         forcedStepRetries++;
         if (forcedStepRetries >= MAX_FORCED_STEP_RETRIES) {
           console.log(`⏭️  [RUNNER] Forced step retry limit reached (${MAX_FORCED_STEP_RETRIES}) — ending pipeline`);
-          logAction({ eventId, eventType: event.type, action: "complete", detail: `ended at step ${step}, forced step retry limit` });
+          logAction({
+            eventId,
+            jobId: jobData.jobId || eventId,
+            eventType: event.type,
+            action: "complete",
+            detail: `ended at step ${step}, forced step retry limit`,
+          });
           pipelineComplete = true;
           break;
         }
@@ -803,7 +827,13 @@ async function processEvent(event) {
         continue;
       }
       console.log(`⏭️  [RUNNER] No decision — pipeline complete`);
-      logAction({ eventId, eventType: event.type, action: "complete", detail: `ended at step ${step}, no LLM decision` });
+      logAction({
+        eventId,
+        jobId: jobData.jobId || eventId,
+        eventType: event.type,
+        action: "complete",
+        detail: `ended at step ${step}, no LLM decision`,
+      });
       logStepMessage(jobId, "✅ AI pipeline complete");
       pipelineComplete = true;
       break;
@@ -821,6 +851,7 @@ async function processEvent(event) {
       console.log(`⏭️  [RUNNER] LLM returned locked/removed tool "${decision.name}" — skipping`);
       logAction({
         eventId,
+        jobId: jobData.jobId || eventId,
         eventType: event.type,
         action: "skipped",
         detail: `LLM returned locked tool "${decision.name}" at step ${step}`,
@@ -853,7 +884,7 @@ async function processEvent(event) {
       const toolRetries = LLM_PROVIDER === "ollama" ? OLLAMA_MAX_RETRIES : MAX_RETRIES;
       pipelineError = `${decision.name} failed after ${toolRetries} retries: ${err.message}`;
       console.log(`❌ [RUNNER] ${pipelineError}`);
-      logAction({ eventId, eventType: event.type, action: "failed", detail: pipelineError });
+      logAction({ eventId, jobId: jobData.jobId || eventId, eventType: event.type, action: "failed", detail: pipelineError });
       logStepMessage(jobId, `❌ ${getStepLabel(decision.name)} failed — retrying...`);
       pipelineComplete = true;
       break;
@@ -865,6 +896,7 @@ async function processEvent(event) {
 
     logAction({
       eventId,
+      jobId: jobData.jobId || eventId,
       eventType: event.type,
       toolName: decision.name,
       step,
@@ -903,7 +935,7 @@ async function processEvent(event) {
 
       pipelineError = errorMsg || `Unknown error in ${decision.name}`;
       console.log(`❌ [RUNNER] ${pipelineError}`);
-      logAction({ eventId, eventType: event.type, action: "failed", detail: pipelineError });
+      logAction({ eventId, jobId: jobData.jobId || eventId, eventType: event.type, action: "failed", detail: pipelineError });
       pipelineComplete = true;
       break;
     }
@@ -985,6 +1017,7 @@ async function processEvent(event) {
         logStepMessage(jobData.jobId || eventId, "⏸️ Paused — waiting for delivery review");
         logAction({
           eventId,
+          jobId: jobData.jobId || eventId,
           eventType: event.type,
           action: "paused",
           detail: "Gate 2: paused for delivery review",
@@ -1049,7 +1082,7 @@ async function processEvent(event) {
     // Delivery tools update terminal steps immediately: save results and mark job complete.
     if (TERMINAL_TOOLS.has(decision.name)) {
       console.log(`📬 [RUNNER] Delivery complete — pipeline finished`);
-      logAction({ eventId, eventType: event.type, action: "complete", detail: `delivered via ${decision.name}` });
+      logAction({ eventId, jobId: jobData.jobId || eventId, eventType: event.type, action: "complete", detail: `delivered via ${decision.name}` });
       logStepMessage(jobId, "📬 Delivering results...");
       // Save delivery results and mark job complete immediately (within the delivery step)
       saveDeliveryResults();
@@ -1080,7 +1113,13 @@ async function processEvent(event) {
       const hasRemainingDelivery = [...TERMINAL_TOOLS].some((t) => !skippedTools.has(t));
       if (!hasRemainingDelivery) {
         console.log(`⏭️  [RUNNER] Delivery skipped — pipeline finished after save_context`);
-        logAction({ eventId, eventType: event.type, action: "complete", detail: "delivery skipped, ended after save_context" });
+        logAction({
+          eventId,
+          jobId: jobData.jobId || eventId,
+          eventType: event.type,
+          action: "complete",
+          detail: "delivery skipped, ended after save_context",
+        });
         pipelineComplete = true;
         break;
       }
@@ -1270,7 +1309,7 @@ async function processEvent(event) {
   if (!deliveryHandled) {
     if (pipelineError) {
       console.log(`❌ [RUNNER] Pipeline failed for job ${tag}: ${pipelineError}`);
-      logAction({ eventId, eventType: event.type, action: "failed", detail: pipelineError });
+      logAction({ eventId, jobId: jobData.jobId || eventId, eventType: event.type, action: "failed", detail: pipelineError });
       // Directly fail the job on the Python backend so the UI sees the error
       try {
         const jobId = jobData.jobId || eventId;

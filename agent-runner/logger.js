@@ -1,8 +1,9 @@
 /**
  * Logger — writes per-job action logs to the job's storage directory.
  *
- * Each log entry is appended to storage/{eventId}/actions.jsonl so all
+ * Each log entry is appended to storage/{jobId}/actions.jsonl so all
  * pipeline actions are co-located with the job's other data files.
+ * Falls back to storage/{eventId} when jobId is not provided.
  * No date-based log files are created.
  */
 
@@ -16,13 +17,16 @@ const STORAGE_BASE = process.env.TRANSCRIPTION_STORAGE || path.resolve(__dirname
 export function logAction(entry) {
   const ts = new Date().toISOString();
   const logEntry = { timestamp: ts, source: "transcription-agent", ...entry };
-  const eventId = entry.eventId;
+  const targetId = entry.jobId || entry.eventId;
 
   // Only write if we have a job to associate with
-  if (!eventId) return;
+  if (!targetId) return;
+
+  // Strip routing metadata before writing to disk
+  delete logEntry.jobId;
 
   try {
-    const jobDir = path.join(STORAGE_BASE, eventId);
+    const jobDir = path.join(STORAGE_BASE, targetId);
     fs.mkdirSync(jobDir, { recursive: true });
     fs.appendFileSync(path.join(jobDir, "actions.jsonl"), JSON.stringify(logEntry) + "\n");
   } catch {
