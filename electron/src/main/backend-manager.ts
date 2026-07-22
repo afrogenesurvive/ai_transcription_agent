@@ -374,7 +374,7 @@ export async function startPythonBackend(port = 5001): Promise<void> {
       TRANSCRIPTION_QUEUE_DIR: path.join(app.getPath("userData"), "queue"),
       TRANSCRIPTION_TRIGGER_FILE: path.join(app.getPath("userData"), "queue", ".transcription-trigger"),
       ELECTRON_LOGS_DIR: path.join(app.getPath("userData"), "logs"),
-      PYTORCH_MPS_HIGH_WATERMARK_RATIO: "0.7",
+      // PYTORCH_MPS_HIGH_WATERMARK_RATIO: "0.7",
       // PYTORCH_MPS_HIGH_WATERMARK_RATIO: "0.0",
     },
     stdio: ["ignore", "pipe", "pipe"],
