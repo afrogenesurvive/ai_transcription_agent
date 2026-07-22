@@ -4,6 +4,25 @@
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
+/** Error thrown when label submission detects voice match conflicts. */
+export class VoiceMatchConflictError extends Error {
+  constructor(
+    message: string,
+    public readonly conflicts: Array<{
+      speaker_id: string;
+      assigned_name: string;
+      assigned_email: string;
+      matched_name: string;
+      matched_email: string;
+      similarity: number;
+      matched_sample_job_id?: string;
+    }>,
+  ) {
+    super(message);
+    this.name = "VoiceMatchConflictError";
+  }
+}
+
 async function bridgeCall(tool: string, args: Record<string, unknown> = {}) {
   const res = await fetch(`${BRIDGE_URL}/tools/call`, {
     method: "POST",
@@ -104,11 +123,16 @@ export function useApi() {
 
     /** Submit speaker labels and resume the pipeline */
     labelAndResume: async (jobId: string, labels: Array<{ speaker_id: string; name: string; email?: string }>) => {
-      return bridgeCall("transcribe_label_and_resume", { jobId, labels }) as Promise<{
+      const result = await bridgeCall("transcribe_label_and_resume", { jobId, labels });
+      // Check for voice match conflict response from the bridge
+      if (result && (result as any).conflict === true) {
+        throw new VoiceMatchConflictError((result as any).message || "Voice match conflict detected", (result as any).conflicts || []);
+      }
+      return result as {
         job_id: string;
         status: string;
         applied_labels: number;
-      }>;
+      };
     },
 
     /** Get audio stream URL */

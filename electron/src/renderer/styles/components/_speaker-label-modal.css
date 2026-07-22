@@ -64,6 +64,14 @@
   border-color: var(--green);
 }
 
+.speaker-item--conflict {
+  border-color: var(--orange);
+}
+
+.speaker-item--conflict:hover {
+  border-color: var(--orange);
+}
+
 .speaker-header {
   display: flex;
   align-items: center;
@@ -179,6 +187,33 @@
   font-size: 12px;
   margin-top: 4px;
   line-height: 1.3;
+}
+
+/* ── Post-submit voice match conflict banner ── */
+
+.speaker-post-conflict-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background: rgba(210, 146, 34, 0.12);
+  border: 1px solid rgba(210, 146, 34, 0.3);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.speaker-post-conflict-banner-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.speaker-post-conflict-banner-content strong {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--orange);
 }
 
 /* ── Voiceprint conflict dialog ── */

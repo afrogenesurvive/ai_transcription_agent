@@ -1894,6 +1894,30 @@ async def label_and_resume(job_id: str, labels: list = Body(...)):
         except Exception as e:
             print(f"[label_and_resume] ⚠️  Could not register attendees: {e}")
 
+        # ── Persist reconciled attendee list back to metadata.json ──
+        # The original metadata.json (from upload) only has the pre-labeling
+        # attendee list. After labeling, unknown speakers become named attendees
+        # with real emails. Without this update, enqueue_ready, approve_gate1,
+        # and /agent/deliver all read the stale metadata — missing newly labeled
+        # attendees. The result: they never get an email delivery.
+        metadata["attendees"] = all_attendee_names
+        metadata["attendeeEmails"] = dict(zip(all_attendee_names, all_attendee_emails))
+        # Merge new real emails into email_recipients (skip @voiceprint.local
+        # placeholders — those are voiceprint-only keys, not delivery addresses)
+        existing_recipients = set(e.lower() for e in metadata.get("email_recipients", []) if e)
+        for email in all_attendee_emails:
+            if email and "@voiceprint.local" not in email:
+                existing_recipients.add(email.lower())
+        metadata["email_recipients"] = list(existing_recipients)
+        try:
+            meta_path = os.path.join(config.STORAGE_PATH, job_id, "metadata.json")
+            with open(meta_path, "w") as f:
+                json.dump(metadata, f, indent=2)
+            print(f"[label_and_resume] ✅ Updated metadata.json with {len(all_attendee_names)} reconciled attendee(s) "
+                  f"({len(metadata['email_recipients'])} delivery recipients)")
+        except Exception as e:
+            print(f"[label_and_resume] ⚠️  Could not persist reconciled metadata: {e}")
+
         # Persist ML pipeline completion stats
         try:
             total_chars = sum(len(s.get("text", "")) for s in aligned)

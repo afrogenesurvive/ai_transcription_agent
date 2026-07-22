@@ -393,15 +393,15 @@ async function dispatch(tool, args) {
                 `[bridge]   "${c.assigned_name}" (${c.speaker_id}) ↔ "${c.matched_name}" (sim=${(c.similarity || 0).toFixed(3)}) from job ${(c.matched_sample_job_id || "?").slice(0, 8)}`,
               );
             }
-            // Re-throw a clean error message for the caller
-            throw new Error(parsed.message || "Voice match conflict — resolve and re-submit");
+            // Return structured conflict data so the frontend can show inline resolution UI
+            return {
+              conflict: true,
+              message: parsed.message || "Voice match conflict — resolve and re-submit",
+              conflicts: parsed.conflicts || [],
+            };
           }
-        } catch (parseErr) {
-          // Not a conflict error or parse failed — re-throw original
-          if (parseErr instanceof Error && parseErr.message !== err.message) {
-            // It's our re-throw above
-            throw parseErr;
-          }
+        } catch {
+          // JSON.parse failed — not a voice_match_conflict error, fall through to re-throw
         }
         throw err;
       }

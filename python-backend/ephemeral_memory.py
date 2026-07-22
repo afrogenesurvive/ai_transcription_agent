@@ -596,10 +596,25 @@ class EphemeralMemory:
                 "SELECT * FROM attendees WHERE name LIKE ? OR email LIKE ? ORDER BY created_at DESC LIMIT ?",
                 (f"%{q}%", f"%{q}%", limit),
             ).fetchall()
-        elif q and table != "notes":
+        elif q and table == "action_items":
             rows = conn.execute(
-                f"SELECT * FROM {table} WHERE description LIKE ? OR assignee LIKE ? ORDER BY created_at DESC LIMIT ?",
+                "SELECT * FROM action_items WHERE description LIKE ? OR assignee LIKE ? OR deadline LIKE ? ORDER BY created_at DESC LIMIT ?",
+                (f"%{q}%", f"%{q}%", f"%{q}%", limit),
+            ).fetchall()
+        elif q and table == "budgets":
+            rows = conn.execute(
+                "SELECT * FROM budgets WHERE description LIKE ? OR category LIKE ? ORDER BY created_at DESC LIMIT ?",
                 (f"%{q}%", f"%{q}%", limit),
+            ).fetchall()
+        elif q and table == "decisions":
+            rows = conn.execute(
+                "SELECT * FROM decisions WHERE description LIKE ? OR rationale LIKE ? ORDER BY created_at DESC LIMIT ?",
+                (f"%{q}%", f"%{q}%", limit),
+            ).fetchall()
+        elif q and table == "contacts":
+            rows = conn.execute(
+                "SELECT * FROM contacts WHERE name LIKE ? OR email LIKE ? OR organization LIKE ? OR role LIKE ? ORDER BY created_at DESC LIMIT ?",
+                (f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%", limit),
             ).fetchall()
         elif q and table == "notes":
             rows = conn.execute(

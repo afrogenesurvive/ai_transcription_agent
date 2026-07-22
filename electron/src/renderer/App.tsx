@@ -122,6 +122,7 @@ export default function App() {
   const [showSpeakerModal, setShowSpeakerModal] = useState(false);
   const [labelingSubmitting, setLabelingSubmitting] = useState(false);
   const [labelingError, setLabelingError] = useState<string | null>(null);
+  const [labelingConflicts, setLabelingConflicts] = useState<any[] | null>(null);
 
   // Guard refs to prevent duplicate notifications on repeated poll cycles
   const labelingNotifiedRef = useRef(false);
@@ -532,7 +533,8 @@ export default function App() {
   const handleLabelConfirm = useCallback(
     async (labels: Array<{ speaker_id: string; name: string; email?: string }>) => {
       if (!jobId) return;
-      setLabelingError(null); // Clear any previous error before re-submit
+      setLabelingError(null);
+      setLabelingConflicts(null);
       setLabelingSubmitting(true);
       try {
         const result = await api.labelAndResume(jobId, labels);
@@ -541,6 +543,12 @@ export default function App() {
         setSpeakerClips(null);
         notify(`Speaker labels applied — pipeline resuming`);
       } catch (err: any) {
+        if (err.name === "VoiceMatchConflictError") {
+          // Pass conflicts back to the modal for inline resolution
+          setLabelingConflicts(err.conflicts);
+          notify("Voice match conflict detected — resolve inline and re-submit");
+          return; // Don't close modal, let user resolve inline
+        }
         const errMsg = err.message || "Unknown error applying labels";
         setLabelingError(errMsg);
         notify(`Failed to apply labels: ${errMsg}`);
@@ -554,6 +562,7 @@ export default function App() {
   const handleLabelCancel = useCallback(async () => {
     if (!jobId) return;
     setLabelingError(null);
+    setLabelingConflicts(null);
     try {
       await api.cancelJob(jobId);
       statusHook.stopPolling();
@@ -871,7 +880,11 @@ export default function App() {
           onCancel={handleLabelCancel}
           submitting={labelingSubmitting}
           error={labelingError}
-          onClearError={() => setLabelingError(null)}
+          onClearError={() => {
+            setLabelingError(null);
+            setLabelingConflicts(null);
+          }}
+          postSubmitConflicts={labelingConflicts}
         />
       )}
 

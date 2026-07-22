@@ -64,6 +64,15 @@ interface Props {
   nonSpeakingAttendees?: NonSpeakingInfo[];
   error?: string | null;
   onClearError?: () => void;
+  postSubmitConflicts?: Array<{
+    speaker_id: string;
+    assigned_name: string;
+    assigned_email: string;
+    matched_name: string;
+    matched_email: string;
+    similarity: number;
+    matched_sample_job_id?: string;
+  }> | null;
 }
 
 export default function SpeakerLabelModal({
@@ -76,6 +85,7 @@ export default function SpeakerLabelModal({
   nonSpeakingAttendees = [],
   error,
   onClearError,
+  postSubmitConflicts,
 }: Props) {
   const [labels, setLabels] = useState<Record<string, string>>({});
   const [emails, setEmails] = useState<Record<string, string>>({});
@@ -95,9 +105,54 @@ export default function SpeakerLabelModal({
   const [perSpeakerConflicts, setPerSpeakerConflicts] = useState<Record<string, LabelVerification | null>>({});
   const blurTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
+  // ── Derive which speakers have active conflicts (for highlighting) ──
+  const conflictSpeakerIds = new Set<string>();
+  for (const [spkId, v] of Object.entries(perSpeakerConflicts)) {
+    if (v?.voice_match_conflicts?.length) {
+      conflictSpeakerIds.add(spkId);
+    }
+  }
+
   // ── Unregistered name warning (Mitigation 3) ──
   const [unregisteredNames, setUnregisteredNames] = useState<string[]>([]);
   const [dismissedUnregistered, setDismissedUnregistered] = useState(false);
+
+  // ── Populate inline conflicts from post-submit drift audit ──
+  // When the backend returns voice match conflicts during label_and_resume,
+  // map them into the perSpeakerConflicts format so inline notices appear.
+  const prevConflictsRef = useRef<Props["postSubmitConflicts"]>(null);
+  useEffect(() => {
+    const conflicts = postSubmitConflicts;
+    if (!conflicts || conflicts.length === 0) {
+      prevConflictsRef.current = null;
+      return;
+    }
+    // Avoid re-processing the same conflicts
+    if (prevConflictsRef.current === conflicts) return;
+    prevConflictsRef.current = conflicts;
+
+    // Group conflicts by speaker_id and build LabelVerification entries
+    const grouped: Record<string, LabelVerification> = {};
+    for (const c of conflicts) {
+      if (!grouped[c.speaker_id]) {
+        grouped[c.speaker_id] = {
+          speaker_id: c.speaker_id,
+          assigned_name: c.assigned_name,
+          assigned_email: c.assigned_email,
+          voice_match_conflicts: [],
+        };
+      }
+      grouped[c.speaker_id].voice_match_conflicts.push({
+        name: c.matched_name,
+        email: c.matched_email,
+        similarity: c.similarity,
+        sample_job_id: c.matched_sample_job_id,
+      });
+    }
+
+    setPerSpeakerConflicts((prev) => ({ ...prev, ...grouped }));
+    onClearError?.();
+  }, [postSubmitConflicts, onClearError]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const initializedRef = useRef(false);
 
@@ -390,11 +445,29 @@ export default function SpeakerLabelModal({
           </p>
         </div>
 
+        {/* ── Post-submit conflict banner ── */}
+        {postSubmitConflicts && postSubmitConflicts.length > 0 && (
+          <div className="speaker-post-conflict-banner">
+            <Icon name="warning" size="16" color="orange" />
+            <div className="speaker-post-conflict-banner-content">
+              <strong>Voice match conflict detected</strong>
+              <span>
+                {postSubmitConflicts.length === 1
+                  ? "1 speaker's voice matches an existing enrolled voiceprint under a different name."
+                  : `${postSubmitConflicts.length} speakers' voices match existing enrolled voiceprints under different names.`}{" "}
+                Review the inline notices below and choose <strong>Use "ExistingName"</strong> to overwrite, or keep your typed name.
+              </span>
+            </div>
+          </div>
+        )}
+
         <div className="speaker-list">
           {speakers.map((spk, idx) => {
             const hasName = (labels[spk.speaker_id]?.trim() ?? "").length > 0;
             return (
-              <div key={spk.speaker_id} className={`speaker-item ${hasName ? "speaker-item--labeled" : ""}`}>
+              <div
+                key={spk.speaker_id}
+                className={`speaker-item ${hasName ? "speaker-item--labeled" : ""} ${conflictSpeakerIds.has(spk.speaker_id) ? "speaker-item--conflict" : ""}`}>
                 <div className="speaker-header">
                   <span className="speaker-number">#{idx + 1}</span>
                   <span className="speaker-stats">
