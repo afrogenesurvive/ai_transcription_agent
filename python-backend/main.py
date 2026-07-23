@@ -1681,6 +1681,35 @@ async def label_and_resume(job_id: str, labels: list = Body(...)):
     Saves voiceprints with actual audio embeddings, remaps speaker IDs,
     then continues the pipeline from diarization → ASR → alignment → agent.
     """
+    import traceback
+    try:
+        s = uploader.get_status(job_id)
+        if s["status"] == "not_found":
+            raise HTTPException(404, "Job not found")
+        if s["status"] != "paused_for_labeling":
+            raise HTTPException(409, f"Job is not paused for labeling (status={s['status']})")
+
+        if not labels or not isinstance(labels, list):
+            raise HTTPException(400, "Body must be a JSON array of {speaker_id, name} objects")
+
+        _inner_label_and_resume(job_id, labels)
+    except HTTPException:
+        raise
+    except Exception as e:
+        tb = traceback.format_exc()
+        print(f"[api]   ❌ label_and_resume failed with exception:\n{tb}")
+        raise HTTPException(500, f"label_and_resume failed: {e}")
+
+
+def _inner_label_and_resume(job_id: str, labels: list):
+    """Inner function — all the actual work, extracted so the async route
+    handler has a clean try/except wrapper."""
+    # Defer imports that rely on the module-level globals
+    from config import config
+    import json, os, numpy as np
+    from datetime import datetime
+    from fastapi import HTTPException
+
     s = uploader.get_status(job_id)
     if s["status"] == "not_found":
         raise HTTPException(404, "Job not found")

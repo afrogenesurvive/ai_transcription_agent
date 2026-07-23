@@ -454,7 +454,25 @@ export default function SpeakerLabelModal({
               <span>
                 {postSubmitConflicts.length === 1
                   ? "1 speaker's voice matches an existing enrolled voiceprint under a different name."
-                  : `${postSubmitConflicts.length} speakers' voices match existing enrolled voiceprints under different names.`}{" "}
+                  : `${postSubmitConflicts.length} speakers' voices match existing enrolled voiceprints under different names.`}
+              </span>
+              {/* ── Existing attendee details ── */}
+              <div className="speaker-post-conflict-details">
+                {postSubmitConflicts.map((c, i) => (
+                  <div key={i} className="speaker-post-conflict-detail-row">
+                    <Icon name="person" size="13" color="muted" />
+                    <span>
+                      Already registered: <strong>{c.matched_name}</strong>
+                      {c.matched_email ? <> &lt;{c.matched_email}&gt;</> : ""}
+                      {" · "}You labeled: <strong>{c.assigned_name}</strong>
+                      {c.assigned_email ? <> &lt;{c.assigned_email}&gt;</> : ""}
+                      {" · "}<span className="speaker-post-conflict-similarity">{(c.similarity * 100).toFixed(0)}% match</span>
+                      {c.matched_sample_job_id ? <> from job {c.matched_sample_job_id.slice(0, 8)}</> : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <span>
                 Review the inline notices below and choose <strong>Use "ExistingName"</strong> to overwrite, or keep your typed name.
               </span>
             </div>
@@ -537,29 +555,35 @@ export default function SpeakerLabelModal({
                 {/* ── Inline voice-match conflict widget (Phase C) ── */}
                 {perSpeakerConflicts[spk.speaker_id]?.voice_match_conflicts?.map((mc, ci) => (
                   <div key={ci} className="speaker-inline-conflict">
-                    <Icon name="warning" size="13" color="orange" />
-                    <span className="speaker-inline-conflict-text">
-                      This voice matches <strong>{mc.name}</strong> ({(mc.similarity * 100).toFixed(0)}% similarity)
-                      {mc.sample_job_id ? <> from job {mc.sample_job_id.slice(0, 8)}</> : ""}
-                    </span>
-                    <button
-                      className="btn-sm btn-link"
-                      onClick={() => resolveInlineConflict(spk.speaker_id, mc.name, mc.email)}
-                      title={`Use "${mc.name}" instead`}>
-                      Use &ldquo;{mc.name}&rdquo;
-                    </button>
-                    <button
-                      className="btn-sm btn-link speaker-inline-conflict-dismiss"
-                      onClick={() =>
-                        setPerSpeakerConflicts((prev) => {
-                          const next = { ...prev };
-                          delete next[spk.speaker_id];
-                          return next;
-                        })
+                    <div className="speaker-inline-conflict-body">
+                      <Icon name="warning" size="13" color="orange" />
+                      <span className="speaker-inline-conflict-text">
+                        This voice matches <strong>{mc.name}</strong>
+                        {mc.email ? <> &lt;{mc.email}&gt;</> : ""}
+                        {" "}({(mc.similarity * 100).toFixed(0)}% similarity)
+                        {mc.sample_job_id ? <> from job {mc.sample_job_id.slice(0, 8)}</> : ""}
+                      </span>
+                    </div>
+                    <div className="speaker-inline-conflict-actions">
+                      <button
+                        className="speaker-conflict-btn speaker-conflict-btn--accept"
+                        onClick={() => resolveInlineConflict(spk.speaker_id, mc.name, mc.email)}
+                        title={`Use "${mc.name}" instead`}>
+                        Use &ldquo;{mc.name}&rdquo;
+                      </button>
+                      <button
+                        className="speaker-conflict-btn speaker-conflict-btn--dismiss"
+                        onClick={() =>
+                          setPerSpeakerConflicts((prev) => {
+                            const next = { ...prev };
+                            delete next[spk.speaker_id];
+                            return next;
+                          })
                       }
                       title="Keep current name">
                       Keep &ldquo;{labels[spk.speaker_id] || spk.speaker_id}&rdquo;
-                    </button>
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -711,9 +735,29 @@ export default function SpeakerLabelModal({
             <div className="speaker-label-error-content">
               <strong className="speaker-label-error-title">Could not save labels</strong>
               <span className="speaker-label-error-text">{error}</span>
+              {/* ── Existing registered attendee details ── */}
+              {postSubmitConflicts && postSubmitConflicts.length > 0 && (
+                <div className="speaker-label-existing-attendees">
+                  <strong>Already registered under this voice:</strong>
+                  {postSubmitConflicts.map((c, i) => (
+                    <div key={i} className="speaker-label-existing-attendee-row">
+                      <Icon name="person" size="13" color="muted" />
+                      <span>
+                        <strong>{c.matched_name}</strong>
+                        {c.matched_email ? <> &lt;{c.matched_email}&gt;</> : ""}
+                      </span>
+                      <span className="speaker-label-conflict-from">
+                        ({(c.similarity * 100).toFixed(0)}% match
+                        {c.matched_sample_job_id ? <> from job {c.matched_sample_job_id.slice(0, 8)}</> : ""})
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
               <p className="speaker-label-error-hint">
-                A voice conflict was detected — this person&apos;s voice matches an existing enrolled voiceprint under a different name. Check the
-                inline conflict notice for each speaker above, or re-submit if the labels are correct.
+                This person&apos;s voice matches an existing enrolled voiceprint under a different name.
+                Check the inline conflict notice for each speaker above, or use the
+                {" "}<strong>Use "ExistingName"</strong> button to accept the existing registration.
               </p>
             </div>
             <button className="btn-icon speaker-label-error-dismiss" onClick={() => onClearError?.()} title="Dismiss">

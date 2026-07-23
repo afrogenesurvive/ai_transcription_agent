@@ -504,6 +504,16 @@ class VoiceprintManager:
         """
         resolved_email = self._make_email(name, email)
         conn = self._get_conn()
+
+        # Remove any existing row whose speaker_name collides with the new
+        # name but has a different email.  This prevents UNIQUE constraint
+        # violation on speaker_name when the caller re-labels a speaker
+        # that previously enrolled under a different email.
+        conn.execute(
+            "DELETE FROM voiceprints WHERE speaker_name = ? AND email != ?",
+            (name, resolved_email),
+        )
+
         conn.execute("""
             INSERT INTO voiceprints (speaker_name, email, embedding,
                                      sample_job_id, sample_start, sample_end)

@@ -228,6 +228,22 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
               <div className="pp-gate-conflict-banner">
                 <strong>Voice match conflict detected</strong>
                 <p>{gate1VoiceConflict.message}</p>
+                {gate1VoiceConflict.conflicts?.length > 0 && (
+                  <div className="pp-gate-conflict-details" style={{ marginTop: 8 }}>
+                    {gate1VoiceConflict.conflicts.map((c: any, i: number) => (
+                      <div key={i} className="pp-gate-conflict-detail-row" style={{ marginBottom: 4, fontSize: "var(--fs-10)" }}>
+                        <Icon name="person" size="13" color="muted" />
+                        <span>
+                          Already registered: <strong>{c.matched_name}</strong>
+                          {c.matched_email ? <> &lt;{c.matched_email}&gt;</> : ""}
+                          {" · "}You labeled: <strong>{c.assigned_name}</strong>
+                          {c.assigned_email ? <> &lt;{c.assigned_email}&gt;</> : ""}
+                          {" · "}{(c.similarity * 100).toFixed(0)}% match
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -306,7 +322,20 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
                             // Error — reset so user can retry
                             setGate1Submitting(false);
                             if (err.message?.includes("voice_match_conflict")) {
-                              setGate1VoiceConflict({ message: err.message });
+                              // Try to extract structured conflict data from the error message
+                              let conflictData: any = { message: err.message };
+                              try {
+                                const parsed = JSON.parse(err.message);
+                                if (parsed?.conflicts?.length) {
+                                  conflictData = {
+                                    message: parsed.message || err.message,
+                                    conflicts: parsed.conflicts,
+                                  };
+                                }
+                              } catch {
+                                /* stay with string fallback */
+                              }
+                              setGate1VoiceConflict(conflictData);
                             } else {
                               setGate1Error(err.message || "Failed to approve");
                             }
@@ -318,7 +347,7 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
                         <>
                           <button
                             className="pp-gate-btn pp-gate-btn--reject pp-gate-btn--reject-disabled"
-                            disabled={true}
+                            disabled={false}
                             title="Reject is temporarily disabled"
                             onClick={() => {
                               setGate1RejectAction("cancel");
@@ -598,7 +627,7 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
                         <>
                           <button
                             className="pp-gate-btn pp-gate-btn--reject pp-gate-btn--reject-disabled"
-                            disabled={true}
+                            disabled={false}
                             title="Reject is temporarily disabled"
                             onClick={() => {
                               setGate2RejectAction("cancel");

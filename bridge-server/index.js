@@ -401,7 +401,12 @@ async function dispatch(tool, args) {
             };
           }
         } catch {
-          // JSON.parse failed — not a voice_match_conflict error, fall through to re-throw
+          // JSON.parse failed — check if it was a 409 with unstructured detail
+          if (err.statusCode === 409) {
+            console.warn(
+              `[bridge] ⚠️  409 from Python but could not parse as structured voice_match_conflict: ${String(err.message).slice(0, 200)}`,
+            );
+          }
         }
         throw err;
       }

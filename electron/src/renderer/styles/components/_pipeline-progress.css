@@ -895,6 +895,25 @@
   margin-bottom: 4px;
 }
 
+.pp-gate-conflict-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pp-gate-conflict-detail-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.pp-gate-conflict-detail-row strong {
+  display: inline;
+  margin-bottom: 0;
+}
+
 /* ── Edit mode toggle ── */
 
 .pp-gate-edit-toggle {
