@@ -238,7 +238,8 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
                           {c.matched_email ? <> &lt;{c.matched_email}&gt;</> : ""}
                           {" · "}You labeled: <strong>{c.assigned_name}</strong>
                           {c.assigned_email ? <> &lt;{c.assigned_email}&gt;</> : ""}
-                          {" · "}{(c.similarity * 100).toFixed(0)}% match
+                          {" · "}
+                          {(c.similarity * 100).toFixed(0)}% match
                         </span>
                       </div>
                     ))}
@@ -346,19 +347,16 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
                       {onRejectGate1 && (
                         <>
                           <button
-                            className="pp-gate-btn pp-gate-btn--reject pp-gate-btn--reject-disabled"
+                            className="pp-gate-btn pp-gate-btn--reject"
                             disabled={false}
-                            title="Reject is temporarily disabled"
+                            title="Reject & Cancel"
                             onClick={() => {
                               setGate1RejectAction("cancel");
                               setShowGate1RejectConfirm(true);
                             }}>
                             <Icon name="close" size="14" /> Reject & Cancel
                           </button>
-                          <button
-                            className="pp-gate-btn pp-gate-btn--reject pp-gate-btn--reject-disabled"
-                            disabled={true}
-                            title="Reject is temporarily disabled">
+                          <button className="pp-gate-btn pp-gate-btn--reject" disabled={true} title="Reject is temporarily disabled">
                             <Icon name="refresh" size="14" /> Reject & Retry
                           </button>
                         </>
@@ -626,19 +624,16 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
                       {onRejectGate2 && (
                         <>
                           <button
-                            className="pp-gate-btn pp-gate-btn--reject pp-gate-btn--reject-disabled"
+                            className="pp-gate-btn pp-gate-btn--reject"
                             disabled={false}
-                            title="Reject is temporarily disabled"
+                            title="Reject & Cancel"
                             onClick={() => {
                               setGate2RejectAction("cancel");
                               setShowGate2RejectConfirm(true);
                             }}>
                             <Icon name="close" size="14" /> Reject & Cancel
                           </button>
-                          <button
-                            className="pp-gate-btn pp-gate-btn--reject pp-gate-btn--reject-disabled"
-                            disabled={true}
-                            title="Reject is temporarily disabled">
+                          <button className="pp-gate-btn pp-gate-btn--reject" disabled={false} title="Reject is temporarily disabled">
                             <Icon name="refresh" size="14" /> Reject & Retry
                           </button>
                         </>

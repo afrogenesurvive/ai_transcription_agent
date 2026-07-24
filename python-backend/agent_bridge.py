@@ -67,6 +67,9 @@ class AgentBridge:
         # per-attendee delivery status in the LLM context.
         meta_attendees = metadata.get("attendees", [])
         meta_attendee_emails = metadata.get("attendeeEmails", [])
+        # Normalize: handle both list (positional) and dict ({name: email}) formats
+        if isinstance(meta_attendee_emails, dict):
+            meta_attendee_emails = [meta_attendee_emails.get(name, "") for name in meta_attendees]
         attendee_email_map = {}
         for i, name in enumerate(meta_attendees):
             email = meta_attendee_emails[i] if i < len(meta_attendee_emails) else ""
