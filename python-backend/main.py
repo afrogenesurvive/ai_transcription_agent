@@ -29,7 +29,7 @@ load_dotenv(override=True)
 # 0.0 = unlimited (macOS may SIGKILL the process instead).
 # DO NOT set to 0.0 — it disables the safety valve and causes hard crashes.
 # os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.0")
-os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.7")
+# os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.7")
 
 # ── Apply third-party compatibility patches FIRST (before any pyannote imports) ──
 import patches  # noqa: F401  (monkey-patches speechbrain + torchaudio + pyannote)
@@ -125,10 +125,12 @@ async def lifespan(app: FastAPI):
     global uploader, vp_manager, agent_bridge, semantic_memory, ephemeral_memory
     uploader = AudioUploader()
     vp_manager = VoiceprintManager(provider=config.EMBEDDING_PROVIDER)
-    agent_bridge = AgentBridge()
     semantic_memory = SemanticMemory()
     ephemeral_memory = EphemeralMemory()
+    # AgentBridge needs ephemeral_memory for the SQLite-backed event queue
+    agent_bridge = AgentBridge(ephemeral_memory=ephemeral_memory)
     os.makedirs(config.STORAGE_PATH, exist_ok=True)
+    # QUEUE_DIR still needed for the .transcription-trigger file (fs.watch wakeup)
     os.makedirs(config.QUEUE_DIR, exist_ok=True)
     print(f"[startup] Backend on {config.HOST}:{config.PORT} | device={detect_device()}")
     print(f"[startup] Semantic memory: {semantic_memory.persist_dir}")
@@ -196,9 +198,39 @@ async def lifespan(app: FastAPI):
                 except Exception as _rm_err:
                     print(f"   ❌ [startup] Could not delete corrupted ChromaDB: {_rm_err}")
 
+    # ── Startup queue recovery: reclaim stale events ──
+    # If the agent runner was killed mid-job, its claimed events are stuck
+    # in 'processing' state. Reset them back to 'pending' so they get picked
+    # up by the next agent runner instance.
+    reclaimed = ephemeral_memory.reclaim_stale_events(max_age_seconds=300)
+    if reclaimed:
+        print(f"   🧹 [startup] Reclaimed {reclaimed} stale queue event(s)")
+
+    # ── Periodic queue cleanup: expire old completed events ──
+    # Every 30 minutes, delete completed events older than their ttl_seconds.
+    # This prevents the events table from accumulating stale history entries.
+    _queue_cleanup_interval = 1800  # 30 minutes in seconds
+
+    async def _periodic_queue_cleanup():
+        while True:
+            await asyncio.sleep(_queue_cleanup_interval)
+            try:
+                deleted = ephemeral_memory.cleanup_expired_events()
+                if deleted:
+                    print(f"[cleanup] Expired {deleted} completed queue event(s)")
+            except Exception as _ce:
+                print(f"[cleanup] ⚠️  Queue cleanup error: {_ce}")
+
+    _cleanup_task = asyncio.create_task(_periodic_queue_cleanup())
+
     yield
 
-    # ── Shutdown: close SQLite connections to prevent leaks ──
+    # ── Shutdown: cancel cleanup task and close SQLite connections ──
+    _cleanup_task.cancel()
+    try:
+        await _cleanup_task
+    except asyncio.CancelledError:
+        pass
     vp_manager.close()
     ephemeral_memory.close()
 
@@ -3023,6 +3055,131 @@ async def health():
     return {"status": "ok", "device": detect_device()}
 
 
+# ── Queue Endpoints (SQLite-backed event queue) ──
+# These are infrastructure endpoints called by the agent runner's poller.
+# They replace the former JSONL file queue with atomic SQLite operations.
+
+@app.post("/queue/claim")
+async def queue_claim(body: dict = Body({})):
+    """Atomically claim the next pending queue event.
+
+    The agent runner calls this when woken by the trigger file.
+    Uses a BEGIN IMMEDIATE transaction to prevent race conditions
+    between concurrent claim attempts from different processes.
+
+    Request body (optional):
+      types_filter: list[str] — restrict claiming to specific event types
+
+    Returns:
+      {event: {id, source, type, data, priority, retry_count, ...} | null}
+    """
+    types_filter = body.get("types_filter")
+    event = ephemeral_memory.claim_event(types_filter=types_filter)
+    if event:
+        print(f"[api] POST /queue/claim → claimed event {event['id'][:8]} "
+              f"({event['type']}, priority={event['priority']})")
+    else:
+        print(f"[api] POST /queue/claim → no pending events")
+    return {"event": event}
+
+
+@app.post("/queue/complete/{event_id}")
+async def queue_complete(event_id: str):
+    """Mark a claimed event as completed.
+
+    Called by the agent runner after successfully processing an event.
+    """
+    ok = ephemeral_memory.complete_event(event_id)
+    if ok:
+        print(f"[api] POST /queue/complete/{event_id[:8]} → completed")
+    else:
+        print(f"[api] POST /queue/complete/{event_id[:8]} → not found or not processing")
+    return {"success": ok}
+
+
+@app.post("/queue/fail/{event_id}")
+async def queue_fail(event_id: str, body: dict = Body({})):
+    """Mark a claimed event as failed.
+
+    If retry_count < max_retries, the event is reset to 'pending' for
+    re-delivery. If exhausted, it moves to 'failed' status (dead letter).
+
+    Request body:
+      error: str — error message (optional)
+    """
+    error = body.get("error", "")
+    ok = ephemeral_memory.fail_event(event_id, error)
+    if ok:
+        # Check the new state
+        stats = ephemeral_memory.get_queue_stats()
+        print(f"[api] POST /queue/fail/{event_id[:8]} → failed (queue: "
+              f"{stats['pending']} pending, {stats['failed']} dlq)")
+    else:
+        print(f"[api] POST /queue/fail/{event_id[:8]} → not found or not processing")
+    return {"success": ok}
+
+
+@app.post("/queue/enqueue")
+async def queue_enqueue(body: dict = Body(...)):
+    """Enqueue a new event. Used by the agent runner's enqueueFailed().
+
+    Request body:
+      source: str — 'transcription' or 'agent-runner'
+      type: str — event type
+      data: dict — event payload
+      priority: int (optional, default 0)
+      ttl_seconds: int (optional, default 86400)
+      max_retries: int (optional, default 5)
+    """
+    source = body.get("source", "agent-runner")
+    event_type = body.get("type", "")
+    data = body.get("data", {})
+    priority = body.get("priority", 0)
+    ttl_seconds = body.get("ttl_seconds", 86400)
+    max_retries = body.get("max_retries", 5)
+
+    if not event_type:
+        raise HTTPException(400, "type is required")
+
+    event_id = ephemeral_memory.enqueue_event(
+        source=source, event_type=event_type, data=data,
+        priority=priority, ttl_seconds=ttl_seconds, max_retries=max_retries,
+    )
+    print(f"[api] POST /queue/enqueue → {event_id[:8]} ({event_type})")
+
+    # Touch trigger so the agent runner picks it up
+    agent_bridge._touch_trigger()
+
+    return {"event_id": event_id, "source": source, "type": event_type}
+
+
+@app.get("/queue/stats")
+async def queue_stats():
+    """Return queue depth by status.
+
+    Also triggers TTL cleanup of expired completed events on read.
+    Used by the agent runner for status checks and the DevPanel for monitoring.
+    """
+    cleaned = ephemeral_memory.cleanup_expired_events()
+    stats = ephemeral_memory.get_queue_stats()
+    print(f"[api] GET /queue/stats → {stats} (cleaned {cleaned} expired)")
+    return {"stats": stats, "expired_cleaned": cleaned}
+
+
+@app.post("/queue/requeue/{event_id}")
+async def queue_requeue(event_id: str):
+    """Move a failed (DLQ) event back to pending for reprocessing.
+
+    Resets retry_count to 0. Called manually via DevPanel or API.
+    """
+    ok = ephemeral_memory.requeue_dlq_event(event_id)
+    if ok:
+        print(f"[api] POST /queue/requeue/{event_id[:8]} → requeued")
+    else:
+        print(f"[api] POST /queue/requeue/{event_id[:8]} → not found or not failed")
+    return {"success": ok}
+
+
 # ── Storage Usage ──
 
 def _dir_size(path: str) -> int:
@@ -3149,6 +3306,7 @@ EPHEMERAL_TABLES = {
     "budgets": {"label": "Budgets", "columns": ["id", "job_id", "description", "amount", "currency", "category", "source_meeting", "created_at"]},
     "decisions": {"label": "Decisions", "columns": ["id", "job_id", "description", "rationale", "made_by", "source_meeting", "created_at"]},
     "notes": {"label": "Notes", "columns": ["id", "job_id", "topic", "content", "created_at"]},
+    "events": {"label": "Events", "columns": ["id", "source", "type", "status", "priority", "retry_count", "max_retries", "error_message", "queued_at", "claimed_at", "completed_at", "ttl_seconds"]},
 }
 
 

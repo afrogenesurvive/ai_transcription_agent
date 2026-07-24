@@ -4,13 +4,18 @@
  * Transcription Agent Runner — event-driven, no polling
  *
  * Watches .transcription-trigger via fs.watch (touched by the Python backend
- * whenever a job is ready). On trigger: reads queue, sends to LLM, executes tool.
+ * whenever a job is ready). On trigger: claims next pending event from the
+ * SQLite-backed event queue (via HTTP POST /queue/claim), sends to LLM,
+ * executes tools, and marks as completed/failed.
+ *
+ * The queue is stored in the ``events`` table of ``ephemeral_memory.db``
+ * (SQLite), replacing the former JSONL file approach.
  *
  * Usage:
  *   node agent-runner/index.js
  *
  * Interactive commands (at the runner> prompt):
- *   status   — Show pending queue items
+ *   status   — Show queue stats (pending, processing, completed, failed)
  *   trigger  — Manually trigger processing
  *   stop     — Shut down
  */
@@ -18,13 +23,12 @@
 import "dotenv/config";
 import fs from "fs";
 import path from "path";
-import crypto from "crypto";
 import readline from "readline";
 import { fileURLToPath } from "url";
 import { callModel } from "./model-client.js";
 import { executeToolCall } from "./tool-executor.js";
 import { logAction } from "./logger.js";
-import { readPending, markCleared, acquireLock, releaseLock } from "./poller.js";
+import { claimPendingEvent, completeEvent, failEvent, enqueueEvent, getQueueStats } from "./poller.js";
 import { sanitizeTranscriptSegments, sanitizeContextString } from "./sanitize.js";
 import {
   TOOLS,
@@ -62,7 +66,7 @@ const LLM_PROVIDER = process.env.LLM_PROVIDER || "deepseek";
  * so the pipeline status is properly recorded and the UI can display the error.
  * This mirrors what the Python agent_bridge.py's enqueue_failed does.
  */
-function enqueueFailed(event, errorMsg) {
+async function enqueueFailed(event, errorMsg) {
   // Guard against infinite loops: if the event is already a retry from the
   // agent-runner (e.g., "No handler" errors), don't re-enqueue — it will
   // just fail again with the same error and burn tokens forever.
@@ -71,51 +75,23 @@ function enqueueFailed(event, errorMsg) {
     return;
   }
 
-  try {
-    const queueDir = process.env.TRANSCRIPTION_QUEUE_DIR || path.resolve(__dirname, "..", "queue");
-    const queueFile = path.join(queueDir, "transcription.jsonl");
-    const triggerFile = path.join(queueDir, ".transcription-trigger");
-
-    // Carry forward skip_steps and original metadata so the retry pipeline
-    // has the same constraints as the original run. Without this, the LLM
-    // gets ALL tools (including analyze, delivery, etc.) and wastes tokens
-    // re-running the full pipeline.
-    const originalData = event.data || {};
-    const failedEvent = {
-      id: crypto.randomUUID(),
-      source: "agent-runner",
-      type: "failed",
-      data: {
-        jobId: originalData.jobId || event.id,
-        title: originalData.title || "Unknown",
-        error: errorMsg,
-        originalType: event.type,
-        // Preserve skip_steps so the retry doesn't expose irrelevant tools
-        skip_steps: originalData.skip_steps,
-        // Preserve transcript so the retry has immediate access to it
-        transcript: originalData.transcript,
-        attendees: originalData.attendees,
-        eventType: originalData.eventType,
-      },
-      queuedAt: new Date().toISOString(),
-    };
-
-    fs.appendFileSync(queueFile, JSON.stringify(failedEvent) + "\n", "utf8");
-
-    // Touch the trigger so the poller/mainLoop picks it up
-    try {
-      if (fs.existsSync(triggerFile)) {
-        fs.utimesSync(triggerFile, new Date(), new Date());
-      } else {
-        fs.writeFileSync(triggerFile, "");
-      }
-    } catch {
-      /* non-fatal */
-    }
-
-    console.log(`📝 [RUNNER] Failed event enqueued for job ${event.data?.jobId?.slice(0, 8) || "?"}`);
-  } catch (err) {
-    console.error(`❌ [RUNNER] Could not enqueue failed event: ${err.message}`);
+  const originalData = event.data || {};
+  const eventId = await enqueueEvent("agent-runner", "failed", {
+    jobId: originalData.jobId || event.id,
+    title: originalData.title || "Unknown",
+    error: errorMsg,
+    originalType: event.type,
+    // Preserve skip_steps so the retry doesn't expose irrelevant tools
+    skip_steps: originalData.skip_steps,
+    // Preserve transcript so the retry has immediate access to it
+    transcript: originalData.transcript,
+    attendees: originalData.attendees,
+    eventType: originalData.eventType,
+  });
+  if (eventId) {
+    console.log(`📝 [RUNNER] Failed event enqueued for job ${event.data?.jobId?.slice(0, 8) || "?"} (event=${eventId.slice(0, 8)})`);
+  } else {
+    console.error(`❌ [RUNNER] Could not enqueue failed event for job ${event.data?.jobId?.slice(0, 8) || "?"}`);
   }
 }
 
@@ -186,7 +162,7 @@ async function processEvent(event) {
   console.log(`   ╚══════════════════════════════════════════╝`);
   console.log(`   📋 ${event.source}/${event.type} — "${event.data?.title || "?"}"`);
 
-  acquireLock(eventId);
+  // No lock needed — atomic claim from the Python backend handles concurrency
   const jobData = event.data || {};
   const rawTranscript = jobData.transcript || [];
 
@@ -200,8 +176,7 @@ async function processEvent(event) {
     const errMsg = jobData.error || "Unknown pipeline error";
     console.log(`⏭️  [RUNNER] Skipping failed event (event.type=failed): ${errMsg}`);
     logAction({ eventId, jobId: jobData.jobId || eventId, eventType: event.type, action: "skipped", detail: `Pipeline failed: ${errMsg}` });
-    markCleared(eventId);
-    releaseLock(eventId);
+    await completeEvent(eventId);
     return;
   }
 
@@ -228,8 +203,7 @@ async function processEvent(event) {
     } catch (completeErr) {
       console.log(`⚠️  [RUNNER] Could not update job status for empty transcript: ${completeErr.message}`);
     }
-    markCleared(eventId);
-    releaseLock(eventId);
+    await completeEvent(eventId);
     return;
   }
 
@@ -1347,7 +1321,12 @@ async function processEvent(event) {
     llmDataStream = null;
   }
 
-  markCleared(eventId);
+  // Mark the event as completed (or failed if there was a pipeline error)
+  if (pipelineError) {
+    await failEvent(eventId, pipelineError);
+  } else {
+    await completeEvent(eventId);
+  }
 }
 
 /**
@@ -1508,10 +1487,13 @@ async function mainLoop() {
   if (isProcessing) return;
   isProcessing = true;
 
-  const pending = readPending();
-  if (pending.length > 0) {
-    console.log(`\n🔔 [RUNNER] ${pending.length} pending job(s)`);
-    await processEvent(pending[0]);
+  // Atomically claim the next pending event from the SQLite-backed queue.
+  // The Python backend handles the BEGIN IMMEDIATE transaction to prevent
+  // race conditions — no in-memory locking needed.
+  const event = await claimPendingEvent();
+  if (event) {
+    console.log(`\n🔔 [RUNNER] Claimed event ${event.id?.slice(0, 8)} — ${event.type}`);
+    await processEvent(event);
   }
 
   isProcessing = false;
@@ -1532,7 +1514,7 @@ fs.writeFileSync(PID_FILE, String(process.pid));
 
 // ── Ensure trigger file exists ──
 // The Python backend (agent_bridge.py) touches this file via os.utime()
-// after writing an event to queue/transcription.jsonl. If the file doesn't
+// after writing an event to the SQLite events table. If the file doesn't
 // exist yet (first run), create it so fs.watch has something to observe.
 try {
   if (!fs.existsSync(TRIGGER_FILE)) fs.writeFileSync(TRIGGER_FILE, "");
@@ -1581,10 +1563,16 @@ rl.on("line", (input) => {
     rl.close();
     process.exit(0);
   } else if (cmd === "status") {
-    const items = readPending();
-    console.log(`   📋 Queue: ${items.length} pending`);
-    for (const item of items) console.log(`      ${item.id?.slice(0, 8)} ${item.source}/${item.type} — "${item.data?.title || "?"}"`);
-    rl.prompt();
+    getQueueStats().then((stats) => {
+      if (stats) {
+        console.log(
+          `   📋 Queue status: ${stats.stats.pending} pending, ${stats.stats.processing} processing, ${stats.stats.completed} completed, ${stats.stats.failed} dlq`,
+        );
+      } else {
+        console.log(`   📋 Queue: (unavailable)`);
+      }
+      rl.prompt();
+    });
   } else if (cmd === "trigger") {
     try {
       fs.utimesSync(TRIGGER_FILE, new Date(), new Date());

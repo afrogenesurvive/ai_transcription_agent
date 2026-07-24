@@ -27,6 +27,7 @@ class EphemeralMemory:
       - budgets:        financial figures mentioned (amount, currency, context)
       - decisions:      key decisions made (description, rationale)
       - notes:          free-form context notes (key-value pairs)
+      - events:         queue events for agent runner (pending, processing, completed, failed, dlq)
 
     Uses ``threading.local()`` to reuse SQLite connections per thread,
     avoiding the overhead of open/close per operation. Each thread gets
@@ -194,6 +195,23 @@ class EphemeralMemory:
                 UNIQUE(job_id, topic)
             );
 
+            CREATE TABLE IF NOT EXISTS events (
+                id              TEXT PRIMARY KEY,
+                source          TEXT NOT NULL DEFAULT 'transcription',
+                type            TEXT NOT NULL,
+                data            TEXT NOT NULL DEFAULT '{}',
+                status          TEXT NOT NULL DEFAULT 'pending'
+                                CHECK(status IN ('pending','processing','completed','failed','dlq')),
+                priority        INTEGER NOT NULL DEFAULT 0,
+                retry_count     INTEGER NOT NULL DEFAULT 0,
+                max_retries     INTEGER NOT NULL DEFAULT 5,
+                error_message   TEXT DEFAULT NULL,
+                queued_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                claimed_at      TIMESTAMP DEFAULT NULL,
+                completed_at    TIMESTAMP DEFAULT NULL,
+                ttl_seconds     INTEGER DEFAULT 86400
+            );
+
             CREATE INDEX IF NOT EXISTS idx_action_status ON action_items(status);
             CREATE INDEX IF NOT EXISTS idx_action_assignee ON action_items(assignee);
             CREATE INDEX IF NOT EXISTS idx_contacts_name ON contacts(name);
@@ -201,6 +219,9 @@ class EphemeralMemory:
             CREATE INDEX IF NOT EXISTS idx_budgets_category ON budgets(category);
             CREATE INDEX IF NOT EXISTS idx_attendees_name ON attendees(name);
             CREATE INDEX IF NOT EXISTS idx_attendees_job ON attendees(job_id);
+            CREATE INDEX IF NOT EXISTS idx_events_status      ON events(status);
+            CREATE INDEX IF NOT EXISTS idx_events_queued_at   ON events(queued_at);
+            CREATE INDEX IF NOT EXISTS idx_events_type_status ON events(type, status);
         """)
         # ── Schema migrations for existing databases ──
         # Check which columns the attendees table actually has before attempting ALTER.
@@ -232,6 +253,35 @@ class EphemeralMemory:
                 print(f"[ephemeral] Migration: added `original_filename` column to jobs table")
             except Exception as e:
                 print(f"[ephemeral] ⚠️  Migration failed to add original_filename: {e}")
+
+        # Check for events table (added in 0.4.10 — queue migration)
+        existing_tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        if "events" not in existing_tables:
+            try:
+                conn.executescript("""
+                    CREATE TABLE IF NOT EXISTS events (
+                        id              TEXT PRIMARY KEY,
+                        source          TEXT NOT NULL DEFAULT 'transcription',
+                        type            TEXT NOT NULL,
+                        data            TEXT NOT NULL DEFAULT '{}',
+                        status          TEXT NOT NULL DEFAULT 'pending'
+                                        CHECK(status IN ('pending','processing','completed','failed','dlq')),
+                        priority        INTEGER NOT NULL DEFAULT 0,
+                        retry_count     INTEGER NOT NULL DEFAULT 0,
+                        max_retries     INTEGER NOT NULL DEFAULT 5,
+                        error_message   TEXT DEFAULT NULL,
+                        queued_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        claimed_at      TIMESTAMP DEFAULT NULL,
+                        completed_at    TIMESTAMP DEFAULT NULL,
+                        ttl_seconds     INTEGER DEFAULT 86400
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_events_status      ON events(status);
+                    CREATE INDEX IF NOT EXISTS idx_events_queued_at   ON events(queued_at);
+                    CREATE INDEX IF NOT EXISTS idx_events_type_status ON events(type, status);
+                """)
+                print(f"[ephemeral] Migration: created `events` table for SQLite-backed queue")
+            except Exception as e:
+                print(f"[ephemeral] ⚠️  Migration failed to create events table: {e}")
         conn.commit()
         conn.close()
 
@@ -582,7 +632,7 @@ class EphemeralMemory:
     def query_all(self, table: str, q: str = "", limit: int = 10) -> List[dict]:
         """Unified search across any table by keyword."""
         table = table.lower()
-        if table not in ("jobs", "attendees", "action_items", "contacts", "budgets", "decisions", "notes"):
+        if table not in ("jobs", "attendees", "action_items", "contacts", "budgets", "decisions", "notes", "events"):
             return []
         conn = self._get_conn()
         conn.row_factory = sqlite3.Row
@@ -633,7 +683,7 @@ class EphemeralMemory:
         Avoids fetching all rows into memory (unlike query_all with a large limit).
         """
         table = table.lower()
-        if table not in ("jobs", "attendees", "action_items", "contacts", "budgets", "decisions", "notes"):
+        if table not in ("jobs", "attendees", "action_items", "contacts", "budgets", "decisions", "notes", "events"):
             return 0
         conn = self._get_conn()
         row = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
@@ -643,3 +693,235 @@ class EphemeralMemory:
         conn = self._get_conn()
         conn.execute("UPDATE action_items SET status='completed', updated_at=CURRENT_TIMESTAMP WHERE id=?", (item_id,))
         conn.commit()
+
+    # ── Queue / Events (SQLite-backed event queue) ──
+
+    def enqueue_event(self, source: str, event_type: str, data: dict,
+                      priority: int = 0, ttl_seconds: int = 86400,
+                      max_retries: int = 5) -> str:
+        """Insert a new pending event into the queue.
+
+        Args:
+            source: Event origin ('transcription' or 'agent-runner')
+            event_type: Event type ('ready_for_processing', 'labeling_needed',
+                        'failed', 'delivery_approved', etc.)
+            data: Arbitrary JSON-serializable payload
+            priority: Higher = processed first (default 0)
+            ttl_seconds: Auto-delete after this many seconds post-completion
+                         (default 86400 = 24h; None = never expire)
+            max_retries: Max retry attempts before moving to DLQ (default 5)
+
+        Returns:
+            The generated event ID (UUID4 hex)
+        """
+        import uuid
+        event_id = str(uuid.uuid4())
+        conn = self._get_conn()
+        conn.execute(
+            """INSERT INTO events (id, source, type, data, priority, max_retries, ttl_seconds)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (event_id, source, event_type, json.dumps(data), priority, max_retries, ttl_seconds),
+        )
+        conn.commit()
+        return event_id
+
+    def claim_event(self, types_filter: Optional[list] = None) -> Optional[dict]:
+        """Atomically claim the highest-priority pending event.
+
+        Uses BEGIN IMMEDIATE + single-statement UPDATE with subquery to
+        prevent race conditions between the Python backend and agent runner,
+        both of which may call this concurrently.
+
+        Args:
+            types_filter: Optional list of event types to restrict claiming to
+                          (e.g. ['ready_for_processing']). None = claim any type.
+
+        Returns:
+            The claimed event as a dict, or None if no pending events match.
+        """
+        conn = self._get_conn()
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            if types_filter:
+                placeholders = ",".join("?" for _ in types_filter)
+                row = conn.execute(
+                    f"""SELECT id FROM events
+                        WHERE status='pending'
+                          AND type IN ({placeholders})
+                        ORDER BY priority DESC, queued_at ASC
+                        LIMIT 1""",
+                    types_filter,
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    """SELECT id FROM events
+                       WHERE status='pending'
+                       ORDER BY priority DESC, queued_at ASC
+                       LIMIT 1"""
+                ).fetchone()
+
+            if row is None:
+                conn.commit()
+                return None
+
+            event_id = row[0]
+            now = datetime.utcnow().isoformat()
+            conn.execute(
+                "UPDATE events SET status='processing', claimed_at=? WHERE id=?",
+                (now, event_id),
+            )
+
+            # Fetch the full row
+            conn.row_factory = sqlite3.Row
+            full = conn.execute("SELECT * FROM events WHERE id=?", (event_id,)).fetchone()
+            conn.commit()
+            result = dict(full) if full else None
+            # Parse the data JSON string back to a dict
+            if result and isinstance(result.get("data"), str):
+                try:
+                    result["data"] = json.loads(result["data"])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            return result
+        except Exception:
+            conn.rollback()
+            raise
+
+    def complete_event(self, event_id: str) -> bool:
+        """Mark an event as completed.
+
+        Returns True if a row was updated, False if not found or not in processing state.
+        """
+        conn = self._get_conn()
+        now = datetime.utcnow().isoformat()
+        cursor = conn.execute(
+            "UPDATE events SET status='completed', completed_at=? WHERE id=? AND status='processing'",
+            (now, event_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+    def fail_event(self, event_id: str, error_message: str = "") -> bool:
+        """Mark an event as failed.
+
+        If retry_count < max_retries: resets to 'pending' for re-delivery.
+        If exhausted: moves to 'failed' status (dead letter).
+
+        Returns True if a row was updated, False if not found or not in processing state.
+        """
+        conn = self._get_conn()
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            row = conn.execute(
+                "SELECT retry_count, max_retries FROM events WHERE id=? AND status='processing'",
+                (event_id,),
+            ).fetchone()
+            if row is None:
+                conn.commit()
+                return False
+
+            retry_count = row[0] + 1
+            max_retries = row[1]
+
+            if retry_count < max_retries:
+                conn.execute(
+                    """UPDATE events SET status='pending', retry_count=?,
+                         error_message=?, claimed_at=NULL
+                       WHERE id=?""",
+                    (retry_count, error_message, event_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE events SET status='failed', retry_count=?, error_message=? WHERE id=?",
+                    (retry_count, error_message, event_id),
+                )
+            conn.commit()
+            return True
+        except Exception:
+            conn.rollback()
+            raise
+
+    def reclaim_stale_events(self, max_age_seconds: int = 300) -> int:
+        """Reset events stuck in 'processing' for too long back to 'pending'.
+
+        Handles crash recovery — if the agent runner died mid-job, its claimed
+        events are released after ``max_age_seconds``.
+
+        Args:
+            max_age_seconds: Age threshold in seconds (default 300 = 5 min)
+
+        Returns:
+            Number of events reclaimed.
+        """
+        conn = self._get_conn()
+        cutoff = (datetime.utcnow() - __import__('datetime').timedelta(seconds=max_age_seconds)).isoformat()
+        cursor = conn.execute(
+            "UPDATE events SET status='pending', retry_count=retry_count+1, claimed_at=NULL,"
+            " error_message='Reclaimed after timeout' "
+            "WHERE status='processing' AND claimed_at < ?",
+            (cutoff,),
+        )
+        conn.commit()
+        count = cursor.rowcount
+        if count:
+            print(f"[ephemeral] Reclaimed {count} stale event(s) stuck in 'processing'")
+        return count
+
+    def requeue_dlq_event(self, event_id: str) -> bool:
+        """Move a failed (DLQ) event back to pending for reprocessing.
+
+        Resets retry_count to 0 so it gets a full set of retry attempts again.
+        Returns True if a row was updated.
+        """
+        conn = self._get_conn()
+        cursor = conn.execute(
+            "UPDATE events SET status='pending', retry_count=0, error_message=NULL WHERE id=? AND status='failed'",
+            (event_id,),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+    def cleanup_expired_events(self) -> int:
+        """Delete completed events older than their ttl_seconds.
+
+        Events with ttl_seconds IS NULL are never deleted.
+        Called periodically by the lifespan cleanup task.
+
+        Returns:
+            Number of events deleted.
+        """
+        conn = self._get_conn()
+        now = datetime.utcnow().isoformat()
+        # Delete completed events where (completed_at + ttl_seconds) < now
+        cursor = conn.execute(
+            """DELETE FROM events
+               WHERE status='completed'
+                 AND ttl_seconds IS NOT NULL
+                 AND completed_at IS NOT NULL
+                 AND datetime(completed_at, '+' || ttl_seconds || ' seconds') < ?""",
+            (now,),
+        )
+        conn.commit()
+        count = cursor.rowcount
+        if count:
+            print(f"[ephemeral] Cleaned up {count} expired completed event(s)")
+        return count
+
+    def get_queue_stats(self) -> dict:
+        """Return queue depth by status.
+
+        Returns:
+            dict with keys: pending, processing, completed, failed, dlq, total
+        """
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT status, COUNT(*) as cnt FROM events GROUP BY status"
+        ).fetchall()
+        stats = {"pending": 0, "processing": 0, "completed": 0, "failed": 0, "dlq": 0, "total": 0}
+        for row in rows:
+            s = row[0]
+            c = row[1]
+            if s in stats:
+                stats[s] = c
+            stats["total"] += c
+        return stats
