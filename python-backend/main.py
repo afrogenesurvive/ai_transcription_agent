@@ -28,7 +28,8 @@ load_dotenv(override=True)
 # the process.  0.7 = raise error at ~70% MPS usage (catchable).
 # 0.0 = unlimited (macOS may SIGKILL the process instead).
 # DO NOT set to 0.0 — it disables the safety valve and causes hard crashes.
-os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.0")
+# os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.0")
+os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.7")
 
 # ── Apply third-party compatibility patches FIRST (before any pyannote imports) ──
 import patches  # noqa: F401  (monkey-patches speechbrain + torchaudio + pyannote)
@@ -619,9 +620,7 @@ async def get_job_attendees(job_id: str):
         raise HTTPException(404, f"Job {job_id} metadata not found")
 
     registered = meta.get("attendees", [])
-    attendee_emails = _normalize_attendee_emails(
-        meta.get("attendeeEmails", []), registered
-    )
+    attendee_emails = meta.get("attendeeEmails", [])
 
     # Fetch all enrolled voiceprints
     vps = vp_manager.list_voiceprints()
@@ -1578,9 +1577,7 @@ async def get_speaker_clips(job_id: str):
             if idx < len(attendee_names):
                 suggested_name = attendee_names[idx]
                 # Grab email from attendeeEmails if positionally aligned
-                attendee_emails_list = _normalize_attendee_emails(
-                    metadata.get("attendeeEmails", []), metadata.get("attendees", []),
-                )
+                attendee_emails_list = metadata.get("attendeeEmails", [])
                 if idx < len(attendee_emails_list):
                     suggested_email = attendee_emails_list[idx]
 
@@ -1599,9 +1596,7 @@ async def get_speaker_clips(job_id: str):
     # Include non-speaking attendees from reconciliation data (if available)
     reconciliation = s.get("reconciliation", {})
     non_speaking = reconciliation.get("non_speaking_attendees", [])
-    attendee_emails = _normalize_attendee_emails(
-        metadata.get("attendeeEmails", []), metadata.get("attendees", []),
-    )
+    attendee_emails = metadata.get("attendeeEmails", [])
 
     # Build full non-speaking attendee info with emails
     non_speaking_full = []
@@ -1936,7 +1931,7 @@ def _inner_label_and_resume(job_id: str, labels: list):
         # and /agent/deliver all read the stale metadata — missing newly labeled
         # attendees. The result: they never get an email delivery.
         metadata["attendees"] = all_attendee_names
-        metadata["attendeeEmails"] = all_attendee_emails  # Keep as list (positional alignment)
+        metadata["attendeeEmails"] = dict(zip(all_attendee_names, all_attendee_emails))
         # Merge new real emails into email_recipients (skip @voiceprint.local
         # placeholders — those are voiceprint-only keys, not delivery addresses)
         existing_recipients = set(e.lower() for e in metadata.get("email_recipients", []) if e)
@@ -3499,10 +3494,6 @@ def _reconcile_attendees(metadata_attendees: list, attendee_emails: list,
     """Cross-reference registered attendees against voiceprint matching results
     to determine who spoke, who didn't, and who is entirely new.
 
-    ``attendee_emails`` may be a list (positionally aligned with
-    ``metadata_attendees``) or a dict ({name: email}) — the function
-    normalizes both to a positional list on entry.
-
     Returns a dict:
       matched_speakers: [{name, email, speaker_id, confidence}]
       non_speaking_attendees: [{name, email}] — registered but never detected as speakers
@@ -3511,7 +3502,6 @@ def _reconcile_attendees(metadata_attendees: list, attendee_emails: list,
           name is not in the registered attendee list. These need to be registered
           separately so they appear in delivery recipients.
     """
-    attendee_emails = _normalize_attendee_emails(attendee_emails, metadata_attendees)
     matched_speakers = []
     non_speaking_attendees = []
     unknown_speakers = list(match_result.get("unknown", []))
@@ -3614,21 +3604,6 @@ def _reconcile_attendees(metadata_attendees: list, attendee_emails: list,
         "unknown_speakers": unknown_speakers,
         "unregistered_speakers": unregistered_speakers,
     }
-
-
-def _normalize_attendee_emails(attendee_emails, attendee_names):
-    """Return emails as a list positionally aligned with attendee_names.
-
-    Handles both formats stored in metadata.json:
-    - List format (original): already aligned positionally, returned as-is.
-    - Dict format ({name: email}): reconstructed into a list by looking up
-      each name. This provides resilience for metadata.json files that were
-      written by older code which converted the list to a dict.
-    """
-    if not isinstance(attendee_emails, dict):
-        return attendee_emails  # Already a list — keep as-is
-    # Dict format: rebuild positional list from the attendee order
-    return [attendee_emails.get(name, "") for name in attendee_names]
 
 
 def _resolve_attendee_email(name: str, email: str) -> str:
