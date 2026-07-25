@@ -29,7 +29,7 @@ load_dotenv(override=True)
 # 0.0 = unlimited (macOS may SIGKILL the process instead).
 # DO NOT set to 0.0 — it disables the safety valve and causes hard crashes.
 # os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.0")
-# os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.7")
+os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.7")
 
 # ── Apply third-party compatibility patches FIRST (before any pyannote imports) ──
 import patches  # noqa: F401  (monkey-patches speechbrain + torchaudio + pyannote)
