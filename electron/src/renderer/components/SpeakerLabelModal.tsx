@@ -59,10 +59,7 @@ interface Props {
   jobId: string;
   speakers: SpeakerInfo[];
   suggestedEmails?: string[];
-  onConfirm: (
-    labels: Array<{ speaker_id: string; name: string; email?: string }>,
-    options?: { overwriteNames?: string[] },
-  ) => Promise<void>;
+  onConfirm: (labels: Array<{ speaker_id: string; name: string; email?: string }>, options?: { overwriteNames?: string[] }) => Promise<void>;
   onCancel: () => void;
   submitting: boolean;
   nonSpeakingAttendees?: NonSpeakingInfo[];
@@ -475,10 +472,7 @@ export default function SpeakerLabelModal({
             found.name = mc.name;
             // Use existing voiceprint email only if it's a real address;
             // otherwise keep the user's typed email so it reaches delivery.
-            found.email =
-              mc.email && !mc.email.includes("@voiceprint.local")
-                ? mc.email
-                : found.email;
+            found.email = mc.email && !mc.email.includes("@voiceprint.local") ? mc.email : found.email;
           }
         }
       }
@@ -527,29 +521,29 @@ export default function SpeakerLabelModal({
   );
 
   /** Resolve an inline voice-match conflict: accept the existing name. */
-  const resolveInlineConflict = useCallback((speakerId: string, existingName: string, existingEmail: string) => {
-    setLabels((prev) => ({ ...prev, [speakerId]: existingName }));
-    // Use existing voiceprint email only if it's a real address (not a
-    // @voiceprint.local placeholder). Otherwise keep the user's typed email
-    // so it flows through to email_recipients for delivery.
-    const userEmail = emails[speakerId]?.trim();
-    const resolvedEmail =
-      existingEmail && !existingEmail.includes("@voiceprint.local")
-        ? existingEmail
-        : userEmail || existingEmail;
-    setEmails((prev) => ({ ...prev, [speakerId]: resolvedEmail }));
-    setPerSpeakerConflicts((prev) => {
-      const next = { ...prev };
-      delete next[speakerId];
-      return next;
-    });
-    // Clear any error for this speaker
-    setEmailErrors((prev) => {
-      const next = { ...prev };
-      delete next[speakerId];
-      return next;
-    });
-  }, [emails]);
+  const resolveInlineConflict = useCallback(
+    (speakerId: string, existingName: string, existingEmail: string) => {
+      setLabels((prev) => ({ ...prev, [speakerId]: existingName }));
+      // Use existing voiceprint email only if it's a real address (not a
+      // @voiceprint.local placeholder). Otherwise keep the user's typed email
+      // so it flows through to email_recipients for delivery.
+      const userEmail = emails[speakerId]?.trim();
+      const resolvedEmail = existingEmail && !existingEmail.includes("@voiceprint.local") ? existingEmail : userEmail || existingEmail;
+      setEmails((prev) => ({ ...prev, [speakerId]: resolvedEmail }));
+      setPerSpeakerConflicts((prev) => {
+        const next = { ...prev };
+        delete next[speakerId];
+        return next;
+      });
+      // Clear any error for this speaker
+      setEmailErrors((prev) => {
+        const next = { ...prev };
+        delete next[speakerId];
+        return next;
+      });
+    },
+    [emails],
+  );
 
   const handleSkip = () => {
     // Use default speaker IDs for any unnamed speakers
@@ -595,7 +589,8 @@ export default function SpeakerLabelModal({
                       {c.matched_email ? <> &lt;{c.matched_email}&gt;</> : ""}
                       {" · "}You labeled: <strong>{c.assigned_name}</strong>
                       {c.assigned_email ? <> &lt;{c.assigned_email}&gt;</> : ""}
-                      {" · "}<span className="speaker-post-conflict-similarity">{(c.similarity * 100).toFixed(0)}% match</span>
+                      {" · "}
+                      <span className="speaker-post-conflict-similarity">{(c.similarity * 100).toFixed(0)}% match</span>
                       {c.matched_sample_job_id ? <> from job {c.matched_sample_job_id.slice(0, 8)}</> : ""}
                     </span>
                   </div>
@@ -626,7 +621,8 @@ export default function SpeakerLabelModal({
                     <span>
                       Voice matches: <strong>{c.matched_name}</strong>
                       {c.matched_email ? <> &lt;{c.matched_email}&gt;</> : ""}
-                      {" · "}<span className="speaker-post-conflict-similarity">{(c.similarity * 100).toFixed(0)}% match</span>
+                      {" · "}
+                      <span className="speaker-post-conflict-similarity">{(c.similarity * 100).toFixed(0)}% match</span>
                       {c.sample_job_id ? <> from job {c.sample_job_id.slice(0, 8)}</> : ""}
                     </span>
                   </div>
@@ -716,8 +712,7 @@ export default function SpeakerLabelModal({
                       <Icon name="warning" size="13" color="orange" />
                       <span className="speaker-inline-conflict-text">
                         This voice matches <strong>{mc.name}</strong>
-                        {mc.email ? <> &lt;{mc.email}&gt;</> : ""}
-                        {" "}({(mc.similarity * 100).toFixed(0)}% similarity)
+                        {mc.email ? <> &lt;{mc.email}&gt;</> : ""} ({(mc.similarity * 100).toFixed(0)}% similarity)
                         {mc.sample_job_id ? <> from job {mc.sample_job_id.slice(0, 8)}</> : ""}
                       </span>
                     </div>
@@ -739,7 +734,7 @@ export default function SpeakerLabelModal({
                           });
                         }}
                         title="Keep current name — overwrite existing voiceprint">
-                      Keep &ldquo;{labels[spk.speaker_id] || spk.speaker_id}&rdquo;
+                        Keep &ldquo;{labels[spk.speaker_id] || spk.speaker_id}&rdquo;
                       </button>
                     </div>
                   </div>
@@ -830,9 +825,7 @@ export default function SpeakerLabelModal({
                 a match (uses the existing name) or keep your typed name (overwrites the existing voiceprint).
               </p>
               {voiceMatchConflicts.map((vc) => {
-                const hasAcceptedAny = vc.voice_match_conflicts.some((mc) =>
-                  acceptedConflicts.has(`${vc.speaker_id}:${mc.name}`)
-                );
+                const hasAcceptedAny = vc.voice_match_conflicts.some((mc) => acceptedConflicts.has(`${vc.speaker_id}:${mc.name}`));
                 const isKeeping = voiceMatchKeepSet.has(vc.speaker_id);
                 return (
                   <div key={vc.speaker_id} className="vp-conflict-row">
@@ -877,17 +870,11 @@ export default function SpeakerLabelModal({
                     {/* ── Per-speaker "Keep my name" toggle ── */}
                     <div className="vp-conflict-hint vp-conflict-hint--with-checkbox" style={{ marginTop: 8 }}>
                       <label className="vp-conflict-checkbox vp-conflict-checkbox--keep">
-                        <input
-                          type="checkbox"
-                          checked={isKeeping}
-                          onChange={() => toggleVoiceMatchKeep(vc.speaker_id)}
-                        />
+                        <input type="checkbox" checked={isKeeping} onChange={() => toggleVoiceMatchKeep(vc.speaker_id)} />
                         <span>
                           <strong>Keep my name &ldquo;{vc.assigned_name}&rdquo;</strong>
                           <br />
-                          <span className="vp-conflict-hint-sub">
-                            Overwrites the existing voiceprint with this recording
-                          </span>
+                          <span className="vp-conflict-hint-sub">Overwrites the existing voiceprint with this recording</span>
                         </span>
                       </label>
                     </div>
@@ -957,9 +944,8 @@ export default function SpeakerLabelModal({
                 </div>
               )}
               <p className="speaker-label-error-hint">
-                This person&apos;s voice matches an existing enrolled voiceprint under a different name.
-                Check the inline conflict notice for each speaker above, or use the
-                {" "}<strong>Use "ExistingName"</strong> button to accept the existing registration.
+                This person&apos;s voice matches an existing enrolled voiceprint under a different name. Check the inline conflict notice for each
+                speaker above, or use the <strong>Use "ExistingName"</strong> button to accept the existing registration.
               </p>
             </div>
             <button className="btn-icon speaker-label-error-dismiss" onClick={() => onClearError?.()} title="Dismiss">
