@@ -679,10 +679,11 @@ async function processEvent(event) {
       context_length: context.length,
       available_tools: availableTools.map((t) => t.name),
     });
+    let callLatencyMs = 0;
     try {
       const callStart = Date.now();
       decision = await withRetry(() => callModel(context, availableTools, renderedPrompt), `LLM call (step ${step})`);
-      const callLatencyMs = Date.now() - callStart;
+      callLatencyMs = Date.now() - callStart;
       logLlmData("step_response", {
         step,
         decision: decision ? { name: decision.name, arguments: decision.arguments, usage: decision.usage } : null,
