@@ -81,6 +81,7 @@ def _run_diarization_subprocess(
     device: str,
     hf_token: str,
     model_name: str,
+    max_speakers: int = 0,
 ):
     """Run pyannote diarization in a subprocess for crash isolation.
 
@@ -134,6 +135,14 @@ def _run_diarization_subprocess(
         if pipeline is None:
             raise RuntimeError(f"Model '{model_name}' returned None")
         pipeline.to(torch.device(device))
+        # ── Clustering threshold override ──
+        _ct = config.DIARIZATION_CLUSTERING_THRESHOLD
+        if _ct > 0.0:
+            try:
+                pipeline.instantiate({"clustering_threshold": _ct})
+                print(f"[transcription]   🔧 Overrode clustering threshold to {_ct}")
+            except Exception as _ct_err:
+                print(f"[transcription]   ⚠️  Could not set clustering threshold: {_ct_err}")
         print(f"[transcription] ✅ Diarization model loaded on {device} in {time.time() - t0:.1f}s")
     except Exception as e:
         err_lower = str(e).lower()
@@ -166,7 +175,12 @@ def _run_diarization_subprocess(
             print(f"[transcription]     | {sub}")
 
     try:
-        diarization = pipeline(audio_path)
+        pipeline_kwargs = {}
+        if max_speakers > 0:
+            pipeline_kwargs["max_speakers"] = max_speakers
+            pipeline_kwargs["min_speakers"] = 2
+            print(f"[transcription]   🎯 Using max_speakers={max_speakers} as clustering hint")
+        diarization = pipeline(audio_path, **pipeline_kwargs)
     except Exception as e:
         print(f"[transcription] ❌ Diarization inference failed: {e}")
         traceback.print_exc()
@@ -202,6 +216,44 @@ def _run_diarization_subprocess(
         pct = dur / total_speech * 100 if total_speech else 0
         seg_count = sum(1 for s in segments if s["speaker"] == spk)
         print(f"[transcription]      [{time.time() - t0:>6.1f}s] {spk}: {dur:.1f}s ({pct:.0f}%) across {seg_count} segment(s)")
+
+    # ── Post-processing: filter phantom speakers ──
+    pre_filter_count = len(set(s["speaker"] for s in segments))
+    pre_seg_count = len(segments)
+
+    # Filter 1: discard speakers below minimum duration / segment count
+    min_dur = config.DIARIZATION_MIN_SPEAKER_DURATION
+    min_segs = config.DIARIZATION_MIN_SPEAKER_SEGMENTS
+    phantom_speakers = {
+        spk for spk, dur in speaker_duration.items()
+        if dur < min_dur or sum(1 for s in segments if s["speaker"] == spk) < min_segs
+    }
+    if phantom_speakers:
+        print(f"[transcription]   🧹 Filtered {len(phantom_speakers)} phantom speaker(s): "
+              f"{', '.join(sorted(phantom_speakers))} — "
+              f"below {min_dur}s or {min_segs} segments")
+        segments = [s for s in segments if s["speaker"] not in phantom_speakers]
+
+    # Filter 2: merge adjacent same-speaker segments with small gaps
+    merging_gap = config.DIARIZATION_MERGING_GAP
+    segments.sort(key=lambda s: s["start"])
+    merged = []
+    for seg in segments:
+        if merged and merged[-1]["speaker"] == seg["speaker"] and seg["start"] - merged[-1]["end"] <= merging_gap:
+            merged[-1]["end"] = max(merged[-1]["end"], seg["end"])
+            merged[-1]["duration"] = merged[-1]["end"] - merged[-1]["start"]
+        else:
+            merged.append(dict(seg))
+    if len(merged) < len(segments):
+        print(f"[transcription]   🧹 Merged {len(segments) - len(merged)} adjacent same-speaker segments "
+              f"(gap ≤ {merging_gap}s)")
+    segments = merged
+
+    # Log post-processing summary
+    post_speaker_count = len(set(s["speaker"] for s in segments))
+    if post_speaker_count < pre_filter_count:
+        print(f"[transcription]   📊 Post-processing: {pre_filter_count} → {post_speaker_count} speaker(s), "
+              f"{pre_seg_count} → {len(segments)} segments")
 
     # ── Cleanup MPS cache ──
     try:
@@ -243,13 +295,17 @@ class TranscriptionEngine:
 
     # ── Step 1: Diarization (who spoke when) ──
 
-    def run_diarization(self, audio_path: str) -> list:
+    def run_diarization(self, audio_path: str, max_speakers: int = 0) -> list:
         """Run speaker diarization using pyannote in a crash-isolated subprocess.
 
         Delegates the actual pyannote inference to a ``multiprocessing.Process``
         subprocess. If pyannote's internal multiprocessing crashes (MPS segfault,
         leaked semaphore objects, etc.), only the child process dies — the main
         backend continues running and can retry on CPU.
+
+        Args:
+            audio_path: Path to 16kHz mono WAV audio file.
+            max_speakers: Hard upper bound on speaker clusters (0 = no limit).
 
         Returns a list of dicts: {speaker, start, end, duration}.
         """
@@ -270,6 +326,7 @@ class TranscriptionEngine:
                 self.device,
                 hf_token,
                 config.DIARIZATION_MODEL,
+                max_speakers,
             ),
         )
 

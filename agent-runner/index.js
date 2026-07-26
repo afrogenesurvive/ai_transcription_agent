@@ -29,7 +29,7 @@ import { callModel } from "./model-client.js";
 import { executeToolCall } from "./tool-executor.js";
 import { logAction } from "./logger.js";
 import { claimPendingEvent, completeEvent, failEvent, enqueueEvent, getQueueStats } from "./poller.js";
-import { recordCall, startFlushTimer } from "./usage-tracker.js";
+import { recordCall, startFlushTimer, startGistPoller } from "./usage-tracker.js";
 import { sanitizeTranscriptSegments, sanitizeContextString } from "./sanitize.js";
 import {
   TOOLS,
@@ -721,9 +721,7 @@ async function processEvent(event) {
       // Forward usage data to the local buffer for periodic push to the
       // central DS-mon server. No-op when DSMON_PUSH_URL is not set.
       const llmModel =
-        process.env.LLM_PROVIDER === "ollama"
-          ? process.env.OLLAMA_MODEL || "llama3.1:8b"
-          : process.env.API_AGENT_MODEL || "deepseek-v4-flash";
+        process.env.LLM_PROVIDER === "ollama" ? process.env.OLLAMA_MODEL || "llama3.1:8b" : process.env.API_AGENT_MODEL || "deepseek-v4-flash";
       recordCall(decision.usage, llmModel, callLatencyMs, { step, tool: decision.name || "unknown" });
     } else {
       console.log(`⚠️  [RUNNER] No usage data from LLM at step ${step} — decision.usage is ${JSON.stringify(decision?.usage)}`);
@@ -1573,6 +1571,12 @@ mainLoop();
 // Starts periodic flush of per-API-call usage records to DS-mon.
 // No-op when DSMON_PUSH_URL is not set.
 startFlushTimer();
+
+// ── DS-mon Gist-based tunnel URL discovery ──
+// Polls a GitHub Gist for the live ngrok tunnel URL (DS-mon host updates
+// the Gist whenever the tunnel restarts). No-op when DSMON_GIST_RAW_URL
+// is not set.
+startGistPoller();
 
 // ── Interactive terminal ──
 

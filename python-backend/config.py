@@ -45,6 +45,27 @@ class Config:
     # Voiceprint matching threshold
     VOICEPRINT_THRESHOLD = float(os.getenv("VOICEPRINT_THRESHOLD", "0.75"))
 
+    # ── Diarization tuning (ASV phantom speaker suppression) ──
+    # Post-processing: discard speakers below these thresholds
+    DIARIZATION_MIN_SPEAKER_DURATION = float(
+        os.getenv("DIARIZATION_MIN_SPEAKER_DURATION", "3.0")
+    )
+    DIARIZATION_MIN_SPEAKER_SEGMENTS = int(
+        os.getenv("DIARIZATION_MIN_SPEAKER_SEGMENTS", "3")
+    )
+    # Post-processing: merge adjacent same-speaker segments with gap <= this
+    DIARIZATION_MERGING_GAP = float(
+        os.getenv("DIARIZATION_MERGING_GAP", "0.5")
+    )
+    # Clustering override: 0.0 = use pyannote model default
+    DIARIZATION_CLUSTERING_THRESHOLD = float(
+        os.getenv("DIARIZATION_CLUSTERING_THRESHOLD", "0.0")
+    )
+    # Hard upper bound on speaker count; 0 = no limit
+    DIARIZATION_MAX_SPEAKERS = int(
+        os.getenv("DIARIZATION_MAX_SPEAKERS", "0")
+    )
+
     # Allowed upload formats
     ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".webm"}
     MAX_FILE_SIZE = int(

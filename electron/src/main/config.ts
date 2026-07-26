@@ -97,6 +97,22 @@ export interface AppConfig {
   DSMON_INSTANCE_ID: string;
   /** DS-mon push interval in milliseconds (default 300000) */
   DSMON_PUSH_INTERVAL: string;
+  /** GitHub Gist raw URL to poll for live DS-mon tunnel URL (empty = disabled) */
+  DSMON_GIST_RAW_URL: string;
+  /** Gist poll interval in milliseconds (default 60000) */
+  DSMON_GIST_POLL_INTERVAL: string;
+
+  // ── Diarization tuning (ASV phantom speaker suppression) ──
+  /** Minimum total speech duration (s) for a valid speaker; below this = phantom */
+  DIARIZATION_MIN_SPEAKER_DURATION: string;
+  /** Minimum segment count for a valid speaker */
+  DIARIZATION_MIN_SPEAKER_SEGMENTS: string;
+  /** Max gap (s) between same-speaker segments to merge them */
+  DIARIZATION_MERGING_GAP: string;
+  /** pyannote clustering threshold override; 0 = model default */
+  DIARIZATION_CLUSTERING_THRESHOLD: string;
+  /** Hard upper bound on speaker count; 0 = no limit */
+  DIARIZATION_MAX_SPEAKERS: string;
 }
 
 const DEFAULTS: AppConfig = {
@@ -142,6 +158,14 @@ const DEFAULTS: AppConfig = {
   DSMON_PUSH_URL: "",
   DSMON_INSTANCE_ID: "",
   DSMON_PUSH_INTERVAL: "300000",
+  DSMON_GIST_RAW_URL: "",
+  DSMON_GIST_POLL_INTERVAL: "60000",
+  // ── Diarization tuning defaults ──
+  DIARIZATION_MIN_SPEAKER_DURATION: "3.0",
+  DIARIZATION_MIN_SPEAKER_SEGMENTS: "3",
+  DIARIZATION_MERGING_GAP: "0.5",
+  DIARIZATION_CLUSTERING_THRESHOLD: "0.0",
+  DIARIZATION_MAX_SPEAKERS: "0",
 };
 
 /** Keys the UI considers "required" before the pipeline can run. */
@@ -382,6 +406,14 @@ export function getChildEnv(): NodeJS.ProcessEnv {
     DSMON_PUSH_URL: config.DSMON_PUSH_URL || process.env.DSMON_PUSH_URL || "",
     DSMON_INSTANCE_ID: config.DSMON_INSTANCE_ID || process.env.DSMON_INSTANCE_ID || "",
     DSMON_PUSH_INTERVAL: config.DSMON_PUSH_INTERVAL || process.env.DSMON_PUSH_INTERVAL || "300000",
+    DSMON_GIST_RAW_URL: config.DSMON_GIST_RAW_URL || process.env.DSMON_GIST_RAW_URL || "",
+    DSMON_GIST_POLL_INTERVAL: config.DSMON_GIST_POLL_INTERVAL || process.env.DSMON_GIST_POLL_INTERVAL || "60000",
+    // ── Diarization tuning (passed to Python backend) ──
+    DIARIZATION_MIN_SPEAKER_DURATION: config.DIARIZATION_MIN_SPEAKER_DURATION || process.env.DIARIZATION_MIN_SPEAKER_DURATION || "3.0",
+    DIARIZATION_MIN_SPEAKER_SEGMENTS: config.DIARIZATION_MIN_SPEAKER_SEGMENTS || process.env.DIARIZATION_MIN_SPEAKER_SEGMENTS || "3",
+    DIARIZATION_MERGING_GAP: config.DIARIZATION_MERGING_GAP || process.env.DIARIZATION_MERGING_GAP || "0.5",
+    DIARIZATION_CLUSTERING_THRESHOLD: config.DIARIZATION_CLUSTERING_THRESHOLD || process.env.DIARIZATION_CLUSTERING_THRESHOLD || "0.0",
+    DIARIZATION_MAX_SPEAKERS: config.DIARIZATION_MAX_SPEAKERS || process.env.DIARIZATION_MAX_SPEAKERS || "0",
     // Storage paths — only override in packaged (prod) mode so DBs land in a
     // writable location. In dev the Python backend defaults to the project-
     // relative storage/ dir, which is already writable.

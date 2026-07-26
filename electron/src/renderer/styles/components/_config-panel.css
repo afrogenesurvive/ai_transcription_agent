@@ -1093,6 +1093,14 @@
   width: 100%;
 }
 
+.config-section-intro {
+  margin-bottom: 16px;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
 .config-label--mono {
   font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
   color: var(--accent);

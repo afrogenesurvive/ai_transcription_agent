@@ -4394,6 +4394,12 @@ def _run_pipeline_sync(job_id: str):
         jlog.log(f"[pipeline] Audio path: {audio_path}")
         jlog.log(f"[pipeline] Metadata: title='{metadata.get('title')}', attendees={metadata.get('attendees')}")
 
+        # ── Compute max_speakers hint from attendee count ──
+        attendee_count = len(metadata.get("attendees", []))
+        max_speakers = max(2, attendee_count + 1) if attendee_count > 0 else 0
+        if max_speakers > 0:
+            jlog.log(f"[pipeline] Using max_speakers={max_speakers} from {attendee_count} attendee(s)")
+
         # ── Step 1: Diarization ──
         # Runs in an isolated subprocess (see _run_diarization_subprocess in
         # transcription.py). If pyannote's internal multiprocessing crashes,
@@ -4404,7 +4410,7 @@ def _run_pipeline_sync(job_id: str):
         _check_pipeline_timeout(job_id, _pipeline_start, jlog)
         t_diar = time.time()
         try:
-            diarization = engine.run_diarization(audio_path)
+            diarization = engine.run_diarization(audio_path, max_speakers=max_speakers)
         except (RuntimeError, TimeoutError) as _diar_err:
             err_str = str(_diar_err).lower()
             if "subprocess" in err_str or "timed out" in err_str or "mps" in err_str or "out of memory" in err_str:
@@ -4413,7 +4419,7 @@ def _run_pipeline_sync(job_id: str):
                 _mps_oom_occurred = True
                 engine = TranscriptionEngine(device="cpu")
                 t_diar_cpu = time.time()
-                diarization = engine.run_diarization(audio_path)
+                diarization = engine.run_diarization(audio_path, max_speakers=max_speakers)
                 diar_elapsed = time.time() - t_diar_cpu
                 jlog.log(f"   ✅ [pipeline] CPU diarization: {len(diarization)} segments in {diar_elapsed:.1f}s")
                 _mps_oom_occurred = False

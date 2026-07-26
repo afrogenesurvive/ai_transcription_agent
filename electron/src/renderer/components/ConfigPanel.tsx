@@ -42,6 +42,8 @@ interface ConfigValues {
   DSMON_PUSH_URL: string;
   DSMON_INSTANCE_ID: string;
   DSMON_PUSH_INTERVAL: string;
+  DSMON_GIST_RAW_URL: string;
+  DSMON_GIST_POLL_INTERVAL: string;
   HUGGING_FACE_TOKEN: string;
   GITHUB_TOKEN: string;
   EMBEDDING_PROVIDER: string;
@@ -53,6 +55,12 @@ interface ConfigValues {
   LOG_COLLAPSE_REPEATED_PREFIXES: string;
   LLM_TEMPERATURE: string;
   PIPELINE_TIMEOUT_MINUTES: string;
+  // ── Diarization tuning (ASV phantom speaker suppression) ──
+  DIARIZATION_MIN_SPEAKER_DURATION: string;
+  DIARIZATION_MIN_SPEAKER_SEGMENTS: string;
+  DIARIZATION_MERGING_GAP: string;
+  DIARIZATION_CLUSTERING_THRESHOLD: string;
+  DIARIZATION_MAX_SPEAKERS: string;
   GATE_RAW_REVIEW_ENABLED: string;
   GATE_DELIVERY_REVIEW_ENABLED: string;
   KEEP_MODELS_WARM: string;
@@ -101,6 +109,14 @@ const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secre
   { key: "DSMON_PUSH_URL", label: "DS-mon Push URL", required: false, secret: false, section: "Usage Tracking" },
   { key: "DSMON_INSTANCE_ID", label: "DS-mon Instance ID", required: false, secret: false, section: "Usage Tracking" },
   { key: "DSMON_PUSH_INTERVAL", label: "DS-mon Push Interval (ms)", required: false, secret: false, section: "Usage Tracking" },
+  { key: "DSMON_GIST_RAW_URL", label: "DS-mon Gist Raw URL", required: false, secret: false, section: "Usage Tracking" },
+  { key: "DSMON_GIST_POLL_INTERVAL", label: "DS-mon Gist Poll Interval (ms)", required: false, secret: false, section: "Usage Tracking" },
+  // ── Diarization tuning ──
+  { key: "DIARIZATION_MIN_SPEAKER_DURATION", label: "Min Speaker Duration (s)", required: false, secret: false, section: "Diarization" },
+  { key: "DIARIZATION_MIN_SPEAKER_SEGMENTS", label: "Min Speaker Segments", required: false, secret: false, section: "Diarization" },
+  { key: "DIARIZATION_MERGING_GAP", label: "Merging Gap (s)", required: false, secret: false, section: "Diarization" },
+  { key: "DIARIZATION_CLUSTERING_THRESHOLD", label: "Clustering Threshold (0 = default)", required: false, secret: false, section: "Diarization" },
+  { key: "DIARIZATION_MAX_SPEAKERS", label: "Max Speakers (0 = auto)", required: false, secret: false, section: "Diarization" },
   { key: "DELIVERY_RECIPIENT_EMAILS", label: "Default Recipient Emails", required: false, secret: false, section: "Delivery Config" },
   { key: "DELIVERY_EMAIL_SUBJECT", label: "Email Subject Template", required: false, secret: false, section: "Delivery Config" },
   { key: "DELIVERY_EMAIL_ADDITIONAL_CONTENT", label: "Additional Email Content", required: false, secret: false, section: "Delivery Config" },
@@ -450,10 +466,17 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
             DSMON_PUSH_URL: cfg.DSMON_PUSH_URL?.value || "",
             DSMON_INSTANCE_ID: cfg.DSMON_INSTANCE_ID?.value || "",
             DSMON_PUSH_INTERVAL: cfg.DSMON_PUSH_INTERVAL?.value || "300000",
+            DSMON_GIST_RAW_URL: cfg.DSMON_GIST_RAW_URL?.value || "",
+            DSMON_GIST_POLL_INTERVAL: cfg.DSMON_GIST_POLL_INTERVAL?.value || "60000",
             LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
             LOG_COLLAPSE_REPEATED_PREFIXES: cfg.LOG_COLLAPSE_REPEATED_PREFIXES?.value || "true",
             LLM_TEMPERATURE: cfg.LLM_TEMPERATURE?.value || "0.1",
             PIPELINE_TIMEOUT_MINUTES: cfg.PIPELINE_TIMEOUT_MINUTES?.value || "15",
+            DIARIZATION_MIN_SPEAKER_DURATION: cfg.DIARIZATION_MIN_SPEAKER_DURATION?.value || "3.0",
+            DIARIZATION_MIN_SPEAKER_SEGMENTS: cfg.DIARIZATION_MIN_SPEAKER_SEGMENTS?.value || "3",
+            DIARIZATION_MERGING_GAP: cfg.DIARIZATION_MERGING_GAP?.value || "0.5",
+            DIARIZATION_CLUSTERING_THRESHOLD: cfg.DIARIZATION_CLUSTERING_THRESHOLD?.value || "0.0",
+            DIARIZATION_MAX_SPEAKERS: cfg.DIARIZATION_MAX_SPEAKERS?.value || "0",
             GATE_RAW_REVIEW_ENABLED: cfg.GATE_RAW_REVIEW_ENABLED?.value || "false",
             GATE_DELIVERY_REVIEW_ENABLED: cfg.GATE_DELIVERY_REVIEW_ENABLED?.value || "false",
             KEEP_MODELS_WARM: cfg.KEEP_MODELS_WARM?.value || "false",
@@ -519,6 +542,8 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
             DSMON_PUSH_URL: cfg.DSMON_PUSH_URL?.value || "",
             DSMON_INSTANCE_ID: cfg.DSMON_INSTANCE_ID?.value || "",
             DSMON_PUSH_INTERVAL: cfg.DSMON_PUSH_INTERVAL?.value || "300000",
+            DSMON_GIST_RAW_URL: cfg.DSMON_GIST_RAW_URL?.value || "",
+            DSMON_GIST_POLL_INTERVAL: cfg.DSMON_GIST_POLL_INTERVAL?.value || "60000",
             LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
             LOG_COLLAPSE_REPEATED_PREFIXES: cfg.LOG_COLLAPSE_REPEATED_PREFIXES?.value || "true",
             LLM_TEMPERATURE: cfg.LLM_TEMPERATURE?.value || "0.1",
@@ -526,6 +551,11 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
             GATE_RAW_REVIEW_ENABLED: cfg.GATE_RAW_REVIEW_ENABLED?.value || "false",
             GATE_DELIVERY_REVIEW_ENABLED: cfg.GATE_DELIVERY_REVIEW_ENABLED?.value || "false",
             KEEP_MODELS_WARM: cfg.KEEP_MODELS_WARM?.value || "false",
+            DIARIZATION_MIN_SPEAKER_DURATION: cfg.DIARIZATION_MIN_SPEAKER_DURATION?.value || "3.0",
+            DIARIZATION_MIN_SPEAKER_SEGMENTS: cfg.DIARIZATION_MIN_SPEAKER_SEGMENTS?.value || "3",
+            DIARIZATION_MERGING_GAP: cfg.DIARIZATION_MERGING_GAP?.value || "0.5",
+            DIARIZATION_CLUSTERING_THRESHOLD: cfg.DIARIZATION_CLUSTERING_THRESHOLD?.value || "0.0",
+            DIARIZATION_MAX_SPEAKERS: cfg.DIARIZATION_MAX_SPEAKERS?.value || "0",
             DELIVERY_RECIPIENT_EMAILS: cfg.DELIVERY_RECIPIENT_EMAILS?.value || "",
             DELIVERY_EMAIL_SUBJECT: cfg.DELIVERY_EMAIL_SUBJECT?.value || "Meeting Summary: {title}",
             DELIVERY_EMAIL_ADDITIONAL_CONTENT: cfg.DELIVERY_EMAIL_ADDITIONAL_CONTENT?.value || "",
@@ -577,6 +607,8 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
             DSMON_PUSH_URL: cfg.DSMON_PUSH_URL?.value || "",
             DSMON_INSTANCE_ID: cfg.DSMON_INSTANCE_ID?.value || "",
             DSMON_PUSH_INTERVAL: cfg.DSMON_PUSH_INTERVAL?.value || "300000",
+            DSMON_GIST_RAW_URL: cfg.DSMON_GIST_RAW_URL?.value || "",
+            DSMON_GIST_POLL_INTERVAL: cfg.DSMON_GIST_POLL_INTERVAL?.value || "60000",
             LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
             LOG_COLLAPSE_REPEATED_PREFIXES: cfg.LOG_COLLAPSE_REPEATED_PREFIXES?.value || "true",
             LLM_TEMPERATURE: cfg.LLM_TEMPERATURE?.value || "0.1",
@@ -584,6 +616,11 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
             GATE_RAW_REVIEW_ENABLED: cfg.GATE_RAW_REVIEW_ENABLED?.value || "false",
             GATE_DELIVERY_REVIEW_ENABLED: cfg.GATE_DELIVERY_REVIEW_ENABLED?.value || "false",
             KEEP_MODELS_WARM: cfg.KEEP_MODELS_WARM?.value || "false",
+            DIARIZATION_MIN_SPEAKER_DURATION: cfg.DIARIZATION_MIN_SPEAKER_DURATION?.value || "3.0",
+            DIARIZATION_MIN_SPEAKER_SEGMENTS: cfg.DIARIZATION_MIN_SPEAKER_SEGMENTS?.value || "3",
+            DIARIZATION_MERGING_GAP: cfg.DIARIZATION_MERGING_GAP?.value || "0.5",
+            DIARIZATION_CLUSTERING_THRESHOLD: cfg.DIARIZATION_CLUSTERING_THRESHOLD?.value || "0.0",
+            DIARIZATION_MAX_SPEAKERS: cfg.DIARIZATION_MAX_SPEAKERS?.value || "0",
             DELIVERY_RECIPIENT_EMAILS: cfg.DELIVERY_RECIPIENT_EMAILS?.value || "",
             DELIVERY_EMAIL_SUBJECT: cfg.DELIVERY_EMAIL_SUBJECT?.value || "Meeting Summary: {title}",
             DELIVERY_EMAIL_ADDITIONAL_CONTENT: cfg.DELIVERY_EMAIL_ADDITIONAL_CONTENT?.value || "",
@@ -664,6 +701,8 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
         DSMON_PUSH_URL: cfg.DSMON_PUSH_URL?.value || "",
         DSMON_INSTANCE_ID: cfg.DSMON_INSTANCE_ID?.value || "",
         DSMON_PUSH_INTERVAL: cfg.DSMON_PUSH_INTERVAL?.value || "300000",
+        DSMON_GIST_RAW_URL: cfg.DSMON_GIST_RAW_URL?.value || "",
+        DSMON_GIST_POLL_INTERVAL: cfg.DSMON_GIST_POLL_INTERVAL?.value || "60000",
         LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
         LOG_COLLAPSE_REPEATED_PREFIXES: cfg.LOG_COLLAPSE_REPEATED_PREFIXES?.value || "true",
         LLM_TEMPERATURE: cfg.LLM_TEMPERATURE?.value || "0.1",
@@ -671,6 +710,11 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
         GATE_DELIVERY_REVIEW_ENABLED: cfg.GATE_DELIVERY_REVIEW_ENABLED?.value || "false",
         KEEP_MODELS_WARM: cfg.KEEP_MODELS_WARM?.value || "false",
         PIPELINE_TIMEOUT_MINUTES: cfg.PIPELINE_TIMEOUT_MINUTES?.value || "15",
+        DIARIZATION_MIN_SPEAKER_DURATION: cfg.DIARIZATION_MIN_SPEAKER_DURATION?.value || "3.0",
+        DIARIZATION_MIN_SPEAKER_SEGMENTS: cfg.DIARIZATION_MIN_SPEAKER_SEGMENTS?.value || "3",
+        DIARIZATION_MERGING_GAP: cfg.DIARIZATION_MERGING_GAP?.value || "0.5",
+        DIARIZATION_CLUSTERING_THRESHOLD: cfg.DIARIZATION_CLUSTERING_THRESHOLD?.value || "0.0",
+        DIARIZATION_MAX_SPEAKERS: cfg.DIARIZATION_MAX_SPEAKERS?.value || "0",
         DELIVERY_RECIPIENT_EMAILS: cfg.DELIVERY_RECIPIENT_EMAILS?.value || "",
         DELIVERY_EMAIL_SUBJECT: cfg.DELIVERY_EMAIL_SUBJECT?.value || "Meeting Summary: {title}",
         DELIVERY_EMAIL_ADDITIONAL_CONTENT: cfg.DELIVERY_EMAIL_ADDITIONAL_CONTENT?.value || "",
@@ -1666,6 +1710,262 @@ The system provides existing memory context at the start of each pipeline run. U
                     </>
                   )}
 
+                  {sectionName === "Diarization" && (
+                    <>
+                      <div className="config-section-intro">
+                        <p className="config-field-hint">
+                          These settings control how <strong>pyannote/speaker-diarization-3.1</strong> identifies speakers. Phantom speakers (spurious
+                          clusters from noise, coughs, door clicks) can be suppressed by raising the minimum duration/segment thresholds or setting a
+                          max speaker count. Adjustments take effect on the <strong>next transcription job</strong>.
+                        </p>
+                      </div>
+
+                      {/* Min Speaker Duration — number input */}
+                      <div className="config-field">
+                        <label className="config-label">Min Speaker Duration (seconds)</label>
+                        <input
+                          className="config-input config-input--number"
+                          type="number"
+                          min="0.5"
+                          max="10.0"
+                          step="0.5"
+                          value={values.DIARIZATION_MIN_SPEAKER_DURATION || "3.0"}
+                          onChange={(e) => handleChange("DIARIZATION_MIN_SPEAKER_DURATION", e.target.value)}
+                          disabled={activeJobs.length > 0}
+                        />
+                        <p className="config-field-hint">
+                          Speakers whose total speech time is below this threshold are discarded as phantoms. Higher values (5–10s) filter more
+                          aggressively but may drop a real speaker with very little airtime. Default: <strong>3.0s</strong>.
+                        </p>
+                      </div>
+
+                      {/* Min Speaker Segments — number input */}
+                      <div className="config-field">
+                        <label className="config-label">Min Speaker Segments</label>
+                        <input
+                          className="config-input config-input--number"
+                          type="number"
+                          min="1"
+                          max="20"
+                          step="1"
+                          value={values.DIARIZATION_MIN_SPEAKER_SEGMENTS || "3"}
+                          onChange={(e) => handleChange("DIARIZATION_MIN_SPEAKER_SEGMENTS", e.target.value)}
+                          disabled={activeJobs.length > 0}
+                        />
+                        <p className="config-field-hint">
+                          Speakers with fewer than this many diarization segments are discarded as phantoms. Noise artifacts typically produce 1–2
+                          short segments. A real speaker normally has 5+ segments over a meeting. Default: <strong>3</strong>.
+                        </p>
+                      </div>
+
+                      {/* Merging Gap — number input */}
+                      <div className="config-field">
+                        <label className="config-label">Merging Gap (seconds)</label>
+                        <input
+                          className="config-input config-input--number"
+                          type="number"
+                          min="0.0"
+                          max="2.0"
+                          step="0.1"
+                          value={values.DIARIZATION_MERGING_GAP || "0.5"}
+                          onChange={(e) => handleChange("DIARIZATION_MERGING_GAP", e.target.value)}
+                          disabled={activeJobs.length > 0}
+                        />
+                        <p className="config-field-hint">
+                          Adjacent same-speaker segments with gaps smaller than this are merged into one. Reduces fragmentation from breath pauses.
+                          Higher values (1.0–2.0) merge more aggressively but may merge distinct utterances. Default: <strong>0.5s</strong>.
+                        </p>
+                      </div>
+
+                      {/* Clustering Threshold — number input */}
+                      <div className="config-field">
+                        <label className="config-label">Clustering Threshold (0.0 = model default)</label>
+                        <input
+                          className="config-input config-input--number"
+                          type="number"
+                          min="0.0"
+                          max="1.0"
+                          step="0.05"
+                          value={values.DIARIZATION_CLUSTERING_THRESHOLD || "0.0"}
+                          onChange={(e) => handleChange("DIARIZATION_CLUSTERING_THRESHOLD", e.target.value)}
+                          disabled={activeJobs.length > 0}
+                        />
+                        <p className="config-field-hint">
+                          Overrides pyannote's internal clustering threshold. Higher values (0.65–0.75) produce fewer, more conservative clusters.
+                          Lower values (0.50–0.60) produce more clusters. Set to <strong>0.0</strong> to use the model's built-in default. Only adjust
+                          if post-processing filters above aren't sufficient.
+                        </p>
+                      </div>
+
+                      {/* Max Speakers — number input */}
+                      <div className="config-field">
+                        <label className="config-label">Max Speakers (0 = auto-detect)</label>
+                        <input
+                          className="config-input config-input--number"
+                          type="number"
+                          min="0"
+                          max="20"
+                          step="1"
+                          value={values.DIARIZATION_MAX_SPEAKERS || "0"}
+                          onChange={(e) => handleChange("DIARIZATION_MAX_SPEAKERS", e.target.value)}
+                          disabled={activeJobs.length > 0}
+                        />
+                        <p className="config-field-hint">
+                          Hard upper bound on the number of speaker clusters pyannote will create. When set to a positive value (e.g., attendee count
+                          + 1), it prevents phantom speakers by constraining the clustering algorithm. <strong>0</strong> = no limit (model decides).
+                          Recommended: set to your expected participants + 1.
+                        </p>
+                      </div>
+                    </>
+                  )}
+
+                  {sectionName === "Usage Tracking" && (
+                    <>
+                      <div className="config-section-intro">
+                        <p className="config-field-hint">
+                          Forward per-API-call token usage to a central <strong>DS-mon</strong> instance for per-machine comparison. Two modes (can be
+                          combined):
+                        </p>
+                        <ul className="config-field-hint" style={{ marginTop: 4, paddingLeft: 20, lineHeight: 1.7 }}>
+                          <li>
+                            <strong>Static URL</strong> — Set <em>DS-mon Push URL</em> directly (e.g. <code>http://localhost:6000/sync/push</code>).
+                            Use when the DS-mon host has a fixed address.
+                          </li>
+                          <li>
+                            <strong>Gist-based discovery</strong> — Set <em>DS-mon Gist Raw URL</em> to a GitHub Gist that contains the live tunnel
+                            URL. The runner polls the Gist every <em>Gist Poll Interval</em> ms and auto-updates the push URL when it changes. Useful
+                            when DS-mon is behind a dynamic ngrok tunnel.
+                          </li>
+                        </ul>
+                      </div>
+
+                      {fields.map((field) => (
+                        <div key={field.key} className="config-field">
+                          <label className="config-label">{field.label}</label>
+                          <div className="config-input-row">
+                            <input
+                              className="config-input"
+                              type={field.secret && !visibleKeys.has(field.key) ? "password" : "text"}
+                              value={values[field.key] || ""}
+                              onChange={(e) => handleChange(field.key, e.target.value)}
+                              placeholder={
+                                field.key === "DSMON_PUSH_URL"
+                                  ? "http://localhost:6000/sync/push"
+                                  : field.key === "DSMON_INSTANCE_ID"
+                                    ? "my-mbp (default: hostname)"
+                                    : field.key === "DSMON_GIST_RAW_URL"
+                                      ? "https://gist.githubusercontent.com/.../raw/..."
+                                      : field.key === "DSMON_PUSH_INTERVAL"
+                                        ? "300000"
+                                        : field.key === "DSMON_GIST_POLL_INTERVAL"
+                                          ? "60000"
+                                          : "Optional"
+                              }
+                              disabled={activeJobs.length > 0}
+                            />
+                          </div>
+                          <p className="config-field-hint" style={{ marginTop: 2 }}>
+                            {field.key === "DSMON_PUSH_URL" && "Leave empty if using Gist-based discovery. Set to the DS-mon sync endpoint URL."}
+                            {field.key === "DSMON_INSTANCE_ID" &&
+                              "Identifier sent with each usage record. Leave empty to auto-generate from hostname, username, and a persistent UUID."}
+                            {field.key === "DSMON_PUSH_INTERVAL" &&
+                              "How often (ms) buffered usage records are pushed to DS-mon. Default: 300000 (5 min)."}
+                            {field.key === "DSMON_GIST_RAW_URL" &&
+                              "Raw URL of a GitHub Gist whose content is the live tunnel URL (e.g. http://host:6000/sync/push). The runner polls this URL and auto-updates."}
+                            {field.key === "DSMON_GIST_POLL_INTERVAL" && "How often (ms) the Gist is polled for URL changes. Default: 60000 (1 min)."}
+                          </p>
+                        </div>
+                      ))}
+
+                      <details className="delivery-config-details" style={{ marginTop: 16 }}>
+                        <summary className="delivery-config-summary">
+                          <Icon name="edit_note" size="14" color="accent" /> Instructions
+                        </summary>
+                        <div className="delivery-config-body">
+                          <p className="config-field-hint" style={{ fontWeight: 600, marginBottom: 8 }}>
+                            Setup Overview
+                          </p>
+                          <p className="config-field-hint" style={{ marginBottom: 12 }}>
+                            Usage tracking requires a <strong>DS-mon host</strong> (your Mac, running the DS-mon sync server) and one or more{' '}
+                            <strong>remote agent runners</strong> that push usage data to it. Below are step-by-step instructions for each side.
+                          </p>
+
+                          <p className="config-field-hint" style={{ fontWeight: 600, marginBottom: 8, marginTop: 16 }}>
+                            🖥️ Host Machine Setup (your Mac)
+                          </p>
+                          <ol className="config-field-hint" style={{ paddingLeft: 20, lineHeight: 1.8, marginBottom: 12 }}>
+                            <li>
+                              Open DS-mon → Settings → <strong>Services</strong> tab
+                            </li>
+                            <li>
+                              <strong>Turn OFF</strong> the Enable Sync toggle (mode/port fields are greyed out while sync is running)
+                            </li>
+                            <li>Select <strong>Server</strong> mode</li>
+                            <li>Set <strong>listen port</strong> to <code>18080</code> (or your preferred port)</li>
+                            <li>
+                              <strong>Turn ON</strong> the Enable Sync toggle — status should show green &quot;Listening :18080&quot;
+                            </li>
+                            <li style={{ marginTop: 8 }}>
+                              Expose via ngrok: <code>ngrok http 18080</code> — note the public URL (e.g.{' '}
+                              <code>https://abc123.ngrok.io</code>)
+                            </li>
+                            <li style={{ marginTop: 8 }}>
+                              <strong>Optional (Gist-based discovery):</strong> Create a secret Gist with file{' '}
+                              <code>dsmon-tunnel-url.txt</code> containing the current tunnel URL. Run{' '}
+                              <code>./scripts/update-dsmon-gist.sh</code> alongside ngrok to keep it updated automatically.
+                            </li>
+                          </ol>
+
+                          <p className="config-field-hint" style={{ fontWeight: 600, marginBottom: 8, marginTop: 16 }}>
+                            🖥️ Remote Machine Setup (each agent runner)
+                          </p>
+                          <p className="config-field-hint" style={{ marginBottom: 8 }}>
+                            Choose one of these approaches:
+                          </p>
+                          <p className="config-field-hint" style={{ fontWeight: 500, marginBottom: 4 }}>
+                            Option A — Static URL:
+                          </p>
+                          <ol className="config-field-hint" style={{ paddingLeft: 20, lineHeight: 1.8, marginBottom: 8 }}>
+                            <li>Set <strong>DS-mon Push URL</strong> to the ngrok URL + <code>/sync/push</code> (e.g.{' '}
+                              <code>https://abc123.ngrok.io:18080/sync/push</code>)</li>
+                            <li>Set <strong>DS-mon Instance ID</strong> to a unique name (or leave empty for auto-generation)</li>
+                            <li>
+                              <strong>DS-mon Push Interval</strong> defaults to 5 min — adjust if desired
+                            </li>
+                          </ol>
+                          <p className="config-field-hint" style={{ fontWeight: 500, marginBottom: 4 }}>
+                            Option B — Gist-based discovery (auto-updates on ngrok restart):
+                          </p>
+                          <ol className="config-field-hint" style={{ paddingLeft: 20, lineHeight: 1.8, marginBottom: 8 }}>
+                            <li>Leave <strong>DS-mon Push URL</strong> empty</li>
+                            <li>
+                              Set <strong>DS-mon Gist Raw URL</strong> to the Gist raw URL (e.g.{' '}
+                              <code>https://gist.githubusercontent.com/.../raw/dsmon-tunnel-url.txt</code>)
+                            </li>
+                            <li>
+                              <strong>DS-mon Gist Poll Interval</strong> defaults to 60s — the runner polls for URL changes automatically
+                            </li>
+                            <li>Set <strong>DS-mon Instance ID</strong> (or leave empty for auto-generation)</li>
+                          </ol>
+
+                          <p className="config-field-hint" style={{ fontWeight: 600, marginBottom: 8, marginTop: 16 }}>
+                            ✅ Verification
+                          </p>
+                          <p className="config-field-hint" style={{ marginBottom: 4 }}>
+                            On the remote machine, start a transcription job and check for these log lines:
+                          </p>
+                          <pre className="config-field-hint" style={{ background: 'var(--bg-secondary)', padding: 8, borderRadius: 4, fontSize: 12 }}>
+{`📊 [DSMON] Starting flush timer (interval: 300000ms, instance: ...)
+📊 [DSMON] Pushed 3 usage records to http://host:18080/sync/push`}
+                          </pre>
+                          <p className="config-field-hint" style={{ marginTop: 8 }}>
+                            On the DS-mon host, check <strong>StatsPopoverView → Usage by Source</strong> to see per-machine token usage.
+                          </p>
+                        </div>
+                      </details>
+                    </>
+                  )}
+
                   {sectionName === "Services" ? (
                     <div className="delivery-config-accordion">
                       {/* ── Gmail accordion section ── */}
@@ -1860,7 +2160,9 @@ The system provides existing memory context at the start of each pipeline run. U
                         </div>
                       ))}
                     </>
-                  ) : !["LLM Provider", "Pipeline", "Services", "Delivery Config", "Auto-Update"].includes(sectionName) ? (
+                  ) : !["LLM Provider", "Pipeline", "Diarization", "Services", "Delivery Config", "Auto-Update", "Usage Tracking"].includes(
+                      sectionName,
+                    ) ? (
                     fields.map((field) => (
                       <div key={field.key} className="config-field">
                         <label className="config-label">

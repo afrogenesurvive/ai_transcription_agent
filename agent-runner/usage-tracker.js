@@ -10,9 +10,11 @@
  * are retained in the buffer file and retried on the next flush cycle.
  *
  * Config (all env vars, optional — tracking disabled when URL is empty):
- *   DSMON_PUSH_URL       — DS-mon sync server URL (e.g. http://host:18888/sync/push)
- *   DSMON_INSTANCE_ID    — Instance identifier (default: os.hostname())
- *   DSMON_PUSH_INTERVAL  — Flush interval in ms (default: 300000 = 5 min)
+ *   DSMON_PUSH_URL          — DS-mon sync server URL (e.g. http://host:6000/sync/push)
+ *   DSMON_INSTANCE_ID       — Instance identifier (default: os.hostname())
+ *   DSMON_PUSH_INTERVAL     — Flush interval in ms (default: 300000 = 5 min)
+ *   DSMON_GIST_RAW_URL      — GitHub Gist raw URL to poll for live tunnel URL (optional)
+ *   DSMON_GIST_POLL_INTERVAL — Gist poll interval in ms (default: 60000 = 1 min)
  */
 
 import crypto from "crypto";
@@ -23,13 +25,60 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const PUSH_URL = process.env.DSMON_PUSH_URL || "";
-const INSTANCE_ID = process.env.DSMON_INSTANCE_ID || os.hostname();
+let PUSH_URL = process.env.DSMON_PUSH_URL || "";
 const PUSH_INTERVAL = parseInt(process.env.DSMON_PUSH_INTERVAL || "300000", 10);
+const GIST_RAW_URL = process.env.DSMON_GIST_RAW_URL || "";
+const GIST_POLL_INTERVAL = parseInt(process.env.DSMON_GIST_POLL_INTERVAL || "60000", 10);
 const STORAGE_BASE = process.env.TRANSCRIPTION_STORAGE || path.resolve(__dirname, "..", "storage");
 const BUFFER_FILE = path.join(STORAGE_BASE, "dsmon_buffer.jsonl");
 
+/**
+ * Generate a stable, human-readable instance identifier.
+ *
+ * Format: <hostname>-<username>-<short-uuid>
+ * Example: michaels-mbp-mike-a1b2c3d4
+ *
+ * The short UUID is persisted to a file so it remains stable across restarts
+ * while still uniquely identifying this machine/user combination.
+ * When DSMON_INSTANCE_ID env var is set explicitly, it takes precedence.
+ */
+function generateInstanceId() {
+  const explicit = process.env.DSMON_INSTANCE_ID;
+  if (explicit) return explicit;
+
+  const hostname = os
+    .hostname()
+    .replace(/\.local$/, "")
+    .replace(/\..*$/, "")
+    .toLowerCase();
+  const username = (os.userInfo().username || "unknown").toLowerCase();
+
+  // Persistent UUID file — survives restarts
+  const idFile = path.join(STORAGE_BASE, ".dsmon_instance_id");
+  let shortId;
+  try {
+    shortId = fs.readFileSync(idFile, "utf8").trim();
+    if (shortId) return `${hostname}-${username}-${shortId}`;
+  } catch {
+    // File doesn't exist yet — generate new ID
+  }
+
+  shortId = crypto.randomUUID().split("-")[0];
+  try {
+    fs.mkdirSync(path.dirname(idFile), { recursive: true });
+    fs.writeFileSync(idFile, shortId, "utf8");
+  } catch {
+    // Non-fatal — use a transient ID
+  }
+
+  return `${hostname}-${username}-${shortId}`;
+}
+
+const INSTANCE_ID = generateInstanceId();
+
 let flushTimer = null;
+let gistTimer = null;
+let lastGistValue = "";
 
 /**
  * Record a per-API-call usage entry to the local JSONL buffer.
@@ -81,7 +130,10 @@ export async function flushBuffer() {
   let records = [];
   try {
     const content = fs.readFileSync(BUFFER_FILE, "utf8");
-    records = content.split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
+    records = content
+      .split("\n")
+      .filter((l) => l.trim())
+      .map((l) => JSON.parse(l));
   } catch (err) {
     console.log(`⚠️ [DSMON] Failed to read buffer file: ${err.message}`);
     return;
@@ -112,13 +164,66 @@ export async function flushBuffer() {
 }
 
 /**
+ * Poll the GitHub Gist for the current tunnel URL and update PUSH_URL if it changed.
+ * This lets remote machines auto-discover a new ngrok URL without manual config changes.
+ */
+async function pollGist() {
+  if (!GIST_RAW_URL) return;
+
+  try {
+    const resp = await fetch(GIST_RAW_URL, {
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!resp.ok) return;
+
+    const newUrl = (await resp.text()).trim();
+    if (!newUrl || newUrl === lastGistValue) return;
+
+    const oldUrl = PUSH_URL;
+    lastGistValue = newUrl;
+    PUSH_URL = newUrl;
+
+    console.log(`📡 [DSMON] Tunnel URL updated via Gist: ${oldUrl || "(none)"} → ${newUrl}`);
+
+    // If the flush timer was previously disabled due to no URL, start it now
+    if (!flushTimer && PUSH_URL) {
+      console.log(`📊 [DSMON] Starting flush timer (interval: ${PUSH_INTERVAL}ms, instance: ${INSTANCE_ID})`);
+      flushBuffer();
+      flushTimer = setInterval(flushBuffer, PUSH_INTERVAL);
+    }
+  } catch {
+    // Network errors are expected when offline — retry next cycle
+  }
+}
+
+/**
+ * Start the periodic Gist poller.
+ * Runs alongside the flush timer; the Gist poller may enable the flush timer
+ * when a tunnel URL is first discovered.
+ */
+export function startGistPoller() {
+  if (!GIST_RAW_URL) {
+    console.log(`📡 [DSMON] Gist poller disabled — set DSMON_GIST_RAW_URL to enable`);
+    return;
+  }
+  if (gistTimer) return;
+
+  console.log(`📡 [DSMON] Starting Gist poller (interval: ${GIST_POLL_INTERVAL}ms, gist: ${GIST_RAW_URL})`);
+
+  // Immediate poll on start
+  pollGist();
+
+  gistTimer = setInterval(pollGist, GIST_POLL_INTERVAL);
+}
+
+/**
  * Start the periodic flush timer.
  * Also performs an immediate flush on start to catch any records that
  * were buffered while the runner was previously offline.
  */
 export function startFlushTimer() {
   if (!PUSH_URL) {
-    console.log(`📊 [DSMON] Tracking disabled — set DSMON_PUSH_URL to enable`);
+    console.log(`📊 [DSMON] Tracking disabled — set DSMON_PUSH_URL or DSMON_GIST_RAW_URL to enable`);
     return;
   }
   if (flushTimer) return;
@@ -132,12 +237,17 @@ export function startFlushTimer() {
 }
 
 /**
- * Stop the periodic flush timer.
+ * Stop the periodic flush timer and Gist poller.
  */
 export function stopFlushTimer() {
   if (flushTimer) {
     clearInterval(flushTimer);
     flushTimer = null;
     console.log(`📊 [DSMON] Flush timer stopped`);
+  }
+  if (gistTimer) {
+    clearInterval(gistTimer);
+    gistTimer = null;
+    console.log(`📡 [DSMON] Gist poller stopped`);
   }
 }
