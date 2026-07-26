@@ -109,6 +109,12 @@ export default function SpeakerLabelModal({
   const [perSpeakerConflicts, setPerSpeakerConflicts] = useState<Record<string, LabelVerification | null>>({});
   const blurTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
+  // ── Per-speaker overwrite tracking (Phase D) ──
+  // Set of speaker_ids where the user chose to keep their typed name
+  // instead of accepting an existing voiceprint match. These names will
+  // be passed as overwrite_names to the drift audit so it skips them.
+  const [perSpeakerOverwrite, setPerSpeakerOverwrite] = useState<Set<string>>(new Set());
+
   // ── Derive which speakers have active conflicts (for highlighting) ──
   const conflictSpeakerIds = new Set<string>();
   for (const [spkId, v] of Object.entries(perSpeakerConflicts)) {
@@ -327,11 +333,15 @@ export default function SpeakerLabelModal({
 
     // Step 2: Voice-match verification (Mitigation 1)
     // Call the backend to compare proposed labels against enrolled voiceprints.
-    if (!verificationDone) {
+    // Skip labels for speakers in perSpeakerOverwrite — user already opted to
+    // keep their typed name and overwrite the existing voiceprint.
+    const verifyLabels = result.filter((l) => !perSpeakerOverwrite.has(l.speaker_id));
+    const remaining = verifyLabels.filter((l) => l.name.trim());
+    if (!verificationDone && remaining.length > 0) {
       try {
         const vResult = await (window as any).electronAPI?.verifyLabels({
           jobId,
-          labels: result,
+          labels: remaining,
         });
         if (vResult) {
           const voiceConflicts = (vResult.verifications || []).filter((v: LabelVerification) => v.voice_match_conflicts.length > 0);
@@ -355,7 +365,12 @@ export default function SpeakerLabelModal({
     }
 
     setCheckingConflicts(false);
-    await onConfirm(result);
+    // Pass perSpeakerOverwrite names as overwrite_names so the drift audit
+    // skips them (user already chose to keep their typed name inline).
+    const overwriteNames = Array.from(perSpeakerOverwrite)
+      .map((sid) => labels[sid]?.trim())
+      .filter(Boolean) as string[];
+    await onConfirm(result, overwriteNames.length > 0 ? { overwriteNames } : undefined);
   };
 
   /** Toggle whether a conflicting voiceprint should be overwritten. */
@@ -389,6 +404,37 @@ export default function SpeakerLabelModal({
     });
   };
 
+  // ── Per-speaker overwrite in voice match dialog (Phase D2) ──
+  // Set of speaker_ids where the user checked "Keep my name" in the
+  // voice match dialog, meaning they want to overwrite the existing
+  // voiceprint with their typed name.
+  const [voiceMatchKeepSet, setVoiceMatchKeepSet] = useState<Set<string>>(new Set());
+
+  /** Toggle per-speaker "Keep my name" in the voice match dialog.
+   *  Mutually exclusive with accepting specific matches for that speaker:
+   *  if you keep your name, all conflict checkboxes for that speaker clear. */
+  const toggleVoiceMatchKeep = (speakerId: string) => {
+    setVoiceMatchKeepSet((prev) => {
+      const next = new Set(prev);
+      if (next.has(speakerId)) {
+        next.delete(speakerId);
+      } else {
+        next.add(speakerId);
+        // Clear any accepted conflicts for this speaker
+        setAcceptedConflicts((accepted) => {
+          const cleared = new Set(accepted);
+          for (const key of cleared) {
+            if (key.startsWith(`${speakerId}:`)) {
+              cleared.delete(key);
+            }
+          }
+          return cleared;
+        });
+      }
+      return next;
+    });
+  };
+
   /** Continue despite voice match warnings — submits with original names as overwrite_names. */
   const handleVoiceWarningForceOverwrite = async () => {
     setShowVoiceWarnings(false);
@@ -400,21 +446,39 @@ export default function SpeakerLabelModal({
     await onConfirm(result, { overwriteNames });
   };
 
-  /** Accept only the ticked conflicts and proceed. */
+  /** Accept selected matches and/or keep per-speaker names, then proceed.
+   *  - Accepted conflicts → labels are renamed to the existing voiceprint name
+   *  - Speakers with "Keep my name" checked → their typed name is passed as
+   *    overwrite_names so the drift audit skips them. */
   const handleVoiceWarningAcceptSelected = async () => {
-    // Build a modified label set: any conflict the user ACCEPTED keeps its
-    // existing name. Any conflict the user REJECTED keeps the user's typed name.
     const result = buildResult();
+    const buildOverwriteNames: string[] = [];
 
-    // For accepted conflicts, overwrite the label with the existing name
     for (const vc of voiceMatchConflicts) {
+      const spkId = vc.speaker_id;
+
+      // If the user checked "Keep my name" for this speaker, add to overwrite set
+      if (voiceMatchKeepSet.has(spkId)) {
+        const label = result.find((l) => l.speaker_id === spkId);
+        if (label && label.name.trim()) {
+          buildOverwriteNames.push(label.name.trim());
+        }
+        continue; // Skip acceptance logic — keeping typed name
+      }
+
+      // Otherwise, apply accepted conflict renames
       for (const mc of vc.voice_match_conflicts || []) {
-        const key = `${vc.speaker_id}:${mc.name}`;
+        const key = `${spkId}:${mc.name}`;
         if (acceptedConflicts.has(key)) {
-          const found = result.find((l) => l.speaker_id === vc.speaker_id);
+          const found = result.find((l) => l.speaker_id === spkId);
           if (found) {
             found.name = mc.name;
-            found.email = mc.email || found.email;
+            // Use existing voiceprint email only if it's a real address;
+            // otherwise keep the user's typed email so it reaches delivery.
+            found.email =
+              mc.email && !mc.email.includes("@voiceprint.local")
+                ? mc.email
+                : found.email;
           }
         }
       }
@@ -423,7 +487,7 @@ export default function SpeakerLabelModal({
     setShowVoiceWarnings(false);
     setVerificationDone(true);
     setCheckingConflicts(false);
-    await onConfirm(result);
+    await onConfirm(result, buildOverwriteNames.length > 0 ? { overwriteNames: buildOverwriteNames } : undefined);
   };
 
   // ── Live per-speaker conflict detection on name blur (Phase C) ──
@@ -465,7 +529,15 @@ export default function SpeakerLabelModal({
   /** Resolve an inline voice-match conflict: accept the existing name. */
   const resolveInlineConflict = useCallback((speakerId: string, existingName: string, existingEmail: string) => {
     setLabels((prev) => ({ ...prev, [speakerId]: existingName }));
-    setEmails((prev) => ({ ...prev, [speakerId]: existingEmail }));
+    // Use existing voiceprint email only if it's a real address (not a
+    // @voiceprint.local placeholder). Otherwise keep the user's typed email
+    // so it flows through to email_recipients for delivery.
+    const userEmail = emails[speakerId]?.trim();
+    const resolvedEmail =
+      existingEmail && !existingEmail.includes("@voiceprint.local")
+        ? existingEmail
+        : userEmail || existingEmail;
+    setEmails((prev) => ({ ...prev, [speakerId]: resolvedEmail }));
     setPerSpeakerConflicts((prev) => {
       const next = { ...prev };
       delete next[speakerId];
@@ -477,7 +549,7 @@ export default function SpeakerLabelModal({
       delete next[speakerId];
       return next;
     });
-  }, []);
+  }, [emails]);
 
   const handleSkip = () => {
     // Use default speaker IDs for any unnamed speakers
@@ -658,14 +730,15 @@ export default function SpeakerLabelModal({
                       </button>
                       <button
                         className="speaker-conflict-btn speaker-conflict-btn--dismiss"
-                        onClick={() =>
+                        onClick={() => {
+                          setPerSpeakerOverwrite((prev) => new Set(prev).add(spk.speaker_id));
                           setPerSpeakerConflicts((prev) => {
                             const next = { ...prev };
                             delete next[spk.speaker_id];
                             return next;
-                          })
-                      }
-                      title="Keep current name">
+                          });
+                        }}
+                        title="Keep current name — overwrite existing voiceprint">
                       Keep &ldquo;{labels[spk.speaker_id] || spk.speaker_id}&rdquo;
                       </button>
                     </div>
@@ -753,34 +826,74 @@ export default function SpeakerLabelModal({
                 <Icon name="warning" size="16" color="orange" /> Voice Match Detected
               </h3>
               <p className="vp-conflict-desc">
-                The following speakers have voices that closely match someone already enrolled under a different name. Tick the matches you want to
-                accept (uses the existing name) — unticked ones keep your typed name.
+                The following speakers have voices that closely match someone already enrolled under a different name. For each speaker, either accept
+                a match (uses the existing name) or keep your typed name (overwrites the existing voiceprint).
               </p>
-              {voiceMatchConflicts.map((vc) => (
-                <div key={vc.speaker_id} className="vp-conflict-row">
-                  <div className="vp-conflict-row-info">
-                    <strong>{vc.speaker_id}</strong> → <strong>{vc.assigned_name}</strong>
-                  </div>
-                  {vc.voice_match_conflicts.map((mc, i) => {
-                    const key = `${vc.speaker_id}:${mc.name}`;
-                    return (
-                      <div key={i} className="vp-conflict-hint vp-conflict-hint--with-checkbox" style={{ marginTop: 4 }}>
-                        <label className="vp-conflict-checkbox">
-                          <input type="checkbox" checked={acceptedConflicts.has(key)} onChange={() => toggleAcceptedConflict(key)} />
-                          <span>
-                            This voice matches <strong>{mc.name}</strong> ({(mc.similarity * 100).toFixed(0)}% similar)
-                            {mc.sample_job_id && <> from job {mc.sample_job_id.slice(0, 8)}</>}
-                            <br />
-                            <span className="vp-conflict-hint-sub">
-                              Tick to use &ldquo;{mc.name}&rdquo; instead of &ldquo;{vc.assigned_name}&rdquo;
+              {voiceMatchConflicts.map((vc) => {
+                const hasAcceptedAny = vc.voice_match_conflicts.some((mc) =>
+                  acceptedConflicts.has(`${vc.speaker_id}:${mc.name}`)
+                );
+                const isKeeping = voiceMatchKeepSet.has(vc.speaker_id);
+                return (
+                  <div key={vc.speaker_id} className="vp-conflict-row">
+                    <div className="vp-conflict-row-info">
+                      <strong>{vc.speaker_id}</strong> → <strong>{vc.assigned_name}</strong>
+                    </div>
+                    {vc.voice_match_conflicts.map((mc, i) => {
+                      const key = `${vc.speaker_id}:${mc.name}`;
+                      return (
+                        <div key={i} className="vp-conflict-hint vp-conflict-hint--with-checkbox" style={{ marginTop: 4 }}>
+                          <label className="vp-conflict-checkbox" style={{ opacity: isKeeping ? 0.5 : 1 }}>
+                            <input
+                              type="checkbox"
+                              checked={acceptedConflicts.has(key)}
+                              onChange={() => {
+                                if (!isKeeping) {
+                                  toggleAcceptedConflict(key);
+                                  // Uncheck "keep" if accepting a match
+                                  if (voiceMatchKeepSet.has(vc.speaker_id)) {
+                                    setVoiceMatchKeepSet((prev) => {
+                                      const next = new Set(prev);
+                                      next.delete(vc.speaker_id);
+                                      return next;
+                                    });
+                                  }
+                                }
+                              }}
+                              disabled={isKeeping}
+                            />
+                            <span>
+                              This voice matches <strong>{mc.name}</strong> ({(mc.similarity * 100).toFixed(0)}% similar)
+                              {mc.sample_job_id && <> from job {mc.sample_job_id.slice(0, 8)}</>}
+                              <br />
+                              <span className="vp-conflict-hint-sub">
+                                Tick to use &ldquo;{mc.name}&rdquo; instead of &ldquo;{vc.assigned_name}&rdquo;
+                              </span>
                             </span>
+                          </label>
+                        </div>
+                      );
+                    })}
+                    {/* ── Per-speaker "Keep my name" toggle ── */}
+                    <div className="vp-conflict-hint vp-conflict-hint--with-checkbox" style={{ marginTop: 8 }}>
+                      <label className="vp-conflict-checkbox vp-conflict-checkbox--keep">
+                        <input
+                          type="checkbox"
+                          checked={isKeeping}
+                          onChange={() => toggleVoiceMatchKeep(vc.speaker_id)}
+                        />
+                        <span>
+                          <strong>Keep my name &ldquo;{vc.assigned_name}&rdquo;</strong>
+                          <br />
+                          <span className="vp-conflict-hint-sub">
+                            Overwrites the existing voiceprint with this recording
                           </span>
-                        </label>
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+                );
+              })}
               <div className="modal-actions" style={{ marginTop: 12 }}>
                 <button
                   className="btn-secondary"
@@ -788,17 +901,15 @@ export default function SpeakerLabelModal({
                     setShowVoiceWarnings(false);
                     setVerificationDone(false);
                     setAcceptedConflicts(new Set());
+                    setVoiceMatchKeepSet(new Set());
                   }}>
                   Go Back
                 </button>
-                <button className="btn-primary" onClick={handleVoiceWarningAcceptSelected} disabled={acceptedConflicts.size === 0}>
-                  Accept Selected ({acceptedConflicts.size})
-                </button>
                 <button
-                  className="btn-danger"
-                  onClick={handleVoiceWarningForceOverwrite}
-                  title="Keep my typed names and overwrite the existing voiceprints">
-                  Keep My Names
+                  className="btn-primary"
+                  onClick={handleVoiceWarningAcceptSelected}
+                  disabled={acceptedConflicts.size === 0 && voiceMatchKeepSet.size === 0}>
+                  Confirm Choices
                 </button>
               </div>
             </div>

@@ -1070,8 +1070,17 @@ async def verify_labels(payload: dict = Body(...)):
                 # name. If the names match (e.g. user clicked "Use ExistingName" via
                 # inline resolution), always allow — it's an intentional adoption even
                 # if the name isn't in this job's attendee list.
-                for m in matches:
-                    if m["name"].lower() != name.lower():
+                #
+                # If ANY enrolled voiceprint has the same name as the assigned name
+                # (above threshold), the speaker is already correctly identified.
+                # Short-circuit all other cross-match conflicts to avoid false
+                # positives from secondary matches within the same audio.
+                has_exact_name_match = any(
+                    m["name"].lower() == name.lower()
+                    for m in matches
+                )
+                if not has_exact_name_match:
+                    for m in matches:
                         voice_match_conflicts.append(m)
 
         verifications.append({
@@ -1915,6 +1924,20 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
         # Skip drift audit for names the user explicitly wants to overwrite
         if name in overwrite_names:
             print(f"[drift] ➡️  '{name}' ({spk}) in overwrite_names — skipping drift audit")
+            # Re-labeling cleanup: if this speaker's embedding matches an existing
+            # voiceprint under a different name, that old voiceprint is being
+            # re-labeled (e.g. Carol→Eve). Delete the old row so the DB doesn't
+            # accumulate orphaned voiceprints for the same voice.
+            if emb is not None:
+                old_matches = vp_manager.find_matching_voiceprints(
+                    emb, threshold=config.VOICEPRINT_THRESHOLD
+                )
+                for om in old_matches:
+                    if om["name"].lower() != name.lower():
+                        vp_manager.delete_voiceprint_by_name(om["name"])
+                        print(f"[drift] 🗑️  Deleted old voiceprint '{om['name']}' — "
+                              f"re-labeled as '{name}' (sim={om['similarity']:.3f})")
+                        break  # Only the best (first) different-name match
             continue
 
         email_key = vp_manager._make_email(name, email)
@@ -1922,6 +1945,20 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
         all_matches = vp_manager.find_matching_voiceprints(
             emb, threshold=config.VOICEPRINT_THRESHOLD
         )
+        # If ANY enrolled voiceprint has the same name as the assigned name
+        # (above threshold), the speaker is already correctly identified.
+        # Short-circuit all drift checks to avoid false positives from
+        # secondary cross-matches within the same audio.
+        has_exact_name_match = any(
+            m["name"].lower() == name.lower()
+            for m in all_matches
+        )
+        if has_exact_name_match:
+            cross_count = sum(1 for m in all_matches if m["name"].lower() != name.lower())
+            print(f"[drift] ✅ '{name}' ({spk}) matches its own voiceprint — "
+                  f"no drift (suppressed {cross_count} cross-match(es))")
+            continue
+
         for m in all_matches:
             if m["name"].lower() == name.lower():
                 # Same name — user is intentionally adopting the existing
@@ -4333,6 +4370,18 @@ def _run_pipeline_sync(job_id: str):
                 all_matches = vp_manager.find_matching_voiceprints(
                     emb, threshold=config.VOICEPRINT_THRESHOLD
                 )
+                # If ANY enrolled voiceprint has the same name as this matched
+                # speaker, they are correctly identified — don't move to unknown
+                # even if there are secondary cross-matches from same-audio prints.
+                has_exact_name_match = any(
+                    m["name"].lower() == matched_name.lower()
+                    for m in all_matches
+                )
+                if has_exact_name_match:
+                    jlog.log(f"[voiceprint] ✅ '{matched_name}' has direct voiceprint match — "
+                          f"keeping as known (suppressed {len(all_matches) - 1} cross-match(es))")
+                    continue
+
                 for m in all_matches:
                     if m["name"].lower() == matched_name.lower():
                         continue  # Same name — no conflict

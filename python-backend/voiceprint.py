@@ -562,6 +562,17 @@ class VoiceprintManager:
         conn.execute("DELETE FROM voiceprints WHERE email = ?", (email,))
         conn.commit()
 
+    def delete_voiceprint_by_name(self, name: str):
+        """Delete a voiceprint row by speaker_name.
+
+        Used when re-labeling cleans up an old voiceprint that is being
+        replaced by a new name for the same voice.
+        """
+        conn = self._get_conn()
+        conn.execute("DELETE FROM voiceprints WHERE speaker_name = ?", (name,))
+        conn.commit()
+        print(f"[voiceprint] 🗑️  Deleted voiceprint for '{name}'")
+
     @staticmethod
     def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
         """Compute cosine similarity between two embedding vectors.

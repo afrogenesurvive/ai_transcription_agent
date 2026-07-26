@@ -431,6 +431,18 @@
   accent-color: var(--orange);
 }
 
+/* Per-speaker "Keep my name" checkbox — green accent for overwrite action */
+.vp-conflict-checkbox--keep {
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(0, 200, 83, 0.06);
+  border: 1px solid rgba(0, 200, 83, 0.15);
+}
+
+.vp-conflict-checkbox--keep input[type="checkbox"] {
+  accent-color: var(--green);
+}
+
 .modal-actions {
   display: flex;
   gap: 10px;
