@@ -154,10 +154,10 @@ function createWindow() {
       mainWindow?.hide();
       // Let the user know the app is still running in the background
       // (the Python backend and other services continue to use memory)
-      new Notification({
+      sendNotification({
         title: "Transcription Agent",
         body: "Still running in the menu bar — quit from the tray menu to stop background services.",
-      }).show();
+      });
     }
   });
 }
@@ -383,6 +383,13 @@ function sendNotification(opts: SendNotificationOptions) {
     });
   }
   notif.show();
+
+  // macOS: when the app is frontmost, the OS suppresses the notification
+  // because it assumes the user is already looking at the app. Bounce the
+  // dock icon to draw attention instead, for important notification types.
+  if (process.platform === "darwin" && mainWindow?.isFocused() && (type === "success" || type === "error" || type === "started")) {
+    app.dock?.bounce?.("informational");
+  }
 }
 
 // ── IPC Handlers ──
@@ -2138,9 +2145,30 @@ const unsubscribeLogs = subscribe((entry) => {
 });
 
 app.whenReady().then(async () => {
+  // ── Notification platform setup ──
+  // Windows: bind AppUserModelId so toast notifications appear correctly
+  // in the Action Center with the proper app name and icon.
+  if (process.platform === "win32") {
+    app.setAppUserModelId("com.transcription.agent");
+  }
+
   // Create window first (so user sees something while backend starts)
   createWindow();
   createTray();
+
+  // macOS 10.14+: trigger the system's one-time notification permission dialog.
+  // Without this, the user must manually enable notifications in System Settings.
+  // We fire a silent dummy notification that immediately closes — this is enough
+  // to prompt the OS permission dialog on first launch.
+  if (process.platform === "darwin") {
+    try {
+      const permNotif = new Notification({ title: "", body: "", silent: true });
+      permNotif.show();
+      setTimeout(() => permNotif.close(), 100);
+    } catch {
+      // Non-fatal — user can enable notifications in System Settings manually
+    }
+  }
 
   // Initialize per-job logging — all log entries will be written to
   // <storage>/<job_id>/pipeline.log while the job is active.

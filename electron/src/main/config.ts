@@ -91,6 +91,12 @@ export interface AppConfig {
   GATE_DELIVERY_REVIEW_ENABLED: string;
   /** Keep ML models loaded between transcription jobs (faster startup, higher memory) */
   KEEP_MODELS_WARM: string;
+  /** DS-mon push URL for per-call usage tracking (empty = disabled) */
+  DSMON_PUSH_URL: string;
+  /** Instance identifier sent with each usage record (defaults to hostname) */
+  DSMON_INSTANCE_ID: string;
+  /** DS-mon push interval in milliseconds (default 300000) */
+  DSMON_PUSH_INTERVAL: string;
 }
 
 const DEFAULTS: AppConfig = {
@@ -133,6 +139,9 @@ const DEFAULTS: AppConfig = {
   GATE_RAW_REVIEW_ENABLED: "false",
   GATE_DELIVERY_REVIEW_ENABLED: "false",
   KEEP_MODELS_WARM: "false",
+  DSMON_PUSH_URL: "",
+  DSMON_INSTANCE_ID: "",
+  DSMON_PUSH_INTERVAL: "300000",
 };
 
 /** Keys the UI considers "required" before the pipeline can run. */
@@ -370,6 +379,9 @@ export function getChildEnv(): NodeJS.ProcessEnv {
     GATE_RAW_REVIEW_ENABLED: userVals.GATE_RAW_REVIEW_ENABLED || process.env.GATE_RAW_REVIEW_ENABLED || "false",
     GATE_DELIVERY_REVIEW_ENABLED: userVals.GATE_DELIVERY_REVIEW_ENABLED || process.env.GATE_DELIVERY_REVIEW_ENABLED || "false",
     KEEP_MODELS_WARM: userVals.KEEP_MODELS_WARM || process.env.KEEP_MODELS_WARM || "false",
+    DSMON_PUSH_URL: config.DSMON_PUSH_URL || process.env.DSMON_PUSH_URL || "",
+    DSMON_INSTANCE_ID: config.DSMON_INSTANCE_ID || process.env.DSMON_INSTANCE_ID || "",
+    DSMON_PUSH_INTERVAL: config.DSMON_PUSH_INTERVAL || process.env.DSMON_PUSH_INTERVAL || "300000",
     // Storage paths — only override in packaged (prod) mode so DBs land in a
     // writable location. In dev the Python backend defaults to the project-
     // relative storage/ dir, which is already writable.

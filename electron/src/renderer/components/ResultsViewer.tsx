@@ -1069,6 +1069,13 @@ function LogsTab({ jobId }: { jobId: string }) {
   }, []);
 
   useEffect(() => {
+    // Reset state immediately when switching jobs — prevents stale flash
+    setRawLogs([]);
+    setEntries([]);
+    setJobLogFiles([]);
+    setLoading(true);
+    setError(null);
+
     let cancelled = false;
     const fetchLogs = async () => {
       try {

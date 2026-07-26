@@ -29,6 +29,7 @@ import { callModel } from "./model-client.js";
 import { executeToolCall } from "./tool-executor.js";
 import { logAction } from "./logger.js";
 import { claimPendingEvent, completeEvent, failEvent, enqueueEvent, getQueueStats } from "./poller.js";
+import { recordCall, startFlushTimer } from "./usage-tracker.js";
 import { sanitizeTranscriptSegments, sanitizeContextString } from "./sanitize.js";
 import {
   TOOLS,
@@ -679,7 +680,9 @@ async function processEvent(event) {
       available_tools: availableTools.map((t) => t.name),
     });
     try {
+      const callStart = Date.now();
       decision = await withRetry(() => callModel(context, availableTools, renderedPrompt), `LLM call (step ${step})`);
+      const callLatencyMs = Date.now() - callStart;
       logLlmData("step_response", {
         step,
         decision: decision ? { name: decision.name, arguments: decision.arguments, usage: decision.usage } : null,
@@ -712,6 +715,15 @@ async function processEvent(event) {
         `   💰 [RUNNER] Tracked usage for step ${step} (${decision.name}): ${stepUsage.total_tokens} tokens (prompt: ${stepUsage.prompt_tokens}, completion: ${stepUsage.completion_tokens})`,
       );
       console.log(`[USAGE] Step ${step} (${decision.name}): ${stepUsage.total_tokens} tokens`);
+
+      // ── DS-mon per-call tracking ──
+      // Forward usage data to the local buffer for periodic push to the
+      // central DS-mon server. No-op when DSMON_PUSH_URL is not set.
+      const llmModel =
+        process.env.LLM_PROVIDER === "ollama"
+          ? process.env.OLLAMA_MODEL || "llama3.1:8b"
+          : process.env.API_AGENT_MODEL || "deepseek-v4-flash";
+      recordCall(decision.usage, llmModel, callLatencyMs, { step, tool: decision.name || "unknown" });
     } else {
       console.log(`⚠️  [RUNNER] No usage data from LLM at step ${step} — decision.usage is ${JSON.stringify(decision?.usage)}`);
     }
@@ -1555,6 +1567,11 @@ if (TASK_CHECK_INTERVAL > 0) taskTimer = setInterval(mainLoop, TASK_CHECK_INTERV
 // If a job was enqueued while the runner was offline, pick it up immediately
 // without waiting for the next fs.watch event or poll interval.
 mainLoop();
+
+// ── DS-mon usage tracking ──
+// Starts periodic flush of per-API-call usage records to DS-mon.
+// No-op when DSMON_PUSH_URL is not set.
+startFlushTimer();
 
 // ── Interactive terminal ──
 

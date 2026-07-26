@@ -76,7 +76,7 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
           : "Approving deliverable — starting delivery…"
       : undefined;
 
-  // ── Reset submitting state when modal hides (parent detected status change) ──
+  // ── Reset all state when modal hides (prevents stale data across jobs) ──
   const wasVisibleRef = useRef(false);
   useEffect(() => {
     if (wasVisibleRef.current && !visible) {
@@ -88,6 +88,19 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
       setGate2Feedback("");
       setShowGate1RejectConfirm(false);
       setShowGate2RejectConfirm(false);
+      // Reset Gate 1 fetched data
+      setGate1Transcript(null);
+      setGate1RawText("");
+      setGate1EditedText("");
+      setGate1EditMode(false);
+      // Reset Gate 2 fetched data
+      setGate2Summary(null);
+      setGate2Analysis(null);
+      setGate2Transcript(null);
+      setGate2EditedSummary("");
+      setGate2EditedAnalysis("");
+      setGate2EditedTranscript("");
+      setGate2EditMode(false);
     }
     wasVisibleRef.current = visible;
   }, [visible]);

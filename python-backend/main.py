@@ -11,6 +11,7 @@ import os
 import json
 import time
 import asyncio
+import platform as _sys_platform
 import numpy as np
 from datetime import datetime
 
@@ -81,7 +82,14 @@ _mps_oom_occurred: bool = False
 # Timestamp of the last pipeline completion — used to insert a cooldown
 # delay between sequential jobs so MPS fragmented memory can settle.
 _last_pipeline_end_time: float = 0.0
-_MIN_INTERJOB_COOLDOWN_SEC = 5.0
+_MIN_INTERJOB_COOLDOWN_SEC = 20.0
+
+# ── models_status cache ──
+# Cache the result of /transcribe/models/status to avoid loading the full
+# pyannote Pipeline on every poll (which leaks POSIX named semaphores on macOS).
+# Refreshed at most once per minute.
+_models_status_cache: dict = {"result": None, "timestamp": 0.0}
+_MODELS_STATUS_CACHE_TTL = 60  # seconds
 
 # ML pipeline statuses that indicate a job is actively running in the pipeline.
 # Shared across upload endpoints, active job listing, and cleanup logic.
@@ -220,6 +228,29 @@ async def lifespan(app: FastAPI):
                     print(f"   ✅ [startup] ChromaDB directory recreated at {chroma_dir}")
                 except Exception as _rm_err:
                     print(f"   ❌ [startup] Could not delete corrupted ChromaDB: {_rm_err}")
+
+    # ── Startup POSIX semaphore cleanup ──
+    # On macOS, multiprocessing.Queue creates POSIX named semaphores that can
+    # leak if not properly unlinked (e.g., after a crash). These accumulate
+    # in /dev/shm/ as /mp.* files. macOS has a low default semaphore limit
+    # (~256), so leaked semaphores can cause subsequent mp.Queue() calls to
+    # hang. Try to clean up any orphaned /mp.* semaphores on startup.
+    if _sys_platform.system().lower() == "darwin":
+        try:
+            _sem_cleaned = 0
+            _dev_shm = "/dev/shm"
+            if os.path.isdir(_dev_shm):
+                for _entry in os.scandir(_dev_shm):
+                    if _entry.name.startswith("mp.") and _entry.is_file():
+                        try:
+                            os.unlink(_entry.path)
+                            _sem_cleaned += 1
+                        except (OSError, PermissionError):
+                            pass
+            if _sem_cleaned:
+                print(f"   🧹 [startup] Cleaned {_sem_cleaned} orphaned POSIX semaphore(s) from /dev/shm/")
+        except Exception as _sem_err:
+            print(f"   ⚠️  [startup] POSIX semaphore cleanup skipped: {_sem_err}")
 
     # ── Startup queue recovery: reclaim stale events ──
     # If the agent runner was killed mid-job, its claimed events are stuck
@@ -3145,7 +3176,21 @@ async def clear_ephemeral_data():
 
 @app.get("/transcribe/models/status")
 async def models_status():
-    """Check which ML models are available. Helps users diagnose setup issues."""
+    """Check which ML models are available. Helps users diagnose setup issues.
+
+    Caches the result for ``_MODELS_STATUS_CACHE_TTL`` seconds to avoid loading
+    the full pyannote Pipeline on every poll. Each load creates internal
+    ``mp.Queue`` / POSIX named semaphore objects that leak on macOS, so this
+    cache is critical for preventing semaphore exhaustion over time.
+    """
+    global _models_status_cache
+    now = time.time()
+    if (
+        _models_status_cache["result"] is not None
+        and now - _models_status_cache["timestamp"] < _MODELS_STATUS_CACHE_TTL
+    ):
+        return _models_status_cache["result"]
+
     result = {
         "device": detect_device(),
         "whisper_model": config.WHISPER_MODEL_SIZE,
@@ -3225,6 +3270,10 @@ async def models_status():
             )
         else:
             result["diarization_error"] = f"Model failed to load: {msg[:300]}"
+
+    # Update cache before returning
+    _models_status_cache["result"] = result
+    _models_status_cache["timestamp"] = now
 
     status_icon = "✅" if result["diarization_available"] else "❌"
     print(f"[api] GET /transcribe/models/status → diarization={status_icon} device={result['device']}")
@@ -4150,24 +4199,12 @@ async def _run_pipeline_async(job_id: str):
     is cooperative — the thread checks ``_pipeline_cancel`` between steps.
     """
     async with _pipeline_semaphore:
-        # ── Inter-job cooldown ──
-        # After the previous pipeline finishes, give the MPS driver time to
-        # reclaim fragmented memory pages before loading models again.
-        # This prevents cumulative memory pressure across sequential jobs.
-        global _last_pipeline_end_time
-        # Skip inter-job cooldown when keeping models warm — the models are
-        # already loaded and there's no memory pressure to settle.
-        if not config.KEEP_MODELS_WARM and _last_pipeline_end_time > 0:
-            elapsed_since_last = time.time() - _last_pipeline_end_time
-            if elapsed_since_last < _MIN_INTERJOB_COOLDOWN_SEC:
-                wait = _MIN_INTERJOB_COOLDOWN_SEC - elapsed_since_last
-                print(f"[pipeline] ⏳ Inter-job cooldown: waiting {wait:.1f}s for MPS memory to settle...")
-                await asyncio.sleep(wait)
-
         # Reset the MPS OOM flag before each new pipeline run
         global _mps_oom_occurred
         _mps_oom_occurred = False
 
+        # Register job immediately so the frontend sees "initializing"
+        # during the cooldown period (instead of stale "uploaded" status).
         print(f"\n{'='*60}")
         print(f"   🎬 [PIPELINE] Starting pipeline for job {job_id}")
         print(f"{'='*60}")
@@ -4180,6 +4217,19 @@ async def _run_pipeline_async(job_id: str):
             print(f"[pipeline] JOB-STARTED job_id={job_id} title='{title}'")
         except Exception:
             print(f"[pipeline] JOB-STARTED job_id={job_id} title='Untitled'")
+        finally:
+            # Persist initial status so polling sees it during cooldown
+            uploader.update_status(job_id, {"status": "initializing", "progress": 0.0})
+
+        # ── Inter-job cooldown (after registration, so frontend shows progress) ──
+        global _last_pipeline_end_time
+        if not config.KEEP_MODELS_WARM and _last_pipeline_end_time > 0:
+            elapsed_since_last = time.time() - _last_pipeline_end_time
+            if elapsed_since_last < _MIN_INTERJOB_COOLDOWN_SEC:
+                wait = _MIN_INTERJOB_COOLDOWN_SEC - elapsed_since_last
+                print(f"[pipeline] ⏳ Inter-job cooldown: waiting {wait:.1f}s for MPS memory to settle...")
+                await asyncio.sleep(wait)
+
         try:
             await asyncio.to_thread(_run_pipeline_sync, job_id)
             print(f"\n{'='*60}")
@@ -4209,6 +4259,7 @@ async def _run_pipeline_async(job_id: str):
             _active_jobs.pop(job_id, None)
             _last_pipeline_end_time = time.time()
             _cleanup_pipeline_resources()
+            _mps_oom_occurred = False  # defensive reset
 
 
 def _cleanup_pipeline_resources():

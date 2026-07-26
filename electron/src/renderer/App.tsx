@@ -736,6 +736,7 @@ export default function App() {
       console.log("Upload result", result);
       setJobId(result.job_id);
       setJobMetadata({ title, originalFilename: file.name, attendees, attendeeEmails: attendeeEmails || [] });
+      setTranscript(null);
       setView("processing");
       setShowNewForm(false);
       // Polling starts automatically via useJobStatus when jobId changes

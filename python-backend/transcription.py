@@ -272,29 +272,42 @@ class TranscriptionEngine:
                 config.DIARIZATION_MODEL,
             ),
         )
-        proc.start()
-        proc.join(timeout=DIARIZATION_TIMEOUT + 30)  # +30s grace for model loading
 
-        if proc.is_alive():
-            proc.terminate()
-            proc.join()
-            raise TimeoutError(
-                f"Diarization subprocess timed out after {DIARIZATION_TIMEOUT // 60} min"
-            )
-
-        if proc.exitcode != 0:
-            self.mps_oom_occurred = True
-            raise RuntimeError(
-                f"Diarization subprocess crashed (exit code {proc.exitcode}) — "
-                f"likely MPS OOM. Parent process unaffected."
-            )
-
+        segments: list = []
         try:
-            segments = result_queue.get(timeout=10)
-        except Exception:
-            print(f"[transcription] ⚠️  Subprocess exited 0 but queue was empty — "
-                  f"returning empty diarization")
-            segments = []
+            proc.start()
+            proc.join(timeout=DIARIZATION_TIMEOUT + 30)  # +30s grace for model loading
+
+            if proc.is_alive():
+                proc.terminate()
+                proc.join()
+                raise TimeoutError(
+                    f"Diarization subprocess timed out after {DIARIZATION_TIMEOUT // 60} min"
+                )
+
+            if proc.exitcode != 0:
+                self.mps_oom_occurred = True
+                raise RuntimeError(
+                    f"Diarization subprocess crashed (exit code {proc.exitcode}) — "
+                    f"likely MPS OOM. Parent process unaffected."
+                )
+
+            try:
+                segments = result_queue.get(timeout=10)
+            except Exception:
+                print(f"[transcription] ⚠️  Subprocess exited 0 but queue was empty — "
+                      f"returning empty diarization")
+                segments = []
+        finally:
+            # Explicitly close the queue to unlink its POSIX named semaphore.
+            # On macOS, mp.Queue.__del__ does not reliably call sem_unlink(),
+            # which causes POSIX semaphore exhaustion over multiple job runs.
+            # This runs even on the error paths (TimeoutError, RuntimeError).
+            try:
+                result_queue.close()
+                result_queue.join_thread()
+            except Exception:
+                pass
 
         print(f"[transcription] ✅ Diarization complete: {len(segments)} segments from subprocess")
         return segments

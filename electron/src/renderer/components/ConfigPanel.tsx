@@ -39,6 +39,9 @@ interface ConfigValues {
   GMAIL_USER: string;
   TRELLO_KEY: string;
   TRELLO_TOKEN: string;
+  DSMON_PUSH_URL: string;
+  DSMON_INSTANCE_ID: string;
+  DSMON_PUSH_INTERVAL: string;
   HUGGING_FACE_TOKEN: string;
   GITHUB_TOKEN: string;
   EMBEDDING_PROVIDER: string;
@@ -95,6 +98,9 @@ const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secre
   { key: "GMAIL_USER", label: "Gmail User Email", required: false, secret: false, section: "Services" },
   { key: "TRELLO_KEY", label: "Trello API Key", required: false, secret: true, section: "Services" },
   { key: "TRELLO_TOKEN", label: "Trello Token", required: false, secret: true, section: "Services" },
+  { key: "DSMON_PUSH_URL", label: "DS-mon Push URL", required: false, secret: false, section: "Usage Tracking" },
+  { key: "DSMON_INSTANCE_ID", label: "DS-mon Instance ID", required: false, secret: false, section: "Usage Tracking" },
+  { key: "DSMON_PUSH_INTERVAL", label: "DS-mon Push Interval (ms)", required: false, secret: false, section: "Usage Tracking" },
   { key: "DELIVERY_RECIPIENT_EMAILS", label: "Default Recipient Emails", required: false, secret: false, section: "Delivery Config" },
   { key: "DELIVERY_EMAIL_SUBJECT", label: "Email Subject Template", required: false, secret: false, section: "Delivery Config" },
   { key: "DELIVERY_EMAIL_ADDITIONAL_CONTENT", label: "Additional Email Content", required: false, secret: false, section: "Delivery Config" },
@@ -441,6 +447,9 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
             GMAIL_USER: cfg.GMAIL_USER?.value || "",
             TRELLO_KEY: cfg.TRELLO_KEY?.value || "",
             TRELLO_TOKEN: cfg.TRELLO_TOKEN?.value || "",
+            DSMON_PUSH_URL: cfg.DSMON_PUSH_URL?.value || "",
+            DSMON_INSTANCE_ID: cfg.DSMON_INSTANCE_ID?.value || "",
+            DSMON_PUSH_INTERVAL: cfg.DSMON_PUSH_INTERVAL?.value || "300000",
             LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
             LOG_COLLAPSE_REPEATED_PREFIXES: cfg.LOG_COLLAPSE_REPEATED_PREFIXES?.value || "true",
             LLM_TEMPERATURE: cfg.LLM_TEMPERATURE?.value || "0.1",
@@ -507,6 +516,9 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
             GMAIL_USER: cfg.GMAIL_USER?.value || "",
             TRELLO_KEY: cfg.TRELLO_KEY?.value || "",
             TRELLO_TOKEN: cfg.TRELLO_TOKEN?.value || "",
+            DSMON_PUSH_URL: cfg.DSMON_PUSH_URL?.value || "",
+            DSMON_INSTANCE_ID: cfg.DSMON_INSTANCE_ID?.value || "",
+            DSMON_PUSH_INTERVAL: cfg.DSMON_PUSH_INTERVAL?.value || "300000",
             LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
             LOG_COLLAPSE_REPEATED_PREFIXES: cfg.LOG_COLLAPSE_REPEATED_PREFIXES?.value || "true",
             LLM_TEMPERATURE: cfg.LLM_TEMPERATURE?.value || "0.1",
@@ -562,6 +574,9 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
             GMAIL_USER: cfg.GMAIL_USER?.value || "",
             TRELLO_KEY: cfg.TRELLO_KEY?.value || "",
             TRELLO_TOKEN: cfg.TRELLO_TOKEN?.value || "",
+            DSMON_PUSH_URL: cfg.DSMON_PUSH_URL?.value || "",
+            DSMON_INSTANCE_ID: cfg.DSMON_INSTANCE_ID?.value || "",
+            DSMON_PUSH_INTERVAL: cfg.DSMON_PUSH_INTERVAL?.value || "300000",
             LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
             LOG_COLLAPSE_REPEATED_PREFIXES: cfg.LOG_COLLAPSE_REPEATED_PREFIXES?.value || "true",
             LLM_TEMPERATURE: cfg.LLM_TEMPERATURE?.value || "0.1",
@@ -646,6 +661,9 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
         GMAIL_USER: cfg.GMAIL_USER?.value || "",
         TRELLO_KEY: cfg.TRELLO_KEY?.value || "",
         TRELLO_TOKEN: cfg.TRELLO_TOKEN?.value || "",
+        DSMON_PUSH_URL: cfg.DSMON_PUSH_URL?.value || "",
+        DSMON_INSTANCE_ID: cfg.DSMON_INSTANCE_ID?.value || "",
+        DSMON_PUSH_INTERVAL: cfg.DSMON_PUSH_INTERVAL?.value || "300000",
         LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
         LOG_COLLAPSE_REPEATED_PREFIXES: cfg.LOG_COLLAPSE_REPEATED_PREFIXES?.value || "true",
         LLM_TEMPERATURE: cfg.LLM_TEMPERATURE?.value || "0.1",

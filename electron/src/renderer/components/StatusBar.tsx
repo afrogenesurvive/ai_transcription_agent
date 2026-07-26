@@ -137,7 +137,7 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
 
   useEffect(() => {
     pollModels();
-    const interval = setInterval(pollModels, 15000);
+    const interval = setInterval(pollModels, 30000);
     return () => clearInterval(interval);
   }, [pollModels]);
 

@@ -1,6 +1,6 @@
 {
   "name": "transcription-electron",
-  "version": "0.5.0",
+  "version": "0.5.4",
   "private": true,
   "license": "Apache-2.0",
   "description": "Electron desktop UI for AI Meeting Transcription Agent",
@@ -81,6 +81,9 @@
     "mac": {
       "icon": null,
       "category": "public.app-category.productivity",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
       "artifactName": "Transcription-Agent-${version}-${arch}.${ext}",
       "target": [
         {

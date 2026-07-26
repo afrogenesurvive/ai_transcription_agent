@@ -92,7 +92,10 @@ export function useServerStatus(ollamaRequired = false) {
     }
   }, []);
 
-  // Poll on mount and every 5s
+  // Poll on mount and every 30s
+  // Model status (diarization availability) doesn't change during a session;
+  // the Python backend also caches the result for 60s, so frequent polling
+  // isn't needed and avoids POSIX semaphore leaks on macOS.
   useEffect(() => {
     pollStatus();
     pollDiarization();
@@ -101,7 +104,7 @@ export function useServerStatus(ollamaRequired = false) {
       pollStatus();
       pollDiarization();
       pollOllama();
-    }, 5000);
+    }, 30000);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
