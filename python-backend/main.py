@@ -676,6 +676,12 @@ async def get_job_attendees(job_id: str):
 
     registered = meta.get("attendees", [])
     attendee_emails = meta.get("attendeeEmails", [])
+    # Normalize: handle both list (positional) and dict ({name: email}) formats.
+    # After label_and_resume updates metadata, attendeeEmails is stored as a dict
+    # to preserve name→email alignment. Convert back to positional list for the
+    # downstream loop which indexes by position.
+    if isinstance(attendee_emails, dict):
+        attendee_emails = [attendee_emails.get(name, "") for name in registered]
 
     # Fetch all enrolled voiceprints
     vps = vp_manager.list_voiceprints()
@@ -2175,8 +2181,13 @@ async def approve_gate1(job_id: str, body: dict = Body(...)):
 
         action = body.get("action", "approve")
         print(f"[api] POST /transcribe/approve_gate1/{job_id} action={action}")
+        print(f"\n{'═' * 40}")
+        print(f"  📨 GATE 1 SUBMITTED (job={job_id[:8]})")
+        print(f"  Action: {action}")
+        print(f"{'═' * 40}")
 
         if action in ("approve", "approve_with_edits"):
+            print(f"  ⚙️ Processing Gate 1 approval...")
             # Check both camelCase (from frontend) and snake_case (from Python)
             edited_transcript = body.get("editedTranscript") or body.get("edited_transcript")
             if action == "approve_with_edits" and edited_transcript:
@@ -2203,7 +2214,11 @@ async def approve_gate1(job_id: str, body: dict = Body(...)):
                 non_speaking_attendees=s.get("non_speaking_attendees", []),
             )
             uploader.update_status(job_id, {"status": "enqueued"})
-            print(f"[api]   ✅ Gate 1: approved — enqueued for agent runner")
+            print(f"\n{'═' * 40}")
+            print(f"  ✅ GATE 1 COMPLETE (job={job_id[:8]})")
+            print(f"  Status: enqueued for agent runner")
+            print(f"  Pipeline resuming...")
+            print(f"{'═' * 40}\n")
             return {"job_id": job_id, "status": "enqueued", "action": action}
 
         elif action == "reject_cancel":
@@ -2213,6 +2228,9 @@ async def approve_gate1(job_id: str, body: dict = Body(...)):
                 "error": "Rejected at raw transcript review (Gate 1)",
             })
             print(f"[api]   ❌ Gate 1: rejected and cancelled")
+            print(f"\n{'═' * 40}")
+            print(f"  ⛔ GATE 1 REJECTED — Job cancelled (job={job_id[:8]})")
+            print(f"{'═' * 40}\n")
             return {"job_id": job_id, "status": "failed"}
 
         elif action == "reject_retry":
@@ -2220,6 +2238,9 @@ async def approve_gate1(job_id: str, body: dict = Body(...)):
             uploader.update_status(job_id, {"status": "reprocessing", "progress": 0.0})
             _start_pipeline_async(job_id)
             print(f"[api]   🔄 Gate 1: rejected and retrying pipeline")
+            print(f"\n{'═' * 40}")
+            print(f"  🔄 GATE 1 REJECTED — Pipeline retrying (job={job_id[:8]})")
+            print(f"{'═' * 40}\n")
             return {"job_id": job_id, "status": "reprocessing"}
 
         else:
@@ -2258,8 +2279,13 @@ async def approve_gate2(job_id: str, body: dict = Body(...)):
 
         action = body.get("action", "approve")
         print(f"[api] POST /transcribe/approve_gate2/{job_id} action={action}")
+        print(f"\n{'═' * 40}")
+        print(f"  📨 GATE 2 SUBMITTED (job={job_id[:8]})")
+        print(f"  Action: {action}")
+        print(f"{'═' * 40}")
 
         if action in ("approve", "approve_with_edits"):
+            print(f"  ⚙️ Processing Gate 2 approval...")
             edits_made = []
 
             # Check both camelCase and snake_case for edited fields
@@ -2302,6 +2328,10 @@ async def approve_gate2(job_id: str, body: dict = Body(...)):
             })
             uploader.update_status(job_id, {"status": "delivery_approved"})
             print(f"[api]   ✅ Gate 2: approved — delivery_approved enqueued (edits: {edits_made})")
+            print(f"\n{'═' * 40}")
+            print(f"  ✅ GATE 2 COMPLETE (job={job_id[:8]})")
+            print(f"  Status: delivery_approved — agent runner resuming")
+            print(f"{'═' * 40}\n")
             return {"job_id": job_id, "status": "delivery_approved", "edits_made": edits_made}
 
         elif action == "reject_cancel":
@@ -2309,6 +2339,9 @@ async def approve_gate2(job_id: str, body: dict = Body(...)):
             uploader.save_edit_action(job_id, "gate2_reject_cancel", {"feedback": body.get("feedback", "")})
             uploader.update_status(job_id, {"status": "failed", "error": err_msg})
             print(f"[api]   ❌ Gate 2: rejected and cancelled")
+            print(f"\n{'═' * 40}")
+            print(f"  ⛔ GATE 2 REJECTED — Job cancelled (job={job_id[:8]})")
+            print(f"{'═' * 40}\n")
             return {"job_id": job_id, "status": "failed"}
 
         elif action == "reject_retry":
@@ -2335,6 +2368,9 @@ async def approve_gate2(job_id: str, body: dict = Body(...)):
             })
             uploader.update_status(job_id, {"status": "enqueued"})
             print(f"[api]   🔄 Gate 2: rejected and retrying LLM pipeline (feedback: '{feedback[:100]}')")
+            print(f"\n{'═' * 40}")
+            print(f"  🔄 GATE 2 REJECTED — Pipeline retrying (job={job_id[:8]})")
+            print(f"{'═' * 40}\n")
             return {"job_id": job_id, "status": "enqueued", "retry": True}
 
         else:
@@ -2557,6 +2593,9 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
             # ── Gate 1: Raw Transcript Review ──
             if config.GATE_RAW_REVIEW_ENABLED:
                 _update_active(job_id, "pending_raw_review", 0.95)
+                print(f"\n{'═' * 40}")
+                print(f"  ⏸️  GATE 1 TRIGGERED — Raw Transcript Review (job={job_id[:8]})")
+                print(f"{'═' * 40}")
                 jlog.log(f"\n   ⏸️  [PIPELINE] Gate 1 active — pausing for raw transcript review")
                 jlog.log(f"[pipeline] ⏸️  Pipeline paused — waiting for user to review/edit transcript")
                 # ── Persist reconciled attendee list back to metadata.json ──

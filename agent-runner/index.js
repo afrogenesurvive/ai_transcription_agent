@@ -615,7 +615,10 @@ async function processEvent(event) {
   // The user approved Gate 2 (delivery review). Restore saved pipeline state
   // and continue from where we left off (save_context → prepare_delivery → deliver).
   if (event.type === "delivery_approved") {
-    console.log(`\n   ⏩ [RUNNER] Delivery approved — resuming pipeline for job ${tag}`);
+    console.log(`\n${"═".repeat(40)}`);
+    console.log(`  ✅ GATE 2 COMPLETE — Pipeline Resuming (job=${tag})`);
+    console.log(`${"═".repeat(40)}\n`);
+    console.log(`   ⏩ [RUNNER] Delivery approved — resuming pipeline for job ${tag}`);
     const storageDir = path.join(STORAGE_BASE, jobData.jobId || eventId);
     const reviewStatePath = path.join(storageDir, "delivery-review-state.json");
 
@@ -959,6 +962,10 @@ async function processEvent(event) {
 
     // ── Approve Delivery (Gate 2) — save state and pause for user review ──
     if (decision.name === "transcribe_approve_delivery") {
+      const gate2Tag = (jobData.jobId || eventId)?.slice(0, 8) || "???";
+      console.log(`\n${"═".repeat(40)}`);
+      console.log(`  ⏸️  GATE 2 TRIGGERED — Delivery Review (job=${gate2Tag})`);
+      console.log(`${"═".repeat(40)}`);
       console.log(`⏸️  [RUNNER] Gate 2: pausing for delivery review — saving pipeline state`);
 
       try {

@@ -388,9 +388,9 @@ export default function App() {
     if (statusData?.status === "pending_raw_review" && jobId && !gate1NotifiedRef.current) {
       gate1NotifiedRef.current = true;
       const jobTitle = jobMetadata?.title || "Untitled Meeting";
-      notify(`"${jobTitle}" — raw transcript review needed`);
+      notify(`"${jobTitle}" — transcript approval needed`);
       window.electronAPI?.showNotification({
-        title: "Raw Transcript Review Needed",
+        title: "Transcript Approval Needed",
         body: `"${jobTitle}" — click to review and approve the transcript`,
         type: "paused",
         subtitle: jobTitle,
@@ -400,9 +400,9 @@ export default function App() {
     if (statusData?.status === "pending_delivery_review" && jobId && !gate2NotifiedRef.current) {
       gate2NotifiedRef.current = true;
       const jobTitle = jobMetadata?.title || "Untitled Meeting";
-      notify(`"${jobTitle}" — delivery review needed`);
+      notify(`"${jobTitle}" — pre-delivery approval needed`);
       window.electronAPI?.showNotification({
-        title: "Delivery Review Needed",
+        title: "Pre-Delivery Approval Needed",
         body: `"${jobTitle}" — click to review and approve delivery`,
         type: "paused",
         subtitle: jobTitle,
@@ -506,6 +506,16 @@ export default function App() {
         .catch((err) => {
           notify(`Failed to load transcript: ${err.message}`);
         });
+
+      // Safe to start a new job
+      if (!foreignJobs.hasForeignRunningJobs) {
+        setTimeout(() => {
+          notify("✅ System ready — safe to start a new transcription job");
+        }, 2000);
+        console.log(`\n${"═".repeat(40)}`);
+        console.log(`  🟢 SYSTEM IDLE — Safe to start a new job`);
+        console.log(`${"═".repeat(40)}\n`);
+      }
     }
 
     // When polling detects a failed status or network error — show notification
@@ -530,6 +540,16 @@ export default function App() {
       // the actual backend status so the cancel button remains available.
       if (statusData && statusData.status !== "failed") {
         setStatusData((prev: any) => (prev ? { ...prev, titleError: errMsg, progress: prev.progress ?? 0.0 } : prev));
+      }
+
+      // Safe to start a new job
+      if (!foreignJobs.hasForeignRunningJobs) {
+        setTimeout(() => {
+          notify("✅ System ready — safe to start a new transcription job");
+        }, 2000);
+        console.log(`\n${"═".repeat(40)}`);
+        console.log(`  🟢 SYSTEM IDLE — Safe to start a new job`);
+        console.log(`${"═".repeat(40)}\n`);
       }
     }
   }, [statusHook.state, jobId]);
@@ -593,9 +613,10 @@ export default function App() {
   const handleGate1Approve = useCallback(
     async (body: { action: string; editedTranscript?: any[] }) => {
       if (!jobId) return;
+      console.log("[Gate1] 🚀 Submitted — approving raw transcript");
       try {
         const result = await api.approveGate1(jobId, body);
-        console.log("Gate 1 approve result", result);
+        console.log("[Gate1] ✅ Complete — enqueued for agent runner", result);
         notify("Raw transcript approved — agent pipeline starting");
       } catch (err: any) {
         const errMsg = err.message || "Failed to approve";
@@ -609,9 +630,12 @@ export default function App() {
   const handleGate1Reject = useCallback(
     async (action: "cancel" | "retry") => {
       if (!jobId) return;
+      const gate1RejectAction = action === "cancel" ? "🚫" : "🔄";
+      console.log(`[Gate1] ${gate1RejectAction} Rejected — ${action === "cancel" ? "cancelling job" : "retrying pipeline"}`);
       try {
         await api.approveGate1(jobId, { action: action === "cancel" ? "reject_cancel" : "reject_retry" });
         if (action === "cancel") {
+          console.log("[Gate1] ⛔ Job cancelled");
           statusHook.stopPolling();
           setView("results");
           setStatusData({ status: "failed", error: "Rejected at raw transcript review (Gate 1)", progress: 0.0 });
@@ -646,9 +670,10 @@ export default function App() {
       feedback?: string;
     }) => {
       if (!jobId) return;
+      console.log("[Gate2] 🚀 Submitted — approving delivery");
       try {
         const result = await api.approveGate2(jobId, body);
-        console.log("Gate 2 approve result", result);
+        console.log("[Gate2] ✅ Complete — saved to memory, delivering", result);
         notify("Delivery approved — saving to memory and delivering");
       } catch (err: any) {
         const errMsg = err.message || "Failed to approve delivery";
@@ -662,12 +687,15 @@ export default function App() {
   const handleGate2Reject = useCallback(
     async (action: "cancel" | "retry", feedback?: string) => {
       if (!jobId) return;
+      const gate2RejectAction = action === "cancel" ? "🚫" : "🔄";
+      console.log(`[Gate2] ${gate2RejectAction} Rejected — ${action === "cancel" ? "cancelling job" : "retrying pipeline"}`);
       try {
         await api.approveGate2(jobId, {
           action: action === "cancel" ? "reject_cancel" : "reject_retry",
           feedback,
         });
         if (action === "cancel") {
+          console.log("[Gate2] ⛔ Job cancelled");
           statusHook.stopPolling();
           setView("results");
           setStatusData({ status: "failed", error: "Rejected at delivery review (Gate 2)", progress: 0.0 });
