@@ -356,7 +356,10 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
                             }}>
                             <Icon name="close" size="14" /> Reject & Cancel
                           </button>
-                          <button className="pp-gate-btn pp-gate-btn--reject" disabled={true} title="Reject is temporarily disabled">
+                          <button
+                            className="pp-gate-btn pp-gate-btn--reject pp-gate-btn--reject-disabled"
+                            disabled={true}
+                            title="Reject is temporarily disabled">
                             <Icon name="refresh" size="14" /> Reject & Retry
                           </button>
                         </>
@@ -633,7 +636,10 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
                             }}>
                             <Icon name="close" size="14" /> Reject & Cancel
                           </button>
-                          <button className="pp-gate-btn pp-gate-btn--reject" disabled={false} title="Reject is temporarily disabled">
+                          <button
+                            className="pp-gate-btn pp-gate-btn--reject pp-gate-btn--reject-disabled"
+                            disabled={true}
+                            title="Reject is temporarily disabled">
                             <Icon name="refresh" size="14" /> Reject & Retry
                           </button>
                         </>

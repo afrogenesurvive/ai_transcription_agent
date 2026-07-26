@@ -1049,16 +1049,12 @@ async def verify_labels(payload: dict = Body(...)):
                     emb, threshold=config.VOICEPRINT_THRESHOLD
                 )
 
-                # Report any match where the existing name differs from the assigned name,
-                # OR where the name matches a voiceprint but isn't in this job's attendee
-                # list (cross-context conflict — the voiceprint belongs to someone not
-                # invited to this meeting, suggesting a different context/labeling).
+                # Report any match where the existing name differs from the assigned
+                # name. If the names match (e.g. user clicked "Use ExistingName" via
+                # inline resolution), always allow — it's an intentional adoption even
+                # if the name isn't in this job's attendee list.
                 for m in matches:
                     if m["name"].lower() != name.lower():
-                        voice_match_conflicts.append(m)
-                    elif name.lower() not in (a.lower() for a in registered_attendees):
-                        # Same name but not in attendee list — still a cross-context
-                        # conflict (voiceprint from a different meeting).
                         voice_match_conflicts.append(m)
 
         verifications.append({
@@ -1753,12 +1749,15 @@ async def serve_speaker_clip(job_id: str, speaker_id: str, clip_index: int):
 
 
 @app.post("/transcribe/label_and_resume/{job_id}")
-async def label_and_resume(job_id: str, labels: list = Body(...)):
+async def label_and_resume(job_id: str, payload: dict = Body(...)):
     """Accept speaker labels from the user and resume the pipeline.
 
-    Body: JSON array of {speaker_id, name, email?}
+    Body: {labels: [{speaker_id, name, email?}], overwrite_names?: [str]}
     Saves voiceprints with actual audio embeddings, remaps speaker IDs,
     then continues the pipeline from diarization → ASR → alignment → agent.
+
+    When overwrite_names is provided, the drift audit is skipped for those
+    names, allowing the user to assign a different name to a known voice.
     """
     import traceback
     try:
@@ -1768,10 +1767,13 @@ async def label_and_resume(job_id: str, labels: list = Body(...)):
         if s["status"] != "paused_for_labeling":
             raise HTTPException(409, f"Job is not paused for labeling (status={s['status']})")
 
-        if not labels or not isinstance(labels, list):
-            raise HTTPException(400, "Body must be a JSON array of {speaker_id, name} objects")
+        labels = payload.get("labels", [])
+        overwrite_names = payload.get("overwrite_names", [])
 
-        _inner_label_and_resume(job_id, labels)
+        if not labels or not isinstance(labels, list):
+            raise HTTPException(400, "Body must contain a 'labels' array of {speaker_id, name} objects")
+
+        _inner_label_and_resume(job_id, labels, overwrite_names)
     except HTTPException:
         raise
     except Exception as e:
@@ -1780,9 +1782,20 @@ async def label_and_resume(job_id: str, labels: list = Body(...)):
         raise HTTPException(500, f"label_and_resume failed: {e}")
 
 
-def _inner_label_and_resume(job_id: str, labels: list):
+def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = None):
     """Inner function — all the actual work, extracted so the async route
-    handler has a clean try/except wrapper."""
+    handler has a clean try/except wrapper.
+
+    Args:
+        job_id: The job ID
+        labels: List of {speaker_id, name, email} dicts
+        overwrite_names: Optional list of names to skip drift audit for.
+            When a name is in this list, the drift audit will not report
+            conflicts for that label, allowing the user to assign a
+            different name to a known voice.
+    """
+    if overwrite_names is None:
+        overwrite_names = []
     # Defer imports that rely on the module-level globals
     from config import config
     import json, os, numpy as np
@@ -1881,6 +1894,12 @@ def _inner_label_and_resume(job_id: str, labels: list):
         emb = pvp["embedding"]
         if emb is None:
             continue
+
+        # Skip drift audit for names the user explicitly wants to overwrite
+        if name in overwrite_names:
+            print(f"[drift] ➡️  '{name}' ({spk}) in overwrite_names — skipping drift audit")
+            continue
+
         email_key = vp_manager._make_email(name, email)
         # Match against ALL existing enrolled voiceprints
         all_matches = vp_manager.find_matching_voiceprints(

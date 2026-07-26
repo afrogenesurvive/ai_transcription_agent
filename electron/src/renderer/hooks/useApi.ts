@@ -122,8 +122,16 @@ export function useApi() {
     },
 
     /** Submit speaker labels and resume the pipeline */
-    labelAndResume: async (jobId: string, labels: Array<{ speaker_id: string; name: string; email?: string }>) => {
-      const result = await bridgeCall("transcribe_label_and_resume", { jobId, labels });
+    labelAndResume: async (
+      jobId: string,
+      labels: Array<{ speaker_id: string; name: string; email?: string }>,
+      overwriteNames?: string[],
+    ) => {
+      const result = await bridgeCall("transcribe_label_and_resume", {
+        jobId,
+        labels,
+        overwrite_names: overwriteNames || [],
+      });
       // Check for voice match conflict response from the bridge
       if (result && (result as any).conflict === true) {
         throw new VoiceMatchConflictError((result as any).message || "Voice match conflict detected", (result as any).conflicts || []);

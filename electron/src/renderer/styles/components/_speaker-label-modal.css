@@ -440,7 +440,8 @@
 }
 
 .modal-actions .btn-primary,
-.modal-actions .btn-secondary {
+.modal-actions .btn-secondary,
+.modal-actions .btn-danger {
   padding: 8px 18px;
   border-radius: 6px;
   font-size: 13px;

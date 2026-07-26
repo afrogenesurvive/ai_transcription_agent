@@ -59,7 +59,10 @@ interface Props {
   jobId: string;
   speakers: SpeakerInfo[];
   suggestedEmails?: string[];
-  onConfirm: (labels: Array<{ speaker_id: string; name: string; email?: string }>) => Promise<void>;
+  onConfirm: (
+    labels: Array<{ speaker_id: string; name: string; email?: string }>,
+    options?: { overwriteNames?: string[] },
+  ) => Promise<void>;
   onCancel: () => void;
   submitting: boolean;
   nonSpeakingAttendees?: NonSpeakingInfo[];
@@ -365,11 +368,12 @@ export default function SpeakerLabelModal({
     });
   };
 
-  /** Not overwriting any entries → keep existing voiceprints, don't save new ones for those names. */
+  /** Confirm labels from the VP conflict dialog, passing overwriteSet to force overwrite. */
   const handleConflictConfirm = async () => {
     const result = buildResult();
+    const overwriteNames = Array.from(overwriteSet);
     setConflicts([]);
-    await onConfirm(result);
+    await onConfirm(result, { overwriteNames });
   };
 
   /** Per-conflict accept/reject toggles (Phase C3). */
@@ -385,13 +389,15 @@ export default function SpeakerLabelModal({
     });
   };
 
-  /** Continue despite voice match warnings (Mitigation 1 override). */
-  const handleVoiceWarningContinue = async () => {
+  /** Continue despite voice match warnings — submits with original names as overwrite_names. */
+  const handleVoiceWarningForceOverwrite = async () => {
     setShowVoiceWarnings(false);
     setVerificationDone(true);
     setCheckingConflicts(false);
+    // Collect all originally-typed names as overwrite targets
     const result = buildResult();
-    await onConfirm(result);
+    const overwriteNames = result.map((l) => l.name).filter(Boolean);
+    await onConfirm(result, { overwriteNames });
   };
 
   /** Accept only the ticked conflicts and proceed. */
@@ -787,6 +793,12 @@ export default function SpeakerLabelModal({
                 </button>
                 <button className="btn-primary" onClick={handleVoiceWarningAcceptSelected} disabled={acceptedConflicts.size === 0}>
                   Accept Selected ({acceptedConflicts.size})
+                </button>
+                <button
+                  className="btn-danger"
+                  onClick={handleVoiceWarningForceOverwrite}
+                  title="Keep my typed names and overwrite the existing voiceprints">
+                  Keep My Names
                 </button>
               </div>
             </div>
