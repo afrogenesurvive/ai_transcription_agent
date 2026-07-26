@@ -178,6 +178,23 @@ async def lifespan(app: FastAPI):
     if semantic_memory is not None:
         chroma_dir = semantic_memory.persist_dir
         chroma_db = os.path.join(chroma_dir, "chroma.sqlite3")
+
+        # ── Clean up stale WAL files from prior crashes ──
+        # If the process was killed mid-write, leftover .db-wal / .db-shm
+        # files can cause ChromaDB's Rust bindings to open the database in
+        # read-only mode (SQLITE_READONLY_DBMOVED / code 1032).  Remove
+        # them first so SQLite starts with a clean slate regardless of
+        # how the raw sqlite3 test below behaves.
+        if os.path.isdir(chroma_dir):
+            for _stale_ext in (".db-wal", ".db-shm", ".db-journal"):
+                _stale_path = chroma_db + _stale_ext
+                if os.path.exists(_stale_path):
+                    try:
+                        os.remove(_stale_path)
+                        print(f"   🧹 [startup] Removed stale WAL file: {_stale_path}")
+                    except Exception as _remove_err:
+                        print(f"   ⚠️  [startup] Could not remove {_stale_path}: {_remove_err}")
+
         if os.path.exists(chroma_db):
             try:
                 import sqlite3 as _sc

@@ -374,6 +374,11 @@ export default function App() {
         setSidebarView("current");
         setShowHistory(false);
         setShowNewForm(false);
+        // Clear history job state so the right column shows current job results
+        // instead of leaving the stale history ResultsViewer visible behind the modal.
+        setHistoryJobId(null);
+        setHistoryTranscript(null);
+        setHistoryJobStatus(null);
       }
     }
   }, [statusData?.status]);
@@ -531,10 +536,7 @@ export default function App() {
 
   // Handle speaker label confirmation and pipeline resume
   const handleLabelConfirm = useCallback(
-    async (
-      labels: Array<{ speaker_id: string; name: string; email?: string }>,
-      options?: { overwriteNames?: string[] },
-    ) => {
+    async (labels: Array<{ speaker_id: string; name: string; email?: string }>, options?: { overwriteNames?: string[] }) => {
       if (!jobId) return;
       setLabelingError(null);
       setLabelingConflicts(null);
