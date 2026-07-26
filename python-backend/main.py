@@ -2559,6 +2559,13 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
                 _update_active(job_id, "pending_raw_review", 0.95)
                 jlog.log(f"\n   ⏸️  [PIPELINE] Gate 1 active — pausing for raw transcript review")
                 jlog.log(f"[pipeline] ⏸️  Pipeline paused — waiting for user to review/edit transcript")
+                # ── Persist reconciled attendee list back to metadata.json ──
+                # The original metadata (from upload) only has the pre-labeling
+                # attendee list. After labeling, update metadata so downstream
+                # consumers (Gate 1 approval, agent runner delivery) get the
+                # full attendee list with delivery recipients.
+                _update_metadata_with_reconciliation(job_id, metadata, reconciliation, jlog)
+
                 # Register attendees before pausing so the approval panel has access to them
                 _register_attendees_after_reconciliation(
                     job_id, metadata, reconciliation, source="manual_labeling"
@@ -2566,6 +2573,10 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
                 return  # Exit pipeline — resume via POST /transcribe/approve_gate1/{job_id}
 
             _update_active(job_id, "ready_for_agent", 0.95)
+
+            # ── Persist reconciled attendee list back to metadata.json ──
+            _update_metadata_with_reconciliation(job_id, metadata, reconciliation, jlog)
+
             skip = metadata.get("skip_steps")
             jlog.log(f"[pipeline] All speakers known — enqueueing ready_for_processing")
 
@@ -3919,6 +3930,62 @@ def _resolve_attendee_email(name: str, email: str) -> str:
     # No voiceprint either — derive deterministically so it still
     # matches what _make_email would produce for this name
     return VoiceprintManager._make_email(name, "")
+
+
+def _update_metadata_with_reconciliation(
+    job_id: str, metadata: dict,
+    reconciliation: dict, jlog=None
+):
+    """Update metadata.json with reconciled attendee list and delivery recipients.
+
+    Called after labeling (both post-ASR and pre-ASR/resumed paths) to persist
+    the full attendee list — including newly labeled speakers, unregistered
+    speakers, and non-speaking attendees — to metadata.json. Without this,
+    downstream consumers (approve_gate1, enqueue_ready, agent runner delivery)
+    read stale metadata with only the original upload-form attendees.
+    """
+    import json, os
+    from config import config
+
+    all_attendee_names = list(dict.fromkeys(
+        [s["name"] for s in reconciliation.get("matched_speakers", [])] +
+        [ns["name"] for ns in reconciliation.get("non_speaking_attendees", [])] +
+        [us["name"] for us in reconciliation.get("unregistered_speakers", [])]
+    ))
+    all_attendee_emails = []
+    for name in all_attendee_names:
+        raw_email = next(
+            (s.get("email", "") for s in reconciliation.get("matched_speakers", []) if s["name"] == name),
+            next((ns.get("email", "") for ns in reconciliation.get("non_speaking_attendees", []) if ns["name"] == name),
+                 next((us.get("email", "") for us in reconciliation.get("unregistered_speakers", []) if us["name"] == name), ""))
+        )
+        all_attendee_emails.append(
+            _resolve_attendee_email(name, raw_email)
+        )
+
+    metadata["attendees"] = all_attendee_names
+    metadata["attendeeEmails"] = dict(zip(all_attendee_names, all_attendee_emails))
+    existing_recipients = set(e.lower() for e in metadata.get("email_recipients", []) if e)
+    for email in all_attendee_emails:
+        if email and "@voiceprint.local" not in email:
+            existing_recipients.add(email.lower())
+    metadata["email_recipients"] = list(existing_recipients)
+    try:
+        meta_path = os.path.join(config.STORAGE_PATH, job_id, "metadata.json")
+        with open(meta_path, "w") as f:
+            json.dump(metadata, f, indent=2)
+        msg = (f"[pipeline] ✅ Updated metadata.json with {len(all_attendee_names)} reconciled attendee(s) "
+               f"({len(metadata['email_recipients'])} delivery recipients)")
+        if jlog:
+            jlog.log(msg)
+        else:
+            print(msg)
+    except Exception as e:
+        err = f"[pipeline] ⚠️  Could not persist reconciled metadata: {e}"
+        if jlog:
+            jlog.log(err)
+        else:
+            print(err)
 
 
 def _register_attendees_after_reconciliation(
