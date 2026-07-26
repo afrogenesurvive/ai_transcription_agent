@@ -629,3 +629,19 @@
 .speaker-label-error-dismiss:hover {
   opacity: 1;
 }
+
+/* ── Proactive voiceprint match banner (info-style, shown on mount) ── */
+
+.speaker-proactive-conflict-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background: rgba(88, 166, 255, 0.1);
+  border: 1px solid rgba(88, 166, 255, 0.25);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.4;
+}

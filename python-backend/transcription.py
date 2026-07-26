@@ -32,7 +32,9 @@ import os
 import time
 import warnings
 import platform as sys_platform
+import multiprocessing as mp
 from typing import Optional
+from patches import *  # noqa: F401  (monkey-patches speechbrain + torchaudio + pyannote)
 from config import config
 from utils import is_network_error
 
@@ -68,6 +70,149 @@ def detect_device() -> str:
     return "cpu"
 
 
+# ── Diarization subprocess (crash isolation) ──
+
+DIARIZATION_TIMEOUT = 900  # 15 minutes — matches PIPELINE_TIMEOUT_SECONDS
+
+
+def _run_diarization_subprocess(
+    audio_path: str,
+    result_queue: mp.Queue,
+    device: str,
+    hf_token: str,
+    model_name: str,
+):
+    """Run pyannote diarization in a subprocess for crash isolation.
+
+    Loads the model and runs inference in this child process. Results are
+    returned via ``result_queue`` as a list of ``{speaker, start, end, duration}``
+    dicts.
+
+    On success: puts segments on queue and exits with code 0.
+    On catchable error: logs, puts empty list on queue, exits 0.
+    On uncatchable crash (segfault etc.): exits with non-zero code (parent detects).
+    """
+    import os
+    import time
+    import traceback
+
+    from config import config
+    from utils import is_network_error
+    from pyannote.audio import Pipeline
+    import torch
+    import soundfile as _sf
+
+    t0 = time.time()
+
+    # ── Check HF token ──
+    if not hf_token:
+        print("[transcription] ⚠️  No HUGGING_FACE_TOKEN set. Diarization unavailable.")
+        result_queue.put([])
+        return
+
+    # ── Audio info ──
+    try:
+        _sinfo = _sf.info(audio_path)
+        print(f"[transcription]   🎯 Audio: {_sinfo.samplerate}Hz, {_sinfo.channels}ch, "
+              f"{_sinfo.frames / _sinfo.samplerate:.1f}s, {os.path.getsize(audio_path) / 1024:.0f}KB")
+    except Exception:
+        pass
+
+    # ── Load pipeline ──
+    print(f"[transcription] Loading diarization model ({model_name}) on {device}...")
+    try:
+        try:
+            pipeline = Pipeline.from_pretrained(model_name, use_auth_token=hf_token)
+        except Exception as _hub_err:
+            if is_network_error(_hub_err):
+                print(f"[transcription] ⚠️  HuggingFace unreachable — using local cache...")
+                pipeline = Pipeline.from_pretrained(
+                    model_name, use_auth_token=hf_token, local_files_only=True,
+                )
+            else:
+                raise
+        if pipeline is None:
+            raise RuntimeError(f"Model '{model_name}' returned None")
+        pipeline.to(torch.device(device))
+        print(f"[transcription] ✅ Diarization model loaded on {device} in {time.time() - t0:.1f}s")
+    except Exception as e:
+        err_lower = str(e).lower()
+        if device == "mps" and ("mps" in err_lower or "metal" in err_lower or "out of memory" in err_lower):
+            print(f"[transcription] ⚠️  MPS device error, falling back to CPU: {e}")
+            try:
+                pipeline = Pipeline.from_pretrained(model_name, use_auth_token=hf_token)
+                if pipeline:
+                    pipeline.to(torch.device("cpu"))
+                    device = "cpu"
+                    print(f"[transcription] ✅ Diarization model loaded on CPU (fallback) in {time.time() - t0:.1f}s")
+                else:
+                    raise RuntimeError("Pipeline returned None on CPU fallback")
+            except Exception as cpu_err:
+                print(f"[transcription] ❌ CPU fallback also failed: {cpu_err}")
+                traceback.print_exc()
+                result_queue.put([])
+                return
+        else:
+            print(f"[transcription] ❌ Failed to load diarization model: {e}")
+            traceback.print_exc()
+            result_queue.put([])
+            return
+
+    # ── Run inference ──
+    print(f"[transcription]   ⏳ Running pyannote diarization pipeline ({model_name}) on {device}...")
+    print("[transcription]   🔍 Call stack entering pyannote:")
+    for line in traceback.format_stack(limit=4)[:-1]:
+        for sub in line.rstrip().split("\n"):
+            print(f"[transcription]     | {sub}")
+
+    try:
+        diarization = pipeline(audio_path)
+    except Exception as e:
+        print(f"[transcription] ❌ Diarization inference failed: {e}")
+        traceback.print_exc()
+        result_queue.put([])
+        return
+
+    infer_elapsed = time.time() - t0
+
+    # ── Collect segments ──
+    segments = []
+    speaker_duration = {}
+    diar_tracks = list(diarization.itertracks(yield_label=True))
+    total_diar_segments = len(diar_tracks)
+    log_interval = max(1, total_diar_segments // 5)
+
+    for i, (t, _, s) in enumerate(diar_tracks):
+        dur = t.end - t.start
+        segments.append({"speaker": s, "start": t.start, "end": t.end, "duration": dur})
+        speaker_duration[s] = speaker_duration.get(s, 0.0) + dur
+        if (i + 1) % log_interval == 0 or i == total_diar_segments - 1:
+            pct = (i + 1) / total_diar_segments * 100
+            speaker_count = len(set(sp["speaker"] for sp in segments))
+            elapsed = time.time() - t0
+            print(f"[transcription]   📊 [{elapsed:>6.1f}s] Diarization progress: {i + 1}/{total_diar_segments} segments "
+                  f"({pct:.0f}%), {speaker_count} speaker(s) identified so far")
+
+    total_speech = sum(speaker_duration.values())
+    elapsed = time.time() - t0
+    print(f"[transcription]   ✅ [{elapsed:>6.1f}s] Diarization complete in {infer_elapsed:.1f}s — "
+          f"{len(segments)} segments, {len(speaker_duration)} speakers, "
+          f"{total_speech:.1f}s total speech")
+    for spk, dur in sorted(speaker_duration.items()):
+        pct = dur / total_speech * 100 if total_speech else 0
+        seg_count = sum(1 for s in segments if s["speaker"] == spk)
+        print(f"[transcription]      [{time.time() - t0:>6.1f}s] {spk}: {dur:.1f}s ({pct:.0f}%) across {seg_count} segment(s)")
+
+    # ── Cleanup MPS cache ──
+    try:
+        if hasattr(torch, "mps") and torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+    except Exception:
+        pass
+
+    result_queue.put(segments)
+
+
 class TranscriptionEngine:
     def __init__(self, model_size: Optional[str] = None, device: Optional[str] = None,
                  cpu_fallback: bool = False):
@@ -99,165 +244,59 @@ class TranscriptionEngine:
     # ── Step 1: Diarization (who spoke when) ──
 
     def run_diarization(self, audio_path: str) -> list:
-        """Run speaker diarization using pyannote.
+        """Run speaker diarization using pyannote in a crash-isolated subprocess.
+
+        Delegates the actual pyannote inference to a ``multiprocessing.Process``
+        subprocess. If pyannote's internal multiprocessing crashes (MPS segfault,
+        leaked semaphore objects, etc.), only the child process dies — the main
+        backend continues running and can retry on CPU.
 
         Returns a list of dicts: {speaker, start, end, duration}.
-
-        The pyannote Pipeline wraps a neural VAD + speaker embedding model:
-          1. Detect speech regions (VAD)
-          2. Split into speaker-homogeneous segments via clustering
-          3. Assign each segment a speaker label (SPEAKER_00, SPEAKER_01, ...)
-
-        Notes:
-          - Speaker labels are arbitrary (not names) — just cluster IDs.
-          - Voiceprint matching (in VoiceprintManager) later maps these to names.
-          - Requires huggingface access to pyannote/speaker-diarization-3.1.
         """
-        print(f"[transcription] Loading diarization model ({config.DIARIZATION_MODEL}) on {self.device}...")
-        if self._diarization is None:
-            from pyannote.audio import Pipeline
-            import torch
+        print(f"[transcription] 🚀 Starting diarization subprocess for {audio_path} "
+              f"(device={self.device}, timeout={DIARIZATION_TIMEOUT // 60}min)...")
 
-            hf_token = config.HUGGING_FACE_TOKEN
-            if not hf_token:
-                print(f"[transcription] ⚠️  No HUGGING_FACE_TOKEN set. The diarization model is gated and requires authentication.")
-                print(f"[transcription]   1. Get a token: https://hf.co/settings/tokens")
-                print(f"[transcription]   2. Accept terms: https://hf.co/{config.DIARIZATION_MODEL}")
-                print(f"[transcription]   3. Set HUGGING_FACE_TOKEN in your .env or config")
-                print(f"[transcription]   Falling back — will generate placeholder segments without diarization.")
+        hf_token = config.HUGGING_FACE_TOKEN
+        if not hf_token:
+            print(f"[transcription] ⚠️  No HUGGING_FACE_TOKEN set. Skipping diarization.")
+            return []
 
-                # Return empty diarization — the pipeline continues without speaker labels
-                return []
+        result_queue = mp.Queue()
+        proc = mp.Process(
+            target=_run_diarization_subprocess,
+            args=(
+                audio_path,
+                result_queue,
+                self.device,
+                hf_token,
+                config.DIARIZATION_MODEL,
+            ),
+        )
+        proc.start()
+        proc.join(timeout=DIARIZATION_TIMEOUT + 30)  # +30s grace for model loading
 
-            device_for_model = torch.device(self.device)
-            try:
-                # Try online first so pyannote can check for model updates.
-                # Falls back to local cache on network errors (DNS, timeout, etc.).
-                try:
-                    pipeline = Pipeline.from_pretrained(
-                        config.DIARIZATION_MODEL, use_auth_token=hf_token,
-                    )
-                except Exception as _hub_err:
-                    if is_network_error(_hub_err):
-                        print(f"[transcription] ⚠️  HuggingFace unreachable ({_hub_err}). "
-                              f"Falling back to local cache...")
-                        pipeline = Pipeline.from_pretrained(
-                            config.DIARIZATION_MODEL, use_auth_token=hf_token,
-                            local_files_only=True,
-                        )
-                    else:
-                        raise
-                if pipeline is None:
-                    raise RuntimeError(
-                        f"Model '{config.DIARIZATION_MODEL}' returned None — "
-                        "may be gated or unreachable"
-                    )
-                pipeline.to(device_for_model)
-                self._diarization = pipeline
-                print(f"[transcription] ✅ Diarization model loaded on {device_for_model}")
-            except RuntimeError as e:
-                # If model fails on MPS (common with some pyannote ops), try CPU
-                if self.device == "mps" and ("mps" in str(e).lower() or "metal" in str(e).lower() or "out of memory" in str(e).lower()):
-                    self.mps_oom_occurred = True
-                    print(f"[transcription] ⚠️  MPS device error, falling back to CPU: {e}")
-                    try:
-                        t_cpu = time.time()
-                        # Try online first; fall back to local cache on network error
-                        try:
-                            pipeline_cpu = Pipeline.from_pretrained(
-                                config.DIARIZATION_MODEL, use_auth_token=hf_token,
-                            )
-                        except Exception as _cpu_hub_err:
-                            if is_network_error(_cpu_hub_err):
-                                print(f"[transcription] ⚠️  HuggingFace unreachable on CPU fallback, "
-                                      f"using local cache...")
-                                pipeline_cpu = Pipeline.from_pretrained(
-                                    config.DIARIZATION_MODEL, use_auth_token=hf_token,
-                                    local_files_only=True,
-                                )
-                            else:
-                                raise
-                        if pipeline_cpu:
-                            pipeline_cpu.to(torch.device("cpu"))
-                            self._diarization = pipeline_cpu
-                            self.device = "cpu"
-                            print(f"[transcription] ✅ Diarization model loaded on CPU (fallback) in {time.time()-t_cpu:.1f}s")
-                        else:
-                            raise RuntimeError("Pipeline returned None on CPU fallback")
-                    except Exception as cpu_err:
-                        import traceback
-                        traceback.print_exc()
-                        print(f"[transcription] ❌ CPU fallback also failed: {cpu_err}")
-                        print(f"[transcription]    ⚠️  Speaker identification unavailable.")
-                        return []
-                else:
-                    import traceback
-                    traceback.print_exc()
-                    print(f"[transcription] ❌ Failed to load diarization model: {e}")
-                    print(f"[transcription]    ⚠️  Speaker identification unavailable.")
-                    return []
-            except Exception as e:
-                import traceback
-                traceback.print_exc()
-                print(f"[transcription] ❌ Failed to load diarization model: {e}")
-                print(f"[transcription]    ⚠️  Speaker identification unavailable.")
-                return []
+        if proc.is_alive():
+            proc.terminate()
+            proc.join()
+            raise TimeoutError(
+                f"Diarization subprocess timed out after {DIARIZATION_TIMEOUT // 60} min"
+            )
 
-        # ── Run diarization inference with timing ──
-        t0 = time.time()
-        # Log audio info before inference
-        import soundfile as _sf
+        if proc.exitcode != 0:
+            self.mps_oom_occurred = True
+            raise RuntimeError(
+                f"Diarization subprocess crashed (exit code {proc.exitcode}) — "
+                f"likely MPS OOM. Parent process unaffected."
+            )
+
         try:
-            _sinfo = _sf.info(audio_path)
-            print(f"[transcription]   🎯 Audio: {_sinfo.samplerate}Hz, {_sinfo.channels}ch, "
-                  f"{_sinfo.frames/_sinfo.samplerate:.1f}s, {os.path.getsize(audio_path)/1024:.0f}KB")
+            segments = result_queue.get(timeout=10)
         except Exception:
-            pass
+            print(f"[transcription] ⚠️  Subprocess exited 0 but queue was empty — "
+                  f"returning empty diarization")
+            segments = []
 
-        print(f"[transcription]   ⏳ Running pyannote diarization pipeline ({config.DIARIZATION_MODEL}) on {self.device}...")
-        print(f"[transcription]   🔍 pyannote will call torchaudio.load() internally — any torchaudio warnings below originate from pyannote")
-        # Dump a short stack trace so the user can correlate the torchaudio
-        # deprecation warning (which fires inside pyannote's __call__) with
-        # the exact call site in this file.
-        import traceback as _tb
-        print(f"[transcription]   🔍 Call stack entering pyannote:")
-        for line in _tb.format_stack(limit=4)[:-1]:
-            for sub in line.rstrip().split("\n"):
-                print(f"[transcription]     | {sub}")
-        # Let torchaudio deprecation warnings (from pyannote internal calls)
-        # print naturally to stderr — no suppression.
-        diarization = self._diarization(audio_path)
-        infer_elapsed = time.time() - t0
-        print(f"[transcription] Processing diarization w/ PyTorch")
-
-        # Collect segments and compute per-speaker stats, logging progress
-        segments = []
-        speaker_duration = {}
-        # Convert to list so we know total count for progress reporting
-        diar_tracks = list(diarization.itertracks(yield_label=True))
-        total_diar_segments = len(diar_tracks)
-        log_interval = max(1, total_diar_segments // 5)  # 5 progress updates
-        for i, (t, _, s) in enumerate(diar_tracks):
-            dur = t.end - t.start
-            segments.append({"speaker": s, "start": t.start, "end": t.end, "duration": dur})
-            speaker_duration[s] = speaker_duration.get(s, 0.0) + dur
-            if (i + 1) % log_interval == 0 or i == total_diar_segments - 1:
-                pct = (i + 1) / total_diar_segments * 100
-                speaker_count = len(set(sp["speaker"] for sp in segments))
-                elapsed = time.time() - t0
-                print(f"[transcription]   📊 [{elapsed:>6.1f}s] Diarization progress: {i+1}/{total_diar_segments} segments "
-                      f"({pct:.0f}%), {speaker_count} speaker(s) identified so far")
-
-        # Log detailed results
-        total_speech = sum(speaker_duration.values())
-        elapsed = time.time() - t0
-        print(f"[transcription]   ✅ [{elapsed:>6.1f}s] Diarization complete in {infer_elapsed:.1f}s — "
-              f"{len(segments)} segments, {len(speaker_duration)} speakers, "
-              f"{total_speech:.1f}s total speech")
-        for spk, dur in sorted(speaker_duration.items()):
-            pct = dur / total_speech * 100 if total_speech else 0
-            seg_count = sum(1 for s in segments if s["speaker"] == spk)
-            print(f"[transcription]      [{time.time() - t0:>6.1f}s] {spk}: {dur:.1f}s ({pct:.0f}%) across {seg_count} segment(s)")
+        print(f"[transcription] ✅ Diarization complete: {len(segments)} segments from subprocess")
         return segments
 
     # ── Step 2: ASR (what was said) ──

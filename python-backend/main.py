@@ -183,9 +183,15 @@ async def lifespan(app: FastAPI):
                 import sqlite3 as _sc
                 _test_conn = _sc.connect(chroma_db)
                 _test_conn.execute("SELECT 1")
+                # Also test write access — a read-only check isn't enough.
+                # SQLite can return SQLITE_READONLY_DBMOVED (1032) on writes
+                # even when reads succeed (e.g., after a crash mid-WAL-write).
+                _test_conn.execute("CREATE TABLE IF NOT EXISTS _startup_write_test (id)")
+                _test_conn.execute("DROP TABLE _startup_write_test")
+                _test_conn.commit()
                 _test_conn.close()
             except Exception as _db_err:
-                print(f"   ⚠️  [startup] ChromaDB appears corrupted ({_db_err}). Deleting and recreating...")
+                print(f"   ⚠️  [startup] ChromaDB check failed ({_db_err}). Deleting and recreating...")
                 try:
                     _test_conn.close()
                 except Exception:
@@ -799,6 +805,7 @@ async def agent_label_speakers(req: LabelRequest):
         except Exception:
             audio_path = None
 
+    pending_voiceprints = []  # Accumulate embeddings in-memory; persist only after drift audit passes
     for label in req.labels:
         emb = None
         sample_start = None
@@ -845,26 +852,30 @@ async def agent_label_speakers(req: LabelRequest):
                         print(f"[api]   ✅ Extracted embedding (fallback) for '{label.name}' ({label.speaker_id})")
                     except Exception as e:
                         print(f"[api]   ⚠️  Could not extract embedding for '{label.name}': {e}")
-        vp_manager.save_voiceprint(
-            label.name, label.email or "", emb,
-            sample_job_id=req.job_id,
-            sample_start=sample_start,
-            sample_end=sample_end,
-        )
+
+        pending_voiceprints.append({
+            "name": label.name.strip(),
+            "email": label.email or "",
+            "embedding": emb,
+            "spk": label.speaker_id,
+            "sample_start": sample_start,
+            "sample_end": sample_end,
+        })
 
     # ── Drift audit: check for voice match conflicts across ALL jobs ──
+    # Runs against EXISTING voiceprints in the DB — nothing from this
+    # request is persisted yet, so re-submit after a rejection starts fresh.
     drift_entries = []
-    for label in req.labels:
-        spk = label.speaker_id
-        name = label.name.strip()
-        if not spk or not name:
+    for pvp in pending_voiceprints:
+        spk = pvp["spk"]
+        name = pvp["name"]
+        email = pvp["email"]
+        emb = pvp["embedding"]
+        if emb is None:
             continue
-        email_key = vp_manager._make_email(name, label.email or "")
-        saved_emb = vp_manager.get_embedding(email_key)
-        if saved_emb is None:
-            continue
+        email_key = vp_manager._make_email(name, email)
         all_matches = vp_manager.find_matching_voiceprints(
-            saved_emb, threshold=config.VOICEPRINT_THRESHOLD
+            emb, threshold=config.VOICEPRINT_THRESHOLD
         )
         for m in all_matches:
             if m["name"].lower() == name.lower():
@@ -905,6 +916,19 @@ async def agent_label_speakers(req: LabelRequest):
                 "conflicts": drift_entries,
             },
         )
+
+    # ── Batch-save voiceprints: audit passed, persist all pending embeddings ──
+    for pvp in pending_voiceprints:
+        vp_manager.save_voiceprint(
+            pvp["name"], pvp["email"], pvp["embedding"],
+            sample_job_id=req.job_id,
+            sample_start=pvp["sample_start"],
+            sample_end=pvp["sample_end"],
+        )
+        if pvp["embedding"] is not None:
+            print(f"[api]   ✅ Saved voiceprint for '{pvp['name']}' ({pvp['spk']})")
+        else:
+            print(f"[api]   ✅ Saved voiceprint metadata for '{pvp['name']}' ({pvp['spk']}) — no embedding")
 
     # ── Back-sync attendee registry with voiceprint emails ──
     # After successfully saving each voiceprint, update the ephemeral DB
@@ -1025,9 +1049,16 @@ async def verify_labels(payload: dict = Body(...)):
                     emb, threshold=config.VOICEPRINT_THRESHOLD
                 )
 
-                # Report any match where the existing name differs from the assigned name
+                # Report any match where the existing name differs from the assigned name,
+                # OR where the name matches a voiceprint but isn't in this job's attendee
+                # list (cross-context conflict — the voiceprint belongs to someone not
+                # invited to this meeting, suggesting a different context/labeling).
                 for m in matches:
                     if m["name"].lower() != name.lower():
+                        voice_match_conflicts.append(m)
+                    elif name.lower() not in (a.lower() for a in registered_attendees):
+                        # Same name but not in attendee list — still a cross-context
+                        # conflict (voiceprint from a different meeting).
                         voice_match_conflicts.append(m)
 
         verifications.append({
@@ -1576,6 +1607,7 @@ async def get_speaker_clips(job_id: str):
         suggested_name = ""
         suggested_email = ""
         voiceprint_confidence = 0.0
+        voiceprint_matches = []  # All matches — exposed to frontend for proactive conflict display
         try:
             # Multi-clip average for robust embedding
             MAX_SAMPLE = 5
@@ -1595,11 +1627,24 @@ async def get_speaker_clips(job_id: str):
                 matches = vp_manager.find_matching_voiceprints(
                     emb, threshold=config.VOICEPRINT_THRESHOLD
                 )
+                voiceprint_matches = [
+                    {
+                        "name": m["name"],
+                        "email": m.get("email", ""),
+                        "similarity": m["similarity"],
+                        "sample_job_id": m.get("sample_job_id"),
+                    }
+                    for m in matches
+                ]
                 if matches:
                     best = matches[0]
-                    suggested_name = best["name"]
-                    suggested_email = best.get("email", "")
-                    voiceprint_confidence = best["similarity"]
+                    # Only pre-fill if the matched name is in this job's
+                    # attendee list — otherwise it's a cross-context conflict
+                    # that the user should resolve manually.
+                    if any(a.lower() == best["name"].lower() for a in attendee_names):
+                        suggested_name = best["name"]
+                        suggested_email = best.get("email", "")
+                        voiceprint_confidence = best["similarity"]
         except Exception as e:
             print(f"[speaker_clips] ⚠️  Voiceprint matching failed for {spk}: {e}")
 
@@ -1623,6 +1668,7 @@ async def get_speaker_clips(job_id: str):
             "suggested_name": suggested_name,
             "suggested_email": suggested_email,
             "voiceprint_confidence": round(voiceprint_confidence, 3),
+            "voiceprint_matches": voiceprint_matches,
         })
 
     # Include non-speaking attendees from reconciliation data (if available)
@@ -1758,6 +1804,7 @@ def _inner_label_and_resume(job_id: str, labels: list):
     diar_data = uploader.load_diarization(job_id)
     audio_path = uploader.get_audio_path(job_id)
     label_map = {}
+    pending_voiceprints = []  # Accumulate embeddings in-memory; persist only after drift audit passes
     for label in labels:
         spk = label.get("speaker_id", "")
         name = label.get("name", "").strip()
@@ -1766,7 +1813,10 @@ def _inner_label_and_resume(job_id: str, labels: list):
             continue
         label_map[spk] = {"name": name, "email": email}
 
-        # Extract an actual embedding from this speaker's audio
+        # Extract an actual embedding from this speaker's audio (don't persist yet)
+        emb = None
+        sample_start = None
+        sample_end = None
         if diar_data and spk in diar_data.get("speaker_segments", {}):
             segs = diar_data["speaker_segments"][spk]
             # Multi-clip enrollment: average N evenly-spaced embeddings
@@ -1794,13 +1844,7 @@ def _inner_label_and_resume(job_id: str, labels: list):
                 mid_seg = segs[min(mid_idx * step, len(segs) - 1)]
                 sample_start = mid_seg["start"]
                 sample_end = min(mid_seg["end"], sample_start + 3.0)
-                vp_manager.save_voiceprint(
-                    name, email, emb,
-                    sample_job_id=job_id,
-                    sample_start=sample_start,
-                    sample_end=sample_end,
-                )
-                print(f"[api]   ✅ Saved voiceprint for '{name}' ({spk}) — "
+                print(f"[api]   ✅ Extracted embedding for '{name}' ({spk}) — "
                       f"averaged over {len(sampled_embs)} segment(s)")
             else:
                 # Fallback: use the longest segment
@@ -1812,39 +1856,42 @@ def _inner_label_and_resume(job_id: str, labels: list):
                     )
                     sample_start = longest["start"]
                     sample_end = min(longest["end"], sample_start + 3.0)
-                    vp_manager.save_voiceprint(
-                        name, email, emb,
-                        sample_job_id=job_id,
-                        sample_start=sample_start,
-                        sample_end=sample_end,
-                    )
-                    print(f"[api]   ✅ Saved voiceprint (fallback) for '{name}' ({spk})")
+                    print(f"[api]   ✅ Extracted embedding (fallback) for '{name}' ({spk})")
                 except Exception as e:
                     print(f"[api]   ⚠️  Could not extract embedding for '{name}': {e}")
-                    vp_manager.save_voiceprint(name, email, None)
+
+        pending_voiceprints.append({
+            "name": name,
+            "email": email,
+            "embedding": emb,
+            "spk": spk,
+            "sample_start": sample_start,
+            "sample_end": sample_end,
+        })
 
     # ── Cross-job drift audit (Mitigation 2: detect labeling inconsistencies) ──
-    # After saving all voiceprints, compare each new embedding against ALL
-    # existing voiceprints. Log any matches where the same voice was assigned
-    # a different name in a previous job.
+    # Run the audit against EXISTING voiceprints in the DB — nothing from this
+    # request has been persisted yet, so there are no stale prints to cause
+    # false-positive conflicts on re-submit after a rejection.
     drift_entries = []
-    for label in labels:
-        spk = label.get("speaker_id", "")
-        name = label.get("name", "").strip()
-        if not spk or not name:
+    for pvp in pending_voiceprints:
+        spk = pvp["spk"]
+        name = pvp["name"]
+        email = pvp["email"]
+        emb = pvp["embedding"]
+        if emb is None:
             continue
-        # Retrieve the embedding we just saved for this speaker
-        email_key = vp_manager._make_email(name, label.get("email", "").strip())
-        saved_emb = vp_manager.get_embedding(email_key)
-        if saved_emb is None:
-            continue
-        # Match against ALL enrolled voiceprints
+        email_key = vp_manager._make_email(name, email)
+        # Match against ALL existing enrolled voiceprints
         all_matches = vp_manager.find_matching_voiceprints(
-            saved_emb, threshold=config.VOICEPRINT_THRESHOLD
+            emb, threshold=config.VOICEPRINT_THRESHOLD
         )
         for m in all_matches:
             if m["name"].lower() == name.lower():
-                continue  # same name — no drift
+                # Same name — user is intentionally adopting the existing
+                # voiceprint name, even if it wasn't in the original job's
+                # attendee list. Always allow this — no drift.
+                continue
             entry = {
                 "timestamp": datetime.utcnow().isoformat(),
                 "job_id": job_id,
@@ -1873,6 +1920,7 @@ def _inner_label_and_resume(job_id: str, labels: list):
 
         # ❌ Gating: reject conflicting labels instead of silently proceeding.
         # The caller (bot or UI) must resolve the conflict and re-submit.
+        # Nothing was persisted to the DB — re-submit will start fresh.
         first = drift_entries[0]
         raise HTTPException(
             409,
@@ -1888,6 +1936,19 @@ def _inner_label_and_resume(job_id: str, labels: list):
                 "conflicts": drift_entries,
             },
         )
+
+    # ── Batch-save voiceprints: audit passed, persist all pending embeddings ──
+    for pvp in pending_voiceprints:
+        vp_manager.save_voiceprint(
+            pvp["name"], pvp["email"], pvp["embedding"],
+            sample_job_id=job_id,
+            sample_start=pvp["sample_start"],
+            sample_end=pvp["sample_end"],
+        )
+        if pvp["embedding"] is not None:
+            print(f"[api]   ✅ Saved voiceprint for '{pvp['name']}' ({pvp['spk']})")
+        else:
+            print(f"[api]   ✅ Saved voiceprint metadata for '{pvp['name']}' ({pvp['spk']}) — no embedding")
 
     # Determine how to proceed based on labeling phase
     labeling_phase = s.get("labeling_phase", "pre_asr")
@@ -3999,10 +4060,8 @@ def _cleanup_pipeline_resources():
         #    allocations) if we only set to None.
         if not config.KEEP_MODELS_WARM:
             if engine is not None:
-                if hasattr(engine, "_diarization") and engine._diarization is not None:
-                    del engine._diarization
-                    engine._diarization = None
-                    print(f"[pipeline]   \U0001f9f9 Diarization model unloaded")
+                # _diarization removed — diarization now runs in an isolated subprocess
+                # (see _run_diarization_subprocess in transcription.py)
                 if hasattr(engine, "_whisper") and engine._whisper is not None:
                     del engine._whisper
                     engine._whisper = None
@@ -4106,31 +4165,35 @@ def _run_pipeline_sync(job_id: str):
         jlog.log(f"[pipeline] Metadata: title='{metadata.get('title')}', attendees={metadata.get('attendees')}")
 
         # ── Step 1: Diarization ──
+        # Runs in an isolated subprocess (see _run_diarization_subprocess in
+        # transcription.py). If pyannote's internal multiprocessing crashes,
+        # only the child dies — the backend survives and retries on CPU.
         jlog.log(f"\n   🔬 [PIPELINE] Step 1/5: Diarization (identifying speakers)...")
         if _check_cancelled(job_id): return
         _update_active(job_id, "processing_diarization", 0.2)
         _check_pipeline_timeout(job_id, _pipeline_start, jlog)
         t_diar = time.time()
-        diarization = engine.run_diarization(audio_path)
-        diar_elapsed = time.time() - t_diar
+        try:
+            diarization = engine.run_diarization(audio_path)
+        except (RuntimeError, TimeoutError) as _diar_err:
+            err_str = str(_diar_err).lower()
+            if "subprocess" in err_str or "timed out" in err_str or "mps" in err_str or "out of memory" in err_str:
+                jlog.log(f"[pipeline] ⚠️  Diarization subprocess failed — {_diar_err}")
+                jlog.log(f"[pipeline]    Retrying diarization on CPU...")
+                _mps_oom_occurred = True
+                engine = TranscriptionEngine(device="cpu")
+                t_diar_cpu = time.time()
+                diarization = engine.run_diarization(audio_path)
+                diar_elapsed = time.time() - t_diar_cpu
+                jlog.log(f"   ✅ [pipeline] CPU diarization: {len(diarization)} segments in {diar_elapsed:.1f}s")
+                _mps_oom_occurred = False
+            else:
+                raise
+        else:
+            diar_elapsed = time.time() - t_diar
         speakers_found = set(s["speaker"] for s in diarization)
         jlog.log(f"   ✅ [pipeline] Diarization: {len(diarization)} segments, {len(speakers_found)} speakers "
               f"({', '.join(sorted(speakers_found))}) in {diar_elapsed:.1f}s")
-
-        # ── MPS OOM check after diarization ──
-        # If the diarization run hit an MPS OOM error, fall back to CPU for
-        # the remaining ML steps (voiceprint + ASR + alignment).
-        if getattr(engine, 'mps_oom_occurred', False) or _mps_oom_occurred:
-            _mps_oom_occurred = True
-            jlog.log(f"[pipeline] ⚠️  MPS OOM detected during diarization — "
-                  f"recreating engine with CPU fallback for remaining steps")
-            engine = TranscriptionEngine(device="cpu")
-            jlog.log(f"[pipeline]    Re-running diarization on CPU...")
-            t_diar_cpu = time.time()
-            diarization = engine.run_diarization(audio_path)
-            cpu_diar_elapsed = time.time() - t_diar_cpu
-            jlog.log(f"   ✅ [pipeline] CPU diarization: {len(diarization)} segments in {cpu_diar_elapsed:.1f}s")
-            _mps_oom_occurred = False  # Reset flag — we've recovered
 
         # Group by speaker (use dicts consistently — no SimpleNamespace)
         speaker_segments = {}

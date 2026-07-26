@@ -25,6 +25,7 @@ interface SpeakerInfo {
   suggested_name: string;
   suggested_email?: string;
   voiceprint_confidence?: number;
+  voiceprint_matches?: VoiceMatchConflict[];
 }
 
 interface VoiceMatchConflict {
@@ -113,6 +114,15 @@ export default function SpeakerLabelModal({
     }
   }
 
+  // ── Proactive voiceprint matches (seeded from speaker data on mount) ──
+  const [proactiveConflicts, setProactiveConflicts] = useState<Array<{
+    speaker_id: string;
+    matched_name: string;
+    matched_email: string;
+    similarity: number;
+    sample_job_id?: string;
+  }> | null>(null);
+
   // ── Unregistered name warning (Mitigation 3) ──
   const [unregisteredNames, setUnregisteredNames] = useState<string[]>([]);
   const [dismissedUnregistered, setDismissedUnregistered] = useState(false);
@@ -184,6 +194,47 @@ export default function SpeakerLabelModal({
     }
     setLabels(initialNames);
     setEmails(initialEmails);
+
+    // ── Proactive conflict seeding from voiceprint_matches ──
+    // When get_speaker_clips found voiceprint matches for speakers whose
+    // matched names aren't in the attendee list, the backend includes them
+    // in voiceprint_matches. Seed perSpeakerConflicts proactively so the
+    // inline conflict UI appears on mount — not just after onBlur or submit.
+    const proactive: typeof proactiveConflicts = [];
+    const conflictEntries: Record<string, LabelVerification> = {};
+    for (const spk of speakers) {
+      const vpms = spk.voiceprint_matches;
+      if (!vpms || vpms.length === 0) continue;
+      const best = vpms[0];
+      // Only seed a conflict if the best match name differs from the
+      // suggested_name (or suggested_name is blank / came from positional
+      // fallback). If suggested_name already matches, no conflict to show.
+      const suggested = (initialNames[spk.speaker_id] || "").toLowerCase();
+      if (best.name.toLowerCase() !== suggested) {
+        conflictEntries[spk.speaker_id] = {
+          speaker_id: spk.speaker_id,
+          assigned_name: initialNames[spk.speaker_id] || "",
+          assigned_email: initialEmails[spk.speaker_id] || "",
+          voice_match_conflicts: vpms.map((m) => ({
+            name: m.name,
+            email: m.email,
+            similarity: m.similarity,
+            sample_job_id: m.sample_job_id,
+          })),
+        };
+        proactive.push({
+          speaker_id: spk.speaker_id,
+          matched_name: best.name,
+          matched_email: best.email,
+          similarity: best.similarity,
+          sample_job_id: best.sample_job_id,
+        });
+      }
+    }
+    if (Object.keys(conflictEntries).length > 0) {
+      setPerSpeakerConflicts(conflictEntries);
+      setProactiveConflicts(proactive);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -475,6 +526,34 @@ export default function SpeakerLabelModal({
               <span>
                 Review the inline notices below and choose <strong>Use "ExistingName"</strong> to overwrite, or keep your typed name.
               </span>
+            </div>
+          </div>
+        )}
+
+        {/* ── Proactive voiceprint match banner (seeded from speaker data on mount) ── */}
+        {proactiveConflicts && proactiveConflicts.length > 0 && !postSubmitConflicts && (
+          <div className="speaker-proactive-conflict-banner">
+            <Icon name="info" size="16" color="accent" />
+            <div className="speaker-post-conflict-banner-content">
+              <strong>Voiceprint match detected</strong>
+              <span>
+                {proactiveConflicts.length === 1
+                  ? "1 speaker's voice matches an existing enrolled voiceprint under a different name. Review and resolve below."
+                  : `${proactiveConflicts.length} speakers' voices match existing enrolled voiceprints under different names. Review and resolve each below.`}
+              </span>
+              <div className="speaker-post-conflict-details">
+                {proactiveConflicts.map((c, i) => (
+                  <div key={i} className="speaker-post-conflict-detail-row">
+                    <Icon name="person" size="13" color="muted" />
+                    <span>
+                      Voice matches: <strong>{c.matched_name}</strong>
+                      {c.matched_email ? <> &lt;{c.matched_email}&gt;</> : ""}
+                      {" · "}<span className="speaker-post-conflict-similarity">{(c.similarity * 100).toFixed(0)}% match</span>
+                      {c.sample_job_id ? <> from job {c.sample_job_id.slice(0, 8)}</> : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}

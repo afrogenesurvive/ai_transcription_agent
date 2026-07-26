@@ -25,6 +25,7 @@ interface Props {
   onNotify?: (message: string) => void;
   onStorageChanged?: () => void;
   onToggleCollapse?: () => void;
+  onJobDeleted?: (jobId: string) => void;
 }
 
 const STATUS_ICON: Record<string, string> = {
@@ -90,7 +91,7 @@ async function callBridge(tool: string, args: any = {}): Promise<any> {
   return res.json();
 }
 
-export default function HistoryPanel({ onSelectJob, collapsed, currentJobId, onNotify, onStorageChanged, onToggleCollapse }: Props) {
+export default function HistoryPanel({ onSelectJob, collapsed, currentJobId, onNotify, onStorageChanged, onToggleCollapse, onJobDeleted }: Props) {
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -123,6 +124,7 @@ export default function HistoryPanel({ onSelectJob, collapsed, currentJobId, onN
         setJobs((prev) => prev.filter((j) => j.job_id !== jobId));
         onNotify?.(`Job deleted`);
         onStorageChanged?.();
+        onJobDeleted?.(jobId);
       } catch (err: any) {
         setError(`Failed to delete job: ${err.message}`);
         onNotify?.(`Failed to delete job: ${err.message}`);
@@ -130,7 +132,7 @@ export default function HistoryPanel({ onSelectJob, collapsed, currentJobId, onN
         setDeleting(null);
       }
     },
-    [onNotify, onStorageChanged],
+    [onNotify, onStorageChanged, onJobDeleted],
   );
 
   return (

@@ -1190,6 +1190,13 @@ export default function App() {
                             onNotify={notify}
                             onStorageChanged={onStorageChanged}
                             onToggleCollapse={() => setLeftColCollapsed((v) => !v)}
+                            onJobDeleted={(deletedJobId) => {
+                              if (deletedJobId === historyJobId) {
+                                setHistoryJobId(null);
+                                setHistoryTranscript(null);
+                                setHistoryJobStatus(null);
+                              }
+                            }}
                           />
                         ) : (
                           <>
