@@ -1854,8 +1854,8 @@ The system provides existing memory context at the start of each pipeline run. U
                           </span>
                         </label>
                         <p className="config-field-hint" style={{ marginTop: 4 }}>
-                          Enable to forward per-API-call token usage to a central DS-mon instance. When disabled, all usage tracking config is
-                          ignored and no data is collected.
+                          Enable to forward per-API-call token usage to a central DS-mon instance. When disabled, all usage tracking config is ignored
+                          and no data is collected.
                         </p>
                       </div>
 
@@ -1892,7 +1892,8 @@ The system provides existing memory context at the start of each pipeline run. U
                                   "How often (ms) buffered usage records are pushed to DS-mon. Default: 300000 (5 min)."}
                                 {field.key === "DSMON_GIST_RAW_URL" &&
                                   "Raw URL of a GitHub Gist whose content is the live tunnel URL (e.g. http://host:18888/sync/push). The runner polls this URL and auto-updates."}
-                                {field.key === "DSMON_GIST_POLL_INTERVAL" && "How often (ms) the Gist is polled for URL changes. Default: 60000 (1 min)."}
+                                {field.key === "DSMON_GIST_POLL_INTERVAL" &&
+                                  "How often (ms) the Gist is polled for URL changes. Default: 60000 (1 min)."}
                               </p>
                             </div>
                           ))}
