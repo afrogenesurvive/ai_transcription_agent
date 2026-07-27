@@ -14,13 +14,14 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import Icon from "./Icon";
 import Tooltip from "./Tooltip";
 import LoadingModal from "./LoadingModal";
+import DocViewer from "./DocViewer";
 import type { LogEntry } from "../types";
 
 interface Props {
   onClose: () => void;
 }
 
-type Tab = "live" | "database" | "performance" | "usage" | "updates" | "logfiles" | "testing";
+type Tab = "live" | "database" | "performance" | "usage" | "updates" | "logfiles" | "testing" | "guide";
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
@@ -3897,6 +3898,84 @@ function TestingLogsTab() {
   );
 }
 
+/* ── DevPanel Guide Tab ── */
+
+/** Documentation files to display in the Guide tab (excluding end_user_guide.md). */
+const DOC_FILES = [
+  { id: "api_endpoints", label: "API Endpoints", file: "api_endpoints.md" },
+  { id: "asv_speaker_detect_tuning", label: "ASV Speaker Tuning", file: "asv_speaker_detect_tuning.md" },
+  { id: "backend_architecture", label: "Backend Architecture", file: "backend_architecture.md" },
+  { id: "configuration_guide", label: "Configuration Guide", file: "configuration_guide.md" },
+  { id: "dev_setup_installation", label: "Dev Setup", file: "dev_setup_installation.md" },
+  { id: "electron_architecture", label: "Electron Architecture", file: "electron_architecture.md" },
+  { id: "known_bugs", label: "Known Bugs", file: "known_bugs.md" },
+  { id: "system_overview", label: "System Overview", file: "system_overview.md" },
+  { id: "testing_checklist", label: "Testing Checklist", file: "testing_checklist.md" },
+  { id: "usage_tracking_plan", label: "Usage Tracking", file: "usage-tracking-plan.md" },
+  { id: "windows_aws_testing", label: "Windows AWS Testing", file: "windows_aws_testing.md" },
+  { id: "windows_file_locations", label: "Windows File Locations", file: "windows_file_locations.md" },
+  { id: "windows_install", label: "Windows Install/Update", file: "windows_install_uninstall_update.md" },
+];
+
+function DevGuideTab() {
+  const [activeDoc, setActiveDoc] = useState(DOC_FILES[0].id);
+  const [docContents, setDocContents] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+
+  const loadAllDocs = useCallback(async () => {
+    setLoading(true);
+    const contents: Record<string, string> = {};
+    for (const doc of DOC_FILES) {
+      const content = (await window.electronAPI?.getDoc(doc.file)) ?? "";
+      contents[doc.id] = content;
+    }
+    setDocContents(contents);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    loadAllDocs();
+  }, [loadAllDocs]);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+      {/* Sub-tab bar — styled like config-section-tabs */}
+      <div
+        style={{
+          display: "flex",
+          gap: 0,
+          flexWrap: "wrap",
+          borderBottom: "1px solid var(--border)",
+          background: "var(--bg)",
+          flexShrink: 0,
+          padding: "0 16px",
+          overflowX: "auto",
+        }}>
+        {DOC_FILES.map((doc) => (
+          <button
+            key={doc.id}
+            className={`config-section-tab ${activeDoc === doc.id ? "config-section-tab--active" : ""}`}
+            onClick={() => setActiveDoc(doc.id)}
+            title={doc.label}>
+            {doc.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Selected doc content */}
+      {loading ? (
+        <div className="dev-panel-empty" style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          Loading documentation…
+        </div>
+      ) : (
+        <div style={{ flex: 1, minHeight: 0, padding: "12px 16px", overflow: "hidden" }}>
+          <DocViewer markdown={docContents[activeDoc] || ""} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Sub-tab pill button ── */
 
 interface SubTabPillProps {
@@ -3998,6 +4077,14 @@ export default function DevPanel({ onClose }: Props) {
             <Icon name="bug_report" size="14" color="accent" /> Testing
           </button>
         </Tooltip>
+        <Tooltip content="Browse project documentation — architecture, setup, API, and more">
+          <button
+            className={`dev-panel-tab ${activeTab === "guide" ? "dev-panel-tab--active" : ""}`}
+            onClick={() => setActiveTab("guide")}
+            title="Project documentation">
+            <Icon name="book" size="14" color="accent" /> Guide
+          </button>
+        </Tooltip>
         <div className="dev-panel-tabs-spacer" />
         <Tooltip content="Close the developer tools panel">
           <button className="dev-panel-btn dev-panel-btn-close" onClick={onClose} title="Close developer tools">
@@ -4015,32 +4102,27 @@ export default function DevPanel({ onClose }: Props) {
       {activeTab === "logfiles" && <LogFilesTab />}
       {activeTab === "testing" && (
         <>
-          {/* Sub-tab pills */}
-          <div style={{ padding: "8px 16px 0", display: "flex", gap: 8 }}>
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 4,
-                padding: "4px 12px",
-                borderRadius: 12,
-                border: "1px solid var(--border)",
-                background: "transparent",
-                color: "var(--text-muted)",
-                fontSize: "var(--fs-11)",
-                opacity: 0.4,
-                cursor: "not-allowed",
-              }}>
-              <Icon name="smartphone" size="12" color="muted" />
-              Frontend
+          {/* Sub-tab bar — styled like config-section-tabs */}
+          <div style={{ display: "flex", gap: 0, borderBottom: "1px solid var(--border)", background: "var(--bg)", flexShrink: 0, padding: "0 16px" }}>
+            <span className="config-section-tab config-section-tab--readonly" style={{ cursor: "not-allowed" }}>
+              <Icon name="smartphone" size="12" /> Frontend
             </span>
-            <SubTabPill label="Backend" icon="dns" active={testingSubTab === "backend"} onClick={() => setTestingSubTab("backend")} />
-            <SubTabPill label="Logs" icon="article" active={testingSubTab === "logs"} onClick={() => setTestingSubTab("logs")} />
+            <button
+              className={`config-section-tab ${testingSubTab === "backend" ? "config-section-tab--active" : ""}`}
+              onClick={() => setTestingSubTab("backend")}>
+              <Icon name="dns" size="12" /> Backend
+            </button>
+            <button
+              className={`config-section-tab ${testingSubTab === "logs" ? "config-section-tab--active" : ""}`}
+              onClick={() => setTestingSubTab("logs")}>
+              <Icon name="article" size="12" /> Logs
+            </button>
           </div>
           {testingSubTab === "backend" && <BackendTestingTab />}
           {testingSubTab === "logs" && <TestingLogsTab />}
         </>
       )}
+      {activeTab === "guide" && <DevGuideTab />}
     </div>
   );
 }
