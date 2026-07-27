@@ -1700,9 +1700,7 @@ ipcMain.handle("shell:openPath", async (_event, filePath: string) => {
 // ── Run command in new Terminal window ──
 
 ipcMain.handle("shell:runInTerminal", async (_event, params: { command: string; cwd?: string }) => {
-  const projectRoot = app.isPackaged
-    ? path.join(process.resourcesPath, "..")
-    : path.join(app.getAppPath(), "..");
+  const projectRoot = app.isPackaged ? path.join(process.resourcesPath, "..") : path.join(app.getAppPath(), "..");
   const cwd = params.cwd || projectRoot;
   const script = `tell application "Terminal" to do script "cd ${cwd.replace(/"/g, '\\"')} && ${params.command.replace(/"/g, '\\"')}"`;
   try {

@@ -1931,7 +1931,8 @@ The system provides existing memory context at the start of each pipeline run. U
                               <strong>Turn ON</strong> the Enable Sync toggle — status should show green &quot;Listening :18888&quot;
                             </li>
                             <li style={{ marginTop: 8 }}>
-                              Click <strong>Start ngrok (port 18888)</strong> below to expose the sync server — or run <code>ngrok http 18888</code> manually
+                              Click <strong>Start ngrok (port 18888)</strong> below to expose the sync server — or run <code>ngrok http 18888</code>{" "}
+                              manually
                             </li>
                             <li style={{ marginTop: 8 }}>
                               Click <strong>Start Gist Updater</strong> below to broadcast the live tunnel URL to remote machines automatically
@@ -1942,14 +1943,16 @@ The system provides existing memory context at the start of each pipeline run. U
                             🖥️ Remote Machine Setup (each agent runner)
                           </p>
                           <p className="config-field-hint" style={{ marginBottom: 4 }}>
-                            Enable <strong>Usage Tracking</strong> above — the Gist raw URL is pre-filled automatically. The runner polls the Gist for tunnel URL changes and pushes buffered records to the DS-mon host.
+                            Enable <strong>Usage Tracking</strong> above — the Gist raw URL is pre-filled automatically. The runner polls the Gist for
+                            tunnel URL changes and pushes buffered records to the DS-mon host.
                           </p>
                           <ol className="config-field-hint" style={{ paddingLeft: 20, lineHeight: 1.8, marginBottom: 8 }}>
                             <li>
                               <strong>Enable Usage Tracking</strong> toggle → <code>ON</code>
                             </li>
                             <li>
-                              <strong>DS-mon Gist Raw URL</strong> is pre-configured (the secret Gist at <code>35f2d48d11f40af54c91154a2067a700</code>)
+                              <strong>DS-mon Gist Raw URL</strong> is pre-configured (the secret Gist at <code>35f2d48d11f40af54c91154a2067a700</code>
+                              )
                             </li>
                             <li>
                               <strong>DS-mon Gist Poll Interval</strong> defaults to 60s — the runner polls for URL changes automatically
@@ -1987,8 +1990,7 @@ The system provides existing memory context at the start of each pipeline run. U
                           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                             <button
                               className="config-update-status-btn"
-                              onClick={() => window.electronAPI?.runInTerminal({ command: "ngrok http 18888" })}
-                            >
+                              onClick={() => window.electronAPI?.runInTerminal({ command: "ngrok http 18888" })}>
                               <Icon name="open_in_new" size="14" /> Start ngrok (port 18888)
                             </button>
                             <button
@@ -1998,8 +2000,7 @@ The system provides existing memory context at the start of each pipeline run. U
                                   command: "watch -n 30 ./scripts/update-dsmon-gist.sh",
                                   cwd: "/Users/michaelgrandison/Documents/GitHub/ai_transcription_agent",
                                 })
-                              }
-                            >
+                              }>
                               <Icon name="sync" size="14" /> Start Gist Updater
                             </button>
                           </div>
