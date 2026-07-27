@@ -1925,18 +1925,16 @@ The system provides existing memory context at the start of each pipeline run. U
                               Select <strong>Server</strong> mode
                             </li>
                             <li>
-                              Set <strong>listen port</strong> to <code>18080</code> (or your preferred port)
+                              Set <strong>listen port</strong> to <code>18888</code>
                             </li>
                             <li>
-                              <strong>Turn ON</strong> the Enable Sync toggle — status should show green &quot;Listening :18080&quot;
+                              <strong>Turn ON</strong> the Enable Sync toggle — status should show green &quot;Listening :18888&quot;
                             </li>
                             <li style={{ marginTop: 8 }}>
-                              Expose via ngrok: <code>ngrok http 18080</code> — note the public URL (e.g. <code>https://abc123.ngrok.io</code>)
+                              Click <strong>Start ngrok (port 18888)</strong> below to expose the sync server — or run <code>ngrok http 18888</code> manually
                             </li>
                             <li style={{ marginTop: 8 }}>
-                              <strong>Optional (Gist-based discovery):</strong> Create a secret Gist with file <code>dsmon-tunnel-url.txt</code>{" "}
-                              containing the current tunnel URL. Run <code>./scripts/update-dsmon-gist.sh</code> alongside ngrok to keep it updated
-                              automatically.
+                              Click <strong>Start Gist Updater</strong> below to broadcast the live tunnel URL to remote machines automatically
                             </li>
                           </ol>
 
@@ -1944,18 +1942,20 @@ The system provides existing memory context at the start of each pipeline run. U
                             🖥️ Remote Machine Setup (each agent runner)
                           </p>
                           <p className="config-field-hint" style={{ marginBottom: 4 }}>
-                            Configure in <strong>Usage Tracking</strong> section above:
+                            Enable <strong>Usage Tracking</strong> above — the Gist raw URL is pre-filled automatically. The runner polls the Gist for tunnel URL changes and pushes buffered records to the DS-mon host.
                           </p>
                           <ol className="config-field-hint" style={{ paddingLeft: 20, lineHeight: 1.8, marginBottom: 8 }}>
                             <li>
-                              Set <strong>DS-mon Gist Raw URL</strong> to the Gist raw URL (e.g.{" "}
-                              <code>https://gist.githubusercontent.com/.../raw/dsmon-tunnel-url.txt</code>)
+                              <strong>Enable Usage Tracking</strong> toggle → <code>ON</code>
+                            </li>
+                            <li>
+                              <strong>DS-mon Gist Raw URL</strong> is pre-configured (the secret Gist at <code>35f2d48d11f40af54c91154a2067a700</code>)
                             </li>
                             <li>
                               <strong>DS-mon Gist Poll Interval</strong> defaults to 60s — the runner polls for URL changes automatically
                             </li>
                             <li>
-                              Set <strong>DS-mon Instance ID</strong> (or leave empty for auto-generation)
+                              <strong>DS-mon Instance ID</strong> auto-generates — override only if you want a custom label in DS-mon
                             </li>
                             <li>
                               <strong>DS-mon Push Interval</strong> defaults to 5 min — controls how often buffered records are flushed
@@ -1970,13 +1970,41 @@ The system provides existing memory context at the start of each pipeline run. U
                           </p>
                           <pre className="config-field-hint" style={{ background: "var(--bg-secondary)", padding: 8, borderRadius: 4, fontSize: 12 }}>
                             {`📊 [DSMON] Starting flush timer (interval: 300000ms, instance: ...)
-📊 [DSMON] Pushed 3 usage records to http://host:18080/sync/push`}
+📊 [DSMON] Pushed 3 usage records to http://host:18888/sync/push`}
                           </pre>
                           <p className="config-field-hint" style={{ marginTop: 8 }}>
                             On the DS-mon host, check <strong>StatsPopoverView → Usage by Source</strong> to see per-machine token usage.
                           </p>
                         </div>
                       </details>
+
+                      {/* ── Quick Actions ── */}
+                      {values.USAGE_TRACKING_ENABLED === "true" && (
+                        <div style={{ marginTop: 16, borderTop: "1px solid var(--border-color)", paddingTop: 16 }}>
+                          <p className="config-field-hint" style={{ fontWeight: 600, marginBottom: 8 }}>
+                            🚀 Quick Actions
+                          </p>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <button
+                              className="config-update-status-btn"
+                              onClick={() => window.electronAPI?.runInTerminal({ command: "ngrok http 18888" })}
+                            >
+                              <Icon name="open_in_new" size="14" /> Start ngrok (port 18888)
+                            </button>
+                            <button
+                              className="config-update-status-btn"
+                              onClick={() =>
+                                window.electronAPI?.runInTerminal({
+                                  command: "watch -n 30 ./scripts/update-dsmon-gist.sh",
+                                  cwd: "/Users/michaelgrandison/Documents/GitHub/ai_transcription_agent",
+                                })
+                              }
+                            >
+                              <Icon name="sync" size="14" /> Start Gist Updater
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </>
                   )}
 

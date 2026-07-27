@@ -157,7 +157,7 @@ const DEFAULTS: AppConfig = {
   KEEP_MODELS_WARM: "false",
   DSMON_INSTANCE_ID: "",
   DSMON_PUSH_INTERVAL: "300000",
-  DSMON_GIST_RAW_URL: "",
+  DSMON_GIST_RAW_URL: "https://gist.githubusercontent.com/afrogenesurvive/35f2d48d11f40af54c91154a2067a700/raw/dsmon-tunnel-url.txt",
   DSMON_GIST_POLL_INTERVAL: "60000",
   USAGE_TRACKING_ENABLED: "false",
   // ── Diarization tuning defaults ──

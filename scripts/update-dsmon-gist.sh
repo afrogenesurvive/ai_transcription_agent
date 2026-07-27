@@ -11,10 +11,8 @@
 #   - A GitHub Personal Access Token (classic) with "gist" scope
 #   - A pre-created secret Gist with a file named "dsmon-tunnel-url.txt"
 #
-# Usage:
-#   export GITHUB_TOKEN="ghp_..."
-#   export GIST_ID="abcdef1234567890abcdef1234567890"
-#   # Optional: set DSMON_PORT (default: 18080)
+# Usage (env vars override hardcoded defaults):
+#   export DSMON_PORT=18080
 #   ./scripts/update-dsmon-gist.sh
 #
 # Can be run in a loop (e.g. via cron, launchd, or alongside ngrok):
@@ -26,11 +24,12 @@
 
 set -euo pipefail
 
-: "${GITHUB_TOKEN:?GITHUB_TOKEN is required}"
-: "${GIST_ID:?GIST_ID is required}"
+# ── Hardcoded defaults (override via env vars) ──
+GITHUB_TOKEN="${GITHUB_TOKEN:-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}"
+GIST_ID="${GIST_ID:-35f2d48d11f40af54c91154a2067a700}"
 
 NGROK_API="${NGROK_API:-http://127.0.0.1:4040}"
-DSMON_PORT="${DSMON_PORT:-18080}"
+DSMON_PORT="${DSMON_PORT:-18888}"
 GIST_FILE="${GIST_FILE:-dsmon-tunnel-url.txt}"
 
 # ── Step 1: Get the current ngrok tunnel URL ──

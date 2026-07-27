@@ -215,6 +215,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // ── Shell & File system ──
   openPath: (filePath: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke("shell:openPath", filePath),
   fileExists: (filePath: string): Promise<boolean> => ipcRenderer.invoke("fs:fileExists", filePath),
+  runInTerminal: (params: { command: string; cwd?: string }): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke("shell:runInTerminal", params),
 
   // ── Playwright Testing ──
   checkDevMode: (): Promise<{ devMode: boolean }> => ipcRenderer.invoke("testing:checkDevMode"),

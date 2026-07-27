@@ -1697,6 +1697,24 @@ ipcMain.handle("shell:openPath", async (_event, filePath: string) => {
   return { success: true };
 });
 
+// ── Run command in new Terminal window ──
+
+ipcMain.handle("shell:runInTerminal", async (_event, params: { command: string; cwd?: string }) => {
+  const projectRoot = app.isPackaged
+    ? path.join(process.resourcesPath, "..")
+    : path.join(app.getAppPath(), "..");
+  const cwd = params.cwd || projectRoot;
+  const script = `tell application "Terminal" to do script "cd ${cwd.replace(/"/g, '\\"')} && ${params.command.replace(/"/g, '\\"')}"`;
+  try {
+    execSync(`osascript -e '${script.replace(/'/g, "'\\\\''")}'`, { timeout: 5000 });
+    addLog("main", "info", `[shell] Opened Terminal: ${params.command}`);
+    return { success: true };
+  } catch (err: any) {
+    addLog("main", "error", `[shell] Failed to open Terminal: ${err.message}`);
+    return { success: false, error: err.message };
+  }
+});
+
 // ── Voiceprint conflict checking ──
 
 ipcMain.handle("voiceprints:check-conflicts", async (_event, attendees: Array<{ name: string; email?: string }>) => {
