@@ -522,6 +522,31 @@ ipcMain.handle("app:guide", () => {
   return "";
 });
 
+/** Load an arbitrary doc file from the docs/ directory. */
+ipcMain.handle("app:doc", (_event, filename: string) => {
+  const docPath = (() => {
+    const candidates = [path.join(__dirname, "..", "..", "..", "docs", filename), path.join(app.getAppPath(), "..", "docs", filename)];
+    if (app.isPackaged) {
+      candidates.unshift(path.join(process.resourcesPath, "..", "docs", filename));
+    }
+    return candidates.find((p) => {
+      try {
+        return fs.statSync(p).isFile();
+      } catch {
+        return false;
+      }
+    });
+  })();
+  if (docPath) {
+    try {
+      return fs.readFileSync(docPath, "utf8");
+    } catch {
+      return "";
+    }
+  }
+  return "";
+});
+
 /** ML pipeline statuses returned by Python /transcribe/active — jobs that are
  *  actively running in the ML pipeline (diarization, ASR, alignment). */
 const ML_PIPELINE_STATUSES = new Set([
