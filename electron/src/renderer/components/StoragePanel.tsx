@@ -64,9 +64,9 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
   const [data, setData] = useState<StorageUsage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [storageTab, setStorageTab] = useState<"usage" | "developer">("usage");
 
   // Developer section — generic clear actions
-  const [showDevSection, setShowDevSection] = useState(false);
   const [confirmAction, setConfirmAction] = useState<{
     type: string;
     label: string;
@@ -164,7 +164,24 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
           </div>
         )}
 
+        {/* ── Tab bar ── */}
         {data && (
+          <div className="config-section-tabs" style={{ marginBottom: 16 }}>
+            <button
+              className={`config-section-tab ${storageTab === "usage" ? "config-section-tab--active" : ""}`}
+              onClick={() => setStorageTab("usage")}>
+              <Icon name="storage" size="14" /> Usage
+            </button>
+            <button
+              className={`config-section-tab ${storageTab === "developer" ? "config-section-tab--active" : ""}`}
+              onClick={() => setStorageTab("developer")}>
+              <Icon name="terminal" size="14" /> Developer
+            </button>
+          </div>
+        )}
+
+        {/* ── Usage Tab ── */}
+        {data && storageTab === "usage" && (
           <>
             {/* Total */}
             <div style={{ marginBottom: 24 }}>
@@ -293,165 +310,150 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
                 </button>
               </Tooltip>
             </div>
-
-            {/* ── Developer Section ── */}
-            <hr className="storage-divider" />
-            <div className="storage-dev-section">
-              <Tooltip content="Show/hide the developer section for managing storage data">
-                <button className="storage-dev-toggle" onClick={() => setShowDevSection((v) => !v)} title="Toggle developer section">
-                  <span className="storage-dev-toggle-icon">
-                    {showDevSection ? <Icon name="expand_more" size="14" /> : <Icon name="chevron_right" size="14" />}
-                  </span>
-                  <span className="storage-dev-toggle-label">
-                    <Icon name="terminal" size="14" color="accent" /> Developer
-                  </span>
-                </button>
-              </Tooltip>
-
-              {showDevSection && (
-                <div className="storage-dev-content">
-                  <p className="storage-dev-description">Destructive actions to clear stored data. These operations are irreversible.</p>
-
-                  {/* Clear all logs */}
-                  <div className="storage-log-action">
-                    <div className="storage-log-action-info">
-                      <strong>
-                        <Icon name="delete" size="14" color="red" /> Clear All Logs
-                      </strong>
-                      <p>
-                        Delete all <code>.jsonl</code> and <code>.log</code> files from storage, including error logs.
-                      </p>
-                    </div>
-                    <button
-                      className="btn-warning"
-                      onClick={() =>
-                        setConfirmAction({
-                          type: "logs",
-                          label: "Clear All Logs",
-                          description: "This will permanently delete all log files including those with error events. This action cannot be undone.",
-                          bridgeTool: "storage_clear_logs",
-                          bridgeArgs: { logType: "all_including_errors" },
-                        })
-                      }
-                      disabled={!!processingAction}>
-                      {processingAction === "logs" ? "Clearing…" : "Clear All Logs"}
-                    </button>
-                  </div>
-
-                  {/* Clear all job history */}
-                  <div className="storage-log-action">
-                    <div className="storage-log-action-info">
-                      <strong>
-                        <Icon name="history" size="14" color="accent" /> Clear All Job History
-                      </strong>
-                      <p>Delete all transcription job directories and their associated data (transcripts, summaries, analyses, audio files).</p>
-                    </div>
-                    <button
-                      className="btn-warning"
-                      onClick={() =>
-                        setConfirmAction({
-                          type: "jobs",
-                          label: "Clear All Job History",
-                          description: "This will permanently delete all transcription jobs and their data. This action cannot be undone.",
-                          bridgeTool: "storage_clear_jobs",
-                        })
-                      }
-                      disabled={!!processingAction}>
-                      {processingAction === "jobs" ? "Clearing…" : "Clear All Jobs"}
-                    </button>
-                  </div>
-
-                  {/* Clear all semantic db data */}
-                  <div className="storage-log-action">
-                    <div className="storage-log-action-info">
-                      <strong>
-                        <Icon name="memory" size="14" color="green" /> Clear Semantic DB Data
-                      </strong>
-                      <p>Delete the ChromaDB vector store containing semantic memory (meeting summaries and searchable transcript embeddings).</p>
-                    </div>
-                    <button
-                      className="btn-warning"
-                      onClick={() =>
-                        setConfirmAction({
-                          type: "semantic",
-                          label: "Clear Semantic DB Data",
-                          description:
-                            "This will permanently delete the ChromaDB vector store and all semantic memory data. This action cannot be undone.",
-                          bridgeTool: "storage_clear_semantic",
-                        })
-                      }
-                      disabled={!!processingAction}>
-                      {processingAction === "semantic" ? "Clearing…" : "Clear Semantic DB"}
-                    </button>
-                  </div>
-
-                  {/* Clear all ephemeral / voiceprint data */}
-                  <div className="storage-log-action">
-                    <div className="storage-log-action-info">
-                      <strong>
-                        <Icon name="database" size="14" color="purple" /> Clear Ephemeral / Voiceprint Data
-                      </strong>
-                      <p>
-                        Delete the ephemeral memory database (action items, contacts, budgets, decisions) and voiceprint database (speaker
-                        embeddings).
-                      </p>
-                    </div>
-                    <button
-                      className="btn-warning"
-                      onClick={() =>
-                        setConfirmAction({
-                          type: "ephemeral",
-                          label: "Clear Ephemeral / Voiceprint Data",
-                          description:
-                            "This will permanently delete both the ephemeral memory and voiceprint databases. This action cannot be undone.",
-                          bridgeTool: "storage_clear_ephemeral",
-                        })
-                      }
-                      disabled={!!processingAction}>
-                      {processingAction === "ephemeral" ? "Clearing…" : "Clear Ephemeral / Voiceprint"}
-                    </button>
-                  </div>
-
-                  {/* Clear all user data */}
-                  <div className="storage-log-action">
-                    <div className="storage-log-action-info">
-                      <strong>
-                        <Icon name="delete_forever" size="14" color="red" /> Clear All User Data
-                      </strong>
-                      <p>
-                        Destructive: clears job history, logs, semantic memory (ChromaDB), and ephemeral/voiceprint databases all at once. This action
-                        cannot be undone.
-                      </p>
-                    </div>
-                    <button
-                      className="btn-danger"
-                      onClick={() =>
-                        setConfirmAction({
-                          type: "all",
-                          label: "Clear All User Data",
-                          description:
-                            "This will delete ALL user data including job history, logs, ChromaDB semantic memory, ephemeral memory, " +
-                            "and voiceprint databases. This action is irreversible.",
-                          bridgeTool: "storage_clear_all",
-                          bridgeArgs: { logType: "all_including_errors" },
-                        })
-                      }
-                      disabled={!!processingAction}>
-                      {processingAction === "all" ? "Clearing…" : "Clear All Data"}
-                    </button>
-                  </div>
-
-                  {/* Result feedback */}
-                  {actionResult && (
-                    <div
-                      className={`storage-log-result ${actionResult.startsWith("Error") ? "storage-log-result--error" : "storage-log-result--ok"}`}>
-                      {actionResult}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
           </>
+        )}
+
+        {/* ── Developer Tab ── */}
+        {storageTab === "developer" && (
+          <div className="storage-dev-content">
+            <p className="storage-dev-description">Destructive actions to clear stored data. These operations are irreversible.</p>
+
+            {/* Clear all logs */}
+            <div className="storage-log-action">
+              <div className="storage-log-action-info">
+                <strong>
+                  <Icon name="delete" size="14" color="red" /> Clear All Logs
+                </strong>
+                <p>
+                  Delete all <code>.jsonl</code> and <code>.log</code> files from storage, including error logs.
+                </p>
+              </div>
+              <button
+                className="btn-warning"
+                onClick={() =>
+                  setConfirmAction({
+                    type: "logs",
+                    label: "Clear All Logs",
+                    description: "This will permanently delete all log files including those with error events. This action cannot be undone.",
+                    bridgeTool: "storage_clear_logs",
+                    bridgeArgs: { logType: "all_including_errors" },
+                  })
+                }
+                disabled={!!processingAction}>
+                {processingAction === "logs" ? "Clearing…" : "Clear All Logs"}
+              </button>
+            </div>
+
+            {/* Clear all job history */}
+            <div className="storage-log-action">
+              <div className="storage-log-action-info">
+                <strong>
+                  <Icon name="history" size="14" color="accent" /> Clear All Job History
+                </strong>
+                <p>Delete all transcription job directories and their associated data (transcripts, summaries, analyses, audio files).</p>
+              </div>
+              <button
+                className="btn-warning"
+                onClick={() =>
+                  setConfirmAction({
+                    type: "jobs",
+                    label: "Clear All Job History",
+                    description: "This will permanently delete all transcription jobs and their data. This action cannot be undone.",
+                    bridgeTool: "storage_clear_jobs",
+                  })
+                }
+                disabled={!!processingAction}>
+                {processingAction === "jobs" ? "Clearing…" : "Clear All Jobs"}
+              </button>
+            </div>
+
+            {/* Clear all semantic db data */}
+            <div className="storage-log-action">
+              <div className="storage-log-action-info">
+                <strong>
+                  <Icon name="memory" size="14" color="green" /> Clear Semantic DB Data
+                </strong>
+                <p>Delete the ChromaDB vector store containing semantic memory (meeting summaries and searchable transcript embeddings).</p>
+              </div>
+              <button
+                className="btn-warning"
+                onClick={() =>
+                  setConfirmAction({
+                    type: "semantic",
+                    label: "Clear Semantic DB Data",
+                    description:
+                      "This will permanently delete the ChromaDB vector store and all semantic memory data. This action cannot be undone.",
+                    bridgeTool: "storage_clear_semantic",
+                  })
+                }
+                disabled={!!processingAction}>
+                {processingAction === "semantic" ? "Clearing…" : "Clear Semantic DB"}
+              </button>
+            </div>
+
+            {/* Clear all ephemeral / voiceprint data */}
+            <div className="storage-log-action">
+              <div className="storage-log-action-info">
+                <strong>
+                  <Icon name="database" size="14" color="purple" /> Clear Ephemeral / Voiceprint Data
+                </strong>
+                <p>
+                  Delete the ephemeral memory database (action items, contacts, budgets, decisions) and voiceprint database (speaker embeddings).
+                </p>
+              </div>
+              <button
+                className="btn-warning"
+                onClick={() =>
+                  setConfirmAction({
+                    type: "ephemeral",
+                    label: "Clear Ephemeral / Voiceprint Data",
+                    description:
+                      "This will permanently delete both the ephemeral memory and voiceprint databases. This action cannot be undone.",
+                    bridgeTool: "storage_clear_ephemeral",
+                  })
+                }
+                disabled={!!processingAction}>
+                {processingAction === "ephemeral" ? "Clearing…" : "Clear Ephemeral / Voiceprint"}
+              </button>
+            </div>
+
+            {/* Clear all user data */}
+            <div className="storage-log-action">
+              <div className="storage-log-action-info">
+                <strong>
+                  <Icon name="delete_forever" size="14" color="red" /> Clear All User Data
+                </strong>
+                <p>
+                  Destructive: clears job history, logs, semantic memory (ChromaDB), and ephemeral/voiceprint databases all at once. This action
+                  cannot be undone.
+                </p>
+              </div>
+              <button
+                className="btn-danger"
+                onClick={() =>
+                  setConfirmAction({
+                    type: "all",
+                    label: "Clear All User Data",
+                    description:
+                      "This will delete ALL user data including job history, logs, ChromaDB semantic memory, ephemeral memory, " +
+                      "and voiceprint databases. This action is irreversible.",
+                    bridgeTool: "storage_clear_all",
+                    bridgeArgs: { logType: "all_including_errors" },
+                  })
+                }
+                disabled={!!processingAction}>
+                {processingAction === "all" ? "Clearing…" : "Clear All Data"}
+              </button>
+            </div>
+
+            {/* Result feedback */}
+            {actionResult && (
+              <div
+                className={`storage-log-result ${actionResult.startsWith("Error") ? "storage-log-result--error" : "storage-log-result--ok"}`}>
+                {actionResult}
+              </div>
+            )}
+          </div>
         )}
       </div>
 

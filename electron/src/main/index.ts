@@ -1713,6 +1713,217 @@ ipcMain.handle("shell:runInTerminal", async (_event, params: { command: string; 
   }
 });
 
+// ── Cloudflare Tunnel Process Manager ──
+
+let tunnelProcess: import("child_process").ChildProcess | null = null;
+let tunnelUrl: string | null = null;
+let tunnelError: string | null = null;
+const CLOUDFLARED_URL_FILE = path.join(app.isPackaged ? app.getPath("userData") : path.join(app.getAppPath(), ".."), ".cloudflared-url");
+
+ipcMain.handle("tunnel:start", async () => {
+  if (tunnelProcess) {
+    return { success: false, error: "Tunnel is already running", running: true, url: tunnelUrl };
+  }
+  tunnelUrl = null;
+  tunnelError = null;
+  addLog("main", "info", "[tunnel] Starting cloudflared tunnel on port 18888");
+  return new Promise<{ success: boolean; error?: string; url?: string }>((resolve) => {
+    try {
+      const proc = spawn("cloudflared", ["tunnel", "--url", "http://localhost:18888"], {
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env },
+      });
+      tunnelProcess = proc;
+      let resolved = false;
+      proc.stdout?.on("data", (d: Buffer) => {
+        const text = d.toString();
+        addLog("main", "debug", `[tunnel] ${text.trim()}`);
+        // Parse the cloudflared URL from stdout: "https://xxxx.trycloudflare.com"
+        const match = text.match(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/);
+        if (match && !resolved) {
+          resolved = true;
+          tunnelUrl = match[0];
+          // Write URL to file for gist updater script
+          try {
+            fs.writeFileSync(CLOUDFLARED_URL_FILE, tunnelUrl + "\n", "utf8");
+          } catch {}
+          addLog("main", "info", `[tunnel] Cloudflare tunnel URL: ${tunnelUrl}`);
+          resolve({ success: true, url: tunnelUrl });
+        }
+      });
+      proc.stderr?.on("data", (d: Buffer) => {
+        const text = d.toString();
+        addLog("main", "debug", `[tunnel:stderr] ${text.trim()}`);
+        // Cloudflared sometimes emits warnings to stderr — don't treat as fatal
+        const errMatch = text.match(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/);
+        if (errMatch && !resolved) {
+          resolved = true;
+          tunnelUrl = errMatch[0];
+          try {
+            fs.writeFileSync(CLOUDFLARED_URL_FILE, tunnelUrl + "\n", "utf8");
+          } catch {}
+          addLog("main", "info", `[tunnel] Cloudflare tunnel URL (from stderr): ${tunnelUrl}`);
+          resolve({ success: true, url: tunnelUrl });
+        }
+      });
+      proc.on("close", (code) => {
+        tunnelProcess = null;
+        addLog("main", "info", `[tunnel] Process exited with code ${code}`);
+        if (!resolved) {
+          resolved = true;
+          tunnelError = `cloudflared exited with code ${code}`;
+          resolve({ success: false, error: tunnelError });
+        }
+      });
+      proc.on("error", (err) => {
+        tunnelProcess = null;
+        addLog("main", "error", `[tunnel] Failed to start: ${err.message}`);
+        if (!resolved) {
+          resolved = true;
+          tunnelError = err.message;
+          resolve({ success: false, error: err.message });
+        }
+      });
+      // Timeout: if cloudflared doesn't produce a URL within 30s, fail
+      setTimeout(() => {
+        if (!resolved && tunnelProcess) {
+          resolved = true;
+          tunnelError = "Timed out waiting for tunnel URL (30s)";
+          addLog("main", "error", `[tunnel] ${tunnelError}`);
+          resolve({ success: false, error: tunnelError });
+        }
+      }, 30000);
+    } catch (err: any) {
+      tunnelError = err.message;
+      addLog("main", "error", `[tunnel] Spawn error: ${err.message}`);
+      resolve({ success: false, error: err.message });
+    }
+  });
+});
+
+ipcMain.handle("tunnel:stop", async () => {
+  if (!tunnelProcess) {
+    return { success: false, error: "Tunnel is not running" };
+  }
+  addLog("main", "info", "[tunnel] Stopping cloudflared tunnel");
+  tunnelProcess.kill("SIGTERM");
+  tunnelProcess = null;
+  tunnelUrl = null;
+  tunnelError = null;
+  // Remove URL file
+  try { fs.unlinkSync(CLOUDFLARED_URL_FILE); } catch {}
+  return { success: true };
+});
+
+ipcMain.handle("tunnel:status", async () => {
+  return {
+    running: tunnelProcess !== null,
+    url: tunnelUrl,
+    error: tunnelError,
+  };
+});
+
+// ── Gist Updater Process Manager ──
+
+let gistProcess: import("child_process").ChildProcess | null = null;
+let gistLastOutput: string | null = null;
+let gistLastUpdate: string | null = null;
+let gistError: string | null = null;
+
+function getProjectRoot(): string {
+  return app.isPackaged ? path.join(process.resourcesPath, "..") : path.join(app.getAppPath(), "..");
+}
+
+ipcMain.handle("gist:start", async () => {
+  if (gistProcess) {
+    return { success: false, error: "Gist updater is already running", running: true };
+  }
+  gistLastOutput = null;
+  gistLastUpdate = null;
+  gistError = null;
+  addLog("main", "info", "[gist] Starting gist updater (watch -n 30)");
+  const projectRoot = getProjectRoot();
+  const scriptPath = path.join(projectRoot, "scripts", "update-dsmon-gist.sh");
+  try {
+    const proc = spawn("watch", ["-n", "30", scriptPath], {
+      cwd: projectRoot,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env },
+    });
+    gistProcess = proc;
+    proc.stdout?.on("data", (d: Buffer) => {
+      const text = d.toString();
+      if (text.trim()) {
+        gistLastOutput = text.trim();
+        gistLastUpdate = new Date().toISOString();
+        addLog("main", "debug", `[gist] ${text.trim()}`);
+      }
+    });
+    proc.stderr?.on("data", (d: Buffer) => {
+      const text = d.toString();
+      if (text.trim()) {
+        gistError = text.trim();
+        addLog("main", "warn", `[gist:stderr] ${text.trim()}`);
+      }
+    });
+    proc.on("close", (code) => {
+      gistProcess = null;
+      addLog("main", "info", `[gist] Process exited with code ${code}`);
+    });
+    proc.on("error", (err) => {
+      gistProcess = null;
+      gistError = err.message;
+      addLog("main", "error", `[gist] Failed to start: ${err.message}`);
+    });
+    return { success: true };
+  } catch (err: any) {
+    gistError = err.message;
+    addLog("main", "error", `[gist] Spawn error: ${err.message}`);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle("gist:stop", async () => {
+  if (!gistProcess) {
+    return { success: false, error: "Gist updater is not running" };
+  }
+  addLog("main", "info", "[gist] Stopping gist updater");
+  gistProcess.kill("SIGTERM");
+  gistProcess = null;
+  return { success: true };
+});
+
+ipcMain.handle("gist:status", async () => {
+  return {
+    running: gistProcess !== null,
+    lastUpdate: gistLastUpdate,
+    lastOutput: gistLastOutput,
+    error: gistError,
+  };
+});
+
+ipcMain.handle("gist:runOnce", async () => {
+  addLog("main", "info", "[gist] Running one-shot gist update");
+  const projectRoot = getProjectRoot();
+  const scriptPath = path.join(projectRoot, "scripts", "update-dsmon-gist.sh");
+  try {
+    const result = execSync(`bash "${scriptPath}"`, {
+      cwd: projectRoot,
+      timeout: 30000,
+      env: { ...process.env },
+      encoding: "utf8",
+    });
+    addLog("main", "info", `[gist] One-shot result: ${result.trim()}`);
+    gistLastUpdate = new Date().toISOString();
+    gistLastOutput = result.trim();
+    return { success: true, output: result.trim() };
+  } catch (err: any) {
+    const msg = err.stderr?.toString() || err.message || "Unknown error";
+    addLog("main", "error", `[gist] One-shot failed: ${msg}`);
+    return { success: false, error: msg };
+  }
+});
+
 // ── Voiceprint conflict checking ──
 
 ipcMain.handle("voiceprints:check-conflicts", async (_event, attendees: Array<{ name: string; email?: string }>) => {

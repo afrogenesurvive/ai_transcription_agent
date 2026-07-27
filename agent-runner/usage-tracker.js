@@ -166,7 +166,7 @@ export async function flushBuffer() {
 
 /**
  * Poll the GitHub Gist for the current tunnel URL and update PUSH_URL if it changed.
- * This lets remote machines auto-discover a new ngrok URL without manual config changes.
+ * This lets remote machines auto-discover a new tunnel URL without manual config changes.
  */
 async function pollGist() {
   if (!GIST_RAW_URL) return;

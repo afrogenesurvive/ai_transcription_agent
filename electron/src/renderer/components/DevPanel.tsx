@@ -3944,7 +3944,6 @@ function DevGuideTab() {
         style={{
           display: "flex",
           gap: 0,
-          flexWrap: "wrap",
           borderBottom: "1px solid var(--border)",
           background: "var(--bg)",
           flexShrink: 0,

@@ -2,9 +2,13 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # update-dsmon-gist.sh
 #
-# Sidecar script for the DS-mon host machine. Runs alongside ngrok to
+# Sidecar script for the DS-mon host machine. Runs alongside a tunnel to
 # automatically broadcast the current tunnel URL to a GitHub Gist so that
 # remote agent-runner instances can discover the URL via DSMON_GIST_RAW_URL.
+#
+# Supports:
+#   - Cloudflare quick tunnels (trycloudflare.com) via CLOUDFLARED_URL_FILE
+#   - ngrok tunnels via ngrok local API (legacy)
 #
 # Requirements:
 #   - curl, jq
@@ -12,13 +16,13 @@
 #   - A pre-created secret Gist with a file named "dsmon-tunnel-url.txt"
 #
 # Usage (env vars override hardcoded defaults):
-#   export DSMON_PORT=18080
+#   export DSMON_PORT=18888
 #   ./scripts/update-dsmon-gist.sh
 #
-# Can be run in a loop (e.g. via cron, launchd, or alongside ngrok):
+# Can be run in a loop (e.g. via cron, launchd, or alongside the tunnel):
 #   watch -n 30 ./scripts/update-dsmon-gist.sh
 #
-# Or as a one-shot (e.g. triggered after ngrok start in a launcher script):
+# Or as a one-shot (e.g. triggered after tunnel start):
 #   ./scripts/update-dsmon-gist.sh
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -42,15 +46,29 @@ if [ -z "${GITHUB_TOKEN:-}" ]; then
   exit 1
 fi
 
+CLOUDFLARED_URL_FILE="${CLOUDFLARED_URL_FILE:-}"
 NGROK_API="${NGROK_API:-http://127.0.0.1:4040}"
 DSMON_PORT="${DSMON_PORT:-18888}"
 GIST_FILE="${GIST_FILE:-dsmon-tunnel-url.txt}"
 
-# ── Step 1: Get the current ngrok tunnel URL ──
-TUNNEL_URL=$(curl -sf "${NGROK_API}/api/tunnels" | jq -r '.tunnels[0].public_url // empty')
+# ── Step 1: Get the current tunnel URL ──
+# Priority: cloudflared URL file > ngrok API
+TUNNEL_URL=""
+
+if [ -n "$CLOUDFLARED_URL_FILE" ] && [ -f "$CLOUDFLARED_URL_FILE" ]; then
+  TUNNEL_URL="$(cat "$CLOUDFLARED_URL_FILE" | tr -d '\n' | xargs)"
+  echo "[dsmon-gist] Read cloudflare URL from ${CLOUDFLARED_URL_FILE}: ${TUNNEL_URL}"
+fi
 
 if [ -z "$TUNNEL_URL" ]; then
-  echo "[dsmon-gist] No ngrok tunnel found (is ngrok running?)"
+  TUNNEL_URL=$(curl -sf "${NGROK_API}/api/tunnels" 2>/dev/null | jq -r '.tunnels[0].public_url // empty' 2>/dev/null || true)
+  if [ -n "$TUNNEL_URL" ]; then
+    echo "[dsmon-gist] Read ngrok tunnel URL from API: ${TUNNEL_URL}"
+  fi
+fi
+
+if [ -z "$TUNNEL_URL" ]; then
+  echo "[dsmon-gist] No tunnel URL found (cloudflared URL file missing and ngrok not running)"
   exit 1
 fi
 

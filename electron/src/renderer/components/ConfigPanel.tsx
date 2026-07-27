@@ -284,6 +284,98 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
   const [ollamaWasStartedByUs, setOllamaWasStartedByUs] = useState(false);
   const [restoringDefaults, setRestoringDefaults] = useState(false);
 
+  // ── Tunnel & Gist state ──
+  const [tunnelStatus, setTunnelStatus] = useState<{ running: boolean; url: string | null; error: string | null }>({ running: false, url: null, error: null });
+  const [gistStatus, setGistStatus] = useState<{ running: boolean; lastUpdate: string | null; lastOutput: string | null; error: string | null }>({ running: false, lastUpdate: null, lastOutput: null, error: null });
+  const [tunnelStarting, setTunnelStarting] = useState(false);
+  const [gistStarting, setGistStarting] = useState(false);
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+
+  // Poll tunnel/gist status every 5s when usage tracking is enabled
+  useEffect(() => {
+    if (values.USAGE_TRACKING_ENABLED !== "true") return;
+    const poll = async () => {
+      try {
+        const ts = await window.electronAPI?.getTunnelStatus();
+        if (ts) setTunnelStatus(ts);
+      } catch {}
+      try {
+        const gs = await window.electronAPI?.getGistStatus();
+        if (gs) setGistStatus(gs);
+      } catch {}
+    };
+    poll();
+    const id = setInterval(poll, 5000);
+    return () => clearInterval(id);
+  }, [values.USAGE_TRACKING_ENABLED]);
+
+  // ── Tunnel action handlers ──
+
+  const startTunnel = useCallback(async () => {
+    setTunnelStarting(true);
+    try {
+      const result = await window.electronAPI?.startTunnel();
+      if (result?.success) {
+        setTunnelStatus({ running: true, url: result.url || null, error: null });
+      } else {
+        setTunnelStatus((prev) => ({ ...prev, error: result?.error || "Failed to start" }));
+      }
+    } catch (err: any) {
+      setTunnelStatus((prev) => ({ ...prev, error: err.message }));
+    } finally {
+      setTunnelStarting(false);
+    }
+  }, []);
+
+  const stopTunnel = useCallback(async () => {
+    try {
+      await window.electronAPI?.stopTunnel();
+      setTunnelStatus({ running: false, url: null, error: null });
+    } catch (err: any) {
+      setTunnelStatus((prev) => ({ ...prev, error: err.message }));
+    }
+  }, []);
+
+  // ── Gist action handlers ──
+
+  const startGist = useCallback(async () => {
+    setGistStarting(true);
+    try {
+      const result = await window.electronAPI?.startGistUpdater();
+      if (result?.success) {
+        setGistStatus((prev) => ({ ...prev, running: true, error: null }));
+      } else {
+        setGistStatus((prev) => ({ ...prev, error: result?.error || "Failed to start" }));
+      }
+    } catch (err: any) {
+      setGistStatus((prev) => ({ ...prev, error: err.message }));
+    } finally {
+      setGistStarting(false);
+    }
+  }, []);
+
+  const stopGist = useCallback(async () => {
+    try {
+      await window.electronAPI?.stopGistUpdater();
+      setGistStatus({ running: false, lastUpdate: null, lastOutput: null, error: null });
+    } catch (err: any) {
+      setGistStatus((prev) => ({ ...prev, error: err.message }));
+    }
+  }, []);
+
+  const runGistOnce = useCallback(async () => {
+    try {
+      const result = await window.electronAPI?.runGistOnce();
+      if (result?.success) {
+        setGistStatus((prev) => ({ ...prev, lastOutput: result.output || null, lastUpdate: new Date().toISOString() }));
+      } else {
+        setGistStatus((prev) => ({ ...prev, error: result?.error || "Gist update failed" }));
+      }
+    } catch (err: any) {
+      setGistStatus((prev) => ({ ...prev, error: err.message }));
+    }
+  }, []);
+
   // Fetch Ollama models when provider is "ollama"
   const fetchOllamaModels = useCallback(async () => {
     if (values.LLM_PROVIDER !== "ollama") {
@@ -1931,8 +2023,8 @@ The system provides existing memory context at the start of each pipeline run. U
                               <strong>Turn ON</strong> the Enable Sync toggle — status should show green &quot;Listening :18888&quot;
                             </li>
                             <li style={{ marginTop: 8 }}>
-                              Click <strong>Start ngrok (port 18888)</strong> below to expose the sync server — or run <code>ngrok http 18888</code>{" "}
-                              manually
+                              Click <strong>Start Cloudflare Tunnel (port 18888)</strong> below to expose the sync server — or run{" "}
+                              <code>cloudflared tunnel --url http://localhost:18888</code> manually
                             </li>
                             <li style={{ marginTop: 8 }}>
                               Click <strong>Start Gist Updater</strong> below to broadcast the live tunnel URL to remote machines automatically
@@ -1987,23 +2079,163 @@ The system provides existing memory context at the start of each pipeline run. U
                           <p className="config-field-hint" style={{ fontWeight: 600, marginBottom: 8 }}>
                             🚀 Quick Actions
                           </p>
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                            <button
-                              className="config-update-status-btn"
-                              onClick={() => window.electronAPI?.runInTerminal({ command: "ngrok http 18888" })}>
-                              <Icon name="open_in_new" size="14" /> Start ngrok (port 18888)
-                            </button>
-                            <button
-                              className="config-update-status-btn"
-                              onClick={() =>
-                                window.electronAPI?.runInTerminal({
-                                  command: "watch -n 30 ./scripts/update-dsmon-gist.sh",
-                                  cwd: "/Users/michaelgrandison/Documents/GitHub/ai_transcription_agent",
-                                })
-                              }>
-                              <Icon name="sync" size="14" /> Start Gist Updater
-                            </button>
+
+                          {/* ── Cloudflare Tunnel card ── */}
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 10,
+                              padding: "10px 14px",
+                              background: "var(--surface)",
+                              borderRadius: 8,
+                              border: "1px solid var(--border)",
+                              marginBottom: 10,
+                            }}>
+                            {/* Status dot */}
+                            <div
+                              style={{
+                                width: 10,
+                                height: 10,
+                                borderRadius: "50%",
+                                background: tunnelStatus.running
+                                  ? "var(--green, #3fb950)"
+                                  : tunnelStatus.error
+                                    ? "var(--red, #f85149)"
+                                    : "var(--text-muted)",
+                                flexShrink: 0,
+                              }}
+                            />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 13, fontWeight: 500 }}>
+                                <Icon name="open_in_new" size="14" color="accent" /> Cloudflare Tunnel
+                              </div>
+                              {tunnelStatus.running && tunnelStatus.url ? (
+                                <div
+                                  style={{
+                                    fontSize: 11,
+                                    color: "var(--text-muted)",
+                                    fontFamily: '"SF Mono", "Fira Code", monospace',
+                                    marginTop: 2,
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                  }}>
+                                  {tunnelStatus.url}
+                                </div>
+                              ) : tunnelStatus.error ? (
+                                <div style={{ fontSize: 11, color: "var(--red)", marginTop: 2 }}>Error: {tunnelStatus.error}</div>
+                              ) : (
+                                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>Not running</div>
+                              )}
+                            </div>
+                            <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                              {tunnelStatus.running ? (
+                                <button className="config-update-status-btn" onClick={stopTunnel} title="Stop tunnel">
+                                  <Icon name="stop" size="12" /> Stop
+                                </button>
+                              ) : (
+                                <button
+                                  className="config-update-status-btn"
+                                  onClick={startTunnel}
+                                  disabled={tunnelStarting}
+                                  title="Start cloudflared tunnel on port 18888">
+                                  {tunnelStarting ? "Starting…" : "Start"}
+                                </button>
+                              )}
+                              {tunnelStatus.running && tunnelStatus.url && (
+                                <button
+                                  className="config-update-status-btn"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(tunnelStatus.url!).then(
+                                      () => {
+                                        setCopyFeedback("URL copied!");
+                                        setTimeout(() => setCopyFeedback(null), 2000);
+                                      },
+                                      () => {},
+                                    );
+                                  }}
+                                  title="Copy tunnel URL">
+                                  <Icon name="content_copy" size="12" /> Copy URL
+                                </button>
+                              )}
+                            </div>
                           </div>
+
+                          {/* ── Gist Updater card ── */}
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 10,
+                              padding: "10px 14px",
+                              background: "var(--surface)",
+                              borderRadius: 8,
+                              border: "1px solid var(--border)",
+                            }}>
+                            {/* Status dot */}
+                            <div
+                              style={{
+                                width: 10,
+                                height: 10,
+                                borderRadius: "50%",
+                                background: gistStatus.running
+                                  ? "var(--green, #3fb950)"
+                                  : gistStatus.error
+                                    ? "var(--red, #f85149)"
+                                    : "var(--text-muted)",
+                                flexShrink: 0,
+                              }}
+                            />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 13, fontWeight: 500 }}>
+                                <Icon name="sync" size="14" color="accent" /> Gist Updater
+                              </div>
+                              {gistStatus.running ? (
+                                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                                  Last update: {gistStatus.lastUpdate ? new Date(gistStatus.lastUpdate).toLocaleTimeString() : "pending…"}
+                                </div>
+                              ) : gistStatus.error ? (
+                                <div style={{ fontSize: 11, color: "var(--red)", marginTop: 2 }}>Error: {gistStatus.error}</div>
+                              ) : (
+                                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>Not running</div>
+                              )}
+                            </div>
+                            <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                              {gistStatus.running ? (
+                                <button className="config-update-status-btn" onClick={stopGist} title="Stop gist updater">
+                                  <Icon name="stop" size="12" /> Stop
+                                </button>
+                              ) : (
+                                <button
+                                  className="config-update-status-btn"
+                                  onClick={startGist}
+                                  disabled={gistStarting}
+                                  title="Start gist updater (polls every 30s)">
+                                  {gistStarting ? "Starting…" : "Start"}
+                                </button>
+                              )}
+                              <button
+                                className="config-update-status-btn"
+                                onClick={runGistOnce}
+                                title="Update the Gist with the current tunnel URL now">
+                                <Icon name="refresh" size="12" /> Run Once
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Copy feedback toast */}
+                          {copyFeedback && (
+                            <div
+                              style={{
+                                marginTop: 8,
+                                fontSize: 11,
+                                color: "var(--green, #3fb950)",
+                                textAlign: "center",
+                              }}>
+                              {copyFeedback}
+                            </div>
+                          )}
                         </div>
                       )}
                     </>

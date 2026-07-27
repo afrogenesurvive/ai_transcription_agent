@@ -1573,7 +1573,7 @@ mainLoop();
 startFlushTimer();
 
 // ── DS-mon Gist-based tunnel URL discovery ──
-// Polls a GitHub Gist for the live ngrok tunnel URL (DS-mon host updates
+// Polls a GitHub Gist for the live tunnel URL (DS-mon host updates
 // the Gist whenever the tunnel restarts). No-op when DSMON_GIST_RAW_URL
 // is not set.
 startGistPoller();
