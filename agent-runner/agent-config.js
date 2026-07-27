@@ -19,20 +19,42 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Resolve paths — try agent-config/ next to the runner, fall back to project root
-const CONFIG_DIR_CANDIDATES = [
-  path.resolve(__dirname, "..", "agent-config"),
-  path.resolve(__dirname, "..", "..", "agent-config"),
-  path.resolve(__dirname, "agent-config"),
-];
-
 function resolveConfigDir() {
-  for (const dir of CONFIG_DIR_CANDIDATES) {
+  // Priority 1: AGENT_CONFIG_DIR env var (for testing / non-standard setups)
+  if (process.env.AGENT_CONFIG_DIR) {
+    const envDir = path.resolve(process.env.AGENT_CONFIG_DIR);
+    if (fs.existsSync(envDir)) {
+      console.log(`📝 [agent-config] Using AGENT_CONFIG_DIR: ${envDir}`);
+      return envDir;
+    }
+    console.warn(`   ⚠️  [agent-config] AGENT_CONFIG_DIR set but not found: ${envDir}`);
+  }
+
+  // Priority 2: User's live config directory (set by Electron app ConfigPanel)
+  const userConfigDir = path.resolve(
+    process.env.HOME || process.env.USERPROFILE || "",
+    "Library/Application Support/Transcription Agent/agent-config",
+  );
+  if (userConfigDir && fs.existsSync(userConfigDir)) {
+    console.log(`📝 [agent-config] Using user config: ${userConfigDir}`);
+    return userConfigDir;
+  }
+
+  // Priority 3: Project-relative directories
+  const candidates = [
+    path.resolve(__dirname, "..", "agent-config"),
+    path.resolve(__dirname, "..", "..", "agent-config"),
+    path.resolve(__dirname, "agent-config"),
+  ];
+  for (const dir of candidates) {
     if (fs.existsSync(dir)) return dir;
   }
-  // Fall back to project-root agent-config/
+
+  // Fall back to project-root agent-config/ (may not exist, will use fallbacks)
   const projectRoot = path.resolve(__dirname, "..");
-  return path.resolve(projectRoot, "agent-config");
+  const fallback = path.resolve(projectRoot, "agent-config");
+  console.warn(`   ⚠️  [agent-config] No config dir found — using fallback at ${fallback}`);
+  return fallback;
 }
 
 const CONFIG_DIR = resolveConfigDir();

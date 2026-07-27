@@ -409,8 +409,10 @@ async function processEvent(event) {
   let availableTools = TOOLS.filter((t) => !skippedTools.has(t.name));
   let summarizeCalled = false;
   let hasReadTranscript = false;
+  let hasRefined = false;
   let hasCalledAnalyze = false;
   let hasSavedContext = false;
+  let anyTerminalCalled = false;
   let forcedStepRetries = 0;
   const MAX_FORCED_STEP_RETRIES = 3;
 
@@ -753,6 +755,30 @@ async function processEvent(event) {
       // pipeline step is pending. If so, re-prompt with a strong directive instead
       // of ending the pipeline. This prevents the LLM from skipping summarization,
       // analysis, or memory persistence.
+
+      // NEW: Force the LLM to get the transcript after refinement
+      if (hasRefined && !hasReadTranscript) {
+        forcedStepRetries++;
+        if (forcedStepRetries >= MAX_FORCED_STEP_RETRIES) {
+          console.log(`⏭️  [RUNNER] Forced step retry limit reached (${MAX_FORCED_STEP_RETRIES}) — ending pipeline`);
+          logAction({
+            eventId,
+            jobId: jobData.jobId || eventId,
+            eventType: event.type,
+            action: "complete",
+            detail: `ended at step ${step}, forced step retry limit`,
+          });
+          pipelineComplete = true;
+          break;
+        }
+        const msg = `[System: Pipeline requires reading the transcript. You MUST call transcribe_get_transcript now to retrieve the refined speaker-labeled transcript. This step is mandatory before the pipeline can proceed.]`;
+        console.log(
+          `⏭️  [RUNNER] No decision — re-prompting: must call transcribe_get_transcript (retry ${forcedStepRetries}/${MAX_FORCED_STEP_RETRIES})`,
+        );
+        context += `\n\n${msg}`;
+        continue;
+      }
+
       if (hasReadTranscript && !summarizeCalled) {
         forcedStepRetries++;
         if (forcedStepRetries >= MAX_FORCED_STEP_RETRIES) {
@@ -1026,6 +1052,15 @@ async function processEvent(event) {
     }
 
     // ── One-shot tool removal ──
+
+    // Lock transcribe_refine after first use — prevents the LLM from looping
+    // on refinement instead of progressing to reading the transcript.
+    if (decision.name === "transcribe_refine") {
+      hasRefined = true;
+      availableTools = availableTools.filter((t) => t.name !== "transcribe_refine");
+      console.log(`🔒 [RUNNER] transcribe_refine locked — must proceed to transcribe_get_transcript`);
+    }
+
     // After a transcript has been read successfully, remove the read-transcript
     // tool from the available set so the LLM cannot loop on it. The transcript
     // content is already embedded in the context — re-reading it would only
@@ -1073,6 +1108,7 @@ async function processEvent(event) {
     // Check if this was a terminal delivery tool — pipeline ends
     // Delivery tools update terminal steps immediately: save results and mark job complete.
     if (TERMINAL_TOOLS.has(decision.name)) {
+      anyTerminalCalled = true;
       console.log(`📬 [RUNNER] Delivery complete — pipeline finished`);
       logAction({ eventId, jobId: jobData.jobId || eventId, eventType: event.type, action: "complete", detail: `delivered via ${decision.name}` });
       logStepMessage(jobId, "📬 Delivering results...");
@@ -1313,16 +1349,39 @@ async function processEvent(event) {
       // Also enqueue a failed event as a fallback
       await enqueueFailed(event, pipelineError);
     } else {
-      console.log(`✅ [RUNNER] Pipeline finished for job ${tag}`);
-      // Mark the job as complete on the backend so the frontend knows all
-      // processing (including LLM summarization, analysis, memory context)
-      // is done and the summary.json is ready to be fetched.
-      try {
-        const jobId = jobData.jobId || eventId;
-        await executeToolCall("transcribe_complete_job", { jobId });
-        console.log(`✅ [RUNNER] Job ${jobId.slice(0, 8)} marked as complete on backend`);
-      } catch (completeErr) {
-        console.log(`⚠️  [RUNNER] Could not update job status to complete: ${completeErr.message}`);
+      // Check whether a required terminal delivery tool was skipped without being called.
+      // If send_delivery_email is not in the skip list and was never called, the job
+      // is incomplete — mark as failed rather than falsely "success".
+      const deliverySkipped = [...TERMINAL_TOOLS].every((t) => skippedTools.has(t));
+      const deliveryMissing = !deliverySkipped && !anyTerminalCalled;
+      if (deliveryMissing) {
+        console.log(`⚠️  [RUNNER] Pipeline ended without delivery — marking job as incomplete`);
+        logAction({
+          eventId,
+          jobId: jobData.jobId || eventId,
+          eventType: event.type,
+          action: "incomplete",
+          detail: "pipeline ended, no delivery tool was called",
+        });
+        try {
+          const jobId = jobData.jobId || eventId;
+          await executeToolCall("transcribe_fail_job", {
+            jobId,
+            error: "Pipeline completed without calling any delivery tool. No emails were sent.",
+          });
+          console.log(`✅ [RUNNER] Job ${jobId.slice(0, 8)} marked as failed (no delivery)`);
+        } catch (failErr) {
+          console.log(`⚠️  [RUNNER] Could not update job status: ${failErr.message}`);
+        }
+      } else {
+        console.log(`✅ [RUNNER] Pipeline finished for job ${tag}`);
+        try {
+          const jobId = jobData.jobId || eventId;
+          await executeToolCall("transcribe_complete_job", { jobId });
+          console.log(`✅ [RUNNER] Job ${jobId.slice(0, 8)} marked as complete on backend`);
+        } catch (completeErr) {
+          console.log(`⚠️  [RUNNER] Could not update job status to complete: ${completeErr.message}`);
+        }
       }
     }
   } else {
