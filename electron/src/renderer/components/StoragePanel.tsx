@@ -16,6 +16,8 @@ interface Props {
   onClose: () => void;
   onNotify?: (message: string) => void;
   refreshTrigger?: number;
+  onDevAccessRequest?: () => void;
+  devAccessSignal?: number;
 }
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
@@ -60,7 +62,7 @@ async function callBridge(tool: string, args: any = {}): Promise<any> {
   return res.json();
 }
 
-export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Props) {
+export default function StoragePanel({ onClose, onNotify, refreshTrigger, onDevAccessRequest, devAccessSignal }: Props) {
   const [data, setData] = useState<StorageUsage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -76,6 +78,13 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
   } | null>(null);
   const [processingAction, setProcessingAction] = useState<string | null>(null);
   const [actionResult, setActionResult] = useState<string | null>(null);
+
+  // Watch for dev access signal from parent (triggered after modal acceptance)
+  useEffect(() => {
+    if (devAccessSignal && devAccessSignal > 0) {
+      setStorageTab("developer");
+    }
+  }, [devAccessSignal]);
 
   const fetchUsage = useCallback(async () => {
     setLoading(true);
@@ -174,7 +183,13 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger }: Prop
             </button>
             <button
               className={`config-section-tab ${storageTab === "developer" ? "config-section-tab--active" : ""}`}
-              onClick={() => setStorageTab("developer")}>
+              onClick={() => {
+                if (sessionStorage.getItem("dev_warning_accepted")) {
+                  setStorageTab("developer");
+                } else {
+                  onDevAccessRequest?.();
+                }
+              }}>
               <Icon name="terminal" size="14" /> Developer
             </button>
           </div>

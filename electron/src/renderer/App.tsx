@@ -83,6 +83,8 @@ export default function App() {
   const [historyJobStatus, setHistoryJobStatus] = useState<{ status: string; progress: number; error?: string | null } | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [storageRefreshTrigger, setStorageRefreshTrigger] = useState(0);
+  const [devAccessSignal, setDevAccessSignal] = useState(0);
+  const [newJobCooldown, setNewJobCooldown] = useState(false);
   const [showNewForm, setShowNewForm] = useState(false);
   // Left-column collapse state for history view — collapsed hides the job list so
   // the results viewer gets the full width.
@@ -325,7 +327,8 @@ export default function App() {
     statusHook.state === "paused" ||
     statusHook.state === "backend_down" ||
     view === "processing" ||
-    foreignJobs.hasForeignRunningJobs;
+    foreignJobs.hasForeignRunningJobs ||
+    newJobCooldown;
 
   // Track status data for progress display
   React.useEffect(() => {
@@ -507,9 +510,12 @@ export default function App() {
           notify(`Failed to load transcript: ${err.message}`);
         });
 
-      // Safe to start a new job
+      // Safe to start a new job — brief cooldown keeps the New button disabled
+      // until the "safe to start" notification fires (2s delay).
+      setNewJobCooldown(true);
       if (!foreignJobs.hasForeignRunningJobs) {
         setTimeout(() => {
+          setNewJobCooldown(false);
           notify("✅ System ready — safe to start a new transcription job");
         }, 2000);
         console.log(`\n${"═".repeat(40)}`);
@@ -542,9 +548,12 @@ export default function App() {
         setStatusData((prev: any) => (prev ? { ...prev, titleError: errMsg, progress: prev.progress ?? 0.0 } : prev));
       }
 
-      // Safe to start a new job
+      // Safe to start a new job — brief cooldown keeps the New button disabled
+      // until the "safe to start" notification fires (2s delay).
+      setNewJobCooldown(true);
       if (!foreignJobs.hasForeignRunningJobs) {
         setTimeout(() => {
+          setNewJobCooldown(false);
           notify("✅ System ready — safe to start a new transcription job");
         }, 2000);
         console.log(`\n${"═".repeat(40)}`);
@@ -739,6 +748,7 @@ export default function App() {
       setTranscript(null);
       setView("processing");
       setShowNewForm(false);
+      setNewJobCooldown(false);
       // Polling starts automatically via useJobStatus when jobId changes
       notify(`"${title}" — transcription started`);
       window.electronAPI?.showNotification({
@@ -948,7 +958,11 @@ export default function App() {
                 className="dev-panel-btn"
                 onClick={() => {
                   sessionStorage.setItem("dev_warning_accepted", "true");
-                  setSidebarView(devWarningModal);
+                  if (sidebarView === "storage") {
+                    setDevAccessSignal(v => v + 1);
+                  } else {
+                    setSidebarView(devWarningModal);
+                  }
                   setDevWarningModal(null);
                 }}
                 style={{ padding: "8px 24px", fontWeight: 600 }}
@@ -959,7 +973,9 @@ export default function App() {
                 className="dev-panel-btn"
                 onClick={() => {
                   setDevWarningModal(null);
-                  setSidebarView("current");
+                  if (sidebarView !== "storage") {
+                    setSidebarView("current");
+                  }
                 }}
                 style={{ padding: "8px 24px", fontWeight: 600 }}
                 title="Go back to the current job view">
@@ -1354,7 +1370,13 @@ export default function App() {
               )}
 
               {sidebarView === "storage" && (
-                <StoragePanel onClose={() => setSidebarView("current")} onNotify={notify} refreshTrigger={storageRefreshTrigger} />
+                <StoragePanel
+                  onClose={() => setSidebarView("current")}
+                  onNotify={notify}
+                  refreshTrigger={storageRefreshTrigger}
+                  onDevAccessRequest={() => setDevWarningModal("storage")}
+                  devAccessSignal={devAccessSignal}
+                />
               )}
 
               {sidebarView === "config" && (
