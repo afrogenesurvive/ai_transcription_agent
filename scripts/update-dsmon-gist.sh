@@ -24,9 +24,23 @@
 
 set -euo pipefail
 
-# ── Hardcoded defaults (override via env vars) ──
-GITHUB_TOKEN="${GITHUB_TOKEN:-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}"
+# ── Configuration ──
 GIST_ID="${GIST_ID:-35f2d48d11f40af54c91154a2067a700}"
+
+# Resolve GITHUB_TOKEN: env var > ~/.config/dsmon/gist-token > error
+if [ -z "${GITHUB_TOKEN:-}" ]; then
+  TOKEN_FILE="$HOME/.config/dsmon/gist-token"
+  if [ -f "$TOKEN_FILE" ]; then
+    GITHUB_TOKEN="$(cat "$TOKEN_FILE" | tr -d '\n')"
+  fi
+fi
+
+if [ -z "${GITHUB_TOKEN:-}" ]; then
+  echo "[dsmon-gist] ERROR: GITHUB_TOKEN is not set."
+  echo "  Set it via: export GITHUB_TOKEN='ghp_...'"
+  echo "  Or save it to: echo 'ghp_...' > ~/.config/dsmon/gist-token && chmod 600 ~/.config/dsmon/gist-token"
+  exit 1
+fi
 
 NGROK_API="${NGROK_API:-http://127.0.0.1:4040}"
 DSMON_PORT="${DSMON_PORT:-18888}"
