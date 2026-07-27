@@ -91,8 +91,6 @@ export interface AppConfig {
   GATE_DELIVERY_REVIEW_ENABLED: string;
   /** Keep ML models loaded between transcription jobs (faster startup, higher memory) */
   KEEP_MODELS_WARM: string;
-  /** DS-mon push URL for per-call usage tracking (empty = disabled) */
-  DSMON_PUSH_URL: string;
   /** Instance identifier sent with each usage record (defaults to hostname) */
   DSMON_INSTANCE_ID: string;
   /** DS-mon push interval in milliseconds (default 300000) */
@@ -101,6 +99,8 @@ export interface AppConfig {
   DSMON_GIST_RAW_URL: string;
   /** Gist poll interval in milliseconds (default 60000) */
   DSMON_GIST_POLL_INTERVAL: string;
+  /** Master toggle: enable/disable DS-mon usage tracking entirely */
+  USAGE_TRACKING_ENABLED: string;
 
   // ── Diarization tuning (ASV phantom speaker suppression) ──
   /** Minimum total speech duration (s) for a valid speaker; below this = phantom */
@@ -155,11 +155,11 @@ const DEFAULTS: AppConfig = {
   GATE_RAW_REVIEW_ENABLED: "false",
   GATE_DELIVERY_REVIEW_ENABLED: "false",
   KEEP_MODELS_WARM: "false",
-  DSMON_PUSH_URL: "",
   DSMON_INSTANCE_ID: "",
   DSMON_PUSH_INTERVAL: "300000",
   DSMON_GIST_RAW_URL: "",
   DSMON_GIST_POLL_INTERVAL: "60000",
+  USAGE_TRACKING_ENABLED: "false",
   // ── Diarization tuning defaults ──
   DIARIZATION_MIN_SPEAKER_DURATION: "3.0",
   DIARIZATION_MIN_SPEAKER_SEGMENTS: "3",
@@ -403,11 +403,11 @@ export function getChildEnv(): NodeJS.ProcessEnv {
     GATE_RAW_REVIEW_ENABLED: userVals.GATE_RAW_REVIEW_ENABLED || process.env.GATE_RAW_REVIEW_ENABLED || "false",
     GATE_DELIVERY_REVIEW_ENABLED: userVals.GATE_DELIVERY_REVIEW_ENABLED || process.env.GATE_DELIVERY_REVIEW_ENABLED || "false",
     KEEP_MODELS_WARM: userVals.KEEP_MODELS_WARM || process.env.KEEP_MODELS_WARM || "false",
-    DSMON_PUSH_URL: config.DSMON_PUSH_URL || process.env.DSMON_PUSH_URL || "",
     DSMON_INSTANCE_ID: config.DSMON_INSTANCE_ID || process.env.DSMON_INSTANCE_ID || "",
     DSMON_PUSH_INTERVAL: config.DSMON_PUSH_INTERVAL || process.env.DSMON_PUSH_INTERVAL || "300000",
     DSMON_GIST_RAW_URL: config.DSMON_GIST_RAW_URL || process.env.DSMON_GIST_RAW_URL || "",
     DSMON_GIST_POLL_INTERVAL: config.DSMON_GIST_POLL_INTERVAL || process.env.DSMON_GIST_POLL_INTERVAL || "60000",
+    USAGE_TRACKING_ENABLED: config.USAGE_TRACKING_ENABLED || process.env.USAGE_TRACKING_ENABLED || "false",
     // ── Diarization tuning (passed to Python backend) ──
     DIARIZATION_MIN_SPEAKER_DURATION: config.DIARIZATION_MIN_SPEAKER_DURATION || process.env.DIARIZATION_MIN_SPEAKER_DURATION || "3.0",
     DIARIZATION_MIN_SPEAKER_SEGMENTS: config.DIARIZATION_MIN_SPEAKER_SEGMENTS || process.env.DIARIZATION_MIN_SPEAKER_SEGMENTS || "3",

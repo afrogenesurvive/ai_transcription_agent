@@ -39,11 +39,11 @@ interface ConfigValues {
   GMAIL_USER: string;
   TRELLO_KEY: string;
   TRELLO_TOKEN: string;
-  DSMON_PUSH_URL: string;
   DSMON_INSTANCE_ID: string;
   DSMON_PUSH_INTERVAL: string;
   DSMON_GIST_RAW_URL: string;
   DSMON_GIST_POLL_INTERVAL: string;
+  USAGE_TRACKING_ENABLED: string;
   HUGGING_FACE_TOKEN: string;
   GITHUB_TOKEN: string;
   EMBEDDING_PROVIDER: string;
@@ -106,11 +106,11 @@ const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secre
   { key: "GMAIL_USER", label: "Gmail User Email", required: false, secret: false, section: "Services" },
   { key: "TRELLO_KEY", label: "Trello API Key", required: false, secret: true, section: "Services" },
   { key: "TRELLO_TOKEN", label: "Trello Token", required: false, secret: true, section: "Services" },
-  { key: "DSMON_PUSH_URL", label: "DS-mon Push URL", required: false, secret: false, section: "Usage Tracking" },
   { key: "DSMON_INSTANCE_ID", label: "DS-mon Instance ID", required: false, secret: false, section: "Usage Tracking" },
   { key: "DSMON_PUSH_INTERVAL", label: "DS-mon Push Interval (ms)", required: false, secret: false, section: "Usage Tracking" },
   { key: "DSMON_GIST_RAW_URL", label: "DS-mon Gist Raw URL", required: false, secret: false, section: "Usage Tracking" },
   { key: "DSMON_GIST_POLL_INTERVAL", label: "DS-mon Gist Poll Interval (ms)", required: false, secret: false, section: "Usage Tracking" },
+  { key: "USAGE_TRACKING_ENABLED", label: "Enable Usage Tracking", required: false, secret: false, section: "Usage Tracking" },
   // ── Diarization tuning ──
   { key: "DIARIZATION_MIN_SPEAKER_DURATION", label: "Min Speaker Duration (s)", required: false, secret: false, section: "Diarization" },
   { key: "DIARIZATION_MIN_SPEAKER_SEGMENTS", label: "Min Speaker Segments", required: false, secret: false, section: "Diarization" },
@@ -463,11 +463,11 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
             GMAIL_USER: cfg.GMAIL_USER?.value || "",
             TRELLO_KEY: cfg.TRELLO_KEY?.value || "",
             TRELLO_TOKEN: cfg.TRELLO_TOKEN?.value || "",
-            DSMON_PUSH_URL: cfg.DSMON_PUSH_URL?.value || "",
             DSMON_INSTANCE_ID: cfg.DSMON_INSTANCE_ID?.value || "",
             DSMON_PUSH_INTERVAL: cfg.DSMON_PUSH_INTERVAL?.value || "300000",
             DSMON_GIST_RAW_URL: cfg.DSMON_GIST_RAW_URL?.value || "",
             DSMON_GIST_POLL_INTERVAL: cfg.DSMON_GIST_POLL_INTERVAL?.value || "60000",
+            USAGE_TRACKING_ENABLED: cfg.USAGE_TRACKING_ENABLED?.value || "false",
             LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
             LOG_COLLAPSE_REPEATED_PREFIXES: cfg.LOG_COLLAPSE_REPEATED_PREFIXES?.value || "true",
             LLM_TEMPERATURE: cfg.LLM_TEMPERATURE?.value || "0.1",
@@ -539,11 +539,11 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
             GMAIL_USER: cfg.GMAIL_USER?.value || "",
             TRELLO_KEY: cfg.TRELLO_KEY?.value || "",
             TRELLO_TOKEN: cfg.TRELLO_TOKEN?.value || "",
-            DSMON_PUSH_URL: cfg.DSMON_PUSH_URL?.value || "",
             DSMON_INSTANCE_ID: cfg.DSMON_INSTANCE_ID?.value || "",
             DSMON_PUSH_INTERVAL: cfg.DSMON_PUSH_INTERVAL?.value || "300000",
             DSMON_GIST_RAW_URL: cfg.DSMON_GIST_RAW_URL?.value || "",
             DSMON_GIST_POLL_INTERVAL: cfg.DSMON_GIST_POLL_INTERVAL?.value || "60000",
+            USAGE_TRACKING_ENABLED: cfg.USAGE_TRACKING_ENABLED?.value || "false",
             LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
             LOG_COLLAPSE_REPEATED_PREFIXES: cfg.LOG_COLLAPSE_REPEATED_PREFIXES?.value || "true",
             LLM_TEMPERATURE: cfg.LLM_TEMPERATURE?.value || "0.1",
@@ -604,11 +604,11 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
             GMAIL_USER: cfg.GMAIL_USER?.value || "",
             TRELLO_KEY: cfg.TRELLO_KEY?.value || "",
             TRELLO_TOKEN: cfg.TRELLO_TOKEN?.value || "",
-            DSMON_PUSH_URL: cfg.DSMON_PUSH_URL?.value || "",
             DSMON_INSTANCE_ID: cfg.DSMON_INSTANCE_ID?.value || "",
             DSMON_PUSH_INTERVAL: cfg.DSMON_PUSH_INTERVAL?.value || "300000",
             DSMON_GIST_RAW_URL: cfg.DSMON_GIST_RAW_URL?.value || "",
             DSMON_GIST_POLL_INTERVAL: cfg.DSMON_GIST_POLL_INTERVAL?.value || "60000",
+            USAGE_TRACKING_ENABLED: cfg.USAGE_TRACKING_ENABLED?.value || "false",
             LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
             LOG_COLLAPSE_REPEATED_PREFIXES: cfg.LOG_COLLAPSE_REPEATED_PREFIXES?.value || "true",
             LLM_TEMPERATURE: cfg.LLM_TEMPERATURE?.value || "0.1",
@@ -698,11 +698,11 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
         GMAIL_USER: cfg.GMAIL_USER?.value || "",
         TRELLO_KEY: cfg.TRELLO_KEY?.value || "",
         TRELLO_TOKEN: cfg.TRELLO_TOKEN?.value || "",
-        DSMON_PUSH_URL: cfg.DSMON_PUSH_URL?.value || "",
         DSMON_INSTANCE_ID: cfg.DSMON_INSTANCE_ID?.value || "",
         DSMON_PUSH_INTERVAL: cfg.DSMON_PUSH_INTERVAL?.value || "300000",
         DSMON_GIST_RAW_URL: cfg.DSMON_GIST_RAW_URL?.value || "",
         DSMON_GIST_POLL_INTERVAL: cfg.DSMON_GIST_POLL_INTERVAL?.value || "60000",
+        USAGE_TRACKING_ENABLED: cfg.USAGE_TRACKING_ENABLED?.value || "false",
         LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
         LOG_COLLAPSE_REPEATED_PREFIXES: cfg.LOG_COLLAPSE_REPEATED_PREFIXES?.value || "true",
         LLM_TEMPERATURE: cfg.LLM_TEMPERATURE?.value || "0.1",
@@ -1216,6 +1216,16 @@ The system provides existing memory context at the start of each pipeline run. U
                     {name === "Pipeline" && (
                       <>
                         <Icon name="flag" size="14" />{" "}
+                      </>
+                    )}
+                    {name === "Usage Tracking" && (
+                      <>
+                        <Icon name="monitoring" size="14" />{" "}
+                      </>
+                    )}
+                    {name === "Diarization" && (
+                      <>
+                        <Icon name="record_voice_over" size="14" />{" "}
                       </>
                     )}
                     {name}
@@ -1823,59 +1833,69 @@ The system provides existing memory context at the start of each pipeline run. U
                     <>
                       <div className="config-section-intro">
                         <p className="config-field-hint">
-                          Forward per-API-call token usage to a central <strong>DS-mon</strong> instance for per-machine comparison. Two modes (can be
-                          combined):
+                          Forward per-API-call token usage to a central <strong>DS-mon</strong> instance for per-machine comparison. Records buffer
+                          locally when offline and flush on reconnect. The push URL is discovered automatically via a GitHub Gist.
                         </p>
-                        <ul className="config-field-hint" style={{ marginTop: 4, paddingLeft: 20, lineHeight: 1.7 }}>
-                          <li>
-                            <strong>Static URL</strong> — Set <em>DS-mon Push URL</em> directly (e.g. <code>http://localhost:6000/sync/push</code>).
-                            Use when the DS-mon host has a fixed address.
-                          </li>
-                          <li>
-                            <strong>Gist-based discovery</strong> — Set <em>DS-mon Gist Raw URL</em> to a GitHub Gist that contains the live tunnel
-                            URL. The runner polls the Gist every <em>Gist Poll Interval</em> ms and auto-updates the push URL when it changes. Useful
-                            when DS-mon is behind a dynamic ngrok tunnel.
-                          </li>
-                        </ul>
                       </div>
 
-                      {fields.map((field) => (
-                        <div key={field.key} className="config-field">
-                          <label className="config-label">{field.label}</label>
-                          <div className="config-input-row">
-                            <input
-                              className="config-input"
-                              type={field.secret && !visibleKeys.has(field.key) ? "password" : "text"}
-                              value={values[field.key] || ""}
-                              onChange={(e) => handleChange(field.key, e.target.value)}
-                              placeholder={
-                                field.key === "DSMON_PUSH_URL"
-                                  ? "http://localhost:6000/sync/push"
-                                  : field.key === "DSMON_INSTANCE_ID"
-                                    ? "my-mbp (default: hostname)"
-                                    : field.key === "DSMON_GIST_RAW_URL"
-                                      ? "https://gist.githubusercontent.com/.../raw/..."
-                                      : field.key === "DSMON_PUSH_INTERVAL"
-                                        ? "300000"
-                                        : field.key === "DSMON_GIST_POLL_INTERVAL"
-                                          ? "60000"
-                                          : "Optional"
-                              }
-                              disabled={activeJobs.length > 0}
-                            />
-                          </div>
-                          <p className="config-field-hint" style={{ marginTop: 2 }}>
-                            {field.key === "DSMON_PUSH_URL" && "Leave empty if using Gist-based discovery. Set to the DS-mon sync endpoint URL."}
-                            {field.key === "DSMON_INSTANCE_ID" &&
-                              "Identifier sent with each usage record. Leave empty to auto-generate from hostname, username, and a persistent UUID."}
-                            {field.key === "DSMON_PUSH_INTERVAL" &&
-                              "How often (ms) buffered usage records are pushed to DS-mon. Default: 300000 (5 min)."}
-                            {field.key === "DSMON_GIST_RAW_URL" &&
-                              "Raw URL of a GitHub Gist whose content is the live tunnel URL (e.g. http://host:6000/sync/push). The runner polls this URL and auto-updates."}
-                            {field.key === "DSMON_GIST_POLL_INTERVAL" && "How often (ms) the Gist is polled for URL changes. Default: 60000 (1 min)."}
-                          </p>
-                        </div>
-                      ))}
+                      {/* Master enable/disable toggle */}
+                      <div className="config-field">
+                        <label className="config-label">Enable Usage Tracking</label>
+                        <label className="config-toggle">
+                          <input
+                            type="checkbox"
+                            checked={values.USAGE_TRACKING_ENABLED === "true"}
+                            onChange={(e) => handleChange("USAGE_TRACKING_ENABLED", e.target.checked ? "true" : "false")}
+                            disabled={activeJobs.length > 0}
+                          />
+                          <span className="config-toggle-slider" />
+                          <span className="config-toggle-label">
+                            {values.USAGE_TRACKING_ENABLED === "true" ? "Usage tracking is active" : "Usage tracking is disabled"}
+                          </span>
+                        </label>
+                        <p className="config-field-hint" style={{ marginTop: 4 }}>
+                          Enable to forward per-API-call token usage to a central DS-mon instance. When disabled, all usage tracking config is
+                          ignored and no data is collected.
+                        </p>
+                      </div>
+
+                      {values.USAGE_TRACKING_ENABLED === "true" &&
+                        fields
+                          .filter((f) => f.key !== "USAGE_TRACKING_ENABLED")
+                          .map((field) => (
+                            <div key={field.key} className="config-field">
+                              <label className="config-label">{field.label}</label>
+                              <div className="config-input-row">
+                                <input
+                                  className="config-input"
+                                  type={field.secret && !visibleKeys.has(field.key) ? "password" : "text"}
+                                  value={values[field.key] || ""}
+                                  onChange={(e) => handleChange(field.key, e.target.value)}
+                                  placeholder={
+                                    field.key === "DSMON_INSTANCE_ID"
+                                      ? "my-mbp (default: hostname)"
+                                      : field.key === "DSMON_GIST_RAW_URL"
+                                        ? "https://gist.githubusercontent.com/.../raw/..."
+                                        : field.key === "DSMON_PUSH_INTERVAL"
+                                          ? "300000"
+                                          : field.key === "DSMON_GIST_POLL_INTERVAL"
+                                            ? "60000"
+                                            : "Optional"
+                                  }
+                                  disabled={activeJobs.length > 0}
+                                />
+                              </div>
+                              <p className="config-field-hint" style={{ marginTop: 2 }}>
+                                {field.key === "DSMON_INSTANCE_ID" &&
+                                  "Identifier sent with each usage record. Leave empty to auto-generate from hostname, username, and a persistent UUID."}
+                                {field.key === "DSMON_PUSH_INTERVAL" &&
+                                  "How often (ms) buffered usage records are pushed to DS-mon. Default: 300000 (5 min)."}
+                                {field.key === "DSMON_GIST_RAW_URL" &&
+                                  "Raw URL of a GitHub Gist whose content is the live tunnel URL (e.g. http://host:18888/sync/push). The runner polls this URL and auto-updates."}
+                                {field.key === "DSMON_GIST_POLL_INTERVAL" && "How often (ms) the Gist is polled for URL changes. Default: 60000 (1 min)."}
+                              </p>
+                            </div>
+                          ))}
 
                       <details className="delivery-config-details" style={{ marginTop: 16 }}>
                         <summary className="delivery-config-summary">
@@ -1886,7 +1906,7 @@ The system provides existing memory context at the start of each pipeline run. U
                             Setup Overview
                           </p>
                           <p className="config-field-hint" style={{ marginBottom: 12 }}>
-                            Usage tracking requires a <strong>DS-mon host</strong> (your Mac, running the DS-mon sync server) and one or more{' '}
+                            Usage tracking requires a <strong>DS-mon host</strong> (your Mac, running the DS-mon sync server) and one or more{" "}
                             <strong>remote agent runners</strong> that push usage data to it. Below are step-by-step instructions for each side.
                           </p>
 
@@ -1900,52 +1920,45 @@ The system provides existing memory context at the start of each pipeline run. U
                             <li>
                               <strong>Turn OFF</strong> the Enable Sync toggle (mode/port fields are greyed out while sync is running)
                             </li>
-                            <li>Select <strong>Server</strong> mode</li>
-                            <li>Set <strong>listen port</strong> to <code>18080</code> (or your preferred port)</li>
+                            <li>
+                              Select <strong>Server</strong> mode
+                            </li>
+                            <li>
+                              Set <strong>listen port</strong> to <code>18080</code> (or your preferred port)
+                            </li>
                             <li>
                               <strong>Turn ON</strong> the Enable Sync toggle — status should show green &quot;Listening :18080&quot;
                             </li>
                             <li style={{ marginTop: 8 }}>
-                              Expose via ngrok: <code>ngrok http 18080</code> — note the public URL (e.g.{' '}
-                              <code>https://abc123.ngrok.io</code>)
+                              Expose via ngrok: <code>ngrok http 18080</code> — note the public URL (e.g. <code>https://abc123.ngrok.io</code>)
                             </li>
                             <li style={{ marginTop: 8 }}>
-                              <strong>Optional (Gist-based discovery):</strong> Create a secret Gist with file{' '}
-                              <code>dsmon-tunnel-url.txt</code> containing the current tunnel URL. Run{' '}
-                              <code>./scripts/update-dsmon-gist.sh</code> alongside ngrok to keep it updated automatically.
+                              <strong>Optional (Gist-based discovery):</strong> Create a secret Gist with file <code>dsmon-tunnel-url.txt</code>{" "}
+                              containing the current tunnel URL. Run <code>./scripts/update-dsmon-gist.sh</code> alongside ngrok to keep it updated
+                              automatically.
                             </li>
                           </ol>
 
                           <p className="config-field-hint" style={{ fontWeight: 600, marginBottom: 8, marginTop: 16 }}>
                             🖥️ Remote Machine Setup (each agent runner)
                           </p>
-                          <p className="config-field-hint" style={{ marginBottom: 8 }}>
-                            Choose one of these approaches:
-                          </p>
-                          <p className="config-field-hint" style={{ fontWeight: 500, marginBottom: 4 }}>
-                            Option A — Static URL:
+                          <p className="config-field-hint" style={{ marginBottom: 4 }}>
+                            Configure in <strong>Usage Tracking</strong> section above:
                           </p>
                           <ol className="config-field-hint" style={{ paddingLeft: 20, lineHeight: 1.8, marginBottom: 8 }}>
-                            <li>Set <strong>DS-mon Push URL</strong> to the ngrok URL + <code>/sync/push</code> (e.g.{' '}
-                              <code>https://abc123.ngrok.io:18080/sync/push</code>)</li>
-                            <li>Set <strong>DS-mon Instance ID</strong> to a unique name (or leave empty for auto-generation)</li>
                             <li>
-                              <strong>DS-mon Push Interval</strong> defaults to 5 min — adjust if desired
-                            </li>
-                          </ol>
-                          <p className="config-field-hint" style={{ fontWeight: 500, marginBottom: 4 }}>
-                            Option B — Gist-based discovery (auto-updates on ngrok restart):
-                          </p>
-                          <ol className="config-field-hint" style={{ paddingLeft: 20, lineHeight: 1.8, marginBottom: 8 }}>
-                            <li>Leave <strong>DS-mon Push URL</strong> empty</li>
-                            <li>
-                              Set <strong>DS-mon Gist Raw URL</strong> to the Gist raw URL (e.g.{' '}
+                              Set <strong>DS-mon Gist Raw URL</strong> to the Gist raw URL (e.g.{" "}
                               <code>https://gist.githubusercontent.com/.../raw/dsmon-tunnel-url.txt</code>)
                             </li>
                             <li>
                               <strong>DS-mon Gist Poll Interval</strong> defaults to 60s — the runner polls for URL changes automatically
                             </li>
-                            <li>Set <strong>DS-mon Instance ID</strong> (or leave empty for auto-generation)</li>
+                            <li>
+                              Set <strong>DS-mon Instance ID</strong> (or leave empty for auto-generation)
+                            </li>
+                            <li>
+                              <strong>DS-mon Push Interval</strong> defaults to 5 min — controls how often buffered records are flushed
+                            </li>
                           </ol>
 
                           <p className="config-field-hint" style={{ fontWeight: 600, marginBottom: 8, marginTop: 16 }}>
@@ -1954,8 +1967,8 @@ The system provides existing memory context at the start of each pipeline run. U
                           <p className="config-field-hint" style={{ marginBottom: 4 }}>
                             On the remote machine, start a transcription job and check for these log lines:
                           </p>
-                          <pre className="config-field-hint" style={{ background: 'var(--bg-secondary)', padding: 8, borderRadius: 4, fontSize: 12 }}>
-{`📊 [DSMON] Starting flush timer (interval: 300000ms, instance: ...)
+                          <pre className="config-field-hint" style={{ background: "var(--bg-secondary)", padding: 8, borderRadius: 4, fontSize: 12 }}>
+                            {`📊 [DSMON] Starting flush timer (interval: 300000ms, instance: ...)
 📊 [DSMON] Pushed 3 usage records to http://host:18080/sync/push`}
                           </pre>
                           <p className="config-field-hint" style={{ marginTop: 8 }}>

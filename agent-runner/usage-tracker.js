@@ -6,14 +6,14 @@
  * endpoint for centralized per-machine usage monitoring across multiple
  * instances sharing the same API key.
  *
- * Offline-resilient: on push failure (network error or non-200), records
- * are retained in the buffer file and retried on the next flush cycle.
+ * The push URL is discovered at runtime via the Gist poller — no static
+ * DSMON_PUSH_URL config is needed. Offline-resilient: on push failure,
+ * records are retained in the buffer file and retried on the next cycle.
  *
- * Config (all env vars, optional — tracking disabled when URL is empty):
- *   DSMON_PUSH_URL          — DS-mon sync server URL (e.g. http://host:6000/sync/push)
- *   DSMON_INSTANCE_ID       — Instance identifier (default: os.hostname())
+ * Config (all env vars, optional — tracking disabled when all empty):
+ *   DSMON_INSTANCE_ID       — Instance identifier (default: auto-generated)
  *   DSMON_PUSH_INTERVAL     — Flush interval in ms (default: 300000 = 5 min)
- *   DSMON_GIST_RAW_URL      — GitHub Gist raw URL to poll for live tunnel URL (optional)
+ *   DSMON_GIST_RAW_URL      — GitHub Gist raw URL to poll for live tunnel URL
  *   DSMON_GIST_POLL_INTERVAL — Gist poll interval in ms (default: 60000 = 1 min)
  */
 
@@ -25,7 +25,8 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-let PUSH_URL = process.env.DSMON_PUSH_URL || "";
+const TRACKING_ENABLED = process.env.USAGE_TRACKING_ENABLED === "true";
+let PUSH_URL = "";
 const PUSH_INTERVAL = parseInt(process.env.DSMON_PUSH_INTERVAL || "300000", 10);
 const GIST_RAW_URL = process.env.DSMON_GIST_RAW_URL || "";
 const GIST_POLL_INTERVAL = parseInt(process.env.DSMON_GIST_POLL_INTERVAL || "60000", 10);
@@ -202,6 +203,7 @@ async function pollGist() {
  * when a tunnel URL is first discovered.
  */
 export function startGistPoller() {
+  if (!TRACKING_ENABLED) return;
   if (!GIST_RAW_URL) {
     console.log(`📡 [DSMON] Gist poller disabled — set DSMON_GIST_RAW_URL to enable`);
     return;
@@ -222,10 +224,11 @@ export function startGistPoller() {
  * were buffered while the runner was previously offline.
  */
 export function startFlushTimer() {
-  if (!PUSH_URL) {
-    console.log(`📊 [DSMON] Tracking disabled — set DSMON_PUSH_URL or DSMON_GIST_RAW_URL to enable`);
+  if (!TRACKING_ENABLED) {
+    console.log(`📊 [DSMON] Tracking disabled — enable in Config Panel to activate`);
     return;
   }
+  if (!PUSH_URL) return;
   if (flushTimer) return;
 
   console.log(`📊 [DSMON] Starting flush timer (interval: ${PUSH_INTERVAL}ms, instance: ${INSTANCE_ID})`);

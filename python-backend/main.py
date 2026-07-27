@@ -1316,13 +1316,19 @@ async def agent_deliver(req: Deliverable):
     config_recipients = os.environ.get("DELIVERY_RECIPIENT_EMAILS", "")
     config_emails = [e.strip() for e in config_recipients.split(",") if e.strip()] if config_recipients else []
 
-    # Also try to read job-level email_recipients from stored metadata
+    # Also try to read job-level data from stored metadata
+    title = req.title
+    attendees = req.attendees
     job_emails = req.email_recipients or []
     try:
         meta_path = os.path.join(config.STORAGE_PATH, req.job_id, "metadata.json")
         if os.path.exists(meta_path):
             with open(meta_path) as f:
                 meta = json.load(f)
+            if not title:
+                title = meta.get("title", "")
+            if not attendees:
+                attendees = meta.get("attendees", [])
             stored_emails = meta.get("email_recipients", [])
             if stored_emails:
                 job_emails = list(set(list(job_emails) + stored_emails))
@@ -1338,8 +1344,8 @@ async def agent_deliver(req: Deliverable):
             all_recipients.append(email)
 
     package = {
-        "job_id": req.job_id, "title": req.title,
-        "attendees": req.attendees, "destinations": req.destinations,
+        "job_id": req.job_id, "title": title,
+        "attendees": attendees, "destinations": req.destinations,
         "email_recipients": all_recipients,
         "email_subject": os.environ.get("DELIVERY_EMAIL_SUBJECT", "Meeting Summary: {title}"),
         "email_additional_content": os.environ.get("DELIVERY_EMAIL_ADDITIONAL_CONTENT", ""),
@@ -2137,10 +2143,18 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
         metadata["attendeeEmails"] = dict(zip(all_attendee_names, all_attendee_emails))
         # Merge new real emails into email_recipients (skip @voiceprint.local
         # placeholders — those are voiceprint-only keys, not delivery addresses)
+        # Only add emails from matched speakers and unregistered speakers, NOT
+        # from non-speaking attendees — they were present but shouldn't auto-receive
+        # delivery unless they were already in the original email_recipients.
         existing_recipients = set(e.lower() for e in metadata.get("email_recipients", []) if e)
-        for email in all_attendee_emails:
-            if email and "@voiceprint.local" not in email:
-                existing_recipients.add(email.lower())
+        for s in matched_speakers:
+            e = _resolve_attendee_email(s["name"], s.get("email", ""))
+            if e and "@voiceprint.local" not in e:
+                existing_recipients.add(e.lower())
+        for us in saved_reconciliation.get("unregistered_speakers", []):
+            e = _resolve_attendee_email(us["name"], us.get("email", ""))
+            if e and "@voiceprint.local" not in e:
+                existing_recipients.add(e.lower())
         metadata["email_recipients"] = list(existing_recipients)
         try:
             meta_path = os.path.join(config.STORAGE_PATH, job_id, "metadata.json")
@@ -3966,6 +3980,37 @@ def _reconcile_attendees(metadata_attendees: list, attendee_emails: list,
             print(f"[reconciliation] ⚠️  Speaker '{name}' (IDs: {speaker_ids_for_name}) "
                   f"is NOT in registered attendees — will be registered as new attendee")
 
+    # ── Unregistered speakers from all-voiceprint cross-check ──
+    # Speakers identified via the full voiceprint DB cross-check (Phase 1 fix)
+    # whose names aren't in the registered attendee list. Auto-register them
+    # as matched speakers so the labeling pause can be skipped.
+    for name, segs in match_result.get("unregistered", {}).items():
+        if name.lower() not in matched_attendee_names:
+            spk_id = None
+            for spk_id_candidate, spk_segs in speaker_segments.items():
+                for s in spk_segs[:5]:
+                    for ks in (segs or [])[:5]:
+                        if abs(s.get("start", 0) - ks.get("start", 0)) < 0.5:
+                            spk_id = spk_id_candidate
+                            break
+                    if spk_id:
+                        break
+                if spk_id:
+                    break
+            confidence = scores.get(name, 0)
+            matched_speakers.append({
+                "name": name,
+                "email": "",
+                "speaker_id": spk_id or "?",
+                "confidence": round(confidence, 3),
+            })
+            unregistered_speakers.append({
+                "name": name,
+                "email": "",
+            })
+            print(f"[reconciliation] ⚠️  Voiceprint-matched speaker '{name}' (ID: {spk_id}) "
+                  f"is NOT in registered attendees — auto-registering as new attendee")
+
     # ── Positional fallback: no voiceprints exist, all attendees unmatched ──
     # When there are no stored voiceprints, match_result["known"] is empty,
     # so every attendee lands in non_speaking_attendees even though the
@@ -4053,10 +4098,18 @@ def _update_metadata_with_reconciliation(
 
     metadata["attendees"] = all_attendee_names
     metadata["attendeeEmails"] = dict(zip(all_attendee_names, all_attendee_emails))
+    # Only add emails from matched speakers and unregistered speakers, NOT
+    # from non-speaking attendees — they were present but shouldn't auto-receive
+    # delivery unless they were already in the original email_recipients.
     existing_recipients = set(e.lower() for e in metadata.get("email_recipients", []) if e)
-    for email in all_attendee_emails:
-        if email and "@voiceprint.local" not in email:
-            existing_recipients.add(email.lower())
+    for s in reconciliation.get("matched_speakers", []):
+        e = _resolve_attendee_email(s["name"], s.get("email", ""))
+        if e and "@voiceprint.local" not in e:
+            existing_recipients.add(e.lower())
+    for us in reconciliation.get("unregistered_speakers", []):
+        e = _resolve_attendee_email(us["name"], us.get("email", ""))
+        if e and "@voiceprint.local" not in e:
+            existing_recipients.add(e.lower())
     metadata["email_recipients"] = list(existing_recipients)
     try:
         meta_path = os.path.join(config.STORAGE_PATH, job_id, "metadata.json")

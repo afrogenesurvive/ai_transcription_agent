@@ -341,16 +341,23 @@ class VoiceprintManager:
         Returns:
             {
               "known": {matched_name: [segments]},
-              "unknown": [{speaker_id, segments, sample_segment, sample_text}]
+              "unknown": [{speaker_id, segments, sample_segment, sample_text}],
+              "unregistered": {matched_name: [segments]}  (matched but not in attendee list)
             }
 
         Algorithm:
         1. Load embeddings for all known attendees from SQLite.
-        2. For each diarized speaker cluster, sample up to N evenly-spaced
+        2. Also load ALL stored voiceprints to cross-check against unregistered
+           speakers — a detected voice may match a stored print whose name isn't
+           in the job's attendee list.
+        3. For each diarized speaker cluster, sample up to N evenly-spaced
            segments and average their embeddings for a robust signature.
-        3. Compute cosine similarity against every known embedding.
-        4. If best match above threshold → label as that person.
-        5. Otherwise → add to unknown list for agent resolution.
+        4. Compute cosine similarity against every known + unregistered embedding.
+        5. If best match above threshold → label as that person.
+           - If the match is in the attendee list → add to "known".
+           - If the match is from a stored voiceprint not in the attendee list
+             → add to "unregistered" so the caller can auto-register them.
+        6. Otherwise → add to unknown list for agent resolution.
         """
         if threshold is None:
             threshold = config.VOICEPRINT_THRESHOLD
@@ -371,7 +378,20 @@ class VoiceprintManager:
         # Step 1: Load stored embeddings for attendees who have voiceprints enrolled
         known_embeddings = self._get_known_embeddings(attendees)
         print(f"[voiceprint] Found {len(known_embeddings)} stored voiceprints for attendees: {list(known_embeddings.keys())}")
-        results = {"known": {}, "unknown": []}
+
+        # Also load ALL other stored voiceprints — a detected speaker may match
+        # a stored print whose name isn't in this job's attendee list.
+        all_embeddings = self._get_known_embeddings([])  # empty = load ALL
+        unregistered_embeddings = {}
+        for name, emb in all_embeddings.items():
+            if name not in known_embeddings:
+                unregistered_embeddings[name] = emb
+        if unregistered_embeddings:
+            print(f"[voiceprint] Also checking {len(unregistered_embeddings)} unregistered voiceprint(s): "
+                  f"{list(unregistered_embeddings.keys())}")
+
+        results = {"known": {}, "unknown": [], "unregistered": {}}
+        combined_embeddings = {**known_embeddings, **unregistered_embeddings}
 
         # Step 2-5: Match each speaker cluster
         # Segments are plain dicts with "start", "end", "duration", "speaker" keys
@@ -393,20 +413,27 @@ class VoiceprintManager:
             emb = np.mean(sampled_embs, axis=0)
             emb = emb / np.linalg.norm(emb)
 
-            # Find the best matching known voiceprint
+            # Find the best matching voiceprint (known or unregistered)
             best_match, best_score = None, 0
-            for name, stored in known_embeddings.items():
+            for name, stored in combined_embeddings.items():
                 sim = self._cosine_similarity(emb, stored)
                 if sim > threshold and sim > best_score:
                     best_match, best_score = name, sim
 
             if best_match:
-                # Known speaker — assign all their segments
-                results["known"][best_match] = segments
+                if best_match in known_embeddings:
+                    # Known (registered) speaker — assign all their segments
+                    results["known"][best_match] = segments
+                    match_type = "registered"
+                else:
+                    # Unregistered speaker — matched a stored print not in this
+                    # job's attendee list. Surface for auto-registration.
+                    results["unregistered"][best_match] = segments
+                    match_type = "unregistered"
                 # Store score alongside name for ASV feedback logging
                 results.setdefault("scores", {})[best_match] = best_score
                 print(f"[voiceprint] ✅ {speaker_id} → matched '{best_match}' (score={best_score:.3f}, "
-                      f"averaged over {len(sampled_embs)} segment(s))")
+                      f"{match_type}, averaged over {len(sampled_embs)} segment(s))")
             else:
                 # Unknown speaker — record metadata for agent labeling
                 results["unknown"].append({
