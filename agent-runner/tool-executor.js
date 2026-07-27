@@ -23,27 +23,57 @@ async function callBridge(tool, args) {
 
 // ── Delivery handlers (direct API calls) ──
 
-async function sendEmail(to, subject, body, transcript) {
+async function sendEmail(to, subject, body) {
+  // Support both comma-separated string and array of recipients
+  const recipients = Array.isArray(to)
+    ? to
+    : to
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+
   const { google } = await import("googleapis");
   const { OAuth2Client } = await import("google-auth-library");
   const oauth = new OAuth2Client(process.env.GMAIL_CLIENT_ID, process.env.GMAIL_CLIENT_SECRET);
   oauth.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
   const gmail = google.gmail({ version: "v1", auth: oauth });
-  const full = transcript ? `${body}\n\n---\nFull Transcript:\n${transcript}` : body;
-  const email = [
-    `From: ${process.env.GMAIL_USER || "me"}`,
-    `To: ${to}`,
-    `Subject: ${subject}`,
-    "MIME-Version: 1.0",
-    "Content-Type: text/plain; charset=utf-8",
-    "",
-    full,
-  ].join("\r\n");
-  const res = await gmail.users.messages.send({
-    userId: process.env.GMAIL_USER || "me",
-    requestBody: { raw: Buffer.from(email).toString("base64url") },
-  });
-  return { ok: true, tool: "send_delivery_email", result: sanitizeApiResponse({ id: res.data.id }) };
+  const full = body;
+
+  const results = [];
+  for (const recipient of recipients) {
+    try {
+      const email = [
+        `From: ${process.env.GMAIL_USER || "me"}`,
+        `To: ${recipient}`,
+        `Subject: ${subject}`,
+        "MIME-Version: 1.0",
+        "Content-Type: text/plain; charset=utf-8",
+        "",
+        full,
+      ].join("\r\n");
+      const res = await gmail.users.messages.send({
+        userId: process.env.GMAIL_USER || "me",
+        requestBody: { raw: Buffer.from(email).toString("base64url") },
+      });
+      results.push({ ok: true, recipient, id: res.data.id });
+    } catch (err) {
+      results.push({ ok: false, recipient, error: err.message });
+    }
+  }
+
+  // Single recipient — backwards-compatible single result
+  if (results.length === 1) {
+    return { ok: true, tool: "send_delivery_email", result: sanitizeApiResponse({ id: results[0].id, to: results[0].recipient, subject }) };
+  }
+  // Multiple recipients — array in result, one recordDeliveryResult call per recipient
+  return {
+    ok: results.some((r) => r.ok),
+    tool: "send_delivery_email",
+    result: sanitizeApiResponse({
+      recipients: results.map((r) => ({ email: r.recipient, success: r.ok, id: r.id || null, error: r.error || null })),
+      subject,
+    }),
+  };
 }
 
 async function createTrelloCards(listId, items) {
@@ -60,10 +90,11 @@ async function createTrelloCards(listId, items) {
     });
     if (resp.ok) cards.push(sanitizeApiResponse(await resp.json()));
   }
-  return { ok: true, tool: "create_trello_action_items", result: sanitizeApiResponse({ cardsCreated: cards.length }) };
+  const firstCardName = items.length > 0 ? (items[0].description || "").slice(0, 80) : "";
+  return { ok: true, tool: "create_trello_action_items", result: sanitizeApiResponse({ cardsCreated: cards.length, listId, firstCardName }) };
 }
 
-async function saveToDrive(folder, title, transcript, summary) {
+async function saveToDrive(folder, title, summary) {
   const { google } = await import("googleapis");
   const { OAuth2Client } = await import("google-auth-library");
   const oauth = new OAuth2Client(process.env.GMAIL_CLIENT_ID, process.env.GMAIL_CLIENT_SECRET);
@@ -85,12 +116,12 @@ async function saveToDrive(folder, title, transcript, summary) {
   const doc = await drive.files.create({
     requestBody: { name: `${safe} — Summary`, mimeType: "application/vnd.google-apps.document", parents: [folderId] },
   });
-  const txt = await drive.files.create({
-    requestBody: { name: `${safe} — Transcript.txt`, mimeType: "text/plain", parents: [folderId] },
-    media: { mimeType: "text/plain", body: transcript || "" },
-  });
 
-  return { ok: true, tool: "save_to_drive", result: sanitizeApiResponse({ folderId, summaryDocId: doc.data.id, transcriptFileId: txt.data.id }) };
+  return {
+    ok: true,
+    tool: "save_to_drive",
+    result: sanitizeApiResponse({ folderId, folderName, summaryDocId: doc.data.id }),
+  };
 }
 
 // ── Handler registry ──
@@ -98,15 +129,27 @@ async function saveToDrive(folder, title, transcript, summary) {
 const HANDLERS = {
   transcribe_refine: (a) => callBridge("transcribe_refine", a),
   transcribe_analyze: (a) => callBridge("transcribe_analyze", a),
+  transcribe_approve_delivery: (a) => callBridge("transcribe_approve_delivery", a),
   transcribe_get_transcript: (a) => callBridge("transcribe_get_transcript", a),
   transcribe_get_summary: (a) => callBridge("transcribe_get_summary", a),
   transcribe_summarize: (a) => callBridge("transcribe_summarize", a),
   transcribe_label_speaker: (a) => callBridge("transcribe_label_speaker", a),
   transcribe_list_voiceprints: () => callBridge("transcribe_list_voiceprints", {}),
   transcribe_prepare_delivery: (a) => callBridge("transcribe_prepare_delivery", a),
-  send_delivery_email: (a) => sendEmail(a.to, a.subject, a.body, a.transcript),
+  transcribe_save_context: (a) => callBridge("transcribe_save_context", a),
+  transcribe_save_ephemeral: (a) => callBridge("transcribe_save_ephemeral", a),
+  transcribe_query_ephemeral: (a) => callBridge("transcribe_query_ephemeral", a),
+  transcribe_search_memory: (a) => callBridge("transcribe_search_memory", a),
+  transcribe_register_attendees: (a) => callBridge("transcribe_register_attendees", a),
+  transcribe_list_attendees: (a) => callBridge("transcribe_list_attendees", a),
+  transcribe_search_attendees: (a) => callBridge("transcribe_search_attendees", a),
+  transcribe_upsert_job: (a) => callBridge("transcribe_upsert_job", a),
+  transcribe_update_status: (a) => callBridge("transcribe_update_status", a),
+  transcribe_fail_job: (a) => callBridge("transcribe_fail_job", a),
+  transcribe_complete_job: (a) => callBridge("transcribe_complete_job", a),
+  send_delivery_email: (a) => sendEmail(a.to, a.subject, a.body),
   create_trello_action_items: (a) => createTrelloCards(a.listId, a.actionItems),
-  save_to_drive: (a) => saveToDrive(a.folderName, a.title, a.transcript, a.summary),
+  save_to_drive: (a) => saveToDrive(a.folderName, a.title, a.summary),
 };
 
 export async function executeToolCall(toolName, args) {

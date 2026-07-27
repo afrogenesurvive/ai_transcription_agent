@@ -30,10 +30,13 @@ class Config:
 
     # Models
     WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "medium")
+    WHISPER_INITIAL_PROMPT_ENABLED = os.getenv("WHISPER_INITIAL_PROMPT_ENABLED", "false").lower() in ("true", "1", "yes")
+    WHISPER_INITIAL_PROMPT = os.getenv("WHISPER_INITIAL_PROMPT", "")
     DIARIZATION_MODEL = os.getenv(
         "DIARIZATION_MODEL", "pyannote/speaker-diarization-3.1"
     )
     EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "pyannote/embedding")
+    EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "pyannote")
 
     # Platform (auto-detect if not set)
     PLATFORM = os.getenv("PLATFORM", "auto")  # auto, mac, windows, cloud
@@ -41,6 +44,27 @@ class Config:
 
     # Voiceprint matching threshold
     VOICEPRINT_THRESHOLD = float(os.getenv("VOICEPRINT_THRESHOLD", "0.75"))
+
+    # ── Diarization tuning (ASV phantom speaker suppression) ──
+    # Post-processing: discard speakers below these thresholds
+    DIARIZATION_MIN_SPEAKER_DURATION = float(
+        os.getenv("DIARIZATION_MIN_SPEAKER_DURATION", "3.0")
+    )
+    DIARIZATION_MIN_SPEAKER_SEGMENTS = int(
+        os.getenv("DIARIZATION_MIN_SPEAKER_SEGMENTS", "3")
+    )
+    # Post-processing: merge adjacent same-speaker segments with gap <= this
+    DIARIZATION_MERGING_GAP = float(
+        os.getenv("DIARIZATION_MERGING_GAP", "0.5")
+    )
+    # Clustering override: 0.0 = use pyannote model default
+    DIARIZATION_CLUSTERING_THRESHOLD = float(
+        os.getenv("DIARIZATION_CLUSTERING_THRESHOLD", "0.0")
+    )
+    # Hard upper bound on speaker count; 0 = no limit
+    DIARIZATION_MAX_SPEAKERS = int(
+        os.getenv("DIARIZATION_MAX_SPEAKERS", "0")
+    )
 
     # Allowed upload formats
     ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".webm"}
@@ -56,6 +80,42 @@ class Config:
 
     # Transcript refinement options
     KEEP_TRANSCRIPT_TIMESTAMPS = os.getenv("KEEP_TRANSCRIPT_TIMESTAMPS", "false").lower() in ("true", "1", "yes")
+
+    # Default pipeline steps to skip (overridden by per-request skip_steps)
+    DEFAULT_SKIP_STEPS = [
+        "transcribe_analyze",
+        "transcribe_prepare_delivery",
+        "send_delivery_email",
+        "save_to_drive",
+        "create_trello_action_items",
+    ]
+
+    # Maximum concurrent ML pipeline jobs
+    MAX_CONCURRENT_PIPELINES = int(os.getenv("MAX_CONCURRENT_PIPELINES", "2"))
+
+    # Pipeline timeout (minutes) before a hung job fails itself
+    PIPELINE_TIMEOUT_MINUTES = int(os.getenv("PIPELINE_TIMEOUT_MINUTES", "15"))
+    PIPELINE_TIMEOUT_SECONDS = PIPELINE_TIMEOUT_MINUTES * 60
+
+    # Delivery configuration (set via ConfigPanel → config.json → env vars)
+    DELIVERY_RECIPIENT_EMAILS = os.getenv("DELIVERY_RECIPIENT_EMAILS", "")
+    DELIVERY_EMAIL_SUBJECT = os.getenv("DELIVERY_EMAIL_SUBJECT", "Meeting Summary: {title}")
+    DELIVERY_EMAIL_ADDITIONAL_CONTENT = os.getenv("DELIVERY_EMAIL_ADDITIONAL_CONTENT", "")
+    DELIVERY_DRIVE_FOLDER = os.getenv("DELIVERY_DRIVE_FOLDER", "Meeting Transcripts")
+
+    # ── Model lifecycle ──
+    # When True: ML models (whisper + diarization) stay loaded between jobs.
+    # Subsequent jobs start faster (no reload, no HuggingFace HEAD request),
+    # but memory usage stays high and MPS fragmentation may accumulate.
+    # When False (default): models are unloaded after each job via GC + torch.mps.empty_cache().
+    # Slower per-job startup but safer on memory-constrained Apple Silicon systems.
+    KEEP_MODELS_WARM = os.getenv("KEEP_MODELS_WARM", "false").lower() in ("true", "1", "yes")
+
+    # ── Approval Gates ──
+    # Gate 1: pause after ASR+alignment for raw transcript review/editing before LLM processing
+    GATE_RAW_REVIEW_ENABLED = os.getenv("GATE_RAW_REVIEW_ENABLED", "false").lower() in ("true", "1", "yes")
+    # Gate 2: pause after LLM analysis for transcript/summary/analysis review before memory save + delivery
+    GATE_DELIVERY_REVIEW_ENABLED = os.getenv("GATE_DELIVERY_REVIEW_ENABLED", "false").lower() in ("true", "1", "yes")
 
 
 config = Config()

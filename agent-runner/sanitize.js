@@ -37,13 +37,12 @@ const ON_ATTR = /\s(on\w+)\s*=\s*["'][^"']*["']/gi;
 
 // ── Max limits ──
 
-const MAX_STRING_LENGTH = 2000;
-const MAX_NESTING_DEPTH = 5;
+const MAX_STRING_LENGTH = 100000;
+const MAX_NESTING_DEPTH = 10;
 const MAX_ARRAY_ITEMS = 100;
 const MAX_OBJECT_KEYS = 200;
 
 // ── TIER 1: Mandatory — Sanitize third-party API responses ──
-
 /**
  * Deep-sanitize an API response object.
  * Strips credentials, limits string length, flattens deep nesting.

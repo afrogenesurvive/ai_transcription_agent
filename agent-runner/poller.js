@@ -1,93 +1,155 @@
 /**
- * Queue Poller — reads unactioned items from transcription.jsonl
+ * Queue Poller — claims pending events from the SQLite-backed event queue
+ * via HTTP endpoints on the Python backend.
+ *
+ * Replaces the former JSONL file queue (transcription.jsonl) with atomic
+ * SQLite operations for ACID guarantees, retry tracking, and DLQ support.
+ *
+ * The Python backend exposes:
+ *   POST /queue/claim      — atomically claim next pending event
+ *   POST /queue/complete/{id} — mark as completed
+ *   POST /queue/fail/{id}  — mark as failed (with retry/DLQ logic)
+ *   POST /queue/enqueue    — write a new event
+ *   GET  /queue/stats      — queue depth by status
  */
 
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
+const BACKEND_URL = process.env.TRANSCRIPTION_BACKEND_URL || "http://127.0.0.1:5001";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const QUEUE_DIR = process.env.TRANSCRIPTION_QUEUE_DIR || path.resolve(__dirname, "..", "queue");
-const QUEUE_FILE = path.join(QUEUE_DIR, "transcription.jsonl");
-
-const processing = new Set();
-
-export function readPending() {
+/**
+ * Atomically claim the next pending queue event.
+ *
+ * @param {string[]} [typesFilter] - Optional list of event types to restrict claiming to
+ * @returns {object|null} The claimed event object, or null if none pending
+ */
+export async function claimPendingEvent(typesFilter) {
   try {
-    if (!fs.existsSync(QUEUE_FILE)) {
-      console.log(`   [POLLER] Queue file not found: ${QUEUE_FILE}`);
-      return [];
+    const resp = await fetch(`${BACKEND_URL}/queue/claim`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ types_filter: typesFilter || undefined }),
+    });
+    if (!resp.ok) {
+      console.error(`   ❌ [POLLER] claim failed (HTTP ${resp.status})`);
+      return null;
     }
-    const raw = fs.readFileSync(QUEUE_FILE, "utf8");
-    const lines = raw.split("\n").filter(Boolean);
-    console.log(`   [POLLER] Queue file: ${lines.length} total line(s)`);
-    const pending = [];
-    for (const line of lines) {
-      try {
-        const evt = JSON.parse(line);
-        if (evt.cleared) {
-          console.log(`   [POLLER]   ${evt.id?.slice(0, 8)} — cleared (${evt.clearedAt})`);
-          continue;
-        }
-        if (processing.has(evt.id)) {
-          console.log(`   [POLLER]   ${evt.id?.slice(0, 8)} — already processing`);
-          continue;
-        }
-        console.log(`   [POLLER]   ${evt.id?.slice(0, 8)} — pending (${evt.type})`);
-        pending.push(evt);
-      } catch {
-        console.log(`   [POLLER]   (malformed line, skipping)`);
-      }
+    const data = await resp.json();
+    if (!data.event) {
+      console.log(`   [POLLER] No pending events`);
+      return null;
     }
-    console.log(`   [POLLER] ${pending.length} pending event(s)`);
-    return pending;
+    const event = data.event;
+    console.log(`   [POLLER] Claimed ${event.id?.slice(0, 8)} — ${event.type} (priority=${event.priority})`);
+    return event;
   } catch (err) {
-    console.error("   ❌ [POLLER]", err.message);
-    return [];
+    console.error(`   ❌ [POLLER] claim error: ${err.message}`);
+    return null;
   }
 }
 
-export function markCleared(eventId) {
+/**
+ * Mark a claimed event as completed.
+ *
+ * @param {string} eventId - The event ID to complete
+ * @returns {boolean} True if the event was successfully completed
+ */
+export async function completeEvent(eventId) {
   const tag = eventId?.slice(0, 8) || "???";
-  console.log(`   [POLLER] Marking ${tag} as cleared`);
   try {
-    if (!fs.existsSync(QUEUE_FILE)) return false;
-    const content = fs.readFileSync(QUEUE_FILE, "utf8");
-    const lines = content.split("\n");
-    let found = false;
-    const updated = lines.map((line) => {
-      if (!line.trim()) return line;
-      try {
-        const evt = JSON.parse(line);
-        if (evt.id === eventId && !evt.cleared) {
-          evt.cleared = true;
-          evt.clearedAt = new Date().toISOString();
-          evt.clearedBy = "transcription-agent";
-          found = true;
-          return JSON.stringify(evt);
-        }
-        return line;
-      } catch {
-        return line;
-      }
+    const resp = await fetch(`${BACKEND_URL}/queue/complete/${eventId}`, {
+      method: "POST",
     });
-    if (found) {
-      fs.writeFileSync(QUEUE_FILE, updated.join("\n"), "utf8");
-      processing.delete(eventId);
-      console.log(`   ✅ [POLLER] ${tag} cleared in queue`);
-    } else {
-      console.log(`   ⚠️  [POLLER] ${tag} not found or already cleared`);
+    if (!resp.ok) {
+      console.error(`   ❌ [POLLER] complete ${tag} failed (HTTP ${resp.status})`);
+      return false;
     }
-    return found;
+    const data = await resp.json();
+    console.log(`   ✅ [POLLER] ${tag} completed (${data.success ? "ok" : "not updated"})`);
+    return !!data.success;
   } catch (err) {
-    console.error("   ❌ [POLLER]", err.message);
+    console.error(`   ❌ [POLLER] complete ${tag} error: ${err.message}`);
     return false;
   }
 }
 
-export function acquireLock(eventId) {
-  processing.add(eventId);
+/**
+ * Mark a claimed event as failed. Handles retry/DLQ internally on the backend.
+ *
+ * @param {string} eventId - The event ID to fail
+ * @param {string} [error] - Optional error message
+ * @returns {boolean} True if the event was updated
+ */
+export async function failEvent(eventId, error) {
+  const tag = eventId?.slice(0, 8) || "???";
+  try {
+    const resp = await fetch(`${BACKEND_URL}/queue/fail/${eventId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ error: error || "" }),
+    });
+    if (!resp.ok) {
+      console.error(`   ❌ [POLLER] fail ${tag} failed (HTTP ${resp.status})`);
+      return false;
+    }
+    const data = await resp.json();
+    console.log(`   ❌ [POLLER] ${tag} failed (${data.success ? "ok" : "not updated"})`);
+    return !!data.success;
+  } catch (err) {
+    console.error(`   ❌ [POLLER] fail ${tag} error: ${err.message}`);
+    return false;
+  }
 }
-export function releaseLock(eventId) {
-  processing.delete(eventId);
+
+/**
+ * Enqueue a new event via the Python backend.
+ *
+ * @param {string} source - Event source ('transcription' or 'agent-runner')
+ * @param {string} type - Event type
+ * @param {object} data - Event payload
+ * @param {object} [options] - Additional options
+ * @param {number} [options.priority] - Priority (default 0)
+ * @param {number} [options.ttlSeconds] - TTL in seconds (default 86400)
+ * @param {number} [options.maxRetries] - Max retries (default 5)
+ * @returns {string|null} The generated event ID, or null on failure
+ */
+export async function enqueueEvent(source, type, data, options = {}) {
+  const tag = data?.jobId?.slice(0, 8) || type?.slice(0, 8) || "???";
+  try {
+    const resp = await fetch(`${BACKEND_URL}/queue/enqueue`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        source: source || "agent-runner",
+        type: type,
+        data: data || {},
+        priority: options.priority ?? 0,
+        ttl_seconds: options.ttlSeconds ?? 86400,
+        max_retries: options.maxRetries ?? 5,
+      }),
+    });
+    if (!resp.ok) {
+      console.error(`   ❌ [POLLER] enqueue ${tag} failed (HTTP ${resp.status})`);
+      return null;
+    }
+    const result = await resp.json();
+    console.log(`   📝 [POLLER] Enqueued ${result.event_id?.slice(0, 8)} — ${type} (${tag})`);
+    return result.event_id || null;
+  } catch (err) {
+    console.error(`   ❌ [POLLER] enqueue ${tag} error: ${err.message}`);
+    return null;
+  }
+}
+
+/**
+ * Get queue statistics from the backend.
+ *
+ * @returns {object|null} Queue stats object, or null on failure
+ */
+export async function getQueueStats() {
+  try {
+    const resp = await fetch(`${BACKEND_URL}/queue/stats`);
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch {
+    return null;
+  }
 }

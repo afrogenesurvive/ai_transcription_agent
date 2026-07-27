@@ -165,15 +165,14 @@ function removeOllama(): boolean {
         if (fs.existsSync(uninstaller)) {
           execSync(`"${uninstaller}" /S`, { stdio: "ignore", timeout: 30_000 });
           addLog("main", "info", `[cleanup] Ollama uninstaller executed: ${uninstaller}`);
-          // Give it a moment, then remove the directory if left behind
-          setTimeout(() => {
-            const dir = path.dirname(uninstaller);
-            try {
-              fs.rmSync(dir, { recursive: true, force: true });
-            } catch {
-              /* ok */
-            }
-          }, 2000);
+          // Synchronously remove the directory after the uninstaller finishes.
+          // execSync blocks until the uninstaller exits, so there's no race.
+          const dir = path.dirname(uninstaller);
+          try {
+            fs.rmSync(dir, { recursive: true, force: true });
+          } catch {
+            /* ok */
+          }
           break;
         }
       }

@@ -1,0 +1,100 @@
+/* ═══════════════════════════════════════════════════════
+   Transcript Panel
+   ═══════════════════════════════════════════════════════ */
+
+/* ── Transcript Panel ── */
+
+.placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 40px 0;
+  text-align: center;
+}
+
+.summary-section {
+  margin-bottom: 20px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.summary-section h3 {
+  margin-bottom: 8px;
+}
+
+.summary-section h4 {
+  margin-top: 12px;
+  margin-bottom: 6px;
+  color: var(--text-muted);
+}
+
+.summary-section ul {
+  list-style: none;
+  padding: 0;
+}
+
+.summary-section li {
+  padding: 4px 0;
+  padding-left: 16px;
+  position: relative;
+}
+
+.summary-section li::before {
+  content: "•";
+  position: absolute;
+  left: 4px;
+  color: var(--accent);
+}
+
+.action-items li::before {
+  content: "□";
+  color: var(--orange);
+  font-size: var(--fs-14);
+}
+
+.assignee {
+  color: var(--text-muted);
+}
+
+.deadline {
+  color: var(--orange);
+  font-size: var(--fs-12);
+}
+
+.segments {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.segment {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 6px 0;
+}
+
+.speaker-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: var(--fs-11);
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  min-width: 64px;
+  text-align: center;
+}
+
+.timestamp {
+  font-size: var(--fs-11);
+  color: var(--text-muted);
+  font-family: monospace;
+  white-space: nowrap;
+  min-width: 36px;
+  margin-top: 2px;
+}
+
+.text {
+  flex: 1;
+  line-height: 1.5;
+}

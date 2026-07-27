@@ -1,17 +1,18 @@
 # AI Meeting Transcription Backend — Python dependencies
-fastapi>=0.110.0
-uvicorn[standard]>=0.29.0
-pydantic>=2.0.0
-python-multipart>=0.0.15
+# Tested with Python 3.11; these pins use ~= for compatible releases.
+fastapi~=0.110.0
+uvicorn[standard]~=0.29.0
+pydantic~=2.0.0
+python-multipart~=0.0.15
 
 # Audio processing
-soundfile>=0.12.1
-numpy>=1.26.0
+soundfile~=0.12.1
+numpy~=1.26.0
 
 # Machine Learning
-torch>=2.8.0
-torchaudio>=2.0.0,<2.9  # Pinned <2.9: pyannote uses deprecated torchaudio._backend.utils.info (removed in 2.9)
-pyannote.audio>=3.1.0
+torch~=2.8.0  # Tested with 2.8.0; major upgrades need pyannote compat check
+torchaudio~=2.8.0  # pyannote uses deprecated torchaudio._backend.utils.info (removed in 2.9)
+pyannote.audio~=3.1.0
 
 # ── Whisper ASR variants ──
 # Install ONE of the following depending on your platform.
@@ -25,13 +26,17 @@ pyannote.audio>=3.1.0
 # See: scripts/setup-transcription.sh for the auto-detection logic.
 
 # Vector Search & Memory
-chromadb>=1.5.0
-sentence-transformers>=3.0.0
+chromadb~=1.5.0
+sentence-transformers~=3.0.0
 
 # Utility
-python-dotenv>=0.21.0
+python-dotenv~=0.21.0
 
 # ── OS-specific extras (installed automatically by setup script) ──
 # mlx-whisper
 # faster-whisper
 # openai-whisper
+
+# ── Optional: Speaker embedding model providers ──
+# Install when EMBEDDING_PROVIDER=speechbrain:
+# speechbrain~=1.0.0

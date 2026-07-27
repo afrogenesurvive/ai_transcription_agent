@@ -4,24 +4,61 @@
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
+/** Error thrown when label submission detects voice match conflicts. */
+export class VoiceMatchConflictError extends Error {
+  constructor(
+    message: string,
+    public readonly conflicts: Array<{
+      speaker_id: string;
+      assigned_name: string;
+      assigned_email: string;
+      matched_name: string;
+      matched_email: string;
+      similarity: number;
+      matched_sample_job_id?: string;
+    }>,
+  ) {
+    super(message);
+    this.name = "VoiceMatchConflictError";
+  }
+}
+
 async function bridgeCall(tool: string, args: Record<string, unknown> = {}) {
   const res = await fetch(`${BRIDGE_URL}/tools/call`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ tool, args }),
   });
-  if (!res.ok) throw new Error(`Bridge error: ${res.status}`);
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const body = await res.json();
+      detail = body.error || body.detail || "";
+    } catch {
+      /* ignore parse failures */
+    }
+    throw new Error(`Bridge error ${res.status}${detail ? `: ${detail}` : ""}`);
+  }
   return res.json();
 }
 
 export function useApi() {
   return {
     /** Upload an audio file (via bridge server to avoid CORS issues) */
-    uploadAudio: async (file: File, title: string, attendees: string[], skipSteps: string[] = []) => {
+    uploadAudio: async (
+      file: File,
+      title: string,
+      attendees: string[],
+      emailRecipients: string[] = [],
+      skipSteps: string[] = [],
+      attendeeEmails?: string[],
+    ) => {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("title", title);
       formData.append("attendees", JSON.stringify(attendees));
+      formData.append("attendee_emails", JSON.stringify(attendeeEmails || []));
+      formData.append("email_recipients", JSON.stringify(emailRecipients));
       formData.append("event_type", "internal");
       formData.append("skip_steps", JSON.stringify(skipSteps));
 
@@ -57,9 +94,53 @@ export function useApi() {
       return bridgeCall("transcribe_get_summary", { jobId }) as Promise<any>;
     },
 
+    /** Get raw/unrefined transcript text */
+    getRawTranscript: async (jobId: string) => {
+      return bridgeCall("transcribe_get_raw_transcript", { jobId }) as Promise<{ text: string }>;
+    },
+
     /** Get analysis */
     getAnalysis: async (jobId: string) => {
       return bridgeCall("transcribe_get_analysis", { jobId }) as Promise<any>;
+    },
+
+    /** Get speaker clips for manual labeling (paused_for_labeling state) */
+    getSpeakerClips: async (jobId: string) => {
+      return bridgeCall("transcribe_get_speaker_clips", { jobId }) as Promise<{
+        job_id: string;
+        speakers: Array<{
+          speaker_id: string;
+          segment_count: number;
+          total_duration: number;
+          sample_clip_url: string;
+          sample_start: number;
+          sample_end: number;
+          suggested_name: string;
+        }>;
+        total_speakers: number;
+      }>;
+    },
+
+    /** Submit speaker labels and resume the pipeline */
+    labelAndResume: async (
+      jobId: string,
+      labels: Array<{ speaker_id: string; name: string; email?: string }>,
+      overwriteNames?: string[],
+    ) => {
+      const result = await bridgeCall("transcribe_label_and_resume", {
+        jobId,
+        labels,
+        overwrite_names: overwriteNames || [],
+      });
+      // Check for voice match conflict response from the bridge
+      if (result && (result as any).conflict === true) {
+        throw new VoiceMatchConflictError((result as any).message || "Voice match conflict detected", (result as any).conflicts || []);
+      }
+      return result as {
+        job_id: string;
+        status: string;
+        applied_labels: number;
+      };
     },
 
     /** Get audio stream URL */
@@ -143,6 +224,53 @@ export function useApi() {
           total_tokens: number;
         };
         saved_at: string;
+      }>;
+    },
+
+    /** Get active ML pipeline jobs from the backend */
+    getActiveJobs: async (): Promise<Array<{ job_id: string; status: string; progress: number; title: string }>> => {
+      return window.electronAPI?.getActiveJobs() ?? Promise.resolve([]);
+    },
+
+    /** Poll any job's full status via the bridge (covers ML + agent-runner stages) */
+    getJobStatus: async (jobId: string) => {
+      return bridgeCall("transcribe_status", { jobId }) as Promise<{
+        job_id: string;
+        status: string;
+        progress: number;
+        error?: string;
+        title?: string;
+        metadata?: any;
+      }>;
+    },
+
+    /** Approve or reject Gate 1 (raw transcript review) */
+    approveGate1: async (jobId: string, body: { action: string; editedTranscript?: any[] }) => {
+      return bridgeCall("transcribe_approve_gate1", { jobId, ...body }) as Promise<{
+        job_id: string;
+        status: string;
+        action?: string;
+        applied_labels?: number;
+      }>;
+    },
+
+    /** Approve or reject Gate 2 (delivery review) */
+    approveGate2: async (
+      jobId: string,
+      body: {
+        action: string;
+        editedTranscript?: any[];
+        editedSummary?: any;
+        editedAnalysis?: any;
+        deliveryOptions?: { recipients?: string[]; destinations?: string[] };
+        feedback?: string;
+      },
+    ) => {
+      return bridgeCall("transcribe_approve_gate2", { jobId, ...body }) as Promise<{
+        job_id: string;
+        status: string;
+        action?: string;
+        edits_made?: string[];
       }>;
     },
   };

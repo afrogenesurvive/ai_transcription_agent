@@ -1,21 +1,27 @@
 {
   "name": "transcription-electron",
-  "version": "1.0.0",
+  "version": "0.5.8",
   "private": true,
+  "license": "Apache-2.0",
   "description": "Electron desktop UI for AI Meeting Transcription Agent",
+  "author": "afrogenesurvive",
   "main": "dist/main/index.js",
   "scripts": {
-    "dev": "concurrently -n renderer,main,electron --kill-others \"npm run dev:renderer\" \"npm run watch:main\" \"npm run dev:electron\"",
+    "dev": "bash ../scripts/write-version.sh && concurrently -n renderer,main,electron --kill-others \"npm run dev:renderer\" \"npm run watch:main\" \"npm run dev:electron\"",
     "dev:renderer": "vite",
     "watch:main": "tsc -p tsconfig.main.json --watch",
     "dev:electron": "wait-on http://localhost:5173 dist/main/index.js && electron .",
-    "build": "tsc && vite build",
+    "build": "tsc -b && vite build",
     "build:main": "tsc -p tsconfig.main.json",
     "start": "electron .",
-    "dist:prepare": "bash ../scripts/download-nodejs.sh && bash ../scripts/build-python-backend.sh",
-    "dist:win": "npm run dist:prepare && electron-builder --win",
-    "dist:mac": "npm run dist:prepare && electron-builder --mac",
-    "dist:linux": "npm run dist:prepare && electron-builder --linux"
+    "dist:prepare": "bash ../scripts/write-version.sh && bash ../scripts/download-nodejs.sh && bash ../scripts/build-python-backend.sh",
+    "dist:win": "npm run build && npm run dist:prepare && electron-builder --win",
+    "dist:mac": "npm run build && npm run dist:prepare && electron-builder --mac",
+    "dist:linux": "npm run build && npm run dist:prepare && electron-builder --linux",
+    "test": "TS_NODE_PROJECT=tsconfig.playwright.json NODE_OPTIONS=\"--require ts-node/register\" playwright test",
+    "test:headed": "TS_NODE_PROJECT=tsconfig.playwright.json NODE_OPTIONS=\"--require ts-node/register\" playwright test --headed",
+    "screenshots": "TS_NODE_PROJECT=tsconfig.playwright.json NODE_OPTIONS=\"--require ts-node/register\" playwright test tests/screenshots/ --headed",
+    "screenshots:headless": "TS_NODE_PROJECT=tsconfig.playwright.json NODE_OPTIONS=\"--require ts-node/register\" playwright test tests/screenshots/"
   },
   "build": {
     "appId": "com.transcription.agent",
@@ -27,8 +33,7 @@
       "releaseType": "release"
     },
     "files": [
-      "dist/**/*",
-      "!node_modules/**/*"
+      "dist/**/*"
     ],
     "extraResources": [
       {
@@ -50,7 +55,7 @@
         "to": "bridge-server",
         "filter": [
           "**/*",
-          "!node_modules/**"
+          "!node_modules/**/.cache/**"
         ]
       },
       {
@@ -58,37 +63,101 @@
         "to": "agent-runner",
         "filter": [
           "**/*",
-          "!node_modules/**"
+          "!node_modules/**/.cache/**"
+        ]
+      },
+      {
+        "from": "version.json",
+        "to": "version.json"
+      },
+      {
+        "from": "../agent-config",
+        "to": "agent-config",
+        "filter": [
+          "**/*"
         ]
       }
     ],
     "mac": {
-      "target": "dmg",
       "icon": null,
-      "category": "public.app-category.productivity"
+      "category": "public.app-category.productivity",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "artifactName": "Transcription-Agent-${version}-${arch}.${ext}",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "dmg": {
+      "title": "Transcription Agent ${version}",
+      "artifactName": "Transcription-Agent-${version}-${arch}.dmg",
+      "contents": [
+        {
+          "x": 130,
+          "y": 220,
+          "type": "file",
+          "name": "Transcription Agent.app"
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
+      }
     },
     "win": {
       "target": "nsis",
-      "icon": null,
-      "nsis": {
-        "oneClick": false,
-        "allowToChangeInstallationDirectory": false,
-        "deleteAppDataOnUninstall": true,
-        "include": "build/cleanup.nsh"
-      }
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": false,
+      "deleteAppDataOnUninstall": true,
+      "include": "build/installer.nsh",
+      "perMachine": true,
+      "runAfterFinish": true,
+      "installerIcon": null,
+      "installerHeaderIcon": null,
+      "installerSidebar": null,
+      "uninstallerIcon": null,
+      "uninstallDisplayName": "Transcription Agent ${version}"
     },
     "linux": {
-      "target": "AppImage",
-      "icon": null
+      "icon": null,
+      "category": "AudioVideo",
+      "packageCategory": "AudioVideo",
+      "description": "AI Meeting Transcription Agent — automatic speech-to-text, speaker diarization, summarization, and memory",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
     }
   },
   "dependencies": {
     "electron-updater": "^6.8.9",
+    "material-symbols": "^0.45.6",
     "pidusage": "^4.0.1",
     "react": "^18.3.0",
     "react-dom": "^18.3.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/pidusage": "^2.0.5",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
@@ -97,6 +166,8 @@
     "electron": "^33.0.0",
     "electron-builder": "^25.0.0",
     "nodemon": "^3.1.14",
+    "playwright": "^1.61.1",
+    "ts-node": "^10.9.2",
     "typescript": "^5.6.0",
     "vite": "^6.0.0",
     "wait-on": "^8.0.0"

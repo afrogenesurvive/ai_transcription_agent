@@ -1,7 +1,7 @@
 [
   {
     "name": "transcribe_refine",
-    "description": "Clean a transcript: automatically strips timestamps, removes filler words (um, uh, ah, like, you know, etc.), and redacts PII (emails, phone numbers, SSNs, credit cards, account numbers). Pass optional custom rules for additional redactions.",
+    "description": "Clean a transcript: removes filler words (um, uh, ah, like, you know, etc.) and redacts PII (emails, phone numbers, SSNs, credit cards, account numbers). Timestamps are preserved. Pass optional custom rules for additional redactions.",
     "terminal": false,
     "handler": "bridge",
     "inputSchema": {
@@ -118,7 +118,7 @@
   },
   {
     "name": "transcribe_prepare_delivery",
-    "description": "Prepare deliverable package with transcript + summary.",
+    "description": "Prepare deliverable package with meeting summary, analysis, and attendee data.",
     "terminal": false,
     "handler": "bridge",
     "inputSchema": {
@@ -146,17 +146,70 @@
     }
   },
   {
-    "name": "transcribe_save_ephemeral",
-    "description": "Save structured data to ephemeral memory: action items, contacts, budgets, decisions, or notes.",
+    "name": "transcribe_register_attendees",
+    "description": "Register meeting attendees. Use when you know who attended a meeting but they weren't pre-registered. Source distinguishes 'new_job_form' (from upload) vs 'manual_labeling' (from speaker labeling).",
     "terminal": false,
     "handler": "bridge",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "table": { "type": "string", "enum": ["action_items", "contacts", "budgets", "decisions", "notes"] },
+        "jobId": { "type": "string" },
+        "names": { "type": "array", "items": { "type": "string" } },
+        "emails": { "type": "array", "items": { "type": "string" } },
+        "source": { "type": "string", "enum": ["new_job_form", "manual_labeling"], "default": "manual_labeling" }
+      },
+      "required": ["jobId", "names"]
+    }
+  },
+  {
+    "name": "transcribe_list_attendees",
+    "description": "List all registered attendees across all meetings, newest first.",
+    "terminal": false,
+    "handler": "bridge",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "limit": { "type": "number", "default": 100 }
+      }
+    }
+  },
+  {
+    "name": "transcribe_search_attendees",
+    "description": "Search registered attendees by name substring. Useful for checking whether a person is already in the registry before registering them.",
+    "terminal": false,
+    "handler": "bridge",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Name substring to search for" },
+        "limit": { "type": "number", "default": 50 }
+      },
+      "required": ["name"]
+    }
+  },
+  {
+    "name": "transcribe_save_ephemeral",
+    "description": "Save structured data to ephemeral memory: attendees, action items, contacts, budgets, decisions, or notes.",
+    "terminal": false,
+    "handler": "bridge",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "table": { "type": "string", "enum": ["attendees", "action_items", "contacts", "budgets", "decisions", "notes"] },
         "data": {
           "type": "object",
-          "description": "Data payload. For action_items: {job_id, items: [{description, assignee, deadline, priority}], meeting_title}. For contacts: {name, email, org, role, phone, meeting}. For budgets: {job_id, items: [{description, amount, currency, category}], meeting_title}. For decisions: {job_id, items: [{description, rationale, made_by}], meeting_title}. For notes: {job_id, topic, content}."
+          "properties": {
+            "attendee_name": { "type": "string" },
+            "action": { "type": "string" },
+            "assignee": { "type": "string" },
+            "deadline": { "type": "string" },
+            "contact_name": { "type": "string" },
+            "contact_info": { "type": "string" },
+            "budget_item": { "type": "string" },
+            "amount": { "type": "string" },
+            "decision": { "type": "string" },
+            "note": { "type": "string" }
+          }
         }
       },
       "required": ["table", "data"]
@@ -164,22 +217,22 @@
   },
   {
     "name": "transcribe_query_ephemeral",
-    "description": "Query ephemeral memory for action items, contacts, budgets, decisions, or notes. Optionally filter by keyword.",
+    "description": "Query ephemeral memory tables for stored data (action items, contacts, budgets, decisions, notes). Use for cross-meeting lookup.",
     "terminal": false,
     "handler": "bridge",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "table": { "type": "string", "enum": ["action_items", "contacts", "budgets", "decisions", "notes"], "default": "notes" },
-        "query": { "type": "string", "default": "", "description": "Optional keyword to filter results" },
+        "table": { "type": "string", "enum": ["attendees", "action_items", "contacts", "budgets", "decisions", "notes"] },
+        "query": { "type": "string", "description": "Search query string" },
         "limit": { "type": "number", "default": 10 }
       },
-      "required": []
+      "required": ["table"]
     }
   },
   {
     "name": "transcribe_save_context",
-    "description": "Save full meeting context to both semantic and ephemeral memory at once. Call this after summarization to make the meeting searchable.",
+    "description": "Save meeting context to semantic (ChromaDB) and ephemeral (SQLite) memory systems. Stores transcript, summary, action items, budgets, and decisions for cross-meeting retrieval.",
     "terminal": false,
     "handler": "bridge",
     "inputSchema": {
@@ -188,69 +241,88 @@
         "jobId": { "type": "string" },
         "title": { "type": "string" },
         "attendees": { "type": "array", "items": { "type": "string" } },
-        "transcriptText": { "type": "string", "description": "Full transcript as plain text" },
-        "summary": { "type": "object", "description": "Summary object with executive_summary, key_decisions, discussion_points" },
-        "actionItems": { "type": "array", "items": { "type": "object" }, "description": "List of {description, assignee, deadline, priority}" },
-        "budgets": { "type": "array", "items": { "type": "object" }, "description": "List of {description, amount, currency, category}" },
-        "decisions": { "type": "array", "items": { "type": "object" }, "description": "List of {description, rationale, made_by}" }
+        "transcript_text": { "type": "string" },
+        "summary": { "type": "object" },
+        "action_items": { "type": "array", "items": { "type": "object" } },
+        "budgets": { "type": "array", "items": { "type": "object" } },
+        "decisions": { "type": "array", "items": { "type": "string" } }
       },
-      "required": ["jobId", "title"]
+      "required": ["jobId"]
     }
   },
   {
     "name": "send_delivery_email",
-    "description": "Send email with meeting summary and transcript via Gmail.",
+    "description": "SEND an email with meeting summary and analysis to recipients. Attachments are generated and read from the job's delivery directory. Accepts custom From name and optional CC. Call this AFTER transcribe_prepare_delivery has run successfully. The actual email delivery happens asynchronously.",
     "terminal": true,
     "handler": "direct",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "to": { "type": "string" },
-        "subject": { "type": "string" },
-        "body": { "type": "string" },
-        "transcript": { "type": "string" }
+        "jobId": { "type": "string" },
+        "recipients": { "type": "array", "items": { "type": "string" } },
+        "cc": { "type": "array", "items": { "type": "string" } },
+        "fromName": { "type": "string" },
+        "subject": { "type": "string" }
       },
-      "required": ["to", "subject", "body"]
-    }
-  },
-  {
-    "name": "create_trello_action_items",
-    "description": "Create Trello cards for action items.",
-    "terminal": true,
-    "handler": "direct",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "listId": { "type": "string" },
-        "actionItems": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "description": { "type": "string" },
-              "assignee": { "type": "string" },
-              "deadline": { "type": "string" }
-            }
-          }
-        }
-      },
-      "required": ["listId", "actionItems"]
+      "required": ["jobId", "recipients"]
     }
   },
   {
     "name": "save_to_drive",
-    "description": "Save transcript and summary to Google Drive.",
+    "description": "Upload meeting summary and analysis documents to Google Drive.",
     "terminal": true,
     "handler": "direct",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "folderName": { "type": "string" },
-        "title": { "type": "string" },
-        "transcript": { "type": "string" },
-        "summary": { "type": "string" }
+        "jobId": { "type": "string" },
+        "folderName": { "type": "string" }
       },
-      "required": ["title"]
+      "required": ["jobId"]
+    }
+  },
+  {
+    "name": "create_trello_action_items",
+    "description": "Create action items from meeting as Trello cards on the specified list.",
+    "terminal": true,
+    "handler": "direct",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "jobId": { "type": "string" },
+        "listName": { "type": "string", "default": "Action Items" }
+      },
+      "required": ["jobId"]
+    }
+  },
+  {
+    "name": "transcribe_approve_delivery",
+    "description": "Pause the pipeline for user to review the transcript, summary, and analysis before delivery. The system will show the user the delivery preview. Wait for the approval event to continue the pipeline. After approval, call transcribe_save_context.",
+    "terminal": false,
+    "handler": "bridge",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "jobId": { "type": "string" },
+        "transcript": { "type": "string" },
+        "summary": { "type": "object" },
+        "analysis": { "type": "object" },
+        "attendee_emails": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["jobId", "transcript", "summary", "analysis"]
+    }
+  },
+  {
+    "name": "transcribe_delete_voiceprint",
+    "description": "Delete a voiceprint by email.",
+    "terminal": false,
+    "handler": "bridge",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" }
+      },
+      "required": ["email"]
     }
   }
 ]

@@ -81,15 +81,20 @@ class SemanticMemory:
         )
 
     def _ensure_embedder(self):
-        if self._embedder is not None:
+        if self._embedder is not None and self._tokenizer is not None:
             return
         from sentence_transformers import SentenceTransformer
         from transformers import AutoTokenizer
-        self._embedder = SentenceTransformer(
-            "all-MiniLM-L6-v2",
+        # Assign to locals first so a failure in AutoTokenizer doesn't leave
+        # self._embedder set while self._tokenizer is still None (which would
+        # cause subsequent calls to return early without fixing the tokenizer).
+        embedder = SentenceTransformer(
+            "sentence-transformers/all-MiniLM-L6-v2",
             cache_folder=os.path.join(config.STORAGE_PATH, ".model_cache"),
         )
-        self._tokenizer = AutoTokenizer.from_pretrained("all-MiniLM-L6-v2")
+        tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
+        self._embedder = embedder
+        self._tokenizer = tokenizer
 
     def _embed(self, texts: List[str]) -> List[List[float]]:
         self._ensure_embedder()
@@ -243,6 +248,7 @@ class SemanticMemory:
         preserving semantic coherence.
         """
         self._ensure_loaded()
+        self._ensure_embedder()
         print(f"[semantic_memory] Storing meeting '{title}' (job_id={job_id})...")
 
         # Build searchable text from summary fields
@@ -264,41 +270,54 @@ class SemanticMemory:
 
         # ── Chunk and store summary ──
         summary_chunks = self._chunk_text(search_text)
-        print(f"[semantic_memory] Summary: {len(summary_chunks)} chunk(s) ({len(self._tokenizer.encode(search_text))} total tokens)")
-        for idx, chunk_text in enumerate(summary_chunks):
-            chunk_id = f"meeting_{job_id}_summary_{idx}"
-            embedding = self._embed([chunk_text])[0]
-            self._collection.upsert(
-                ids=[chunk_id],
-                embeddings=[embedding],
-                documents=[chunk_text],
-                metadatas=[{
-                    **base_meta,
-                    "type": "meeting_summary",
-                    "chunk_index": idx,
-                    "total_chunks": len(summary_chunks),
-                }],
-            )
+        total_summary_tokens = len(self._tokenizer.encode(search_text))
+        print(f"[semantic_memory] Summary: {len(summary_chunks)} chunk(s) ({total_summary_tokens} total tokens)")
 
         # ── Chunk and store transcript ──
         transcript_chunks = []
         if transcript_text.strip():
             transcript_chunks = self._chunk_text(transcript_text)
-            print(f"[semantic_memory] Transcript: {len(transcript_chunks)} chunk(s) ({len(self._tokenizer.encode(transcript_text))} total tokens)")
-            for idx, chunk_text in enumerate(transcript_chunks):
-                chunk_id = f"meeting_{job_id}_transcript_{idx}"
-                embedding = self._embed([chunk_text])[0]
-                self._collection.upsert(
-                    ids=[chunk_id],
-                    embeddings=[embedding],
-                    documents=[chunk_text],
-                    metadatas=[{
-                        **base_meta,
-                        "type": "transcript",
-                        "chunk_index": idx,
-                        "total_chunks": len(transcript_chunks),
-                    }],
-                )
+            total_transcript_tokens = len(self._tokenizer.encode(transcript_text))
+            print(f"[semantic_memory] Transcript: {len(transcript_chunks)} chunk(s) ({total_transcript_tokens} total tokens)")
+
+        # ── Batch embed ALL chunks at once ──
+        # Collect all data first, then embed in a single batched call.
+        # sentence-transformers is optimized for batched encoding (GPU batch,
+        # reduced Python overhead), making this significantly faster than
+        # N individual calls to self._embed().
+        all_chunks = []
+        all_ids = []
+        all_metadatas = []
+
+        for idx, chunk_text in enumerate(summary_chunks):
+            all_chunks.append(chunk_text)
+            all_ids.append(f"meeting_{job_id}_summary_{idx}")
+            all_metadatas.append({
+                **base_meta,
+                "type": "meeting_summary",
+                "chunk_index": idx,
+                "total_chunks": len(summary_chunks),
+            })
+
+        for idx, chunk_text in enumerate(transcript_chunks):
+            all_chunks.append(chunk_text)
+            all_ids.append(f"meeting_{job_id}_transcript_{idx}")
+            all_metadatas.append({
+                **base_meta,
+                "type": "transcript",
+                "chunk_index": idx,
+                "total_chunks": len(transcript_chunks),
+            })
+
+        if all_chunks:
+            all_embeddings = self._embed(all_chunks)
+            # Upsert in a single batch call (ChromaDB handles this efficiently)
+            self._collection.upsert(
+                ids=all_ids,
+                embeddings=all_embeddings,
+                documents=all_chunks,
+                metadatas=all_metadatas,
+            )
 
         print(f"[semantic_memory] Meeting '{title}' stored successfully "
               f"({len(summary_chunks)} summary + {len(transcript_chunks)} transcript chunks)")
@@ -317,7 +336,6 @@ class SemanticMemory:
         results = self._collection.query(
             query_embeddings=[query_embedding],
             n_results=n_results * 5,
-            kwargs={"ef_search": 50},
         )
 
         output = []

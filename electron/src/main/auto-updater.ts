@@ -36,7 +36,7 @@ try {
 // ── Config ──
 
 const DEV_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours
-const PACKAGED_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+const PACKAGED_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const GIT_FETCH_TIMEOUT_MS = 30_000;
 const BUILD_TIMEOUT_MS = 120_000;
 
@@ -61,13 +61,14 @@ const isPackaged = app.isPackaged;
 
 // ── Seed GH_TOKEN from config for electron-updater (packaged mode) ──
 // electron-updater's GitHub provider reads process.env.GH_TOKEN at runtime.
-// Set it now so the user's PAT from config is available.
+// This is called at module load AND inside checkAndUpdate() so that
+// the PAT is available even if the config file wasn't ready at startup.
 (function initGitHubToken(): void {
   try {
     const token = getConfig().GITHUB_TOKEN;
-    if (token && !process.env.GH_TOKEN) {
-      process.env.GH_TOKEN = token;
-      addLog("main", "info", "[auto-update] GH_TOKEN set from app config");
+    if (token) {
+      if (!process.env.GH_TOKEN) process.env.GH_TOKEN = token;
+      if (!process.env.GITHUB_TOKEN) process.env.GITHUB_TOKEN = token;
     }
   } catch {
     // Config not ready yet — will be retried in checkAndUpdate()
@@ -367,7 +368,12 @@ async function checkPackagedUpdate(): Promise<{
     return { updateAvailable: false, details: null, error: "electron-updater not available" };
   }
   try {
-    autoUpdater.checkForUpdates();
+    const result = await autoUpdater.checkForUpdates();
+    const version = result?.updateInfo?.version;
+    if (version) {
+      state.updateAvailable = version;
+      return { updateAvailable: true, details: version, error: null };
+    }
     return { updateAvailable: false, details: null, error: null };
   } catch (err: any) {
     state.error = err.message;
@@ -392,7 +398,9 @@ async function downloadPackagedUpdate(): Promise<{ success: boolean; error: stri
 function installPackagedUpdate(): void {
   if (!autoUpdater || !state.updateDownloaded) return;
   addLog("main", "info", "[auto-update] Installing update and restarting...");
-  autoUpdater.quitAndInstall(false, true);
+  // On Windows, use non-silent install so the UAC elevation prompt appears.
+  // On macOS/Linux, silent install works fine without elevation.
+  autoUpdater.quitAndInstall(false, !IS_WIN);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -447,8 +455,7 @@ export function startAutoUpdater(): void {
   if (isPackaged) setupPackagedUpdater();
 
   const interval = isPackaged ? PACKAGED_CHECK_INTERVAL_MS : DEV_CHECK_INTERVAL_MS;
-  const label = isPackaged ? "1 hour" : "12 hours";
-  addLog("main", "info", `[auto-update] Starting auto-updater (every ${label}, mode: ${state.mode})`);
+  addLog("main", "info", `[auto-update] Starting auto-updater (every 12 hours, mode: ${state.mode})`);
 
   setTimeout(() => {
     if (state.enabled) checkAndUpdate().catch(() => {});

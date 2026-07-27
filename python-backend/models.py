@@ -16,17 +16,10 @@ class UploadByPathRequest(BaseModel):
     file_path: str = Field(..., description="Absolute or relative path to an audio file")
     title: str = "Untitled Meeting"
     attendees: List[str] = Field(default_factory=list)
+    attendee_emails: List[str] = Field(default_factory=list, description="Emails aligned positionally with attendees")
+    email_recipients: List[str] = Field(default_factory=list, description="Per-job email recipients for delivery")
     event_type: str = "internal"
     skip_steps: Optional[List[str]] = Field(default=None, description="Tool names to skip in the agent pipeline. Defaults to skipping analysis and delivery.")
-
-
-class MeetingMetadata(BaseModel):
-    title: str
-    date: str = ""
-    attendees: List[str] = Field(default_factory=list)
-    event_type: str = "internal"
-    client: str = ""
-    notes: str = ""
 
 
 class TranscriptionSegment(BaseModel):
@@ -34,14 +27,6 @@ class TranscriptionSegment(BaseModel):
     text: str
     start: float
     end: float
-
-
-class UnknownSpeaker(BaseModel):
-    speaker_id: str
-    segments: List[dict] = Field(default_factory=list)
-    sample_text: str = ""
-    sample_start: float = 0.0
-    sample_end: float = 0.0
 
 
 class SpeakerLabel(BaseModel):
@@ -53,13 +38,6 @@ class SpeakerLabel(BaseModel):
 class LabelRequest(BaseModel):
     job_id: str
     labels: List[SpeakerLabel]
-
-
-class SummaryResult(BaseModel):
-    executive_summary: str = ""
-    key_decisions: List[str] = Field(default_factory=list)
-    discussion_points: List[str] = Field(default_factory=list)
-    action_items: List[dict] = Field(default_factory=list)
 
 
 class RefineRequest(BaseModel):
@@ -98,8 +76,16 @@ class MemorySearchResult(BaseModel):
     results: list
 
 
+class RegisterAttendeesRequest(BaseModel):
+    """Register one or more meeting attendees."""
+    names: List[str]
+    emails: List[str] = Field(default_factory=list)
+    source: str = "new_job_form"
+    job_id: str = ""
+
+
 class EphemeralMemoryItem(BaseModel):
-    table: str = "notes"  # action_items, contacts, budgets, decisions, notes
+    table: str = "notes"  # attendees, action_items, contacts, budgets, decisions, notes
     data: dict
 
 

@@ -10,7 +10,8 @@ All data is keyed by a semantic "topic" for easy agent lookup.
 import os
 import json
 import sqlite3
-from typing import List, Optional, Dict, Any
+import threading
+from typing import List, Optional, Union
 from datetime import datetime
 from config import config
 
@@ -19,24 +20,126 @@ class EphemeralMemory:
     """Lightweight SQLite store for cross-meeting context.
 
     Tables:
+      - jobs:           job metadata (title, result, tokens, costs, delivery, etc.)
+      - attendees:      people registered as meeting attendees (name, email, source, job_id → jobs)
       - action_items:   extracted to-dos with assignee, deadline, status
       - contacts:       people mentioned across meetings (name, email, org, role)
       - budgets:        financial figures mentioned (amount, currency, context)
       - decisions:      key decisions made (description, rationale)
       - notes:          free-form context notes (key-value pairs)
+      - events:         queue events for agent runner (pending, processing, completed, failed, dlq)
+
+    Uses ``threading.local()`` to reuse SQLite connections per thread,
+    avoiding the overhead of open/close per operation. Each thread gets
+    its own connection, which is safe since SQLite in WAL mode supports
+    concurrent readers.
+
+    Can be used as a context manager::
+
+        with EphemeralMemory() as mem:
+            mem.save_note(...)
+        # connection automatically closed on exit
     """
+
+    _thread_local = threading.local()
 
     def __init__(self, db_path: Optional[str] = None):
         self.db_path = db_path or os.path.join(config.STORAGE_PATH, "ephemeral_memory.db")
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self._init_db()
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
+
+    def _get_conn(self) -> sqlite3.Connection:
+        """Get a thread-local SQLite connection. Creates one if this thread
+        hasn't connected yet. Connections are NOT closed between operations
+        — they are reused until the thread exits or close() is called."""
+        if not hasattr(self._thread_local, "conn") or self._thread_local.conn is None:
+            conn = sqlite3.connect(self.db_path)
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA foreign_keys=ON")
+            conn.execute("PRAGMA busy_timeout=5000")
+            self._thread_local.conn = conn
+        return self._thread_local.conn
+
+    def close(self):
+        """Close the thread-local connection if open. Safe to call multiple times."""
+        conn = getattr(self._thread_local, "conn", None)
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            self._thread_local.conn = None
+
     def _init_db(self):
         conn = sqlite3.connect(self.db_path)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
+        # Recover any uncommitted WAL writes from a prior crash, then
+        # truncate the WAL files so a new crash doesn't leave stale
+        # .db-shm / .db-wal files that block subsequent startup.
+        try:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except Exception:
+            pass  # Non-critical — checkpoint may fail on read-only filesystems
 
         conn.executescript("""
+            CREATE TABLE IF NOT EXISTS jobs (
+                id              TEXT PRIMARY KEY,
+                title           TEXT NOT NULL DEFAULT 'Untitled Meeting',
+                result          TEXT NOT NULL DEFAULT 'pending',
+                attendees       TEXT NOT NULL DEFAULT '[]',
+                email_recipients TEXT NOT NULL DEFAULT '[]',
+                pipeline_steps  TEXT NOT NULL DEFAULT '[]',
+                original_filename TEXT DEFAULT NULL,
+                audio_url       TEXT DEFAULT NULL,
+                audio_size_bytes INTEGER DEFAULT NULL,
+                audio_duration_sec REAL DEFAULT NULL,
+                error_message   TEXT DEFAULT NULL,
+                transcript_segment_count  INTEGER DEFAULT 0,
+                transcript_char_count     INTEGER DEFAULT 0,
+                summary_char_count        INTEGER DEFAULT 0,
+                has_analysis              INTEGER DEFAULT 0,
+                analysis_char_count       INTEGER DEFAULT 0,
+                total_prompt_tokens      INTEGER DEFAULT 0,
+                total_completion_tokens  INTEGER DEFAULT 0,
+                total_tokens             INTEGER DEFAULT 0,
+                llm_provider             TEXT DEFAULT 'deepseek',
+                llm_model                TEXT DEFAULT 'deepseek-v4-flash',
+                input_cost               REAL DEFAULT 0.0,
+                output_cost              REAL DEFAULT 0.0,
+                total_cost               REAL DEFAULT 0.0,
+                delivery_attempted       INTEGER DEFAULT 0,
+                delivery_results         TEXT DEFAULT '[]',
+                event_type              TEXT DEFAULT 'internal',
+                whisper_model           TEXT DEFAULT 'medium',
+                diarization_available   INTEGER DEFAULT 0,
+                device                  TEXT DEFAULT 'mps',
+                config_snapshot         TEXT DEFAULT NULL,
+                created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMP DEFAULT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_jobs_result      ON jobs(result);
+            CREATE INDEX IF NOT EXISTS idx_jobs_created_at  ON jobs(created_at);
+
+            CREATE TABLE IF NOT EXISTS attendees (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                email TEXT DEFAULT '',
+                source TEXT NOT NULL DEFAULT 'new_job_form',
+                job_id TEXT DEFAULT NULL REFERENCES jobs(id) ON DELETE SET NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
             CREATE TABLE IF NOT EXISTS action_items (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 job_id TEXT NOT NULL,
@@ -92,14 +195,250 @@ class EphemeralMemory:
                 UNIQUE(job_id, topic)
             );
 
+            CREATE TABLE IF NOT EXISTS events (
+                id              TEXT PRIMARY KEY,
+                source          TEXT NOT NULL DEFAULT 'transcription',
+                type            TEXT NOT NULL,
+                data            TEXT NOT NULL DEFAULT '{}',
+                status          TEXT NOT NULL DEFAULT 'pending'
+                                CHECK(status IN ('pending','processing','completed','failed','dlq')),
+                priority        INTEGER NOT NULL DEFAULT 0,
+                retry_count     INTEGER NOT NULL DEFAULT 0,
+                max_retries     INTEGER NOT NULL DEFAULT 5,
+                error_message   TEXT DEFAULT NULL,
+                queued_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                claimed_at      TIMESTAMP DEFAULT NULL,
+                completed_at    TIMESTAMP DEFAULT NULL,
+                ttl_seconds     INTEGER DEFAULT 86400
+            );
+
             CREATE INDEX IF NOT EXISTS idx_action_status ON action_items(status);
             CREATE INDEX IF NOT EXISTS idx_action_assignee ON action_items(assignee);
             CREATE INDEX IF NOT EXISTS idx_contacts_name ON contacts(name);
             CREATE INDEX IF NOT EXISTS idx_notes_topic ON notes(topic);
             CREATE INDEX IF NOT EXISTS idx_budgets_category ON budgets(category);
+            CREATE INDEX IF NOT EXISTS idx_attendees_name ON attendees(name);
+            CREATE INDEX IF NOT EXISTS idx_attendees_job ON attendees(job_id);
+            CREATE INDEX IF NOT EXISTS idx_events_status      ON events(status);
+            CREATE INDEX IF NOT EXISTS idx_events_queued_at   ON events(queued_at);
+            CREATE INDEX IF NOT EXISTS idx_events_type_status ON events(type, status);
         """)
+        # ── Schema migrations for existing databases ──
+        # Check which columns the attendees table actually has before attempting ALTER.
+        existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(attendees)").fetchall()}
+        if "last_seen" not in existing_cols:
+            try:
+                conn.execute("ALTER TABLE attendees ADD COLUMN last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+                print(f"[ephemeral] Migration: added `last_seen` column to attendees table")
+            except Exception as e:
+                print(f"[ephemeral] ⚠️  Migration failed to add last_seen: {e}")
+        if "last_job_id" not in existing_cols:
+            try:
+                conn.execute("ALTER TABLE attendees ADD COLUMN last_job_id TEXT DEFAULT NULL")
+                print(f"[ephemeral] Migration: added `last_job_id` column to attendees table")
+            except Exception as e:
+                print(f"[ephemeral] ⚠️  Migration failed to add last_job_id: {e}")
+
+        # Check for config_snapshot column on jobs table
+        jobs_cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()}
+        if "config_snapshot" not in jobs_cols:
+            try:
+                conn.execute("ALTER TABLE jobs ADD COLUMN config_snapshot TEXT DEFAULT NULL")
+                print(f"[ephemeral] Migration: added `config_snapshot` column to jobs table")
+            except Exception as e:
+                print(f"[ephemeral] ⚠️  Migration failed to add config_snapshot: {e}")
+        if "original_filename" not in jobs_cols:
+            try:
+                conn.execute("ALTER TABLE jobs ADD COLUMN original_filename TEXT DEFAULT NULL")
+                print(f"[ephemeral] Migration: added `original_filename` column to jobs table")
+            except Exception as e:
+                print(f"[ephemeral] ⚠️  Migration failed to add original_filename: {e}")
+
+        # Check for events table (added in 0.4.10 — queue migration)
+        existing_tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        if "events" not in existing_tables:
+            try:
+                conn.executescript("""
+                    CREATE TABLE IF NOT EXISTS events (
+                        id              TEXT PRIMARY KEY,
+                        source          TEXT NOT NULL DEFAULT 'transcription',
+                        type            TEXT NOT NULL,
+                        data            TEXT NOT NULL DEFAULT '{}',
+                        status          TEXT NOT NULL DEFAULT 'pending'
+                                        CHECK(status IN ('pending','processing','completed','failed','dlq')),
+                        priority        INTEGER NOT NULL DEFAULT 0,
+                        retry_count     INTEGER NOT NULL DEFAULT 0,
+                        max_retries     INTEGER NOT NULL DEFAULT 5,
+                        error_message   TEXT DEFAULT NULL,
+                        queued_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        claimed_at      TIMESTAMP DEFAULT NULL,
+                        completed_at    TIMESTAMP DEFAULT NULL,
+                        ttl_seconds     INTEGER DEFAULT 86400
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_events_status      ON events(status);
+                    CREATE INDEX IF NOT EXISTS idx_events_queued_at   ON events(queued_at);
+                    CREATE INDEX IF NOT EXISTS idx_events_type_status ON events(type, status);
+                """)
+                print(f"[ephemeral] Migration: created `events` table for SQLite-backed queue")
+            except Exception as e:
+                print(f"[ephemeral] ⚠️  Migration failed to create events table: {e}")
         conn.commit()
         conn.close()
+
+    # ── Jobs (meeting job metadata) ──
+
+    def upsert_job(self, job_id: str, updates: dict) -> dict:
+        """Insert or update a job record. Only columns present in *updates*
+        are changed — safe for partial updates from multiple touchpoints.
+        Always bumps ``updated_at = CURRENT_TIMESTAMP``.
+
+        Returns the full row after the upsert.
+        """
+        allowed = {
+            "title", "result", "attendees", "email_recipients", "pipeline_steps",
+            "original_filename",
+            "audio_url", "audio_size_bytes", "audio_duration_sec", "error_message",
+            "transcript_segment_count", "transcript_char_count",
+            "summary_char_count", "has_analysis", "analysis_char_count",
+            "total_prompt_tokens", "total_completion_tokens", "total_tokens",
+            "llm_provider", "llm_model", "input_cost", "output_cost", "total_cost",
+            "delivery_attempted", "delivery_results",
+            "event_type", "whisper_model", "diarization_available", "device",
+            "config_snapshot",
+            "completed_at",
+        }
+        # Build SET clause + INSERT columns from provided updates
+        set_parts = []
+        all_params = [job_id]  # ? for id in INSERT
+        insert_cols_list = ["id"]
+        for key, value in updates.items():
+            if key in allowed:
+                set_parts.append(f"{key} = ?")
+                all_params.append(value)
+                insert_cols_list.append(key)
+        if not set_parts:
+            return self.get_job(job_id) or {}
+
+        # updated_at is always bumped (literal SQL — no parameter)
+        set_parts.append("updated_at = CURRENT_TIMESTAMP")
+
+        conn = self._get_conn()
+        insert_cols = ", ".join(insert_cols_list)
+        insert_placeholders = ", ".join("?" for _ in insert_cols_list)
+        # SET params = all values except the initial job_id (reused from INSERT)
+        set_clause = ", ".join(set_parts)
+        conn.execute(
+            f"""INSERT INTO jobs ({insert_cols})
+                VALUES ({insert_placeholders})
+                ON CONFLICT(id) DO UPDATE SET {set_clause}""",
+            all_params + all_params[1:],  # [job_id, vals...] + [vals...]
+        )
+        conn.commit()
+        return self.get_job(job_id) or {}
+
+    def get_job(self, job_id: str) -> Optional[dict]:
+        """Fetch a single job by ID. Returns None if not found."""
+        conn = self._get_conn()
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM jobs WHERE id = ?", (job_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def query_jobs(self, limit: int = 100, offset: int = 0,
+                   result_filter: Optional[str] = None) -> List[dict]:
+        """List jobs, newest first. Optionally filter by result."""
+        conn = self._get_conn()
+        conn.row_factory = sqlite3.Row
+        if result_filter:
+            rows = conn.execute(
+                "SELECT * FROM jobs WHERE result = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                (result_filter, limit, offset),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM jobs ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                (limit, offset),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ── Attendees (registered meeting participants) ──
+
+    def register_attendee(self, name: str, email: str = "",
+                          source: str = "new_job_form",
+                          job_id: Optional[str] = None):
+        """Insert or update an attendee record.
+
+        *source* indicates how the attendee was entered:
+          - ``"new_job_form"``   — from the UploadPanel at job creation
+          - ``"manual_labeling"`` — from the SpeakerLabelModal mid-pipeline
+
+        Dedup strategy (widened key):
+          - When a real email is provided → upsert on ``(name, email)``.
+            Same person entered from different sources → single row.
+          - When email is empty → fall back to ``(name, source)`` as before.
+          - ``last_seen`` is always bumped so the registry tracks recency.
+          - ``last_job_id`` is always updated to the most recent job.
+        """
+        conn = self._get_conn()
+
+        if email and email.strip():
+            # Real email: upsert on (name, email) — strongest dedup
+            existing = conn.execute(
+                "SELECT id FROM attendees WHERE name=? AND email=?",
+                (name, email.strip()),
+            ).fetchone()
+        else:
+            # No email: fall back to (name, source)
+            existing = conn.execute(
+                "SELECT id FROM attendees WHERE name=? AND source=?",
+                (name, source),
+            ).fetchone()
+
+        now = datetime.utcnow().isoformat()
+        if existing:
+            conn.execute(
+                "UPDATE attendees SET email=?, source=?, job_id=?, "
+                "last_job_id=?, last_seen=CURRENT_TIMESTAMP WHERE id=?",
+                (email, source, job_id, job_id, existing[0]),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO attendees (name, email, source, job_id, last_job_id, created_at, last_seen) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (name, email, source, job_id, job_id, now, now),
+            )
+        conn.commit()
+
+    def register_attendees(self, names: List[str], emails: List[str] = None,
+                           source: str = "new_job_form",
+                           job_id: Optional[str] = None):
+        """Bulk-register multiple attendees at once."""
+        emails = emails or []
+        for i, name in enumerate(names):
+            email = emails[i] if i < len(emails) else ""
+            self.register_attendee(name, email, source=source, job_id=job_id)
+
+    def query_attendees(self, name: str = "", limit: int = 50) -> List[dict]:
+        """Search registered attendees by name (substring match)."""
+        conn = self._get_conn()
+        conn.row_factory = sqlite3.Row
+        if name:
+            rows = conn.execute(
+                "SELECT * FROM attendees WHERE name LIKE ? "
+                "ORDER BY created_at DESC LIMIT ?",
+                (f"%{name}%", limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM attendees ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def list_attendees(self, limit: int = 100) -> List[dict]:
+        """List all registered attendees, newest first."""
+        return self.query_attendees("", limit=limit)
 
     # ── Action Items ──
 
@@ -110,7 +449,7 @@ class EphemeralMemory:
         full audit history. Repeated action items across meetings are kept
         intentionally — repetition signals unresolved or recurring work.
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         conn.execute(
             "UPDATE action_items SET status='completed' WHERE source_meeting=? AND status='open'",
             (meeting_title,),
@@ -130,13 +469,12 @@ class EphemeralMemory:
                 ),
             )
         conn.commit()
-        conn.close()
         print(f"[ephemeral] Saved {len(items)} action items for '{meeting_title}' (job={job_id[:8]})")
 
     def query_action_items(
         self, assignee: str = "", status: str = "", limit: int = 20
     ) -> List[dict]:
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         conn.row_factory = sqlite3.Row
         parts = ["SELECT * FROM action_items WHERE 1=1"]
         params = []
@@ -149,14 +487,13 @@ class EphemeralMemory:
         parts.append("ORDER BY created_at DESC LIMIT ?")
         params.append(limit)
         rows = conn.execute(" ".join(parts), params).fetchall()
-        conn.close()
         return [dict(r) for r in rows]
 
     # ── Contacts ──
 
     def upsert_contact(self, name: str, email: str = "", org: str = "",
                        role: str = "", phone: str = "", meeting: str = ""):
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         existing = conn.execute(
             "SELECT id FROM contacts WHERE name=? OR (email!='' AND email=?)",
             (name, email),
@@ -177,10 +514,9 @@ class EphemeralMemory:
                 (name, email, org, role, phone, meeting),
             )
         conn.commit()
-        conn.close()
 
     def query_contacts(self, name: str = "", limit: int = 20) -> List[dict]:
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         conn.row_factory = sqlite3.Row
         if name:
             rows = conn.execute(
@@ -191,7 +527,6 @@ class EphemeralMemory:
             rows = conn.execute(
                 "SELECT * FROM contacts ORDER BY last_mentioned DESC LIMIT ?", (limit,)
             ).fetchall()
-        conn.close()
         return [dict(r) for r in rows]
 
     # ── Budgets ──
@@ -203,7 +538,7 @@ class EphemeralMemory:
         Repeated budget items across meetings are kept intentionally — seeing
         "Server costs — $15,000" in three meetings tells you it was a recurring topic.
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         for b in budgets:
             conn.execute(
                 """INSERT INTO budgets (job_id, description, amount, currency, category, source_meeting)
@@ -218,11 +553,10 @@ class EphemeralMemory:
                 ),
             )
         conn.commit()
-        conn.close()
         print(f"[ephemeral] Saved {len(budgets)} budget items for '{meeting_title}' (job={job_id[:8]})")
 
     def query_budgets(self, category: str = "", limit: int = 20) -> List[dict]:
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         conn.row_factory = sqlite3.Row
         if category:
             rows = conn.execute(
@@ -233,7 +567,6 @@ class EphemeralMemory:
             rows = conn.execute(
                 "SELECT * FROM budgets ORDER BY created_at DESC LIMIT ?", (limit,)
             ).fetchall()
-        conn.close()
         return [dict(r) for r in rows]
 
     # ── Decisions ──
@@ -245,7 +578,7 @@ class EphemeralMemory:
         Repeated decisions across meetings are kept intentionally — revisiting
         a decision is meaningful context.
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         for d in decisions:
             conn.execute(
                 """INSERT INTO decisions (job_id, description, rationale, made_by, source_meeting)
@@ -254,11 +587,10 @@ class EphemeralMemory:
                  d.get("made_by", ""), meeting_title),
             )
         conn.commit()
-        conn.close()
         print(f"[ephemeral] Saved {len(decisions)} decisions for '{meeting_title}' (job={job_id[:8]})")
 
     def query_decisions(self, keyword: str = "", limit: int = 20) -> List[dict]:
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         conn.row_factory = sqlite3.Row
         if keyword:
             rows = conn.execute(
@@ -269,13 +601,12 @@ class EphemeralMemory:
             rows = conn.execute(
                 "SELECT * FROM decisions ORDER BY created_at DESC LIMIT ?", (limit,)
             ).fetchall()
-        conn.close()
         return [dict(r) for r in rows]
 
     # ── Notes (free-form key-value) ──
 
     def save_note(self, job_id: str, topic: str, content: str):
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         conn.execute(
             """INSERT INTO notes (job_id, topic, content)
                VALUES (?, ?, ?)
@@ -284,10 +615,9 @@ class EphemeralMemory:
             (job_id, topic, content),
         )
         conn.commit()
-        conn.close()
 
     def query_notes(self, topic: str = "") -> List[dict]:
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         conn.row_factory = sqlite3.Row
         if topic:
             rows = conn.execute(
@@ -295,7 +625,6 @@ class EphemeralMemory:
             ).fetchall()
         else:
             rows = conn.execute("SELECT * FROM notes ORDER BY created_at DESC").fetchall()
-        conn.close()
         return [dict(r) for r in rows]
 
     # ── General query (agent-friendly) ──
@@ -303,14 +632,39 @@ class EphemeralMemory:
     def query_all(self, table: str, q: str = "", limit: int = 10) -> List[dict]:
         """Unified search across any table by keyword."""
         table = table.lower()
-        if table not in ("action_items", "contacts", "budgets", "decisions", "notes"):
+        if table not in ("jobs", "attendees", "action_items", "contacts", "budgets", "decisions", "notes", "events"):
             return []
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         conn.row_factory = sqlite3.Row
-        if q and table != "notes":
+        if q and table == "jobs":
             rows = conn.execute(
-                f"SELECT * FROM {table} WHERE description LIKE ? OR assignee LIKE ? ORDER BY created_at DESC LIMIT ?",
+                "SELECT * FROM jobs WHERE title LIKE ? OR id LIKE ? ORDER BY created_at DESC LIMIT ?",
                 (f"%{q}%", f"%{q}%", limit),
+            ).fetchall()
+        elif q and table == "attendees":
+            rows = conn.execute(
+                "SELECT * FROM attendees WHERE name LIKE ? OR email LIKE ? ORDER BY created_at DESC LIMIT ?",
+                (f"%{q}%", f"%{q}%", limit),
+            ).fetchall()
+        elif q and table == "action_items":
+            rows = conn.execute(
+                "SELECT * FROM action_items WHERE description LIKE ? OR assignee LIKE ? OR deadline LIKE ? ORDER BY created_at DESC LIMIT ?",
+                (f"%{q}%", f"%{q}%", f"%{q}%", limit),
+            ).fetchall()
+        elif q and table == "budgets":
+            rows = conn.execute(
+                "SELECT * FROM budgets WHERE description LIKE ? OR category LIKE ? ORDER BY created_at DESC LIMIT ?",
+                (f"%{q}%", f"%{q}%", limit),
+            ).fetchall()
+        elif q and table == "decisions":
+            rows = conn.execute(
+                "SELECT * FROM decisions WHERE description LIKE ? OR rationale LIKE ? ORDER BY created_at DESC LIMIT ?",
+                (f"%{q}%", f"%{q}%", limit),
+            ).fetchall()
+        elif q and table == "contacts":
+            rows = conn.execute(
+                "SELECT * FROM contacts WHERE name LIKE ? OR email LIKE ? OR organization LIKE ? OR role LIKE ? ORDER BY created_at DESC LIMIT ?",
+                (f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%", limit),
             ).fetchall()
         elif q and table == "notes":
             rows = conn.execute(
@@ -321,11 +675,253 @@ class EphemeralMemory:
             rows = conn.execute(
                 f"SELECT * FROM {table} ORDER BY created_at DESC LIMIT ?", (limit,)
             ).fetchall()
-        conn.close()
         return [dict(r) for r in rows]
 
+    def row_count(self, table: str) -> int:
+        """Return the total number of rows in a table using COUNT(*).
+
+        Avoids fetching all rows into memory (unlike query_all with a large limit).
+        """
+        table = table.lower()
+        if table not in ("jobs", "attendees", "action_items", "contacts", "budgets", "decisions", "notes", "events"):
+            return 0
+        conn = self._get_conn()
+        row = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
+        return row[0] if row else 0
+
     def close_action_item(self, item_id: int):
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         conn.execute("UPDATE action_items SET status='completed', updated_at=CURRENT_TIMESTAMP WHERE id=?", (item_id,))
         conn.commit()
-        conn.close()
+
+    # ── Queue / Events (SQLite-backed event queue) ──
+
+    def enqueue_event(self, source: str, event_type: str, data: dict,
+                      priority: int = 0, ttl_seconds: int = 86400,
+                      max_retries: int = 5) -> str:
+        """Insert a new pending event into the queue.
+
+        Args:
+            source: Event origin ('transcription' or 'agent-runner')
+            event_type: Event type ('ready_for_processing', 'labeling_needed',
+                        'failed', 'delivery_approved', etc.)
+            data: Arbitrary JSON-serializable payload
+            priority: Higher = processed first (default 0)
+            ttl_seconds: Auto-delete after this many seconds post-completion
+                         (default 86400 = 24h; None = never expire)
+            max_retries: Max retry attempts before moving to DLQ (default 5)
+
+        Returns:
+            The generated event ID (UUID4 hex)
+        """
+        import uuid
+        event_id = str(uuid.uuid4())
+        conn = self._get_conn()
+        conn.execute(
+            """INSERT INTO events (id, source, type, data, priority, max_retries, ttl_seconds)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (event_id, source, event_type, json.dumps(data), priority, max_retries, ttl_seconds),
+        )
+        conn.commit()
+        return event_id
+
+    def claim_event(self, types_filter: Optional[list] = None) -> Optional[dict]:
+        """Atomically claim the highest-priority pending event.
+
+        Uses BEGIN IMMEDIATE + single-statement UPDATE with subquery to
+        prevent race conditions between the Python backend and agent runner,
+        both of which may call this concurrently.
+
+        Args:
+            types_filter: Optional list of event types to restrict claiming to
+                          (e.g. ['ready_for_processing']). None = claim any type.
+
+        Returns:
+            The claimed event as a dict, or None if no pending events match.
+        """
+        conn = self._get_conn()
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            if types_filter:
+                placeholders = ",".join("?" for _ in types_filter)
+                row = conn.execute(
+                    f"""SELECT id FROM events
+                        WHERE status='pending'
+                          AND type IN ({placeholders})
+                        ORDER BY priority DESC, queued_at ASC
+                        LIMIT 1""",
+                    types_filter,
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    """SELECT id FROM events
+                       WHERE status='pending'
+                       ORDER BY priority DESC, queued_at ASC
+                       LIMIT 1"""
+                ).fetchone()
+
+            if row is None:
+                conn.commit()
+                return None
+
+            event_id = row[0]
+            now = datetime.utcnow().isoformat()
+            conn.execute(
+                "UPDATE events SET status='processing', claimed_at=? WHERE id=?",
+                (now, event_id),
+            )
+
+            # Fetch the full row
+            conn.row_factory = sqlite3.Row
+            full = conn.execute("SELECT * FROM events WHERE id=?", (event_id,)).fetchone()
+            conn.commit()
+            result = dict(full) if full else None
+            # Parse the data JSON string back to a dict
+            if result and isinstance(result.get("data"), str):
+                try:
+                    result["data"] = json.loads(result["data"])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            return result
+        except Exception:
+            conn.rollback()
+            raise
+
+    def complete_event(self, event_id: str) -> bool:
+        """Mark an event as completed.
+
+        Returns True if a row was updated, False if not found or not in processing state.
+        """
+        conn = self._get_conn()
+        now = datetime.utcnow().isoformat()
+        cursor = conn.execute(
+            "UPDATE events SET status='completed', completed_at=? WHERE id=? AND status='processing'",
+            (now, event_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+    def fail_event(self, event_id: str, error_message: str = "") -> bool:
+        """Mark an event as failed.
+
+        If retry_count < max_retries: resets to 'pending' for re-delivery.
+        If exhausted: moves to 'failed' status (dead letter).
+
+        Returns True if a row was updated, False if not found or not in processing state.
+        """
+        conn = self._get_conn()
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            row = conn.execute(
+                "SELECT retry_count, max_retries FROM events WHERE id=? AND status='processing'",
+                (event_id,),
+            ).fetchone()
+            if row is None:
+                conn.commit()
+                return False
+
+            retry_count = row[0] + 1
+            max_retries = row[1]
+
+            if retry_count < max_retries:
+                conn.execute(
+                    """UPDATE events SET status='pending', retry_count=?,
+                         error_message=?, claimed_at=NULL
+                       WHERE id=?""",
+                    (retry_count, error_message, event_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE events SET status='failed', retry_count=?, error_message=? WHERE id=?",
+                    (retry_count, error_message, event_id),
+                )
+            conn.commit()
+            return True
+        except Exception:
+            conn.rollback()
+            raise
+
+    def reclaim_stale_events(self, max_age_seconds: int = 300) -> int:
+        """Reset events stuck in 'processing' for too long back to 'pending'.
+
+        Handles crash recovery — if the agent runner died mid-job, its claimed
+        events are released after ``max_age_seconds``.
+
+        Args:
+            max_age_seconds: Age threshold in seconds (default 300 = 5 min)
+
+        Returns:
+            Number of events reclaimed.
+        """
+        conn = self._get_conn()
+        cutoff = (datetime.utcnow() - __import__('datetime').timedelta(seconds=max_age_seconds)).isoformat()
+        cursor = conn.execute(
+            "UPDATE events SET status='pending', retry_count=retry_count+1, claimed_at=NULL,"
+            " error_message='Reclaimed after timeout' "
+            "WHERE status='processing' AND claimed_at < ?",
+            (cutoff,),
+        )
+        conn.commit()
+        count = cursor.rowcount
+        if count:
+            print(f"[ephemeral] Reclaimed {count} stale event(s) stuck in 'processing'")
+        return count
+
+    def requeue_dlq_event(self, event_id: str) -> bool:
+        """Move a failed (DLQ) event back to pending for reprocessing.
+
+        Resets retry_count to 0 so it gets a full set of retry attempts again.
+        Returns True if a row was updated.
+        """
+        conn = self._get_conn()
+        cursor = conn.execute(
+            "UPDATE events SET status='pending', retry_count=0, error_message=NULL WHERE id=? AND status='failed'",
+            (event_id,),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+    def cleanup_expired_events(self) -> int:
+        """Delete completed events older than their ttl_seconds.
+
+        Events with ttl_seconds IS NULL are never deleted.
+        Called periodically by the lifespan cleanup task.
+
+        Returns:
+            Number of events deleted.
+        """
+        conn = self._get_conn()
+        now = datetime.utcnow().isoformat()
+        # Delete completed events where (completed_at + ttl_seconds) < now
+        cursor = conn.execute(
+            """DELETE FROM events
+               WHERE status='completed'
+                 AND ttl_seconds IS NOT NULL
+                 AND completed_at IS NOT NULL
+                 AND datetime(completed_at, '+' || ttl_seconds || ' seconds') < ?""",
+            (now,),
+        )
+        conn.commit()
+        count = cursor.rowcount
+        if count:
+            print(f"[ephemeral] Cleaned up {count} expired completed event(s)")
+        return count
+
+    def get_queue_stats(self) -> dict:
+        """Return queue depth by status.
+
+        Returns:
+            dict with keys: pending, processing, completed, failed, dlq, total
+        """
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT status, COUNT(*) as cnt FROM events GROUP BY status"
+        ).fetchall()
+        stats = {"pending": 0, "processing": 0, "completed": 0, "failed": 0, "dlq": 0, "total": 0}
+        for row in rows:
+            s = row[0]
+            c = row[1]
+            if s in stats:
+                stats[s] = c
+            stats["total"] += c
+        return stats

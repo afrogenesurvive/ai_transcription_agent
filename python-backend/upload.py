@@ -3,9 +3,11 @@ Audio upload and validation module
 """
 
 import os
+import time
 import uuid
 import json
 import subprocess
+import shutil
 import tempfile
 from typing import Optional
 from config import config
@@ -56,10 +58,16 @@ class AudioUploader:
         return {"job_id": job_id, "audio_path": wav_path, "metadata": metadata}
 
     def get_audio_path(self, job_id: str) -> str:
-        p = os.path.join(self.storage_path, job_id, "standardized.wav")
-        if not os.path.exists(p):
-            raise FileNotFoundError(f"Audio not found for job {job_id}")
-        return p
+        from pathlib import Path
+        # Prefer standardized.wav (16kHz mono), fall back to original.*
+        wav = os.path.join(self.storage_path, job_id, "standardized.wav")
+        if os.path.exists(wav):
+            return wav
+        job_dir = os.path.join(self.storage_path, job_id)
+        orig = sorted(Path(job_dir).glob("original.*"))
+        if orig:
+            return str(orig[0])
+        raise FileNotFoundError(f"No audio file found for job {job_id}")
 
     def get_status(self, job_id: str) -> dict:
         p = os.path.join(self.storage_path, job_id, "status.json")
@@ -91,18 +99,39 @@ class AudioUploader:
         with open(p) as f:
             return json.load(f)
 
+    def save_diarization(self, job_id: str, data: dict):
+        """Save diarization results so the pipeline can resume after labeling."""
+        with open(os.path.join(self.storage_path, job_id, "diarization.json"), "w") as f:
+            json.dump(data, f, indent=2)
+        print(f"[upload] Diarization data saved for job {job_id}")
+
+    def load_diarization(self, job_id: str) -> dict:
+        """Load saved diarization results. Returns empty dict if not found."""
+        p = os.path.join(self.storage_path, job_id, "diarization.json")
+        if not os.path.exists(p):
+            return {}
+        with open(p) as f:
+            return json.load(f)
+
     def save_transcript(self, job_id: str, transcript: list):
         with open(os.path.join(self.storage_path, job_id, "transcript.json"), "w") as f:
             json.dump(transcript, f, indent=2)
 
     def save_transcript_text(self, job_id: str, transcript: list):
         """Save the transcript as a plain-text .txt file (readable, no JSON)."""
-        lines = [f"[{s['start']:.1f}s] {s['speaker']}: {s['text']}" for s in transcript]
+        lines = [f"[{s.get('start', 0.0):.1f}s] {s['speaker']}: {s['text']}" for s in transcript]
         text = "\n".join(lines)
         path = os.path.join(self.storage_path, job_id, "transcript.txt")
         with open(path, "w") as f:
             f.write(text + "\n")
         print(f"[upload] Text transcript saved ({len(lines)} lines) to {path}")
+
+    def save_raw_transcript(self, job_id: str, raw_text: str):
+        """Save the raw/unrefined ASR transcript text (before any refinement)."""
+        path = os.path.join(self.storage_path, job_id, "raw_transcript.txt")
+        with open(path, "w") as f:
+            f.write(raw_text + "\n")
+        print(f"[upload] Raw transcript saved ({len(raw_text)} chars) to {path}")
 
     def save_summary(self, job_id: str, summary: dict):
         with open(os.path.join(self.storage_path, job_id, "summary.json"), "w") as f:
@@ -132,9 +161,37 @@ class AudioUploader:
                 pass
             raise
 
+    def save_edit_action(self, job_id: str, action: str, details: dict):
+        """Append an edit action to the job's edits.jsonl for audit tracking.
+
+        Called at both approval gates to record user edits to transcript,
+        summary, analysis, or delivery options. The edits.jsonl file is
+        returned alongside other job files by the get_job_logs endpoint.
+
+        Args:
+            job_id: The job ID.
+            action: Short action name, e.g. "gate1_edit", "gate1_approve",
+                    "gate2_edit_summary", "gate2_approve", "gate2_reject".
+            details: Dict with contextual info about the edit, e.g.
+                     {"target": "transcript", "segments_changed": 3}.
+        """
+        job_dir = os.path.join(self.storage_path, job_id)
+        os.makedirs(job_dir, exist_ok=True)
+        edits_path = os.path.join(job_dir, "edits.jsonl")
+        entry = {
+            "action": action,
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
+            **details,
+        }
+        try:
+            with open(edits_path, "a") as f:
+                f.write(json.dumps(entry) + "\n")
+        except OSError as e:
+            print(f"[upload] ⚠️  Could not write edit action to {edits_path}: {e}")
+
     @staticmethod
     def _copy_file(src: str, dst: str):
-        subprocess.run(["cp", src, dst], check=True)
+        shutil.copy2(src, dst)
 
     def _standardize_audio(self, input_path: str, output_path: str):
         """Convert to 16kHz mono WAV using ffmpeg."""
@@ -143,4 +200,9 @@ class AudioUploader:
             "-acodec", "pcm_s16le", "-ac", "1", "-ar", "16000",
             "-y", output_path,
         ]
-        subprocess.run(cmd, check=True, capture_output=True)
+        try:
+            subprocess.run(cmd, check=True, capture_output=True)
+        except subprocess.CalledProcessError as e:
+            stderr = e.stderr.decode("utf-8", errors="replace") if e.stderr else "(no stderr)"
+            print(f"[upload] ⚠️  ffmpeg standardization FAILED (exit {e.returncode}): {stderr[:500]}")
+            raise

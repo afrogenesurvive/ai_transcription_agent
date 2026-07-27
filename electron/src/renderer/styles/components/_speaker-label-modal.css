@@ -1,0 +1,660 @@
+/* ── Speaker Label Modal ── */
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.speaker-label-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 560px;
+  max-width: 90vw;
+  max-height: 85vh;
+  overflow-y: auto;
+  padding: 28px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  position: relative;
+}
+
+.speaker-label-modal .modal-header {
+  margin-bottom: 24px;
+}
+
+.speaker-label-modal .modal-header h2 {
+  font-size: 20px;
+  margin-bottom: 8px;
+}
+
+.speaker-label-modal .modal-subtitle {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.speaker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.speaker-item {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  transition: border-color 0.15s;
+}
+
+.speaker-item:hover {
+  border-color: var(--accent);
+}
+
+.speaker-item--labeled {
+  border-color: var(--green);
+}
+
+.speaker-item--conflict {
+  border-color: var(--orange);
+  background: rgba(210, 146, 34, 0.06);
+  box-shadow: inset 3px 0 0 var(--orange);
+}
+
+.speaker-item--conflict:hover {
+  border-color: var(--orange);
+  background: rgba(210, 146, 34, 0.1);
+}
+
+.speaker-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.speaker-number {
+  font-weight: 600;
+  color: var(--accent);
+  font-size: 14px;
+  min-width: 28px;
+}
+
+.speaker-stats {
+  color: var(--text-muted);
+  font-size: 12px;
+  flex: 1;
+}
+
+.btn-icon {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  transition: all 0.15s;
+}
+
+.btn-icon:hover {
+  background: var(--surface-hover);
+  border-color: var(--accent);
+}
+
+.speaker-play-btn {
+  min-width: 36px;
+  text-align: center;
+}
+
+.speaker-name-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.speaker-name-input {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.speaker-name-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.15);
+}
+
+.speaker-name-input::placeholder {
+  color: var(--text-muted);
+}
+
+.speaker-label-check {
+  color: var(--green);
+  font-weight: 700;
+  font-size: 16px;
+  min-width: 20px;
+  text-align: center;
+}
+
+.speaker-email-row {
+  margin-top: 8px;
+}
+
+.speaker-email-input {
+  flex: 1;
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+
+.speaker-email-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.15);
+}
+
+.speaker-email-input::placeholder {
+  color: var(--text-muted);
+}
+
+.speaker-email-input--error,
+.speaker-email-input--error:focus {
+  border-color: var(--red, #e06c75);
+  box-shadow: 0 0 0 2px rgba(224, 108, 117, 0.15);
+}
+
+.speaker-email-error {
+  display: block;
+  color: var(--red, #e06c75);
+  font-size: 12px;
+  margin-top: 4px;
+  line-height: 1.3;
+}
+
+/* ── Post-submit voice match conflict banner ── */
+
+.speaker-post-conflict-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background: rgba(210, 146, 34, 0.12);
+  border: 1px solid rgba(210, 146, 34, 0.3);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.speaker-post-conflict-banner-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.speaker-post-conflict-banner-content strong {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--orange);
+}
+
+/* ── Post-submit conflict detail rows (existing attendees) ── */
+
+.speaker-post-conflict-details {
+  margin: 6px 0 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.speaker-post-conflict-detail-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.speaker-post-conflict-detail-row strong {
+  display: inline;
+  color: var(--text);
+}
+
+.speaker-post-conflict-similarity {
+  color: var(--orange);
+  font-weight: 500;
+}
+
+/* ── Inline voice-match conflict widget (Phase C) ── */
+
+.speaker-inline-conflict {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: rgba(210, 146, 34, 0.08);
+  border: 1px solid rgba(210, 146, 34, 0.2);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.speaker-inline-conflict-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.speaker-inline-conflict-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+}
+
+.speaker-inline-conflict-text strong {
+  color: var(--orange);
+}
+
+.speaker-inline-conflict-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  padding-left: 19px; /* aligns with text (icon width + gap) */
+}
+
+/* ── Conflict action buttons ── */
+
+.speaker-conflict-btn {
+  padding: 5px 12px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  transition: all 0.15s;
+  line-height: 1.3;
+}
+
+.speaker-conflict-btn--accept {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.speaker-conflict-btn--accept:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.speaker-conflict-btn--dismiss {
+  background: var(--surface);
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+
+.speaker-conflict-btn--dismiss:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+/* ── Error banner existing attendee details ── */
+
+.speaker-label-existing-attendees {
+  margin: 8px 0;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.speaker-label-existing-attendees > strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--orange);
+}
+
+.speaker-label-existing-attendee-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.speaker-label-existing-attendee-row strong {
+  color: var(--text);
+}
+
+.speaker-label-conflict-from {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-left: auto;
+}
+
+/* ── Voiceprint conflict dialog ── */
+
+.vp-conflict-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  border-radius: 12px;
+}
+
+.vp-conflict-dialog {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 480px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.vp-conflict-dialog h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.vp-conflict-desc {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin: 0 0 16px;
+  line-height: 1.5;
+}
+
+.vp-conflict-row {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 8px;
+}
+
+.vp-conflict-row-info {
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.vp-conflict-existing {
+  color: var(--orange);
+  font-size: 12px;
+}
+
+.vp-conflict-hint {
+  display: block;
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+
+.vp-conflict-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.vp-conflict-checkbox input[type="checkbox"] {
+  accent-color: var(--orange);
+}
+
+/* Per-speaker "Keep my name" checkbox — green accent for overwrite action */
+.vp-conflict-checkbox--keep {
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(0, 200, 83, 0.06);
+  border: 1px solid rgba(0, 200, 83, 0.15);
+}
+
+.vp-conflict-checkbox--keep input[type="checkbox"] {
+  accent-color: var(--green);
+}
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.modal-actions .btn-primary,
+.modal-actions .btn-secondary,
+.modal-actions .btn-danger {
+  padding: 8px 18px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  transition: all 0.15s;
+}
+
+.modal-actions .btn-primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.modal-actions .btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.modal-actions .btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.modal-actions .btn-secondary {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.modal-actions .btn-secondary:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+/* ── Non-speaking attendees section ── */
+
+.speaker-non-speaking-section {
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+.speaker-non-speaking-heading {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.speaker-non-speaking-desc {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.speaker-non-speaking-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.speaker-non-speaking-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  font-size: 12px;
+}
+
+.speaker-non-speaking-name {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.speaker-non-speaking-email {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.speaker-non-speaking-email-missing {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-style: italic;
+  opacity: 0.65;
+}
+
+/* ── Unregistered name warning banner ── */
+
+.speaker-unregistered-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background: rgba(209, 154, 102, 0.12);
+  border: 1px solid rgba(209, 154, 102, 0.3);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.speaker-unregistered-dismiss {
+  margin-left: auto;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+  line-height: 1;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.speaker-unregistered-dismiss:hover {
+  opacity: 1;
+}
+
+/* ── Backend error banner ── */
+
+.speaker-label-error-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  background: rgba(224, 108, 117, 0.12);
+  border: 1px solid rgba(224, 108, 117, 0.4);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.speaker-label-error-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.speaker-label-error-title {
+  display: block;
+  font-size: 14px;
+  margin-bottom: 4px;
+  color: var(--red, #e06c75);
+}
+
+.speaker-label-error-text {
+  display: block;
+  word-break: break-word;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.speaker-label-error-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  padding: 6px 8px;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+}
+
+.speaker-label-error-dismiss {
+  margin-left: auto;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+  line-height: 1;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+
+.speaker-label-error-dismiss:hover {
+  opacity: 1;
+}
+
+/* ── Proactive voiceprint match banner (info-style, shown on mount) ── */
+
+.speaker-proactive-conflict-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background: rgba(88, 166, 255, 0.1);
+  border: 1px solid rgba(88, 166, 255, 0.25);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.4;
+}

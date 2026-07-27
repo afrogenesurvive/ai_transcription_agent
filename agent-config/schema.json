@@ -17,6 +17,28 @@
         "inputSchema": { "type": "object", "description": "JSON Schema defining the tool's arguments (OpenAI function-calling format)" }
       }
     },
+    "pipeline_steps": {
+      "type": "array",
+      "description": "Ordered pipeline steps for the draggable checklist UI. Defines step ordering, enabled/disabled state, labels, and hint templates.",
+      "items": {
+        "type": "object",
+        "required": ["id", "toolName", "label", "description", "enabled", "isTerminal"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^step-\\d+$", "description": "Unique step identifier" },
+          "toolName": { "type": "string", "pattern": "^[a-z_]+$", "description": "Tool name this step invokes" },
+          "label": { "type": "string", "maxLength": 100, "description": "Human-readable step label" },
+          "description": { "type": "string", "maxLength": 200, "description": "Short description of what this step does" },
+          "systemPromptTemplate": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Custom system prompt text for this step. Use {tool} as placeholder."
+          },
+          "hintTemplate": { "type": "string", "maxLength": 500, "description": "Pipeline hint text shown to the LLM after this step executes" },
+          "enabled": { "type": "boolean", "description": "Whether this step is active in the pipeline" },
+          "isTerminal": { "type": "boolean", "description": "If true, calling this tool ends the pipeline" }
+        }
+      }
+    },
     "pipeline_hints": {
       "type": "object",
       "patternProperties": {

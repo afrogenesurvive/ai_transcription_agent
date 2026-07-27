@@ -1,0 +1,137 @@
+{
+  "max_pipeline_steps": 40,
+  "max_retries": 6,
+  "retry_base_delay_ms": 4000,
+  "ollama_max_retries": 5,
+  "ollama_retry_base_delay_ms": 5000,
+  "llm_context_window": 0,
+  "terminal_tools": ["send_delivery_email"],
+  "pipeline_steps": [
+    {
+      "id": "step-0",
+      "toolName": "_fetch_memory_context",
+      "label": "Fetch Memory Context",
+      "description": "Retrieve existing action items, decisions, budgets, and similar past meetings for LLM context",
+      "systemPromptTemplate": "",
+      "hintTemplate": "",
+      "enabled": true,
+      "isTerminal": false
+    },
+    {
+      "id": "step-1",
+      "toolName": "transcribe_refine",
+      "label": "Refine Transcript",
+      "description": "Redact PII",
+      "systemPromptTemplate": "",
+      "hintTemplate": "",
+      "enabled": true,
+      "isTerminal": false
+    },
+    {
+      "id": "step-2",
+      "toolName": "transcribe_get_transcript",
+      "label": "Read Transcript",
+      "description": "Retrieve the refined speaker-labeled transcript",
+      "systemPromptTemplate": "",
+      "hintTemplate": "",
+      "enabled": true,
+      "isTerminal": false
+    },
+    {
+      "id": "step-3",
+      "toolName": "transcribe_summarize",
+      "label": "Summarize",
+      "description": "Generate and store a structured meeting summary",
+      "systemPromptTemplate": "",
+      "hintTemplate": "",
+      "enabled": true,
+      "isTerminal": false
+    },
+    {
+      "id": "step-4",
+      "toolName": "transcribe_analyze",
+      "label": "Analyze",
+      "description": "Analyze topics, sentiment, entities, and follow-ups",
+      "systemPromptTemplate": "",
+      "hintTemplate": "",
+      "enabled": true,
+      "isTerminal": false
+    },
+    {
+      "id": "step-5",
+      "toolName": "transcribe_approve_delivery",
+      "label": "Review & Approve Delivery",
+      "description": "Pause pipeline for user to review transcript, summary, analysis and confirm or change delivery options",
+      "systemPromptTemplate": "",
+      "hintTemplate": "",
+      "enabled": true,
+      "isTerminal": false
+    },
+    {
+      "id": "step-6",
+      "toolName": "transcribe_save_context",
+      "label": "Save to Memory",
+      "description": "Persist meeting to semantic and ephemeral memory",
+      "systemPromptTemplate": "",
+      "hintTemplate": "",
+      "enabled": true,
+      "isTerminal": false
+    },
+    {
+      "id": "step-7",
+      "toolName": "transcribe_prepare_delivery",
+      "label": "Prepare Delivery",
+      "description": "Package results for delivery destinations",
+      "systemPromptTemplate": "",
+      "hintTemplate": "",
+      "enabled": true,
+      "isTerminal": false
+    },
+    {
+      "id": "step-8",
+      "toolName": "send_delivery_email",
+      "label": "Deliver via Email",
+      "description": "Send meeting summary, analysis, and attendee data via email (transcript excluded)",
+      "systemPromptTemplate": "",
+      "hintTemplate": "",
+      "enabled": true,
+      "isTerminal": true
+    },
+    {
+      "id": "step-9",
+      "toolName": "save_to_drive",
+      "label": "Save to Drive",
+      "description": "Save meeting summary and analysis to Google Drive",
+      "systemPromptTemplate": "",
+      "hintTemplate": "",
+      "enabled": false,
+      "isTerminal": true
+    },
+    {
+      "id": "step-10",
+      "toolName": "create_trello_action_items",
+      "label": "Create Trello Cards",
+      "description": "Create action items as Trello cards",
+      "systemPromptTemplate": "",
+      "hintTemplate": "",
+      "enabled": false,
+      "isTerminal": true
+    }
+  ],
+  "pipeline_hints": {
+    "transcribe_refine": "Next: Call `transcribe_get_transcript` to retrieve the refined speaker-labeled transcript.",
+    "transcribe_get_transcript": "Next: Call `transcribe_summarize` to generate and store a structured meeting summary.",
+    "transcribe_summarize": "Next: Call `transcribe_analyze` to analyze topics, sentiment, entities, and follow-ups.",
+    "transcribe_analyze": "Next: If delivery review is enabled, call `transcribe_approve_delivery` to pause and let the user review before saving. Otherwise call `transcribe_save_context`.",
+    "transcribe_approve_delivery": "Next: After user approves, call `transcribe_save_context` to persist meeting to semantic and ephemeral memory.",
+    "transcribe_save_context": "Next: Call `transcribe_prepare_delivery` to package results for delivery destinations.",
+    "transcribe_prepare_delivery": "Next: Call `send_delivery_email` to validate recipient emails. send results via email.",
+    "send_delivery_email": "Pipeline complete. Call a delivery tool (send_delivery_email, save_to_drive, create_trello_action_items) or finish."
+  },
+  "event_templates": {
+    "ready_for_processing": "Actions: refine transcript (removes fillers and PII, preserves timestamps), extract action items, generate summary, generate analysis, prepare delivery.\nExisting memory context is provided below — use it for continuity and to identify recurring topics. Repetition is signal (e.g., same action item across weeks = blocker).\nIf an action item from a previous meeting is resolved here, note it as completed.\nNon-speaking attendees (present but did not speak): {{non_speaking_attendees}}\nTranscript ({{segment_count}} segments):\n{{transcript_preview}}",
+    "labeling_needed": "Unknown speakers detected. List voiceprints, notify user, or apply labels if info available.\n{{speaker_details}}",
+    "failed": "Processing failed. Notify the user. Error: {{error}}",
+    "delivery_approved": "User approved delivery after review. Resume the pipeline: save_context, prepare_delivery, then deliver via email. Edits made by user: {{edits_summary}}"
+  }
+}

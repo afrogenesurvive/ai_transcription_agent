@@ -1,0 +1,93 @@
+# Build Windows installer via GitHub Actions
+name: Build Windows
+
+on:
+  workflow_dispatch: # manual trigger from GitHub UI
+  push:
+    tags: ["v*"] # auto-trigger on version tags
+
+jobs:
+  build-win:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: |
+          cd python-backend
+          python -m venv venv
+          venv\Scripts\activate
+          pip install -r requirements.txt
+          pip install faster-whisper
+          pip install pyinstaller
+
+      - name: Build Python backend (Windows)
+        shell: bash
+        run: |
+          cd python-backend
+          source venv/Scripts/activate
+          pyinstaller --onedir --name main --distpath ../dist-resources/python-backend --workpath build/pyinstaller --specpath build \
+            --hidden-import "uvicorn" --hidden-import "uvicorn.logging" --hidden-import "uvicorn.loops" --hidden-import "uvicorn.loops.auto" \
+            --hidden-import "uvicorn.protocols" --hidden-import "uvicorn.protocols.http" --hidden-import "uvicorn.protocols.http.httptools_impl" \
+            --hidden-import "uvicorn.protocols.websockets" --hidden-import "uvicorn.protocols.websockets.wsproto_impl" \
+            --hidden-import "uvicorn.middleware" --hidden-import "uvicorn.middleware.proxy_headers" \
+            --hidden-import "fastapi" --hidden-import "fastapi.routing" --hidden-import "pydantic" --hidden-import "pydantic.json" \
+            --hidden-import "multipart" --hidden-import "python_multipart" --hidden-import "soundfile" --hidden-import "numpy" \
+            --hidden-import "torch" --hidden-import "torchaudio" --hidden-import "pyannote.audio" \
+            --hidden-import "pyannote.audio.pipelines" --hidden-import "pyannote.audio.pipelines.speaker_diarization" \
+            --hidden-import "chromadb" --hidden-import "sentence_transformers" --hidden-import "dotenv" \
+            --hidden-import "json" --hidden-import "threading" --hidden-import "warnings" --hidden-import "asyncio" \
+            --hidden-import "os" --hidden-import "sys" --hidden-import "shutil" --hidden-import "glob" --hidden-import "uuid" \
+            --hidden-import "datetime" --hidden-import "pathlib" --hidden-import "sqlite3" --hidden-import "hashlib" \
+            --hidden-import "logging" --hidden-import "inspect" --hidden-import "contextlib" --hidden-import "collections" \
+            --hidden-import "functools" --hidden-import "typing" \
+            --hidden-import "email.mime.text" --hidden-import "email.mime.multipart" --hidden-import "email.mime.base" \
+            --hidden-import "httpx" --hidden-import "anyio" --hidden-import "sniffio" \
+            --hidden-import "faster_whisper" \
+            --hidden-import "ctranslate2" \
+            --hidden-import "starlette" --hidden-import "starlette.middleware" --hidden-import "starlette.middleware.cors" \
+            --hidden-import "starlette.routing" --hidden-import "starlette.applications" --hidden-import "starlette.requests" \
+            --hidden-import "starlette.responses" --hidden-import "starlette.datastructures" --hidden-import "multidict" \
+            main.py
+          rm -rf build
+
+      - name: Download Node.js for Windows
+        shell: bash
+        run: |
+          mkdir -p dist-resources/node-bin
+          curl -fsSL https://nodejs.org/dist/v20.18.0/node-v20.18.0-win-x64.zip -o node.zip
+          unzip -o node.zip
+          cp node-v20.18.0-win-x64/node.exe dist-resources/node-bin/node.exe
+          rm -rf node-v20.18.0-win-x64 node.zip
+
+      - name: Build bridge-server & agent-runner deps
+        run: |
+          cd bridge-server && npm ci && cd ..
+          cd agent-runner && npm ci && cd ..
+
+      - name: Write version file
+        run: bash scripts/write-version.sh
+        shell: bash
+
+      - name: Install electron & build
+        run: |
+          cd electron
+          npm ci
+          npm run build
+          npx electron-builder --win --publish never
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Transcription-Agent-Windows
+          path: electron/dist/*.exe

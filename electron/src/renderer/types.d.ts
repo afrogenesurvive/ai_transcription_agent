@@ -1,5 +1,17 @@
 /** Types shared between components */
 
+/** A single step in the pipeline checklist — orderable, togglable, editable */
+export interface PipelineStep {
+  id: string;
+  toolName: string;
+  label: string;
+  description: string;
+  systemPromptTemplate: string;
+  hintTemplate: string;
+  enabled: boolean;
+  isTerminal: boolean;
+}
+
 export interface TranscriptionSegment {
   speaker: string;
   text: string;
@@ -22,7 +34,9 @@ export interface JobStatus {
   };
   metadata?: {
     title?: string;
+    originalFilename?: string;
     attendees?: string[];
+    attendeeEmails?: string[];
     event_type?: string;
   };
 }
@@ -30,8 +44,21 @@ export interface JobStatus {
 export interface LogEntry {
   timestamp: number;
   source: "python" | "bridge" | "agent" | "main";
+  subSource?: string;
   level: "debug" | "info" | "warn" | "error";
   message: string;
+}
+
+/** A group of consecutive log entries sharing the same source/subsource/level */
+export interface LogGroupEntry {
+  timestamp: number;
+  source: string;
+  subSource?: string;
+  level: string;
+  lines: Array<{
+    timestamp: number;
+    message: string;
+  }>;
 }
 
 export interface AnalysisData {
@@ -54,12 +81,12 @@ export interface LogFileInfo {
   name: string;
   size: number;
   mtime: string;
-  source: "primary" | "mirror";
+  source: "primary" | "mirror" | "job";
 }
 
 export interface ConfigValueSource {
   value: string;
-  source: "user_config" | "env_file" | "default";
+  source: "user_config" | "default" | "environment";
 }
 
 export interface StorageUsage {
@@ -79,10 +106,15 @@ export interface ElectronAPI {
   checkServers: () => Promise<{ python: boolean; bridge: boolean; agent: boolean }>;
   stopServices: () => Promise<{ success: boolean }>;
   restartServices: () => Promise<{ success: boolean }>;
+  closeApp: () => Promise<{ success: boolean }>;
   stopService: (service: string) => Promise<{ success: boolean }>;
   restartService: (service: string) => Promise<{ success: boolean }>;
   getAppVersion: () => Promise<string>;
+  getAppName: () => Promise<string>;
+  getReadme: () => Promise<string>;
+  getGuide: () => Promise<string>;
   getActiveJobs: () => Promise<Array<{ job_id: string; status: string; progress: number; title: string }>>;
+  getRunningBotJobs: () => Promise<Array<{ job_id: string; status: string }>>;
   onNotification: (cb: (msg: string) => void) => () => void;
   getLogs: () => Promise<LogEntry[]>;
   clearLogs: () => Promise<{ success: boolean }>;
@@ -91,20 +123,69 @@ export interface ElectronAPI {
   saveConfig: (values: Record<string, string>) => Promise<Record<string, string>>;
   checkConfig: () => Promise<{ ok: boolean; missing: string[] }>;
   getConfigWithSources: () => Promise<Record<string, ConfigValueSource>>;
+  exportConfig: () => Promise<{ success: boolean; filePath?: string; error?: string; cancelled?: boolean }>;
+  clearConfig: () => Promise<{ success: boolean; error?: string; blocked?: boolean }>;
+  importConfig: () => Promise<{
+    success: boolean;
+    filePath?: string;
+    error?: string;
+    cancelled?: boolean;
+    blocked?: boolean;
+    agentConfigImported?: boolean;
+    defaultsImported?: boolean;
+    userDefaultsImported?: boolean;
+  }>;
+  getDefaultUserConfig: () => Promise<{ success: boolean; defaults: Record<string, string>; error?: string }>;
+  restoreDefaultUserConfig: () => Promise<{ success: boolean; error?: string; blocked?: boolean }>;
   getAgentConfig: () => Promise<{ tools?: any; pipeline?: any; systemPrompt?: string; error?: string }>;
   saveAgentConfig: (config: { tools?: any; pipeline?: any; systemPrompt?: string }) => Promise<{ success?: boolean; error?: string }>;
   restartAgent: () => Promise<{ success?: boolean; error?: string }>;
-  listLogFiles: () => Promise<LogFileInfo[]>;
-  readLogFile: (filePath: string, maxLines?: number) => Promise<string[]>;
-  getLogPaths: () => Promise<{ primary: string | null; mirror: string | null }>;
+  getDefaultAgentConfig: () => Promise<{ tools?: any; pipeline?: any; systemPrompt?: string; error?: string }>;
+  restoreDefaultAgentConfig: () => Promise<{ success?: boolean; restored?: string[]; error?: string }>;
+  listJobLogFiles: () => Promise<LogFileInfo[]>;
+  readJobLogFile: (jobId: string, maxLines?: number) => Promise<string[]>;
   getStorageUsage: () => Promise<StorageUsage>;
   getPerformanceMetrics: () => Promise<{
     electron: Array<{ type: string; pid: number; cpu: number | null; memory: number | null; peakMemory: number | null }>;
     children: Array<{ service: string; pid: number; cpu: number; memory: number; elapsed: number }>;
   }>;
-  // ── Ollama Model Management ──
-  listOllamaModels: () => Promise<{ models: Array<{ name: string; size: number; modified_at: string }>; error: string | null }>;
+
+  // ── Per-Job & Aggregate Performance ──
+  getPerJobPerformance: (
+    jobId: string,
+  ) => Promise<Array<{ timestamp: number; cpu: number; memoryBytes: number; label: string; stage: string | null }>>;
+  getAggregatePerformance: () => Promise<
+    Array<{
+      jobId: string;
+      samples: Array<{ timestamp: number; cpu: number; memoryBytes: number; label: string; stage: string | null }>;
+    }>
+  >;
+  // ── Native Notifications ──
+  showNotification: (opts: {
+    title: string;
+    body: string;
+    clickPayload?: Record<string, unknown>;
+    type?: "info" | "success" | "error" | "started" | "paused";
+    silent?: boolean;
+    subtitle?: string;
+  }) => Promise<void>;
+  onNotificationClick: (cb: (payload: Record<string, unknown>) => void) => () => void;
+  onJobStarted: (cb: (payload: { jobId: string; title?: string }) => void) => () => void;
+
+  // ── Tray / Menu Bar ──
+  toggleTray: () => Promise<{ visible: boolean }>;
+  getTrayStatus: () => Promise<{ visible: boolean }>;
+
+  // ── Ollama Health & Server Management ──
+  checkOllamaHealth: () => Promise<{ healthy: boolean }>;
+  startOllamaServer: () => Promise<{ success: boolean; error?: string }>;
+  listOllamaModels: () => Promise<{
+    models: Array<{ name: string; size: number; modified_at: string }>;
+    error: string | null;
+    wasStarted?: boolean;
+  }>;
   pullOllamaModel: (modelName: string) => Promise<{ success: boolean; error: string | null }>;
+  stopOllamaServer: () => Promise<{ success: boolean }>;
 
   // ── Auto-Update ──
   getUpdateStatus: () => Promise<{
@@ -123,6 +204,63 @@ export interface ElectronAPI {
   setAutoUpdateEnabled: (enabled: boolean) => Promise<{ success: boolean }>;
   downloadUpdate: () => Promise<{ success: boolean; error: string | null }>;
   installUpdate: () => Promise<{ success: boolean }>;
+
+  // ── DeepSeek API Credit Balance ──
+  checkDeepSeekBalance: () => Promise<{
+    available: boolean;
+    balance: string | null;
+    error: string | null;
+  }>;
+
+  // ── Aggregate Token Usage ──
+  getAggregateUsage: () => Promise<{
+    jobs: Array<{
+      job_id: string;
+      title: string;
+      provider: string;
+      model: string;
+      step_count: number;
+      totals: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+      saved_at: string;
+    }>;
+    totals: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+    job_count: number;
+    error?: string;
+  }>;
+
+  // ── Shell & File system ──
+  openPath: (filePath: string) => Promise<{ success: boolean; error?: string }>;
+  fileExists: (filePath: string) => Promise<boolean>;
+
+  // ── Playwright Testing ──
+  checkDevMode: () => Promise<{ devMode: boolean }>;
+  runPlaywrightTests: (vars: Record<string, string>) => Promise<{ exitCode: number; output: string }>;
+  onPlaywrightOutput: (callback: (text: string) => void) => () => void;
+  checkPlaywrightBuild: () => Promise<{ exists: boolean; builtAt: string | null }>;
+
+  // ── Bot Testing (Backend) ──
+  readBotScript: () => Promise<string>;
+  saveBotScript: (content: string) => Promise<{ success: boolean; error?: string }>;
+  runBotScript: () => Promise<{ exitCode: number; output: string }>;
+  stopBotScript: () => Promise<{ success: boolean; message?: string }>;
+  readBotTestLog: () => Promise<string>;
+  onBotScriptOutput: (callback: (text: string) => void) => () => void;
+  checkNodeAvailable: () => Promise<{ available: boolean; path: string | null }>;
+
+  // ── Export (PDF / Word) ──
+  exportToPdf: (params: { html: string; defaultName?: string }) => Promise<{
+    success: boolean;
+    filePath?: string;
+    error?: string;
+    cancelled?: boolean;
+  }>;
+  exportToWord: (params: { html: string; defaultName?: string }) => Promise<{
+    success: boolean;
+    filePath?: string;
+    error?: string;
+    cancelled?: boolean;
+  }>;
+
   platform: string;
 }
 

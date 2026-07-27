@@ -3,9 +3,14 @@
  *
  * LLM_PROVIDER=deepseek (default, requires DEEPSEEK_API_KEY)
  * LLM_PROVIDER=ollama   (uses OLLAMA_BASE_URL + OLLAMA_MODEL)
+ *
+ * When using Ollama, a periodic health check is started to monitor the
+ * Ollama server and log its status. The health check interval is controlled
+ * by the OLLAMA_HEALTH_CHECK_INTERVAL env var (default: 60000ms).
  */
 
 import path from "path";
+import fs from "fs";
 import OpenAI from "openai";
 import { fileURLToPath } from "url";
 import { SYSTEM_PROMPT_TEMPLATE } from "./agent-config.js";
@@ -13,12 +18,82 @@ import { SYSTEM_PROMPT_TEMPLATE } from "./agent-config.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PROVIDER = process.env.LLM_PROVIDER || "deepseek";
+const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434";
+const HEALTH_CHECK_INTERVAL = parseInt(process.env.OLLAMA_HEALTH_CHECK_INTERVAL || "60000", 10);
+
+let healthCheckTimer = null;
+let lastHealthStatus = null;
+
+/**
+ * Check the Ollama server health by hitting its /api/tags endpoint.
+ * Returns true if the server is reachable, false otherwise.
+ */
+export async function checkOllamaHealth() {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(`${OLLAMA_BASE_URL}/api/tags`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (res.ok) {
+      lastHealthStatus = true;
+      return true;
+    }
+    lastHealthStatus = false;
+    return false;
+  } catch {
+    lastHealthStatus = false;
+    return false;
+  }
+}
+
+/**
+ * Get the last known Ollama health status.
+ */
+export function getLastOllamaHealth() {
+  return lastHealthStatus;
+}
+
+/**
+ * Start the periodic Ollama health check.
+ * Only starts if the provider is ollama.
+ * Logs the result on each check.
+ */
+export function startOllamaHealthCheck() {
+  if (PROVIDER !== "ollama") return;
+  if (healthCheckTimer) return; // already running
+
+  console.log(`🩺 [MODEL] Starting Ollama health check (interval: ${HEALTH_CHECK_INTERVAL}ms)`);
+
+  // Immediate first check
+  (async () => {
+    const healthy = await checkOllamaHealth();
+    console.log(`🩺 [MODEL] Ollama health check: ${healthy ? "✅ UP" : "❌ DOWN"}`);
+  })();
+
+  healthCheckTimer = setInterval(async () => {
+    const healthy = await checkOllamaHealth();
+    console.log(`🩺 [MODEL] Ollama health check: ${healthy ? "✅ UP" : "❌ DOWN"}`);
+  }, HEALTH_CHECK_INTERVAL);
+}
+
+/**
+ * Stop the periodic Ollama health check.
+ */
+export function stopOllamaHealthCheck() {
+  if (healthCheckTimer) {
+    clearInterval(healthCheckTimer);
+    healthCheckTimer = null;
+    console.log(`🩺 [MODEL] Ollama health check stopped`);
+  }
+}
 
 function createClient() {
   if (PROVIDER === "ollama") {
     return new OpenAI({
       apiKey: "ollama",
-      baseURL: process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434/v1",
+      baseURL: `${OLLAMA_BASE_URL}/v1`,
     });
   }
   return new OpenAI({
@@ -44,6 +119,9 @@ function getModel() {
 const client = createClient();
 const MODEL = getModel();
 
+// Start health check on module load if using Ollama
+startOllamaHealthCheck();
+
 function getNumCtx() {
   if (PROVIDER !== "ollama") return undefined;
   const val = parseInt(process.env.OLLAMA_NUM_CTX || "32768", 10);
@@ -64,6 +142,17 @@ export async function callModel(context, toolDefs, systemMessageOverride) {
     throw new Error("DEEPSEEK_API_KEY not set — configure it in Config or .env");
   }
 
+  // Check Ollama health before each call to fail fast instead of retrying 3 times
+  if (PROVIDER === "ollama") {
+    const healthy = await checkOllamaHealth();
+    if (!healthy) {
+      throw new Error(
+        "Ollama server is not responding. Check that Ollama is running (http://127.0.0.1:11434/api/tags). " +
+          "Use the ▶ Start button in the status bar or start Ollama manually.",
+      );
+    }
+  }
+
   const tools = mapTools(toolDefs);
 
   // Use the pre-rendered system prompt if provided (with skipped sections
@@ -71,7 +160,11 @@ export async function callModel(context, toolDefs, systemMessageOverride) {
   const systemMessage =
     systemMessageOverride || SYSTEM_PROMPT_TEMPLATE.replace("{{TOOL_LIST}}", toolDefs.map((t) => `  - ${t.name}: ${t.description}`).join("\n"));
 
-  console.log(`   🤖 [MODEL] Calling ${PROVIDER}/${MODEL}...`);
+  if (process.env.LOG_LLM_DATA === "true") {
+    console.log(`🤖 [MODEL] Calling ${PROVIDER}/${MODEL}... w/`, context);
+  } else {
+    console.log(`🤖 [MODEL] Calling ${PROVIDER}/${MODEL} (context: ${context.length} chars, ${tools?.length || 0} tools)`);
+  }
 
   try {
     // Ollama-specific parameters (num_ctx is forwarded by Ollama's /v1 endpoint)
@@ -85,7 +178,7 @@ export async function callModel(context, toolDefs, systemMessageOverride) {
       ],
       tools,
       tool_choice: "auto",
-      temperature: 0.1,
+      temperature: parseFloat(process.env.LLM_TEMPERATURE || "0.1"),
       stream: false,
       ...ollamaParams,
     });
@@ -93,8 +186,26 @@ export async function callModel(context, toolDefs, systemMessageOverride) {
     const choice = response.choices?.[0];
     const usage = response.usage || null;
 
-    const toolCall = choice?.message?.tool_calls?.[0];
-    if (!toolCall) return null;
+    // Only log usage & full message content when LLM data logging is explicitly enabled
+    if (process.env.LOG_LLM_DATA === "true") {
+      console.log(`📊 [MODEL] Raw API — usage: ${JSON.stringify(usage)}`);
+      console.log(`📊 [MODEL] Raw API — messages: ${JSON.stringify(response.choices?.[0]?.message)}`);
+    }
+
+    const message = choice?.message;
+    const toolCall = message?.tool_calls?.[0];
+
+    // Some providers (DeepSeek) return tool_calls alongside empty content.
+    // If there IS a tool_call, process it even when content is empty.
+    if (!toolCall) {
+      // Only bail if there's genuinely no tool_call AND no content
+      if (!message?.content || message.content.trim().length === 0) {
+        console.log(`\u26a0\ufe0f  [MODEL] No tool call in response — returning null`);
+        return null;
+      }
+      console.log(`\u26a0\ufe0f  [MODEL] Content-only response (no tool call) — returning null`);
+      return null;
+    }
 
     let args;
     try {
@@ -105,7 +216,7 @@ export async function callModel(context, toolDefs, systemMessageOverride) {
 
     return { name: toolCall.function.name, arguments: args, usage };
   } catch (err) {
-    console.error(`   ❌ [MODEL] ${err.message}`);
+    console.error(`❌ [MODEL] ${err.message}`);
     throw err;
   }
 }

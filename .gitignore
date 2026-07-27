@@ -35,7 +35,6 @@ logs/
 # ── Build output & local data ──
 safe/
 dist/
-build/
 
 # ── Transcription Agent Service (self-contained, gitignored) ──
 transcription-agent/
@@ -45,6 +44,13 @@ transcription-agent/
 mcp/agent-runner/README.md
 mcp/agent-runner/system-prompt.md
 mcp/agent-runner/.runner.pid
+
+# ── Generated version file (branch name) ──
+version.json
+
+# ── Test artifacts ──
+electron/test-results/
+electron/docs/
 
 # ── Transcription Agent Runtime ──
 storage/
@@ -60,6 +66,13 @@ legacy_mcp/
 # ── Agent Instructions (user-generated, not committed) ──
 AGENTS.md
 agent-runner/system-prompt.md
+
+# ── Agent Config (live files — each user customizes these locally) ──
+agent-config/pipeline.json
+agent-config/tools.json
+agent-config/system-prompt.md
+agent-config/.defaults/
+agent-config/.restart-flag
 
 # ── Editor / IDE ──
 .vscode/
@@ -88,3 +101,7 @@ AGENTS.md
 copilot-instructions.md
 
 assets/private
+*.tsbuildinfo
+.github/prompts
+
+safe/
