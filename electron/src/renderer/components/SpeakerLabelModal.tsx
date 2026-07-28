@@ -24,6 +24,8 @@ interface SpeakerInfo {
   sample_end: number;
   suggested_name: string;
   suggested_email?: string;
+  form_entry_name?: string;
+  form_entry_email?: string;
   voiceprint_confidence?: number;
   voiceprint_matches?: VoiceMatchConflict[];
 }
@@ -112,6 +114,12 @@ export default function SpeakerLabelModal({
   // be passed as overwrite_names to the drift audit so it skips them.
   const [perSpeakerOverwrite, setPerSpeakerOverwrite] = useState<Set<string>>(new Set());
 
+  // ── Per-speaker A/B conflict choice ──
+  // Tracks which option the user selected in the A/B conflict selector.
+  // 'form_entry' = use the name/email from the new job form (overwrite)
+  // 'voice_owner' = use the matched voiceprint owner's name/email (keep existing)
+  const [conflictChoices, setConflictChoices] = useState<Record<string, 'form_entry' | 'voice_owner'>>({});
+
   // ── Derive which speakers have active conflicts (for highlighting) ──
   const conflictSpeakerIds = new Set<string>();
   for (const [spkId, v] of Object.entries(perSpeakerConflicts)) {
@@ -197,8 +205,23 @@ export default function SpeakerLabelModal({
 
     const initialNames: Record<string, string> = {};
     const initialEmails: Record<string, string> = {};
+    const conflictSpeakerIdsOnMount = new Set<string>();
+    // First pass: detect conflicts so we can skip pre-fill for them
     for (let i = 0; i < speakers.length; i++) {
       const spk = speakers[i];
+      const vpms = spk.voiceprint_matches;
+      if (vpms && vpms.length > 0) {
+        const best = vpms[0];
+        const suggested = (spk.suggested_name || "").toLowerCase();
+        if (best.name.toLowerCase() !== suggested) {
+          conflictSpeakerIdsOnMount.add(spk.speaker_id);
+        }
+      }
+    }
+    for (let i = 0; i < speakers.length; i++) {
+      const spk = speakers[i];
+      // Skip pre-fill for conflicted speakers — A/B selector handles them
+      if (conflictSpeakerIdsOnMount.has(spk.speaker_id)) continue;
       if (spk.suggested_name) {
         initialNames[spk.speaker_id] = spk.suggested_name;
       }
@@ -211,25 +234,25 @@ export default function SpeakerLabelModal({
     setEmails(initialEmails);
 
     // ── Proactive conflict seeding from voiceprint_matches ──
-    // When get_speaker_clips found voiceprint matches for speakers whose
-    // matched names aren't in the attendee list, the backend includes them
-    // in voiceprint_matches. Seed perSpeakerConflicts proactively so the
-    // inline conflict UI appears on mount — not just after onBlur or submit.
+    // Only seed for speakers where name wasn't pre-filled (conflict detected).
+    // The backend already suppressed suggested_name for these, but we also
+    // skipped the positional email above to keep name+email in sync.
     const proactive: typeof proactiveConflicts = [];
     const conflictEntries: Record<string, LabelVerification> = {};
     for (const spk of speakers) {
+      // Use the form_entry data for the "assigned" side of the conflict
+      const formName = spk.form_entry_name || "";
+      const formEmail = spk.form_entry_email || "";
       const vpms = spk.voiceprint_matches;
       if (!vpms || vpms.length === 0) continue;
       const best = vpms[0];
-      // Only seed a conflict if the best match name differs from the
-      // suggested_name (or suggested_name is blank / came from positional
-      // fallback). If suggested_name already matches, no conflict to show.
-      const suggested = (initialNames[spk.speaker_id] || "").toLowerCase();
-      if (best.name.toLowerCase() !== suggested) {
+      // Only seed a conflict if the best match name differs from the form
+      // entry name (or form entry is blank). If they match, no conflict.
+      if (best.name.toLowerCase() !== formName.toLowerCase()) {
         conflictEntries[spk.speaker_id] = {
           speaker_id: spk.speaker_id,
-          assigned_name: initialNames[spk.speaker_id] || "",
-          assigned_email: initialEmails[spk.speaker_id] || "",
+          assigned_name: formName,
+          assigned_email: formEmail,
           voice_match_conflicts: vpms.map((m) => ({
             name: m.name,
             email: m.email,
@@ -555,29 +578,48 @@ export default function SpeakerLabelModal({
     [jobId, labels, emails],
   );
 
-  /** Resolve an inline voice-match conflict: accept the existing name. */
-  const resolveInlineConflict = useCallback(
-    (speakerId: string, existingName: string, existingEmail: string) => {
-      setLabels((prev) => ({ ...prev, [speakerId]: existingName }));
-      // Use existing voiceprint email only if it's a real address (not a
-      // @voiceprint.local placeholder). Otherwise keep the user's typed email
-      // so it flows through to email_recipients for delivery.
-      const userEmail = emails[speakerId]?.trim();
-      const resolvedEmail = existingEmail && !existingEmail.includes("@voiceprint.local") ? existingEmail : userEmail || existingEmail;
-      setEmails((prev) => ({ ...prev, [speakerId]: resolvedEmail }));
-      setPerSpeakerConflicts((prev) => {
-        const next = { ...prev };
-        delete next[speakerId];
-        return next;
-      });
-      // Clear any error for this speaker
+  /** Handle A/B conflict choice: fill the speaker's name/email and track the decision. */
+  const handleConflictChoice = useCallback(
+    (speakerId: string, choice: 'form_entry' | 'voice_owner', match: VoiceMatchConflict) => {
+      setConflictChoices((prev) => ({ ...prev, [speakerId]: choice }));
+
+      const spk = speakers.find((s) => s.speaker_id === speakerId);
+      if (!spk) return;
+
+      if (choice === 'voice_owner') {
+        // Fill inputs with voiceprint match data (use the matched name/email)
+        setLabels((prev) => ({ ...prev, [speakerId]: match.name }));
+        const resolvedEmail = match.email && !match.email.includes("@voiceprint.local")
+          ? match.email : match.email;
+        setEmails((prev) => ({ ...prev, [speakerId]: resolvedEmail }));
+        // Remove from overwrite set — name matches voiceprint, no overwrite needed
+        setPerSpeakerOverwrite((prev) => {
+          const next = new Set(prev);
+          next.delete(speakerId);
+          return next;
+        });
+      } else {
+        // Fill inputs with form entry data (the name/email from the new job form)
+        setLabels((prev) => ({ ...prev, [speakerId]: spk.form_entry_name || '' }));
+        setEmails((prev) => ({ ...prev, [speakerId]: spk.form_entry_email || '' }));
+        // Add to overwrite set — form entry name differs from voiceprint, need to overwrite
+        setPerSpeakerOverwrite((prev) => new Set(prev).add(speakerId));
+      }
+
+      // Clear errors for this speaker
       setEmailErrors((prev) => {
         const next = { ...prev };
         delete next[speakerId];
         return next;
       });
+      // Dismiss the A/B selector for this speaker
+      setPerSpeakerConflicts((prev) => {
+        const next = { ...prev };
+        delete next[speakerId];
+        return next;
+      });
     },
-    [emails],
+    [speakers],
   );
 
   const handleSkip = () => {
@@ -740,40 +782,58 @@ export default function SpeakerLabelModal({
                   </Tooltip>
                   {emailErrors[spk.speaker_id] && <span className="speaker-email-error">{emailErrors[spk.speaker_id]}</span>}
                 </div>
-                {/* ── Inline voice-match conflict widget (Phase C) ── */}
-                {perSpeakerConflicts[spk.speaker_id]?.voice_match_conflicts?.map((mc, ci) => (
-                  <div key={ci} className="speaker-inline-conflict">
-                    <div className="speaker-inline-conflict-body">
-                      <Icon name="warning" size="13" color="orange" />
-                      <span className="speaker-inline-conflict-text">
-                        This voice matches <strong>{mc.name}</strong>
-                        {mc.email ? <> &lt;{mc.email}&gt;</> : ""} ({(mc.similarity * 100).toFixed(0)}% similarity)
-                        {mc.sample_job_id ? <> from job {mc.sample_job_id.slice(0, 8)}</> : ""}
-                      </span>
+                {/* ── A/B conflict choice selector ── */}
+                {perSpeakerConflicts[spk.speaker_id]?.voice_match_conflicts?.map((mc, ci) => {
+                  const chosen = conflictChoices[spk.speaker_id];
+                  const formName = spk.form_entry_name || labels[spk.speaker_id] || "";
+                  const formEmail = spk.form_entry_email || emails[spk.speaker_id] || "";
+                  return (
+                    <div key={ci} className="speaker-ab-conflict">
+                      <div className="speaker-ab-conflict-header">
+                        <Icon name="warning" size="13" color="orange" />
+                        <span>
+                          Voice matches <strong>{mc.name}</strong>
+                          {mc.email ? <> &lt;{mc.email}&gt;</> : ""} ({(mc.similarity * 100).toFixed(0)}% match)
+                          {mc.sample_job_id ? <> from job {mc.sample_job_id.slice(0, 8)}</> : ""}
+                        </span>
+                      </div>
+                      <div className="speaker-ab-conflict-options">
+                        <label
+                          className={`speaker-ab-option ${chosen === 'form_entry' ? 'speaker-ab-option--selected' : ''}`}
+                          onClick={() => handleConflictChoice(spk.speaker_id, 'form_entry', mc)}>
+                          <input
+                            type="radio"
+                            name={`conflict-${spk.speaker_id}`}
+                            checked={chosen === 'form_entry'}
+                            onChange={() => handleConflictChoice(spk.speaker_id, 'form_entry', mc)}
+                          />
+                          <div className="speaker-ab-option-content">
+                            <span className="speaker-ab-option-label">Use form entry:</span>
+                            <span className="speaker-ab-option-value">
+                              {formName || <em>(no name)</em>}{formEmail ? <> &lt;{formEmail}&gt;</> : ""}
+                            </span>
+                          </div>
+                        </label>
+                        <label
+                          className={`speaker-ab-option ${chosen === 'voice_owner' ? 'speaker-ab-option--selected' : ''}`}
+                          onClick={() => handleConflictChoice(spk.speaker_id, 'voice_owner', mc)}>
+                          <input
+                            type="radio"
+                            name={`conflict-${spk.speaker_id}`}
+                            checked={chosen === 'voice_owner'}
+                            onChange={() => handleConflictChoice(spk.speaker_id, 'voice_owner', mc)}
+                          />
+                          <div className="speaker-ab-option-content">
+                            <span className="speaker-ab-option-label">Use voice owner:</span>
+                            <span className="speaker-ab-option-value">
+                              {mc.name}{mc.email ? <> &lt;{mc.email}&gt;</> : ""}
+                            </span>
+                          </div>
+                        </label>
+                      </div>
                     </div>
-                    <div className="speaker-inline-conflict-actions">
-                      <button
-                        className="speaker-conflict-btn speaker-conflict-btn--accept"
-                        onClick={() => resolveInlineConflict(spk.speaker_id, mc.name, mc.email)}
-                        title={`Use "${mc.name}" instead`}>
-                        Use &ldquo;{mc.name}&rdquo;
-                      </button>
-                      <button
-                        className="speaker-conflict-btn speaker-conflict-btn--dismiss"
-                        onClick={() => {
-                          setPerSpeakerOverwrite((prev) => new Set(prev).add(spk.speaker_id));
-                          setPerSpeakerConflicts((prev) => {
-                            const next = { ...prev };
-                            delete next[spk.speaker_id];
-                            return next;
-                          });
-                        }}
-                        title="Keep current name — overwrite existing voiceprint">
-                        Keep &ldquo;{labels[spk.speaker_id] || spk.speaker_id}&rdquo;
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             );
           })}

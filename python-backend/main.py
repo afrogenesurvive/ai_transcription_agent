@@ -1673,6 +1673,12 @@ async def get_speaker_clips(job_id: str):
         clip_start = longest["start"]
         clip_end = clip_start + clip_duration
 
+        # Compute the positional form entry for this speaker slot
+        idx = len(speakers)
+        form_entry_name = attendee_names[idx] if idx < len(attendee_names) else ""
+        attendee_emails_list = metadata.get("attendeeEmails", [])
+        form_entry_email = attendee_emails_list[idx] if idx < len(attendee_emails_list) else ""
+
         # Try voiceprint matching first — extract embedding and compare
         # against ALL enrolled voiceprints for a reliable suggested name.
         suggested_name = ""
@@ -1722,7 +1728,6 @@ async def get_speaker_clips(job_id: str):
 
         # Fall back to positional alignment if no voiceprint match
         if not suggested_name:
-            idx = len(speakers)
             if idx < len(attendee_names):
                 # Skip attendee names already taken by voiceprint-matched speakers
                 alt_idx = idx
@@ -1731,7 +1736,6 @@ async def get_speaker_clips(job_id: str):
                 if alt_idx < len(attendee_names):
                     suggested_name = attendee_names[alt_idx]
                     # Grab email from attendeeEmails if positionally aligned
-                    attendee_emails_list = metadata.get("attendeeEmails", [])
                     if alt_idx < len(attendee_emails_list):
                         suggested_email = attendee_emails_list[alt_idx]
                     if alt_idx != idx:
@@ -1747,6 +1751,8 @@ async def get_speaker_clips(job_id: str):
             "sample_end": clip_end,
             "suggested_name": suggested_name,
             "suggested_email": suggested_email,
+            "form_entry_name": form_entry_name,
+            "form_entry_email": form_entry_email,
             "voiceprint_confidence": round(voiceprint_confidence, 3),
             "voiceprint_matches": voiceprint_matches,
         })
@@ -3207,6 +3213,14 @@ async def clear_ephemeral_data():
                 if fname == "voiceprints.db" and vp_manager:
                     vp_manager.close()
                 os.remove(fpath)
+                # Also clean up stale SQLite WAL/shared-memory companion files
+                # that can cause "disk I/O error" on re-created databases
+                # (see https://sqlite.org/wal.html).
+                for suffix in ("-wal", "-shm"):
+                    companion = fpath + suffix
+                    if os.path.exists(companion):
+                        os.remove(companion)
+                        print(f"[api] DELETE /storage/ephemeral → removed {fname}{suffix}")
                 deleted_files.append(fname)
                 print(f"[api] DELETE /storage/ephemeral → removed {fname}")
             except Exception as e:
@@ -4396,7 +4410,7 @@ def _cleanup_pipeline_resources():
                 # Clear MLX metal cache on Apple Silicon (mlx-whisper internal cache)
                 try:
                     import mlx.core as mx
-                    mx.metal.clear_cache()
+                    mx.clear_cache()
                     print(f"[pipeline]   \U0001f9f9 MLX metal cache cleared")
                 except (ImportError, AttributeError):
                     pass  # Not on macOS or mlx not installed — fine

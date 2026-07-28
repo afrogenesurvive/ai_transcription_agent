@@ -319,6 +319,96 @@
   color: var(--text);
 }
 
+/* ── A/B conflict choice selector ── */
+
+.speaker-ab-conflict {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: rgba(210, 146, 34, 0.08);
+  border: 1px solid rgba(210, 146, 34, 0.25);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.speaker-ab-conflict-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.speaker-ab-conflict-header strong {
+  color: var(--orange);
+}
+
+.speaker-ab-conflict-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 19px; /* aligns with text (icon width + gap) */
+}
+
+.speaker-ab-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  transition: all 0.15s;
+  user-select: none;
+}
+
+.speaker-ab-option:hover {
+  background: var(--surface-hover);
+  border-color: var(--accent);
+}
+
+.speaker-ab-option--selected {
+  background: rgba(46, 160, 67, 0.08);
+  border-color: var(--accent);
+}
+
+.speaker-ab-option input[type="radio"] {
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+
+.speaker-ab-option-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.speaker-ab-option-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.speaker-ab-option-value {
+  font-size: 12px;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.speaker-ab-option-value em {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.speaker-ab-option--selected .speaker-ab-option-label {
+  color: var(--accent);
+}
+
 /* ── Error banner existing attendee details ── */
 
 .speaker-label-existing-attendees {
