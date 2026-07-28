@@ -658,7 +658,7 @@ async function processEvent(event) {
         }
         if (hasReadTranscript) {
           availableTools = availableTools.filter(
-            (t) => t.name !== "transcribe_get_transcript" && t.name !== "transcribe_label_speaker" && t.name !== "transcribe_list_voiceprints"
+            (t) => t.name !== "transcribe_get_transcript" && t.name !== "transcribe_label_speaker" && t.name !== "transcribe_list_voiceprints",
           );
         }
         if (!summarizeCalled) {

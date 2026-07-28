@@ -32,7 +32,7 @@ const SERVICE_ICONS: Record<string, string> = {
   diarization: "badge",
 };
 
-const COUNTDOWN_SECONDS = 20;
+const COUNTDOWN_SECONDS = 25;
 
 export default function ServerStatusBanner({
   services,

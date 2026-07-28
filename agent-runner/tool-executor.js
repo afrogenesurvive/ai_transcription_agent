@@ -23,7 +23,13 @@ async function callBridge(tool, args) {
 
 // ── Delivery handlers (direct API calls) ──
 
-async function sendEmail(to, subject, body) {
+async function sendEmail(to, subject, body, meetingTitle) {
+  // Replace {title} placeholder with the actual meeting title as a safety net
+  // (the LLM should already substitute it, but this ensures correctness)
+  if (subject && meetingTitle) {
+    subject = subject.replace(/\{title\}/g, meetingTitle);
+  }
+
   // Support both comma-separated string and array of recipients
   const recipients = Array.isArray(to)
     ? to
@@ -147,7 +153,7 @@ const HANDLERS = {
   transcribe_update_status: (a) => callBridge("transcribe_update_status", a),
   transcribe_fail_job: (a) => callBridge("transcribe_fail_job", a),
   transcribe_complete_job: (a) => callBridge("transcribe_complete_job", a),
-  send_delivery_email: (a) => sendEmail(a.to, a.subject, a.body),
+  send_delivery_email: (a) => sendEmail(a.to, a.subject, a.body, a.title),
   create_trello_action_items: (a) => createTrelloCards(a.listId, a.actionItems),
   save_to_drive: (a) => saveToDrive(a.folderName, a.title, a.summary),
 };

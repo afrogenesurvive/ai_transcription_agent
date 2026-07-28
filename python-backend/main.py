@@ -4641,6 +4641,37 @@ def _run_pipeline_sync(job_id: str):
                     })
                     break  # Only the first conflict per speaker
 
+        # ── Move unregistered voiceprint matches into unknown ──
+        # Speakers whose voice matches an EXISTING enrolled voiceprint under a
+        # DIFFERENT name (and that name isn't in this job's attendee list) must
+        # be surfaced to the user for labeling. get_speaker_clips will detect
+        # the match and populate voiceprint_matches, which the labeling modal
+        # displays as inline conflict warnings.
+        unregistered = match_result.pop("unregistered", {})
+        if unregistered:
+            for name, segs in unregistered.items():
+                spk_id = "?"
+                for spk, spk_segs in speaker_segments.items():
+                    for s in spk_segs[:3]:
+                        for ks in segs[:3]:
+                            if abs(s.get("start", 0) - ks.get("start", 0)) < 0.5:
+                                spk_id = spk
+                                break
+                        if spk_id != "?":
+                            break
+                    if spk_id != "?":
+                        break
+                match_result.setdefault("unknown", []).append({
+                    "speaker_id": spk_id,
+                    "segments": [{"start": s["start"], "end": s["end"]} for s in segs],
+                    "sample_segment": {"start": segs[0]["start"],
+                                       "end": segs[0]["end"]},
+                })
+            total_unknown = len(match_result.get("unknown", []))
+            jlog.log(f"[voiceprint] 🔄 Moved {len(unregistered)} unregistered match(es) "
+                  f"into unknown ({total_unknown} total unknown) — "
+                  f"will pause for user labeling")
+
         # ── Log detailed voiceprint identification results ──
         scores = match_result.get("scores", {})
         if match_result.get("known"):

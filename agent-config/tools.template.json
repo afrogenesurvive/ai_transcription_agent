@@ -262,7 +262,8 @@
         "recipients": { "type": "array", "items": { "type": "string" } },
         "cc": { "type": "array", "items": { "type": "string" } },
         "fromName": { "type": "string" },
-        "subject": { "type": "string" }
+        "subject": { "type": "string" },
+        "title": { "type": "string", "description": "Meeting title — used to replace {title} placeholder in the subject line" }
       },
       "required": ["jobId", "recipients"]
     }
