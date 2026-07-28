@@ -128,7 +128,7 @@
     "transcribe_approve_delivery": "Next: After user approves, call `transcribe_save_context` to persist meeting to semantic and ephemeral memory.",
     "transcribe_save_context": "Context saved. Next: Call `transcribe_prepare_delivery` to package results for delivery destinations.",
     "transcribe_prepare_delivery": "Delivery package ready. Next: Call `send_delivery_email` to deliver meeting summary, analysis, and attendee data via email.",
-    "send_delivery_email": "Delivery complete. Optionally call `save_to_drive` or `create_trello_action_items` if enabled. Otherwise pipeline is finished.",
+    "send_delivery_email": "Delivery complete. Pipeline is finished.",
     "transcribe_label_speaker": "Speaker labeled. If more unknown speakers remain, call `transcribe_label_speaker` again for the next speaker. Otherwise, call `transcribe_approve_delivery` if delivery review is enabled, or `transcribe_save_context` to persist.",
     "transcribe_register_attendees": "Attendees registered. Continue with the main pipeline: call `transcribe_save_context` to persist meeting context.",
     "transcribe_search_attendees": "Search completed. If the person isn't found, call `transcribe_register_attendees` to add them. Otherwise continue with the main pipeline.",

@@ -297,9 +297,9 @@ const FALLBACK_PIPELINE = {
     transcribe_analyze: "Next: If delivery review is enabled, call transcribe_approve_delivery to pause for user approval. Otherwise call transcribe_save_context.",
     transcribe_approve_delivery: "Next: After user approves, call transcribe_save_context to persist the meeting...",
     transcribe_save_context: "Next: Call transcribe_prepare_delivery to package results for delivery.",
-    transcribe_prepare_delivery: "Next: Deliver results using send_delivery_email, save_to_drive, or create_trello_action_items.",
+    transcribe_prepare_delivery: "Next: Deliver results using send_delivery_email.",
     send_delivery_email:
-      "Delivery complete. Optionally call save_to_drive or create_trello_action_items if enabled. Otherwise pipeline is finished.",
+      "Delivery complete. Pipeline is finished.",
     transcribe_label_speaker:
       "Speaker labeled. If more unknown speakers remain, call transcribe_label_speaker again for the next speaker. Otherwise, call transcribe_approve_delivery if delivery review is enabled, or transcribe_save_context to persist.",
     transcribe_register_attendees:
