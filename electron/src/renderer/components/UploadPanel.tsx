@@ -92,6 +92,7 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
   const [attendeeEmail, setAttendeeEmail] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [attendeeConflict, setAttendeeConflict] = useState<string | null>(null);
+  const [addingAttendee, setAddingAttendee] = useState(false);
   const [skipSteps, setSkipSteps] = useState<string[]>(initialSkipSteps ?? DEFAULT_SKIP_STEPS);
   const [savedAttendees, setSavedAttendees] = useState<AttendeeEntry[]>(loadSavedAttendees);
   const [registeredAttendees, setRegisteredAttendees] = useState<AttendeeEntry[]>([]);
@@ -262,6 +263,7 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
 
   const addAttendee = useCallback(
     async (name?: string, email?: string) => {
+      if (addingAttendee) return;
       const isManualEntry = name === undefined;
       const resolvedName = isManualEntry ? attendeeName.trim() : name.trim();
       if (!resolvedName) return;
@@ -277,51 +279,56 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
         return;
       }
 
-      // Server-side conflict check: verify name+email against attendee registry + voiceprints
-      if (isManualEntry) {
-        try {
-          const conflictRes = await fetch("http://127.0.0.1:5010/tools/call", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              tool: "attendees_check_conflicts",
-              args: { entries: [{ name: resolvedName, email: resolvedEmail }] },
-            }),
-            signal: AbortSignal.timeout(3000),
-          });
-          if (conflictRes.ok) {
-            const conflictData = await conflictRes.json();
-            const conflicts = (conflictData as any).conflicts || [];
-            if (conflicts.length > 0) {
-              const messages = conflicts.map((c: any) => c.message).join(" ");
-              setAttendeeConflict(messages);
-              return; // Don't add — conflicts need user attention
+      setAddingAttendee(true);
+      try {
+        // Server-side conflict check: verify name+email against attendee registry + voiceprints
+        if (isManualEntry) {
+          try {
+            const conflictRes = await fetch("http://127.0.0.1:5010/tools/call", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                tool: "attendees_check_conflicts",
+                args: { entries: [{ name: resolvedName, email: resolvedEmail }] },
+              }),
+              signal: AbortSignal.timeout(3000),
+            });
+            if (conflictRes.ok) {
+              const conflictData = await conflictRes.json();
+              const conflicts = (conflictData as any).conflicts || [];
+              if (conflicts.length > 0) {
+                const messages = conflicts.map((c: any) => c.message).join(" ");
+                setAttendeeConflict(messages);
+                return; // Don't add — conflicts need user attention
+              }
             }
+          } catch {
+            // Backend unavailable — proceed without conflict check (fail-open)
           }
-        } catch {
-          // Backend unavailable — proceed without conflict check (fail-open)
         }
-      }
 
-      setFormError(null);
-      setAttendeeConflict(null);
-      const entry: AttendeeEntry = { name: resolvedName, email: resolvedEmail };
-      setAttendeeList((prev) => [...prev, entry]);
-      setAttendeeName("");
-      setAttendeeEmail("");
-      setShowNameSuggestions(false);
-      setShowEmailSuggestions(false);
+        setFormError(null);
+        setAttendeeConflict(null);
+        const entry: AttendeeEntry = { name: resolvedName, email: resolvedEmail };
+        setAttendeeList((prev) => [...prev, entry]);
+        setAttendeeName("");
+        setAttendeeEmail("");
+        setShowNameSuggestions(false);
+        setShowEmailSuggestions(false);
 
-      // Persist this entry for future autocomplete (skip for quick-add from registered attendees)
-      if (isManualEntry) {
-        setSavedAttendees((prev) => {
-          const updated = [entry, ...prev];
-          saveAttendees(updated);
-          return updated;
-        });
+        // Persist this entry for future autocomplete (skip for quick-add from registered attendees)
+        if (isManualEntry) {
+          setSavedAttendees((prev) => {
+            const updated = [entry, ...prev];
+            saveAttendees(updated);
+            return updated;
+          });
+        }
+      } finally {
+        setAddingAttendee(false);
       }
     },
-    [attendeeName, attendeeEmail, attendeeList, savedAttendees],
+    [attendeeName, attendeeEmail, attendeeList, savedAttendees, addingAttendee],
   );
 
   // Select a suggestion: fill name + email, then focus the email field
@@ -346,6 +353,7 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
   const handleNameKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
       e.preventDefault();
+      if (addingAttendee) return;
       if (activeSuggestionIndex >= 0 && activeSuggestionIndex < nameSuggestions.length) {
         selectSuggestion(nameSuggestions[activeSuggestionIndex]);
       } else {
@@ -370,6 +378,7 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
   const handleEmailKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
       e.preventDefault();
+      if (addingAttendee) return;
       if (activeSuggestionIndex >= 0 && activeSuggestionIndex < emailSuggestions.length) {
         selectSuggestion(emailSuggestions[activeSuggestionIndex]);
       } else {
@@ -640,13 +649,13 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
                 </div>
               )}
             </div>
-            <Tooltip content="Add this attendee to the meeting participant list">
+            <Tooltip content={addingAttendee ? "Checking attendee conflicts…" : "Add this attendee to the meeting participant list"}>
               <button
                 className="btn-attendee-add"
                 onClick={() => addAttendee()}
-                disabled={disabled || !attendeeName.trim()}
-                title="Add this attendee to the list">
-                + Add
+                disabled={disabled || addingAttendee || !attendeeName.trim()}
+                title={addingAttendee ? "Checking attendee conflicts…" : "Add this attendee to the list"}>
+                {addingAttendee ? <><Icon name="hourglass_top" size="14" /> Checking…</> : "+ Add"}
               </button>
             </Tooltip>
           </div>
@@ -716,12 +725,13 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
                             </Tooltip>
                           ) : null;
                         })()}
-                        <Tooltip content={`Click to add ${ra.name} to the meeting participant list`}>
+                        <Tooltip content={addingAttendee ? "Checking attendee conflicts…" : `Click to add ${ra.name} to the meeting participant list`}>
                           <button
                             className="btn-text attendee-add-btn"
                             onClick={() => addAttendee(ra.name, ra.email)}
-                            title={`Add ${ra.name} to attendee list`}>
-                            <Icon name="add" size="14" />
+                            disabled={addingAttendee}
+                            title={addingAttendee ? "Checking attendee conflicts…" : `Add ${ra.name} to attendee list`}>
+                            {addingAttendee ? <Icon name="hourglass_top" size="14" /> : <Icon name="add" size="14" />}
                           </button>
                         </Tooltip>
                       </div>

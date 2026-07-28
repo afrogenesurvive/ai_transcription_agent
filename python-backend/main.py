@@ -93,10 +93,20 @@ _MODELS_STATUS_CACHE_TTL = 60  # seconds
 
 # ML pipeline statuses that indicate a job is actively running in the pipeline.
 # Shared across upload endpoints, active job listing, and cleanup logic.
+# NOTE: pending_raw_review and pending_delivery_review are intentionally
+# excluded — they are post-ML-pipeline human review gates that should
+# survive backend restarts. The upload-blocking variant below includes
+# them so new uploads are still blocked while a job awaits review.
 ML_PIPELINE_STATUSES = frozenset({
     "uploaded", "initializing", "processing_diarization",
     "matching_voiceprints", "processing_transcription", "aligning",
     "paused_for_labeling", "resuming",
+})
+
+# Extended set for upload guards only — includes review-gate states so
+# new uploads are blocked while a job is paused for user review.
+ML_UPLOAD_BLOCKING_STATUSES = frozenset({
+    *ML_PIPELINE_STATUSES,
     "pending_raw_review", "pending_delivery_review",
 })
 
@@ -313,9 +323,9 @@ async def upload_audio(
     event_type: str = Form("internal"),
     skip_steps: str = Form(""),
 ):
-    # Reject new uploads while ML pipeline jobs are actively running
+    # Reject new uploads while ML pipeline jobs or review-gated jobs exist
     for info in _active_jobs.values():
-        if info.get("status") in ML_PIPELINE_STATUSES:
+        if info.get("status") in ML_UPLOAD_BLOCKING_STATUSES:
             raise HTTPException(409, "A transcription job is already running — wait for it to finish before starting a new one")
 
     ext = os.path.splitext(file.filename or "audio.wav")[1] or ".wav"
@@ -422,9 +432,9 @@ async def upload_audio_by_path(req: UploadByPathRequest):
     Accepts a file path instead of multipart upload. Handles both
     POSIX (macOS/Linux) and Windows paths via os.path.
     """
-    # Reject new uploads while ML pipeline jobs are actively running
+    # Reject new uploads while ML pipeline jobs or review-gated jobs exist
     for info in _active_jobs.values():
-        if info.get("status") in ML_PIPELINE_STATUSES:
+        if info.get("status") in ML_UPLOAD_BLOCKING_STATUSES:
             raise HTTPException(409, "A transcription job is already running — wait for it to finish before starting a new one")
 
     file_path = os.path.abspath(os.path.expanduser(req.file_path))
@@ -510,7 +520,6 @@ async def get_active_jobs():
     delivered, transcribed) or were never started (labeling_needed)
     are not returned — they're handled by the agent runner separately.
     """
-    """List jobs actively running in the ML pipeline (uses in-memory tracking)."""
     active = [
         {
             "job_id": job_id,
@@ -519,7 +528,7 @@ async def get_active_jobs():
             "title": info.get("title", "Untitled"),
         }
         for job_id, info in _active_jobs.items()
-        if info.get("status") in ML_PIPELINE_STATUSES
+        if info.get("status") in ML_UPLOAD_BLOCKING_STATUSES
     ]
     active.sort(key=lambda j: j.get("progress", 0), reverse=True)
     print(f"[api] GET /transcribe/active → {len(active)} active ML job(s) (in-memory)")
@@ -1660,12 +1669,13 @@ async def get_speaker_clips(job_id: str):
     audio_path = uploader.get_audio_path(job_id)
     metadata = uploader.get_metadata(job_id)
     attendee_names = metadata.get("attendees", [])
+    attendee_emails_list = metadata.get("attendeeEmails", [])
 
-    speakers = []
-    # Track names already assigned by voiceprint matching so positional
-    # fallback doesn't suggest a name that's already taken by another speaker.
-    assigned_names: set[str] = set()
-
+    # ── Pass 1: Process all speakers, collecting voiceprint matches ──
+    # We defer form-entry assignment to Pass 2 so we can match by voiceprint
+    # identity rather than iteration order (which causes false A/B conflicts
+    # when the diarization order doesn't match the attendee order).
+    pending: list[dict] = []
     for spk, segs in speaker_segments.items():
         # Find the longest segment for a good sample clip
         longest = max(segs, key=lambda s: s["duration"])
@@ -1673,88 +1683,129 @@ async def get_speaker_clips(job_id: str):
         clip_start = longest["start"]
         clip_end = clip_start + clip_duration
 
-        # Compute the positional form entry for this speaker slot
-        idx = len(speakers)
-        form_entry_name = attendee_names[idx] if idx < len(attendee_names) else ""
-        attendee_emails_list = metadata.get("attendeeEmails", [])
-        form_entry_email = attendee_emails_list[idx] if idx < len(attendee_emails_list) else ""
-
-        # Try voiceprint matching first — extract embedding and compare
-        # against ALL enrolled voiceprints for a reliable suggested name.
+        # ── Use pre-computed voiceprint matches from pipeline if available ──
         suggested_name = ""
         suggested_email = ""
         voiceprint_confidence = 0.0
         voiceprint_matches = []  # All matches — exposed to frontend for proactive conflict display
-        try:
-            # Multi-clip average for robust embedding
-            MAX_SAMPLE = 5
-            step = max(1, len(segs) // MAX_SAMPLE)
-            sampled_embs = []
-            for i in range(0, len(segs), step):
-                if len(sampled_embs) >= MAX_SAMPLE:
-                    break
-                s = segs[i]
-                seg_emb = vp_manager.extract_embedding(
-                    audio_path, segment=(s["start"], s["end"])
-                )
-                sampled_embs.append(seg_emb)
-            if sampled_embs:
-                emb = np.mean(sampled_embs, axis=0)
-                emb = emb / np.linalg.norm(emb)
-                matches = vp_manager.find_matching_voiceprints(
-                    emb, threshold=config.VOICEPRINT_THRESHOLD
-                )
-                voiceprint_matches = [
-                    {
-                        "name": m["name"],
-                        "email": m.get("email", ""),
-                        "similarity": m["similarity"],
-                        "sample_job_id": m.get("sample_job_id"),
-                    }
-                    for m in matches[:1]  # Only the best match — secondary matches are cross-speaker noise
-                ] if matches else []
-                if matches:
-                    best = matches[0]
-                    # Only pre-fill if the matched name is in this job's
-                    # attendee list — otherwise it's a cross-context conflict
-                    # that the user should resolve manually.
-                    if any(a.lower() == best["name"].lower() for a in attendee_names):
-                        suggested_name = best["name"]
-                        suggested_email = best.get("email", "")
-                        voiceprint_confidence = best["similarity"]
-                        assigned_names.add(suggested_name.lower())
-        except Exception as e:
-            print(f"[speaker_clips] ⚠️  Voiceprint matching failed for {spk}: {e}")
+        precomputed = s.get("voiceprint_matches_by_speaker", {})
+        if spk in precomputed:
+            voiceprint_matches = precomputed[spk]
+            if voiceprint_matches:
+                best = voiceprint_matches[0]
+                if any(a.lower() == best["name"].lower() for a in attendee_names):
+                    suggested_name = best["name"]
+                    suggested_email = best.get("email", "")
+                    voiceprint_confidence = best.get("similarity", 0.0)
+        else:
+            try:
+                # Multi-clip average for robust embedding
+                MAX_SAMPLE = 5
+                step = max(1, len(segs) // MAX_SAMPLE)
+                sampled_embs = []
+                for i in range(0, len(segs), step):
+                    if len(sampled_embs) >= MAX_SAMPLE:
+                        break
+                    s = segs[i]
+                    seg_emb = vp_manager.extract_embedding(
+                        audio_path, segment=(s["start"], s["end"])
+                    )
+                    sampled_embs.append(seg_emb)
+                if sampled_embs:
+                    emb = np.mean(sampled_embs, axis=0)
+                    emb = emb / np.linalg.norm(emb)
+                    matches = vp_manager.find_matching_voiceprints(
+                        emb, threshold=config.VOICEPRINT_THRESHOLD
+                    )
+                    voiceprint_matches = [
+                        {
+                            "name": m["name"],
+                            "email": m.get("email", ""),
+                            "similarity": m["similarity"],
+                            "sample_job_id": m.get("sample_job_id"),
+                        }
+                        for m in matches[:1]  # Only the best match — secondary matches are cross-speaker noise
+                    ] if matches else []
+                    if matches:
+                        best = matches[0]
+                        # Only pre-fill if the matched name is in this job's
+                        # attendee list — otherwise it's a cross-context conflict
+                        # that the user should resolve manually.
+                        if any(a.lower() == best["name"].lower() for a in attendee_names):
+                            suggested_name = best["name"]
+                            suggested_email = best.get("email", "")
+                            voiceprint_confidence = best["similarity"]
+            except Exception as e:
+                print(f"[speaker_clips] ⚠️  Voiceprint matching failed for {spk}: {e}")
 
-        # Fall back to positional alignment if no voiceprint match
-        if not suggested_name:
-            if idx < len(attendee_names):
-                # Skip attendee names already taken by voiceprint-matched speakers
-                alt_idx = idx
-                while alt_idx < len(attendee_names) and attendee_names[alt_idx].lower() in assigned_names:
-                    alt_idx += 1
-                if alt_idx < len(attendee_names):
-                    suggested_name = attendee_names[alt_idx]
-                    # Grab email from attendeeEmails if positionally aligned
-                    if alt_idx < len(attendee_emails_list):
-                        suggested_email = attendee_emails_list[alt_idx]
-                    if alt_idx != idx:
-                        print(f"[speaker_clips] ⚠️  Positional fallback skipped '{attendee_names[idx]}' "
-                              f"(already assigned) → using '{attendee_names[alt_idx]}' for {spk}")
+        pending.append({
+            "spk": spk,
+            "segs": segs,
+            "clip_start": clip_start,
+            "clip_end": clip_end,
+            "clip_duration": clip_duration,
+            "longest": longest,
+            "suggested_name": suggested_name,
+            "suggested_email": suggested_email,
+            "voiceprint_confidence": voiceprint_confidence,
+            "voiceprint_matches": voiceprint_matches,
+            # Tentative form entry — will be reassigned in Pass 2
+            "form_entry_name": "",
+            "form_entry_email": "",
+        })
 
+    # ── Pass 2: Assign form entries by voiceprint identity ──
+    # For speakers whose voiceprint matched a registered attendee, use that
+    # attendee's form entry (name + email) — this avoids false A/B conflicts
+    # when the diarization iteration order differs from the attendee list order.
+    used_form_indices: set[int] = set()
+    for ps in pending:
+        sn = ps["suggested_name"]
+        if not sn:
+            continue
+        for fi, fn in enumerate(attendee_names):
+            if fn.lower() == sn.lower() and fi not in used_form_indices:
+                ps["form_entry_name"] = attendee_names[fi]
+                ps["form_entry_email"] = attendee_emails_list[fi] if fi < len(attendee_emails_list) else ""
+                used_form_indices.add(fi)
+                break
+
+    # ── Pass 3: Positional fallback for unmatched speakers ──
+    # For speakers with no voiceprint match (or unregistered match), assign
+    # remaining unused form entries positionally (preserving iteration order).
+    free_indices = [i for i in range(len(attendee_names)) if i not in used_form_indices]
+    fi_next = 0
+    for ps in pending:
+        if ps["form_entry_name"]:
+            continue  # Already assigned by voiceprint identity
+        if fi_next < len(free_indices):
+            fi = free_indices[fi_next]
+            ps["form_entry_name"] = attendee_names[fi]
+            ps["form_entry_email"] = attendee_emails_list[fi] if fi < len(attendee_emails_list) else ""
+            fi_next += 1
+        # If no voiceprint match at all, use form entry as suggested name
+        if not ps["suggested_name"] and ps["form_entry_name"]:
+            ps["suggested_name"] = ps["form_entry_name"]
+            ps["suggested_email"] = ps["form_entry_email"]
+
+    # ── Pass 4: Build final output ──
+    speakers = []
+    for ps in pending:
+        spk = ps["spk"]
+        segs = ps["segs"]
         speakers.append({
             "speaker_id": spk,
             "segment_count": len(segs),
             "total_duration": sum(s["duration"] for s in segs),
             "sample_clip_url": f"/transcribe/audio/speaker_clip/{job_id}/{spk}/0",
-            "sample_start": clip_start,
-            "sample_end": clip_end,
-            "suggested_name": suggested_name,
-            "suggested_email": suggested_email,
-            "form_entry_name": form_entry_name,
-            "form_entry_email": form_entry_email,
-            "voiceprint_confidence": round(voiceprint_confidence, 3),
-            "voiceprint_matches": voiceprint_matches,
+            "sample_start": ps["clip_start"],
+            "sample_end": ps["clip_end"],
+            "suggested_name": ps["suggested_name"],
+            "suggested_email": ps["suggested_email"],
+            "form_entry_name": ps["form_entry_name"],
+            "form_entry_email": ps["form_entry_email"],
+            "voiceprint_confidence": round(ps["voiceprint_confidence"], 3),
+            "voiceprint_matches": ps["voiceprint_matches"],
         })
 
     # Include non-speaking attendees from reconciliation data (if available)
@@ -1976,6 +2027,13 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
     # Run the audit against EXISTING voiceprints in the DB — nothing from this
     # request has been persisted yet, so there are no stale prints to cause
     # false-positive conflicts on re-submit after a rejection.
+    # Load saved reconciliation to identify unregistered voiceprints that may
+    # need cleanup during overwrite — prevents accidental deletion of
+    # non-conflicting speakers' voiceprints (Bug C guard).
+    saved_reconciliation = s.get("reconciliation", {})
+    saved_unreg_names = {us["name"].lower()
+                         for us in saved_reconciliation.get("unregistered_speakers", [])}
+    print(f"[drift] 📋 saved_unreg_names: {saved_unreg_names}")
     drift_entries = []
     for pvp in pending_voiceprints:
         spk = pvp["spk"]
@@ -1983,6 +2041,7 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
         email = pvp["email"]
         emb = pvp["embedding"]
         if emb is None:
+            print(f"[drift] ⚠️  '{name}' ({spk}) has no embedding — skipping")
             continue
 
         # Skip drift audit for names the user explicitly wants to overwrite
@@ -1996,8 +2055,17 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
                 old_matches = vp_manager.find_matching_voiceprints(
                     emb, threshold=config.VOICEPRINT_THRESHOLD
                 )
+                print(f"[drift] 🔎 Cleanup for '{name}': find_matching_voiceprints "
+                      f"returned {len(old_matches)} match(es)")
                 for om in old_matches:
-                    if om["name"].lower() != name.lower():
+                    # Only delete known-conflicting unregistered voiceprints
+                    # (identified during the pipeline run), not non-conflicting
+                    # speakers who happen to match acoustically (Bug C fix).
+                    match_in_unreg = om["name"].lower() in saved_unreg_names
+                    name_differs = om["name"].lower() != name.lower()
+                    print(f"[drift]   Candidate: '{om['name']}' (sim={om['similarity']:.3f}, "
+                          f"name_differs={name_differs}, in_unreg={match_in_unreg})")
+                    if name_differs and match_in_unreg:
                         vp_manager.delete_voiceprint_by_name(om["name"])
                         # Also clean up the stale attendee record so the
                         # attendee registry stays in sync with voiceprints
@@ -2009,6 +2077,10 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
                         print(f"[drift] 🗑️  Deleted old voiceprint '{om['name']}' — "
                               f"re-labeled as '{name}' (sim={om['similarity']:.3f})")
                         break  # Only the best (first) different-name match
+                else:
+                    # No match satisfied the deletion criteria
+                    print(f"[drift] ℹ️  No old voiceprint deleted for '{name}' — "
+                          f"no unregistered-name match above threshold")
             continue
 
         email_key = vp_manager._make_email(name, email)
@@ -2083,6 +2155,7 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
         )
 
     # ── Batch-save voiceprints: audit passed, persist all pending embeddings ──
+    print(f"[drift] 💾 Batch-saving {len(pending_voiceprints)} voiceprint(s)...")
     for pvp in pending_voiceprints:
         vp_manager.save_voiceprint(
             pvp["name"], pvp["email"], pvp["embedding"],
@@ -2094,6 +2167,15 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
             print(f"[api]   ✅ Saved voiceprint for '{pvp['name']}' ({pvp['spk']})")
         else:
             print(f"[api]   ✅ Saved voiceprint metadata for '{pvp['name']}' ({pvp['spk']}) — no embedding")
+
+    # Log final voiceprint count in DB after batch save
+    try:
+        final_count = vp_manager._get_conn().execute(
+            "SELECT COUNT(*) FROM voiceprints"
+        ).fetchone()[0]
+        print(f"[drift] 📊 Voiceprint DB record count after save: {final_count}")
+    except Exception as e:
+        print(f"[drift] ⚠️  Could not read voiceprint count: {e}")
 
     # Determine how to proceed based on labeling phase
     labeling_phase = s.get("labeling_phase", "pre_asr")
@@ -2124,6 +2206,7 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
         saved_reconciliation = s.get("reconciliation", {})
         matched_speakers = saved_reconciliation.get("matched_speakers", [])
         non_speaking = saved_reconciliation.get("non_speaking_attendees", [])
+        saved_unregistered = saved_reconciliation.get("unregistered_speakers", [])
 
         # Add newly labeled speakers to the matched list
         for spk, info in label_map.items():
@@ -2134,16 +2217,54 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
                 "confidence": 1.0,  # User-confirmed
             })
 
-        # Register ALL attendees in ephemeral DB after full reconciliation
+        # Remove newly-labeled speakers from the non-speaking list,
+        # since they were just identified as speakers by the user.
+        # Without this, the agent runner receives them as "present but
+        # did not speak" even though the transcript has their segments
+        # (Bug A fix).
+        labeled_names = {info["name"].lower() for info in label_map.values()}
+        non_speaking = [ns for ns in non_speaking if ns["name"].lower() not in labeled_names]
+
+        # Build the consolidated attendee list:
+        # 1. All matched speakers (from reconciled labels + user labels)
+        # 2. Non-speaking attendees (from form, silent)
+        # 3. Unregistered voiceprint owners who were kept via "Use voice owner"
+        #    and aren't already in the list from steps 1-2.
+        # The dedup via dict.fromkeys preserves insertion order and removes
+        # duplicates that arise when the same name appears in both the saved
+        # reconciliation and the user's labels.
         all_attendee_names = list(dict.fromkeys(
             [s["name"] for s in matched_speakers] +
             [ns["name"] for ns in non_speaking]
         ))
+
+        # Include unregistered speakers kept via "Use voice owner" choice.
+        # These names were in voiceprints from previous jobs but NOT in the
+        # new job form. If the user chose to keep them, add them to the
+        # attendee list so they appear in the meeting record and delivery.
+        # Uses voiceprint-exists check instead of overwrite_names containment
+        # because overwrite_names contains form names, not voiceprint owner
+        # names (Bug B fix).
+        all_attendee_names_lower = {n.lower() for n in all_attendee_names}
+        for us in saved_unregistered:
+            if us["name"].lower() not in all_attendee_names_lower:
+                # Check if this voiceprint was deleted by the overwrite cleanup.
+                # If the user chose "Use form entry" for a conflicting speaker,
+                # their old voiceprint was removed — don't re-add them.
+                existing_vp = vp_manager.get_voiceprint(us["name"])
+                if existing_vp is None:
+                    print(f"[label_and_resume] Skipping '{us['name']}' — "
+                          f"voiceprint was deleted via overwrite cleanup")
+                    continue
+                all_attendee_names.append(us["name"])
+                all_attendee_names_lower.add(us["name"].lower())
+
         all_attendee_emails = []
         for name in all_attendee_names:
             raw_email = next(
                 (s.get("email", "") for s in matched_speakers if s["name"] == name),
-                next((ns.get("email", "") for ns in non_speaking if ns["name"] == name), "")
+                next((ns.get("email", "") for ns in non_speaking if ns["name"] == name),
+                     next((us.get("email", "") for us in saved_unregistered if us["name"] == name), ""))
             )
             # Resolve empty email against voiceprint so the attendee
             # registry key matches the voiceprint key
@@ -2181,6 +2302,10 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
             if e and "@voiceprint.local" not in e:
                 existing_recipients.add(e.lower())
         for us in saved_reconciliation.get("unregistered_speakers", []):
+            # Skip if this voiceprint was deleted (overwritten by user choice)
+            existing_vp = vp_manager.get_voiceprint(us["name"])
+            if existing_vp is None:
+                continue
             e = _resolve_attendee_email(us["name"], us.get("email", ""))
             if e and "@voiceprint.local" not in e:
                 existing_recipients.add(e.lower())
@@ -2657,9 +2782,46 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
                     "sample_start": longest.get("start", 0),
                     "sample_end": longest.get("end", 0),
                 })
+            # ── Build pre-computed voiceprint matches for consistent conflict detection ──
+            # Maps speaker_id → list of voiceprint matches found by the pipeline.
+            # get_speaker_clips uses this to avoid re-running voiceprint matching
+            # (which can produce non-deterministic results).
+            voiceprint_matches_by_speaker = {}
+            vp_scores = match_result.get("scores", {})
+            # Known speakers (matched to registered attendees in attendee list)
+            for matched_name, segs in match_result.get("known", {}).items():
+                score = vp_scores.get(matched_name, 0)
+                if segs and "speaker" in segs[0]:
+                    spk_id = segs[0]["speaker"]
+                    voiceprint_matches_by_speaker[spk_id] = [{
+                        "name": matched_name,
+                        "similarity": round(score, 3),
+                    }]
+            # Unregistered matches (moved to unknown — voiceprint owners not in form)
+            if unregistered:
+                for name, segs in unregistered.items():
+                    u_email = ""
+                    u_job_id = ""
+                    try:
+                        vp = vp_manager.get_voiceprint(name)
+                        if vp:
+                            u_email = vp.get("email", "")
+                            u_job_id = vp.get("sample_job_id", "")
+                    except Exception:
+                        pass
+                    if segs and "speaker" in segs[0]:
+                        spk_id = segs[0]["speaker"]
+                        voiceprint_matches_by_speaker[spk_id] = [{
+                            "name": name,
+                            "email": u_email,
+                            "similarity": 1.0,
+                            "sample_job_id": u_job_id,
+                        }]
+
             _update_active(job_id, "paused_for_labeling", 0.9,
                           labeling_phase="post_asr", speakers=speaker_info,
                           unknown_speakers=unknown,
+                          voiceprint_matches_by_speaker=voiceprint_matches_by_speaker,
                           reconciliation={
                               "matched_speakers": reconciliation["matched_speakers"],
                               "non_speaking_attendees": reconciliation["non_speaking_attendees"],
@@ -3976,23 +4138,9 @@ def _reconcile_attendees(metadata_attendees: list, attendee_emails: list,
     speaker_to_name = {}
     scores = match_result.get("scores", {})
     for name, segs in match_result.get("known", {}).items():
-        # Find which speaker_id(s) map to this name by checking segment overlap
-        for spk_id, spk_segs in speaker_segments.items():
-            for s in spk_segs[:5]:  # Check first few segments
-                for ks in segs[:5]:
-                    if abs(s.get("start", 0) - ks.get("start", 0)) < 0.5:
-                        speaker_to_name[spk_id] = name
-                        break
-                if spk_id in speaker_to_name:
-                    break
-            if spk_id in speaker_to_name:
-                break
-        # If no speaker_id found, associate with any unmatched speaker
-        if name not in speaker_to_name.values():
-            for spk_id in all_detected_speaker_ids:
-                if spk_id not in speaker_to_name:
-                    speaker_to_name[spk_id] = name
-                    break
+        # Use the speaker field from the segments directly
+        if segs and "speaker" in segs[0]:
+            speaker_to_name[segs[0]["speaker"]] = name
 
     # For each registered attendee, check if they were detected as a speaker
     for i, att_name in enumerate(metadata_attendees):
@@ -4165,6 +4313,10 @@ def _update_metadata_with_reconciliation(
         if e and "@voiceprint.local" not in e:
             existing_recipients.add(e.lower())
     for us in reconciliation.get("unregistered_speakers", []):
+        # Skip if this voiceprint no longer exists (was overwritten)
+        existing_vp = vp_manager.get_voiceprint(us["name"])
+        if existing_vp is None:
+            continue
         e = _resolve_attendee_email(us["name"], us.get("email", ""))
         if e and "@voiceprint.local" not in e:
             existing_recipients.add(e.lower())
@@ -4666,18 +4818,8 @@ def _run_pipeline_sync(job_id: str):
                     # Move from known → unknown
                     conflict_segments = match_result["known"].pop(matched_name)
                     match_result.setdefault("scores", {}).pop(matched_name, None)
-                    # Find the speaker_id for this matched name
-                    conflict_spk_id = "?"
-                    for spk_id, spk_segs in speaker_segments.items():
-                        for cs in conflict_segments[:3]:
-                            for ss in spk_segs[:3]:
-                                if abs(cs.get("start", 0) - ss.get("start", 0)) < 0.5:
-                                    conflict_spk_id = spk_id
-                                    break
-                            if conflict_spk_id != "?":
-                                break
-                        if conflict_spk_id != "?":
-                            break
+                    # Use the speaker field from the segments directly
+                    conflict_spk_id = conflict_segments[0].get("speaker", "?") if conflict_segments else "?"
                     match_result.setdefault("unknown", []).append({
                         "speaker_id": conflict_spk_id,
                         "segments": [{"start": s["start"], "end": s["end"]} for s in conflict_segments],
@@ -4692,20 +4834,11 @@ def _run_pipeline_sync(job_id: str):
         # be surfaced to the user for labeling. get_speaker_clips will detect
         # the match and populate voiceprint_matches, which the labeling modal
         # displays as inline conflict warnings.
+        # Save names before pop so reconciliation can track them.
         unregistered = match_result.pop("unregistered", {})
         if unregistered:
             for name, segs in unregistered.items():
-                spk_id = "?"
-                for spk, spk_segs in speaker_segments.items():
-                    for s in spk_segs[:3]:
-                        for ks in segs[:3]:
-                            if abs(s.get("start", 0) - ks.get("start", 0)) < 0.5:
-                                spk_id = spk
-                                break
-                        if spk_id != "?":
-                            break
-                    if spk_id != "?":
-                        break
+                spk_id = segs[0].get("speaker", "?") if segs else "?"
                 match_result.setdefault("unknown", []).append({
                     "speaker_id": spk_id,
                     "segments": [{"start": s["start"], "end": s["end"]} for s in segs],
@@ -4724,19 +4857,9 @@ def _run_pipeline_sync(job_id: str):
             for matched_name in match_result["known"]:
                 score = scores.get(matched_name, 0)
                 segment_count = len(match_result["known"][matched_name])
-                # Find the original speaker_id(s) that matched this name
-                # (reverse-lookup from the speaker_segments dict)
-                source_spk = "?"
-                for spk_id, segs in speaker_segments.items():
-                    for s in segs:
-                        for ks in match_result["known"][matched_name]:
-                            if abs(s.get("start", 0) - ks.get("start", 0)) < 0.5:
-                                source_spk = spk_id
-                                break
-                        if source_spk != "?":
-                            break
-                    if source_spk != "?":
-                        break
+                # Use the speaker field from the segments directly
+                known_segs = match_result["known"][matched_name]
+                source_spk = known_segs[0].get("speaker", "?") if known_segs else "?"
                 jlog.log(f"[voiceprint]   ✅ Speaker {source_spk} → {matched_name} "
                       f"(confidence: {score:.3f}, {segment_count} segment(s))")
             jlog.log(f"[voiceprint] ──────────────────────────────")
@@ -4755,6 +4878,33 @@ def _run_pipeline_sync(job_id: str):
             metadata_attendees, metadata_attendee_emails,
             match_result, speaker_segments,
         )
+
+        # ── Merge unregistered voiceprint matches into reconciliation ──
+        # The unregistered speakers were moved to unknown before reconciliation
+        # ran (so they pause for user labeling), but their names need to be
+        # tracked in unregistered_speakers so that downstream code in
+        # label_and_resume knows they came from existing voiceprints, not from
+        # the form. This prevents orphan attendee records when the user picks
+        # "Use voice owner" in the A/B conflict selector.
+        if unregistered:
+            existing_unreg_names = {s["name"].lower() for s in reconciliation.get("unregistered_speakers", [])}
+            for u_name in unregistered:
+                if u_name.lower() not in existing_unreg_names:
+                    u_email = ""
+                    try:
+                        vp = vp_manager.get_voiceprint(u_name)
+                        if vp:
+                            u_email = vp.get("email", "")
+                    except Exception:
+                        pass
+                    reconciliation.setdefault("unregistered_speakers", []).append({
+                        "name": u_name,
+                        "email": u_email,
+                    })
+                    existing_unreg_names.add(u_name.lower())
+            jlog.log(f"[reconciliation] Added {len(unregistered)} unregistered voiceprint match(es) "
+                  f"to reconciliation: {list(unregistered.keys())}")
+
         matched_names = [s["name"] for s in reconciliation["matched_speakers"]]
         non_speaking_names = [s["name"] for s in reconciliation["non_speaking_attendees"]]
         unknown_ids = [u["speaker_id"] for u in reconciliation["unknown_speakers"]]
@@ -4864,10 +5014,21 @@ def _run_pipeline_sync(job_id: str):
             # Save diarization data if not already saved (won't exist if we didn't
             # pause after diarization due to matching attendee count)
             if not uploader.load_diarization(job_id).get("speaker_segments"):
+                # Rebuild speaker_segments from the full diarization list to
+                # guarantee no speaker is lost due to earlier filtering/grouping.
+                complete_segments: dict[str, list[dict]] = {}
+                for seg in diarization:
+                    spk = seg["speaker"]
+                    complete_segments.setdefault(spk, []).append({
+                        "speaker": seg["speaker"],
+                        "start": seg["start"],
+                        "end": seg["end"],
+                        "duration": seg.get("duration", seg["end"] - seg["start"]),
+                    })
                 uploader.save_diarization(job_id, {
-                    "speaker_segments": speaker_segments,
+                    "speaker_segments": complete_segments,
                     "diarization": diarization,
-                    "total_speakers": len(speaker_segments),
+                    "total_speakers": len(complete_segments),
                 })
             # Build speaker info for the UI labeling modal
             speaker_info = []
@@ -4882,9 +5043,46 @@ def _run_pipeline_sync(job_id: str):
                     "sample_start": longest.get("start", 0),
                     "sample_end": longest.get("end", 0),
                 })
+            # ── Build pre-computed voiceprint matches for consistent conflict detection ──
+            # Maps speaker_id → list of voiceprint matches found by the pipeline.
+            # get_speaker_clips uses this to avoid re-running voiceprint matching
+            # (which can produce non-deterministic results).
+            voiceprint_matches_by_speaker = {}
+            vp_scores = match_result.get("scores", {})
+            # Known speakers (matched to registered attendees in attendee list)
+            for matched_name, segs in match_result.get("known", {}).items():
+                score = vp_scores.get(matched_name, 0)
+                if segs and "speaker" in segs[0]:
+                    spk_id = segs[0]["speaker"]
+                    voiceprint_matches_by_speaker[spk_id] = [{
+                        "name": matched_name,
+                        "similarity": round(score, 3),
+                    }]
+            # Unregistered matches (moved to unknown — voiceprint owners not in form)
+            if unregistered:
+                for name, segs in unregistered.items():
+                    u_email = ""
+                    u_job_id = ""
+                    try:
+                        vp = vp_manager.get_voiceprint(name)
+                        if vp:
+                            u_email = vp.get("email", "")
+                            u_job_id = vp.get("sample_job_id", "")
+                    except Exception:
+                        pass
+                    if segs and "speaker" in segs[0]:
+                        spk_id = segs[0]["speaker"]
+                        voiceprint_matches_by_speaker[spk_id] = [{
+                            "name": name,
+                            "email": u_email,
+                            "similarity": 1.0,
+                            "sample_job_id": u_job_id,
+                        }]
+
             _update_active(job_id, "paused_for_labeling", 0.9,
                           labeling_phase="post_asr", speakers=speaker_info,
                           unknown_speakers=unknown,
+                          voiceprint_matches_by_speaker=voiceprint_matches_by_speaker,
                           reconciliation={
                               "matched_speakers": reconciliation["matched_speakers"],
                               "non_speaking_attendees": reconciliation["non_speaking_attendees"],

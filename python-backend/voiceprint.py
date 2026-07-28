@@ -496,6 +496,9 @@ class VoiceprintManager:
             if emb is None:
                 continue
             known[name] = emb
+
+        print(f"[voiceprint] 📦 _get_known_embeddings: loaded {len(known)} voiceprint(s) "
+              f"from {len(rows)} row(s) for {len(attendees) if attendees else 'ALL'} attendee(s)")
         return known
 
     @staticmethod
@@ -536,10 +539,19 @@ class VoiceprintManager:
         # name but has a different email.  This prevents UNIQUE constraint
         # violation on speaker_name when the caller re-labels a speaker
         # that previously enrolled under a different email.
-        conn.execute(
+        cursor = conn.execute(
             "DELETE FROM voiceprints WHERE speaker_name = ? AND email != ?",
             (name, resolved_email),
         )
+        if cursor.rowcount > 0:
+            print(f"[voiceprint] 🧹 Cleanup: deleted {cursor.rowcount} row(s) with "
+                  f"speaker_name='{name}' and email≠'{resolved_email}'")
+
+        # Check if a row already exists for this email (to log INSERT vs UPDATE)
+        existing = conn.execute(
+            "SELECT speaker_name FROM voiceprints WHERE email = ?",
+            (resolved_email,),
+        ).fetchone()
 
         conn.execute("""
             INSERT INTO voiceprints (speaker_name, email, embedding,
@@ -554,6 +566,10 @@ class VoiceprintManager:
         """, (name, resolved_email, pickle.dumps(embedding),
               sample_job_id, sample_start, sample_end))
         conn.commit()
+
+        action = "UPDATE" if existing else "INSERT"
+        print(f"[voiceprint] {'🔄' if existing else '✅'} {action}: '{name}' <{resolved_email}>"
+              f" (job={sample_job_id or '?'[:8]})")
 
     def list_voiceprints(self) -> List[dict]:
         conn = self._get_conn()
@@ -586,8 +602,10 @@ class VoiceprintManager:
 
     def delete_voiceprint(self, email: str):
         conn = self._get_conn()
-        conn.execute("DELETE FROM voiceprints WHERE email = ?", (email,))
+        cursor = conn.execute("DELETE FROM voiceprints WHERE email = ?", (email,))
         conn.commit()
+        print(f"[voiceprint] 🗑️  delete_voiceprint: '{email}' — "
+              f"{cursor.rowcount} row(s) deleted")
 
     def delete_voiceprint_by_name(self, name: str):
         """Delete a voiceprint row by speaker_name.
@@ -596,9 +614,10 @@ class VoiceprintManager:
         replaced by a new name for the same voice.
         """
         conn = self._get_conn()
-        conn.execute("DELETE FROM voiceprints WHERE speaker_name = ?", (name,))
+        cursor = conn.execute("DELETE FROM voiceprints WHERE speaker_name = ?", (name,))
         conn.commit()
-        print(f"[voiceprint] 🗑️  Deleted voiceprint for '{name}'")
+        print(f"[voiceprint] 🗑️  delete_voiceprint_by_name: '{name}' — "
+              f"{cursor.rowcount} row(s) deleted")
 
     @staticmethod
     def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
@@ -667,4 +686,16 @@ class VoiceprintManager:
                 })
 
         matches.sort(key=lambda m: m["similarity"], reverse=True)
+
+        if matches:
+            match_details = ", ".join(
+                f"{m['name']}={m['similarity']:.4f}" for m in matches
+            )
+            print(f"[voiceprint] 🔍 find_matching_voiceprints: {len(matches)} match(es) "
+                  f"above {threshold:.2f} threshold: {match_details}")
+        else:
+            total_checked = len(rows)
+            print(f"[voiceprint] 🔍 find_matching_voiceprints: 0 matches above "
+                  f"{threshold:.2f} threshold (checked {total_checked} voiceprint(s))")
+
         return matches

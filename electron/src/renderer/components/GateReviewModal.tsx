@@ -159,25 +159,31 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
   useEffect(() => {
     if (!isGate2 || !jobId || gate2Summary) return;
     let cancelled = false;
+    const FETCH_TIMEOUT = 15000; // 15s timeout for each fetch
     const fetchData = async () => {
       setGate2Loading(true);
       setGate2Error(null);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
       try {
         const [summaryRes, analysisRes, transcriptRes] = await Promise.all([
           fetch(`http://127.0.0.1:5010/tools/call`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ tool: "transcribe_get_summary", args: { jobId } }),
+            signal: controller.signal,
           }),
           fetch(`http://127.0.0.1:5010/tools/call`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ tool: "transcribe_get_analysis", args: { jobId } }),
+            signal: controller.signal,
           }),
           fetch(`http://127.0.0.1:5010/tools/call`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ tool: "transcribe_get_transcript", args: { jobId, format: "json" } }),
+            signal: controller.signal,
           }),
         ]);
         if (cancelled) return;
@@ -206,8 +212,15 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
           setGate2Transcript(tData?.transcript || null);
         }
       } catch (err: any) {
-        if (!cancelled) setGate2Error(err.message || "Failed to load delivery data");
+        if (!cancelled) {
+          if (err.name === "AbortError") {
+            setGate2Error("Timed out loading delivery data — check that the backend is running");
+          } else {
+            setGate2Error(err.message || "Failed to load delivery data");
+          }
+        }
       } finally {
+        clearTimeout(timeoutId);
         if (!cancelled) setGate2Loading(false);
       }
     };
@@ -467,9 +480,20 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
             {gate2Error && !gate2Loading && (
               <div className="pp-gate-error">
                 <Icon name="error" size="14" /> {gate2Error}
+                <div style={{ marginTop: 8 }}>
+                  <button
+                    className="pp-gate-btn pp-gate-btn--secondary"
+                    onClick={() => {
+                      // Reset gate2Summary so the useEffect refetches
+                      setGate2Summary(null);
+                    }}>
+                    <Icon name="refresh" size="14" /> Retry
+                  </button>
+                </div>
               </div>
             )}
 
+            {/* Gate 2 loaded OK — show deliverable */}
             {!gate2Loading && !gate2Error && gate2Summary && (
               <div className="pp-gate-panel-inner">
                 <div className="pp-gate-header">
@@ -691,6 +715,22 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
                       </button>
                     </>
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* Gate 2: no data, no error — unexpected gap case */}
+            {!gate2Loading && !gate2Error && !gate2Summary && (
+              <div className="pp-gate-error">
+                <Icon name="error" size="14" /> No deliverable data available yet.
+                <div style={{ marginTop: 8 }}>
+                  <button
+                    className="pp-gate-btn pp-gate-btn--secondary"
+                    onClick={() => {
+                      setGate2Summary(null);
+                    }}>
+                    <Icon name="refresh" size="14" /> Retry
+                  </button>
                 </div>
               </div>
             )}

@@ -670,6 +670,16 @@ async function processEvent(event) {
           }
         }
 
+        // Lock transcribe_summarize and transcribe_analyze — already completed
+        // in the first pass before Gate 2 paused. Re-calling them would regress
+        // the backend status to "summarized"/"analyzed", confusing the UI stepper.
+        if (summarizeCalled) {
+          availableTools = availableTools.filter((t) => t.name !== "transcribe_summarize");
+        }
+        if (hasCalledAnalyze) {
+          availableTools = availableTools.filter((t) => t.name !== "transcribe_analyze");
+        }
+
         console.log(`✅ [RUNNER] Delivery review state restored — context: ${context.length} chars, ${availableTools.length} tools`);
         console.log(`✅ [RUNNER] Pipeline will resume from step ${reviewState.pausedAtStep || "?"}`);
         // Continue to the pipeline loop below — context is already set

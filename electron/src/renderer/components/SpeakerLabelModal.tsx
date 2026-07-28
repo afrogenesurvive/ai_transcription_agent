@@ -248,7 +248,15 @@ export default function SpeakerLabelModal({
       const best = vpms[0];
       // Only seed a conflict if the best match name differs from the form
       // entry name (or form entry is blank). If they match, no conflict.
-      if (best.name.toLowerCase() !== formName.toLowerCase()) {
+      // Additionally, if the backend already verified the match by setting
+      // suggested_name to the voiceprint owner, suppress the false conflict
+      // (defense-in-depth for edge cases where positional form data doesn't
+      // align with voiceprint identity after fix A).
+      const suggestedMatch = (spk.suggested_name || "").toLowerCase();
+      if (
+        best.name.toLowerCase() !== formName.toLowerCase() &&
+        best.name.toLowerCase() !== suggestedMatch
+      ) {
         conflictEntries[spk.speaker_id] = {
           speaker_id: spk.speaker_id,
           assigned_name: formName,
