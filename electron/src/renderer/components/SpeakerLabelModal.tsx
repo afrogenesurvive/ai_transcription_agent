@@ -166,6 +166,15 @@ export default function SpeakerLabelModal({
       });
     }
 
+    // Keep only the best match per speaker (defense-in-depth)
+    for (const spkId of Object.keys(grouped)) {
+      const matches = grouped[spkId].voice_match_conflicts;
+      if (matches.length > 1) {
+        matches.sort((a, b) => b.similarity - a.similarity);
+        grouped[spkId].voice_match_conflicts = [matches[0]];
+      }
+    }
+
     setPerSpeakerConflicts((prev) => ({ ...prev, ...grouped }));
     onClearError?.();
   }, [postSubmitConflicts, onClearError]);

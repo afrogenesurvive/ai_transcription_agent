@@ -1116,9 +1116,9 @@ async def verify_labels(payload: dict = Body(...)):
                     m["name"].lower() == name.lower()
                     for m in matches
                 )
-                if not has_exact_name_match:
-                    for m in matches:
-                        voice_match_conflicts.append(m)
+                if not has_exact_name_match and matches:
+                    # Only the best match — secondary matches are cross-speaker noise
+                    voice_match_conflicts.append(matches[0])
 
         verifications.append({
             "speaker_id": spk,
@@ -1705,8 +1705,8 @@ async def get_speaker_clips(job_id: str):
                         "similarity": m["similarity"],
                         "sample_job_id": m.get("sample_job_id"),
                     }
-                    for m in matches
-                ]
+                    for m in matches[:1]  # Only the best match — secondary matches are cross-speaker noise
+                ] if matches else []
                 if matches:
                     best = matches[0]
                     # Only pre-fill if the matched name is in this job's
@@ -1993,6 +1993,13 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
                 for om in old_matches:
                     if om["name"].lower() != name.lower():
                         vp_manager.delete_voiceprint_by_name(om["name"])
+                        # Also clean up the stale attendee record so the
+                        # attendee registry stays in sync with voiceprints
+                        try:
+                            ephemeral_memory.delete_attendee_by_name(om["name"])
+                        except Exception as e:
+                            print(f"[drift] ⚠️  Could not delete attendee "
+                                  f"'{om['name']}': {e}")
                         print(f"[drift] 🗑️  Deleted old voiceprint '{om['name']}' — "
                               f"re-labeled as '{name}' (sim={om['similarity']:.3f})")
                         break  # Only the best (first) different-name match
@@ -2037,7 +2044,8 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
             drift_entries.append(entry)
             print(f"[drift] ⚠️  '{name}' ({spk}) matches voice of '{m['name']}' "
                   f"(sim={m['similarity']:.3f}) from job "
-                  f"{m.get('sample_job_id', '?')[:8]}")
+                  f"{m.get('sample_job_id', '?')[:8]})")
+            break  # Only the best different-name match — secondary matches are cross-speaker noise
 
     if drift_entries:
         drift_log_path = os.path.join(config.STORAGE_PATH, job_id, "label-drift-audit.jsonl")

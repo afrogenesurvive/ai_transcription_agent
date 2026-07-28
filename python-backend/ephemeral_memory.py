@@ -419,6 +419,18 @@ class EphemeralMemory:
             email = emails[i] if i < len(emails) else ""
             self.register_attendee(name, email, source=source, job_id=job_id)
 
+    def delete_attendee_by_name(self, name: str):
+        """Remove an attendee record by name.
+
+        Used when a voiceprint is overwritten during re-labeling and the old
+        attendee registration becomes stale. Call this alongside
+        delete_voiceprint_by_name to keep both DBs in sync.
+        """
+        conn = self._get_conn()
+        conn.execute("DELETE FROM attendees WHERE name = ?", (name,))
+        conn.commit()
+        print(f"[ephemeral] 🗑️  Deleted attendee record for '{name}'")
+
     def query_attendees(self, name: str = "", limit: int = 50) -> List[dict]:
         """Search registered attendees by name (substring match)."""
         conn = self._get_conn()
