@@ -1458,6 +1458,8 @@ async def memory_save_context(req: SaveMeetingContextRequest):
             print(f"[memory] Saved {len(req.decisions)} decisions")
         count = semantic_memory.count()
         print(f"[memory] Save context complete — semantic count: {count}")
+        # Update status so the frontend stepper shows a dedicated "Saving to Memory" stage
+        uploader.update_status(req.job_id, {"status": "saving_memory", "progress": 0.97})
         return {"success": True, "semantic_count": count}
     except Exception as e:
         print(f"[api] POST /memory/save_context ERROR: {e}")
@@ -3137,6 +3139,17 @@ async def clear_semantic_memory():
 
         shutil.rmtree(chroma_dir)
         print(f"[api] DELETE /storage/semantic → removed ChromaDB data")
+
+        # Evict the stale ChromaDB System singleton so the next
+        # _ensure_loaded() creates a fresh PersistentClient against the
+        # empty directory instead of returning the cached System with
+        # the old in-memory data still present.
+        from chromadb.api.shared_system_client import SharedSystemClient
+        stale = SharedSystemClient._identifier_to_system.pop(chroma_dir, None)
+        if stale is not None:
+            stale.stop()
+            print(f"[api] DELETE /storage/semantic → evicted cached ChromaDB System")
+
         return {"deleted": True, "message": "Semantic memory (ChromaDB) cleared successfully"}
     except Exception as e:
         print(f"[api] DELETE /storage/semantic → error: {e}")

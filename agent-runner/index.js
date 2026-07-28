@@ -651,6 +651,25 @@ async function processEvent(event) {
         }
         availableTools = TOOLS.filter((t) => !skippedTools.has(t.name));
 
+        // Re-lock tools that were locked before Gate 2 paused the pipeline.
+        // These booleans survive in the closure from the pre-pause run.
+        if (hasRefined) {
+          availableTools = availableTools.filter((t) => t.name !== "transcribe_refine");
+        }
+        if (hasReadTranscript) {
+          availableTools = availableTools.filter(
+            (t) => t.name !== "transcribe_get_transcript" && t.name !== "transcribe_label_speaker" && t.name !== "transcribe_list_voiceprints"
+          );
+        }
+        if (!summarizeCalled) {
+          availableTools = availableTools.filter((t) => t.name !== "transcribe_get_summary");
+        } else {
+          const summaryReadTool = TOOLS.find((t) => t.name === "transcribe_get_summary");
+          if (summaryReadTool && !availableTools.some((t) => t.name === "transcribe_get_summary")) {
+            availableTools.push(summaryReadTool);
+          }
+        }
+
         console.log(`✅ [RUNNER] Delivery review state restored — context: ${context.length} chars, ${availableTools.length} tools`);
         console.log(`✅ [RUNNER] Pipeline will resume from step ${reviewState.pausedAtStep || "?"}`);
         // Continue to the pipeline loop below — context is already set

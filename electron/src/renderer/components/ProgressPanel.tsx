@@ -118,11 +118,18 @@ const PIPELINE: StageDef[] = [
     matches: ["transcribed", "ready_for_agent", "labeling_needed", "refined", "summarized", "enqueued"],
   },
   {
-    key: "memory",
+    key: "analyzing",
+    icon: "insights",
+    label: "Analyzing Content",
+    description: "Analyzing topics, sentiment, and key items",
+    matches: ["analyzed"],
+  },
+  {
+    key: "saving_memory",
     icon: "memory",
     label: "Saving to Memory",
     description: "Storing meeting context for future reference",
-    matches: ["analyzed"],
+    matches: ["saving_memory"],
   },
   {
     key: "delivery_review",

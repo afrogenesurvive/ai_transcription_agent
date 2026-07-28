@@ -1869,16 +1869,30 @@ const PIPELINE: StageDef[] = [
     icon: "smart_toy",
     label: "AI Processing",
     description: "Refining, summarizing & analyzing",
-    matches: ["transcribed", "ready_for_agent", "labeling_needed", "refined", "summarized"],
+    matches: ["transcribed", "ready_for_agent", "labeling_needed", "refined", "summarized", "enqueued"],
   },
   {
-    key: "memory",
+    key: "analyzing",
+    icon: "insights",
+    label: "Analyzing Content",
+    description: "Analyzing topics, sentiment, and key items",
+    matches: ["analyzed"],
+  },
+  {
+    key: "saving_memory",
     icon: "memory",
     label: "Saving to Memory",
     description: "Storing meeting context for future reference",
-    matches: ["analyzed"],
+    matches: ["saving_memory"],
   },
-  { key: "delivery", icon: "mail", label: "Delivering Results", description: "Sending via email, Trello & Drive", matches: ["delivered"] },
+  {
+    key: "delivery_review",
+    icon: "fact_check",
+    label: "Review Deliverable",
+    description: "Reviewing the deliverable package",
+    matches: ["pending_delivery_review"],
+  },
+  { key: "delivery", icon: "mail", label: "Delivering Results", description: "Sending via email, Trello & Drive", matches: ["delivered", "delivery_approved"] },
 ];
 
 const COMPLETE_STATUSES = new Set(["delivered", "complete"]);
@@ -1996,7 +2010,9 @@ const PERF_STAGE_COLORS: Record<string, string> = {
   transcription: "#3fb950",
   aligning: "#79c0ff",
   agent: "#f0883e",
-  memory: "#f85149",
+  analyzing: "#f85149",
+  saving_memory: "#da3633",
+  delivery_review: "#d29922",
   delivery: "#2ea043",
 };
 
@@ -2008,7 +2024,9 @@ const PERF_STAGE_LABELS: Record<string, string> = {
   transcription: "Transcribe",
   aligning: "Align",
   agent: "AI",
-  memory: "Memory",
+  analyzing: "Analyze",
+  saving_memory: "Memory",
+  delivery_review: "Review",
   delivery: "Delivery",
 };
 
