@@ -312,6 +312,32 @@ export default function SpeakerLabelModal({
 
     const result = buildResult();
 
+    // ── Step 0: Reject duplicate speaker names ──
+    // Two speakers cannot share the same name — the backend would lose
+    // one speaker's segment data in the `known` dict during label application.
+    const nameCounts = new Map<string, number>();
+    for (const l of result) {
+      const key = l.name.trim().toLowerCase();
+      nameCounts.set(key, (nameCounts.get(key) || 0) + 1);
+    }
+    const duplicateNames = Array.from(nameCounts.entries())
+      .filter(([_, count]) => count > 1)
+      .map(([name]) => name);
+    if (duplicateNames.length > 0) {
+      const dup = duplicateNames[0];
+      setEmailErrors((prev) => {
+        const next = { ...prev };
+        for (const s of speakers) {
+          if (labels[s.speaker_id]?.trim().toLowerCase() === dup) {
+            next[s.speaker_id] = `Name "${labels[s.speaker_id]?.trim()}" is already assigned to another speaker`;
+          }
+        }
+        return next;
+      });
+      setCheckingConflicts(false);
+      return;
+    }
+
     // Step 1: Check for existing voiceprints with these names (name/email conflicts)
     const namesToCheck = result.map((l) => ({ name: l.name }));
     setCheckingConflicts(true);

@@ -285,21 +285,38 @@ const FALLBACK_PIPELINE = {
     },
   ],
   pipeline_hints: {
+    _fetch_memory_context:
+      "Memory context retrieved. Next: Call transcribe_refine to clean filler words and redact PII from the transcript, preserving timestamps.",
     transcribe_refine:
       "Refinement cleaned filler words and PII (timestamps preserved). Next: Call transcribe_get_transcript to read the cleaned transcript, then call transcribe_summarize to generate a structured summary, then call transcribe_analyze to analyze topics/sentiment/entities...",
     transcribe_get_transcript:
       "Next: Call transcribe_summarize to generate a structured summary from the transcript, then call transcribe_analyze to store analysis results...",
+    transcribe_get_summary:
+      "Summary retrieved (read-only). If you haven't called transcribe_summarize yet, call it to generate a new summary. Otherwise continue with the pipeline.",
     transcribe_summarize: "Next: Call transcribe_analyze to store analysis of topics, sentiment, entities, and follow-ups...",
     transcribe_analyze: "Next: If delivery review is enabled, call transcribe_approve_delivery to pause for user approval. Otherwise call transcribe_save_context.",
     transcribe_approve_delivery: "Next: After user approves, call transcribe_save_context to persist the meeting...",
     transcribe_save_context: "Next: Call transcribe_prepare_delivery to package results for delivery.",
     transcribe_prepare_delivery: "Next: Deliver results using send_delivery_email, save_to_drive, or create_trello_action_items.",
-    transcribe_label_speaker: "Next: If more unknown speakers remain, call transcribe_label_speaker again; otherwise the pipeline is complete.",
+    send_delivery_email:
+      "Delivery complete. Optionally call save_to_drive or create_trello_action_items if enabled. Otherwise pipeline is finished.",
+    transcribe_label_speaker:
+      "Speaker labeled. If more unknown speakers remain, call transcribe_label_speaker again for the next speaker. Otherwise, call transcribe_approve_delivery if delivery review is enabled, or transcribe_save_context to persist.",
     transcribe_register_attendees:
-      "Attendees registered. Use transcribe_search_attendees to verify or find existing attendees before registering duplicates.",
+      "Attendees registered. Continue with the main pipeline: call transcribe_save_context to persist meeting context.",
+    transcribe_search_attendees:
+      "Search completed. If the person isn't found, call transcribe_register_attendees to add them. Otherwise continue with the main pipeline.",
     transcribe_list_attendees:
-      "Use to see the full attendee registry. Cross-reference with voiceprints via matching email addresses or name lookups.",
-    transcribe_search_attendees: "Search results returned. Use transcribe_register_attendees to add new attendees if the person isn't found.",
+      "Attendee list shown. Use transcribe_search_attendees to find specific entries before registering duplicates.",
+    transcribe_list_voiceprints:
+      "Voiceprints listed. Use transcribe_label_speaker to label unknown speakers with name and email.",
+    transcribe_search_memory:
+      "Semantic search returned. Use the context in your summary. Continue with the main pipeline (refine, read, summarize, analyze, persist, deliver).",
+    transcribe_query_ephemeral:
+      "Ephemeral data retrieved. Use it in your summary. Continue with the main pipeline.",
+    transcribe_save_ephemeral:
+      "Data saved to ephemeral memory. Continue with the main pipeline.",
+    transcribe_upsert_job: "Job record updated. Continue with the main pipeline.",
   },
   event_templates: {
     ready_for_processing:

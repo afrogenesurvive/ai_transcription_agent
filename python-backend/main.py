@@ -1662,6 +1662,10 @@ async def get_speaker_clips(job_id: str):
     attendee_names = metadata.get("attendees", [])
 
     speakers = []
+    # Track names already assigned by voiceprint matching so positional
+    # fallback doesn't suggest a name that's already taken by another speaker.
+    assigned_names: set[str] = set()
+
     for spk, segs in speaker_segments.items():
         # Find the longest segment for a good sample clip
         longest = max(segs, key=lambda s: s["duration"])
@@ -1712,6 +1716,7 @@ async def get_speaker_clips(job_id: str):
                         suggested_name = best["name"]
                         suggested_email = best.get("email", "")
                         voiceprint_confidence = best["similarity"]
+                        assigned_names.add(suggested_name.lower())
         except Exception as e:
             print(f"[speaker_clips] ⚠️  Voiceprint matching failed for {spk}: {e}")
 
@@ -1719,11 +1724,19 @@ async def get_speaker_clips(job_id: str):
         if not suggested_name:
             idx = len(speakers)
             if idx < len(attendee_names):
-                suggested_name = attendee_names[idx]
-                # Grab email from attendeeEmails if positionally aligned
-                attendee_emails_list = metadata.get("attendeeEmails", [])
-                if idx < len(attendee_emails_list):
-                    suggested_email = attendee_emails_list[idx]
+                # Skip attendee names already taken by voiceprint-matched speakers
+                alt_idx = idx
+                while alt_idx < len(attendee_names) and attendee_names[alt_idx].lower() in assigned_names:
+                    alt_idx += 1
+                if alt_idx < len(attendee_names):
+                    suggested_name = attendee_names[alt_idx]
+                    # Grab email from attendeeEmails if positionally aligned
+                    attendee_emails_list = metadata.get("attendeeEmails", [])
+                    if alt_idx < len(attendee_emails_list):
+                        suggested_email = attendee_emails_list[alt_idx]
+                    if alt_idx != idx:
+                        print(f"[speaker_clips] ⚠️  Positional fallback skipped '{attendee_names[idx]}' "
+                              f"(already assigned) → using '{attendee_names[alt_idx]}' for {spk}")
 
         speakers.append({
             "speaker_id": spk,
@@ -2367,10 +2380,12 @@ async def approve_gate2(job_id: str, body: dict = Body(...)):
                 "edits": edits_made,
             })
 
-            # Enqueue delivery_approved event for the agent runner
+            # Enqueue delivery_approved event for the agent runner.
+            # Read title from metadata.json (not status.json, which lacks a title field).
+            meta = uploader.get_metadata(job_id)
             agent_bridge.enqueue("delivery_approved", {
                 "jobId": job_id,
-                "title": s.get("title", "Untitled Meeting"),
+                "title": meta.get("title", "Untitled Meeting"),
                 "edits_made": edits_made,
             })
             uploader.update_status(job_id, {"status": "delivery_approved"})
@@ -2503,13 +2518,20 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
         jlog.log(f"[pipeline] Loaded saved diarization ({len(diarization)} segments, "
               f"{len(speaker_segments)} speakers)")
 
-        # Build match_result from user labels
+        # Build label_name_map: speaker_id → name (used for direct label application
+        # after alignment — avoids the old bug where `known` was keyed by name,
+        # causing duplicate names to overwrite one speaker's segments).
+        label_name_map = {spk: info["name"] for spk, info in label_map.items()}
+
+        # Build match_result from user labels (still needed for reconciliation).
+        # Guard against name collisions — keep first occurrence only.
         unknown = []
         known = {}
         for spk, segs in speaker_segments.items():
             if spk in label_map:
                 info = label_map[spk]
-                known[info["name"]] = segs
+                if info["name"] not in known:
+                    known[info["name"]] = segs
             else:
                 unknown.append({
                     "speaker_id": spk,
@@ -2555,24 +2577,25 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
         aligned = engine.align_transcript(transcription, diarization)
         align_elapsed = time.time() - t_align
 
-        # Apply user-provided speaker labels with ASV feedback
+        # Apply user-provided speaker labels via direct speaker_id→name mapping.
+        # Uses label_name_map (keyed by speaker_id) instead of the old time-based
+        # matching against `known` (keyed by name), which lost segments when two
+        # speakers had the same name due to dict overwrite.
         label_count = 0
         asv_logged = 0
         for seg in aligned:
-            for name, segs in known.items():
-                for s in segs:
-                    if abs(seg["start"] - s["start"]) < 0.5:
-                        seg["speaker"] = name
-                        label_count += 1
-                        # Log ASV feedback for the first N segments
-                        if asv_logged < 50 and seg.get("text", "").strip():
-                            asv_logged += 1
-                            ts_start = seg.get("start", 0)
-                            ts_end = seg.get("end", 0)
-                            text = seg.get("text", "").strip()
-                            jlog.log(f"[transcription] [{ts_start:>8.3f} --> {ts_end:>8.3f}] "
-                                  f"{name}: {text[:200]}")
-                        break
+            spk_id = seg.get("speaker", "")
+            if spk_id in label_name_map:
+                seg["speaker"] = label_name_map[spk_id]
+                label_count += 1
+                # Log ASV feedback for the first N segments
+                if asv_logged < 50 and seg.get("text", "").strip():
+                    asv_logged += 1
+                    ts_start = seg.get("start", 0)
+                    ts_end = seg.get("end", 0)
+                    text = seg.get("text", "").strip()
+                    jlog.log(f"[transcription] [{ts_start:>8.3f} --> {ts_end:>8.3f}] "
+                          f"{seg['speaker']}: {text[:200]}")
         if label_count:
             jlog.log(f"[pipeline] Applied {label_count} speaker label(s) from user"
                   f" — logged {asv_logged} ASV match(es)")

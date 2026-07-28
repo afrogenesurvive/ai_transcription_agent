@@ -974,8 +974,8 @@ The system provides existing memory context at the start of each pipeline run. U
     const enabledToolNames = new Set(enabledSteps.map((s) => s.toolName));
     const hints: Record<string, string> = {};
 
-    // Skip _fetch_memory_context — it's a pre-processing step, not an LLM tool
-    const hintSteps = enabledSteps.filter((s) => s.toolName !== "_fetch_memory_context");
+    // Include all enabled steps (including _fetch_memory_context) for auto-generated hints
+    const hintSteps = enabledSteps;
 
     for (let i = 0; i < hintSteps.length; i++) {
       const step = hintSteps[i];
@@ -1134,9 +1134,9 @@ The system provides existing memory context at the start of each pipeline run. U
   const generatedHintsPreview = useMemo(() => generateHintsFromSteps(editPipelineSteps), [editPipelineSteps, generateHintsFromSteps]);
 
   const handleRegenerateFromSteps = useCallback(() => {
-    // Reset the edit buffers to the auto-generated versions from the checklist
+    // Merge auto-generated hints over existing hints, preserving manual entries for non-step tools
     setEditSystemPrompt(generatedPromptPreview);
-    setEditPipelineHints(generatedHintsPreview);
+    setEditPipelineHints((prev) => ({ ...prev, ...generatedHintsPreview }));
     setSaved(false);
     setRestartNeeded(false);
   }, [generatedPromptPreview, generatedHintsPreview]);
