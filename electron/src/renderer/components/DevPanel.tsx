@@ -15,6 +15,7 @@ import Icon from "./Icon";
 import Tooltip from "./Tooltip";
 import LoadingModal from "./LoadingModal";
 import DocViewer from "./DocViewer";
+import GuideErrorBoundary from "./GuideErrorBoundary";
 import type { LogEntry } from "../types";
 
 interface Props {
@@ -3967,8 +3968,10 @@ function DevGuideTab() {
           Loading documentation…
         </div>
       ) : (
-        <div style={{ flex: 1, minHeight: 0, padding: "12px 16px", overflow: "hidden" }}>
-          <DocViewer markdown={docContents[activeDoc] || ""} />
+        <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, padding: "12px 16px", overflow: "auto" }}>
+          <GuideErrorBoundary>
+            <DocViewer markdown={docContents[activeDoc] || ""} />
+          </GuideErrorBoundary>
         </div>
       )}
     </div>

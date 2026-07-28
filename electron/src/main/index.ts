@@ -736,6 +736,31 @@ ipcMain.handle("app:close", async () => {
   return { success: true };
 });
 
+ipcMain.handle("app:confirmQuit", async (_event, opts: { message: string }) => {
+  const result = dialog.showMessageBoxSync({
+    type: "warning",
+    buttons: ["Cancel", "Quit"],
+    defaultId: 0,
+    cancelId: 0,
+    title: "Quit Transcription Agent",
+    message: opts.message,
+  });
+  if (result === 1) {
+    console.log("[ipc] User confirmed quit via sidebar button");
+    app.quit();
+    return { success: true };
+  }
+  console.log("[ipc] User cancelled quit");
+  return { success: false };
+});
+
+ipcMain.handle("app:quitApp", async () => {
+  console.log("[ipc] User confirmed quit via UI dialog — skipping before-quit dialog");
+  isQuitting = true;
+  app.quit();
+  return { success: true };
+});
+
 // ── Per-service management ──
 
 const stopFn: Record<string, () => Promise<void>> = {

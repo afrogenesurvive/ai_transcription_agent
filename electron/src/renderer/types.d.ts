@@ -107,6 +107,8 @@ export interface ElectronAPI {
   stopServices: () => Promise<{ success: boolean }>;
   restartServices: () => Promise<{ success: boolean }>;
   closeApp: () => Promise<{ success: boolean }>;
+  confirmQuit: (message: string) => Promise<{ success: boolean }>;
+  quitApp: () => Promise<{ success: boolean }>;
   stopService: (service: string) => Promise<{ success: boolean }>;
   restartService: (service: string) => Promise<{ success: boolean }>;
   getAppVersion: () => Promise<string>;

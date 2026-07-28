@@ -73,6 +73,7 @@ export default function App() {
   const [notification, setNotification] = useState<string | null>(null);
   const [sidebarView, setSidebarView] = useState<SidebarView>("current");
   const [devWarningModal, setDevWarningModal] = useState<SidebarView | null>(null);
+  const [showQuitConfirm, setShowQuitConfirm] = useState(false);
   const [configOk, setConfigOk] = useState(true);
   const [showConfigOverlay, setShowConfigOverlay] = useState(false);
   const [ollamaRequired, setOllamaRequired] = useState(false);
@@ -1037,6 +1038,35 @@ export default function App() {
         </div>
       )}
 
+      {/* Quit confirmation dialog */}
+      {showQuitConfirm && (
+        <div className="confirm-overlay" onClick={() => setShowQuitConfirm(false)}>
+          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3 className="confirm-dialog-title">
+              <Icon name="power_settings_new" size="16" color="orange" /> Quit Transcription Agent
+            </h3>
+            <p className="confirm-dialog-text">
+              {isJobRunning
+                ? "A meeting is currently being processed. Are you sure you want to quit?"
+                : "Are you sure you want to quit the app?"}
+            </p>
+            <div className="confirm-dialog-actions">
+              <button className="btn-secondary" onClick={() => setShowQuitConfirm(false)}>
+                Cancel
+              </button>
+              <button
+                className="btn-danger"
+                onClick={async () => {
+                  setShowQuitConfirm(false);
+                  await window.electronAPI?.quitApp();
+                }}>
+                Quit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Global loading modal — covers everything during data fetches */}
       <LoadingModal visible={!!loadingMessage} message={loadingMessage || undefined} />
 
@@ -1193,6 +1223,23 @@ export default function App() {
                 <Icon name="info" size="16" />
               </span>
               <span className="sidebar-btn-label">About</span>
+            </button>
+          </Tooltip>
+
+          {/* Spacer to push Quit to the bottom */}
+          <div style={{ flex: 1 }} />
+
+          <div className="sidebar-separator" />
+
+          <Tooltip content="Quit the application — stops all background services" position="right">
+            <button
+              className="sidebar-btn sidebar-btn--quit"
+              onClick={() => setShowQuitConfirm(true)}
+              title="Quit the application — stops all background services">
+              <span className="sidebar-btn-icon">
+                <Icon name="power_settings_new" size="16" />
+              </span>
+              <span className="sidebar-btn-label">Quit</span>
             </button>
           </Tooltip>
         </nav>

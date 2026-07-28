@@ -60,7 +60,9 @@ export function renderMarkdown(md: string): string {
       .slice(1, -1)
       .split("|")
       .map((c) => c.trim());
-    if (cells.every((c) => /^[-]+$/.test(c))) return '<hr class="table-sep" />';
+    if (cells.every((c) => /^[-]+$/.test(c))) {
+      return `<tr class="table-sep"><td colspan="${cells.length}"></td></tr>`;
+    }
     const tag = line.includes("<hr") ? "" : "td";
     return `<tr>${cells.map((c) => `<${tag}>${c}</${tag}>`).join("")}</tr>`;
   });
@@ -87,11 +89,11 @@ export function renderMarkdown(md: string): string {
 
   // Unordered lists
   html = html.replace(/^- (.+)$/gm, "<li>$1</li>");
-  html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, "<ul>$1</ul>");
+  html = html.replace(/((?:<li>.*?<\/li>\n?)+)/g, "<ul>$1</ul>");
 
   // Ordered lists
   html = html.replace(/^\d+\. (.+)$/gm, "<li>$1</li>");
-  html = html.replace(/((?:<li>.*<\/li>\n?)+)(?!\s*<\/?[uo]l>)/g, "<ol>$1</ol>");
+  html = html.replace(/((?:<li>.*?<\/li>\n?)+)(?!\s*<\/?[uo]l>)/g, "<ol>$1</ol>");
 
   // Paragraphs — wrap orphan text
   const lines = html.split("\n");

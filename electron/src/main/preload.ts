@@ -32,6 +32,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // ── App lifecycle ──
   closeApp: (): Promise<{ success: boolean }> => ipcRenderer.invoke("app:close"),
+  confirmQuit: (message: string): Promise<{ success: boolean }> => ipcRenderer.invoke("app:confirmQuit", { message }),
+  quitApp: (): Promise<{ success: boolean }> => ipcRenderer.invoke("app:quitApp"),
   stopService: (service: string): Promise<{ success: boolean }> => ipcRenderer.invoke("service:stop", service),
   restartService: (service: string): Promise<{ success: boolean }> => ipcRenderer.invoke("service:restart", service),
 

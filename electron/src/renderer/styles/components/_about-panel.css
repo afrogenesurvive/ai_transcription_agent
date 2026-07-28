@@ -244,6 +244,16 @@
   color: var(--text-muted);
 }
 
+/* Table separator row (replaces --- separator in markdown tables) */
+.about-md-content .table-sep td {
+  padding: 0;
+  border-left: none;
+  border-right: none;
+  height: 0;
+  border-top: none;
+  border-bottom: 1px solid var(--border);
+}
+
 .about-md-content--empty {
   color: var(--text-muted);
   font-style: italic;

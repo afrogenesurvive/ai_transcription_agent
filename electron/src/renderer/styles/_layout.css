@@ -231,6 +231,28 @@
   letter-spacing: 0.3px;
 }
 
+.sidebar-separator {
+  width: calc(100% - 16px);
+  height: 1px;
+  background: var(--border);
+  margin: 2px 8px;
+}
+
+.sidebar-btn--quit {
+  color: var(--red, #e06c75);
+}
+
+.sidebar-btn--quit:hover {
+  color: var(--red, #e06c75);
+  background: rgba(224, 108, 117, 0.08);
+}
+
+.sidebar-btn--quit.sidebar-btn--active {
+  color: var(--red, #e06c75);
+  border-left-color: var(--red, #e06c75);
+  background: rgba(224, 108, 117, 0.12);
+}
+
 .sidebar-badge {
   width: 6px;
   height: 6px;
