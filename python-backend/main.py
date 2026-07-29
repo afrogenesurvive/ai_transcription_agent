@@ -2168,6 +2168,21 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
     # isn't left with stale deletions (e.g. old voiceprint deleted, new one
     # not created). The drift audit check (409) happens BEFORE this point so
     # nothing has been persisted yet when the user gets a conflict.
+
+    def _dump_all_voiceprints(label: str = ""):
+        """Diagnostic helper: dump all voiceprint DB rows to console."""
+        try:
+            _rows = vp_manager._get_conn().execute(
+                "SELECT id, speaker_name, email, sample_job_id, sample_start, sample_end "
+                "FROM voiceprints ORDER BY id"
+            ).fetchall()
+            print(f"[drift] 📋 _dump_all_voiceprints({label!r}) — {len(_rows)} row(s):")
+            for _r in _rows:
+                print(f"  id={_r[0]} name={_r[1]!r} email={_r[2]!r} "
+                      f"job={_r[3]!r} start={_r[4]} end={_r[5]}")
+        except Exception as e:
+            print(f"[drift] ⚠️  _dump_all_voiceprints error: {e}")
+
     _vp_conn = vp_manager._get_conn()
     _vp_conn.execute("SAVEPOINT sp_label_and_resume")
     try:
