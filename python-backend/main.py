@@ -2171,31 +2171,49 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
     _vp_conn = vp_manager._get_conn()
     _vp_conn.execute("SAVEPOINT sp_label_and_resume")
     try:
+        # ── Batch-save voiceprints: audit passed, persist all pending embeddings ──
+        print(f"[drift] 💾 Batch-saving {len(pending_voiceprints)} voiceprint(s)...")
+        _dump_all_voiceprints("BEFORE batch save")
+        for pvp in pending_voiceprints:
+            # DIAGNOSTIC: check if a row already exists for this name/email
+            try:
+                _conn2 = vp_manager._get_conn()
+                _before = _conn2.execute(
+                    "SELECT id, speaker_name, email FROM voiceprints "
+                    "WHERE speaker_name=? OR email=?",
+                    (pvp["name"], pvp["email"])
+                ).fetchall()
+                if _before:
+                    print(f"[drift]   🔎 Pre-save check '{pvp['name']}': "
+                          f"existing row(s) = {[dict(id=r[0], name=r[1], email=r[2]) for r in _before]}")
+                else:
+                    print(f"[drift]   🔎 Pre-save check '{pvp['name']}': no existing row — will INSERT")
+            except Exception as e:
+                print(f"[drift]   ⚠️  Pre-save check error: {e}")
 
-    # ── Batch-save voiceprints: audit passed, persist all pending embeddings ──
-    print(f"[drift] 💾 Batch-saving {len(pending_voiceprints)} voiceprint(s)...")
-    for pvp in pending_voiceprints:
-        vp_manager.save_voiceprint(
-            pvp["name"], pvp["email"], pvp["embedding"],
-            sample_job_id=job_id,
-            sample_start=pvp["sample_start"],
-            sample_end=pvp["sample_end"],
-        )
-        if pvp["embedding"] is not None:
-            print(f"[api]   ✅ Saved voiceprint for '{pvp['name']}' ({pvp['spk']})")
-        else:
-            print(f"[api]   ✅ Saved voiceprint metadata for '{pvp['name']}' ({pvp['spk']}) — no embedding")
+            vp_manager.save_voiceprint(
+                pvp["name"], pvp["email"], pvp["embedding"],
+                sample_job_id=job_id,
+                sample_start=pvp["sample_start"],
+                sample_end=pvp["sample_end"],
+            )
+            if pvp["embedding"] is not None:
+                print(f"[api]   ✅ Saved voiceprint for '{pvp['name']}' ({pvp['spk']})")
+            else:
+                print(f"[api]   ✅ Saved voiceprint metadata for '{pvp['name']}' ({pvp['spk']}) — no embedding")
 
-    # Log final voiceprint count in DB after batch save
-    try:
-        final_count = vp_manager._get_conn().execute(
-            "SELECT COUNT(*) FROM voiceprints"
-        ).fetchone()[0]
-        print(f"[drift] 📊 Voiceprint DB record count after save: {final_count}")
-    except Exception as e:
-        print(f"[drift] ⚠️  Could not read voiceprint count: {e}")
+        # Log final voiceprint count in DB after batch save
+        try:
+            final_count = vp_manager._get_conn().execute(
+                "SELECT COUNT(*) FROM voiceprints"
+            ).fetchone()[0]
+            print(f"[drift] 📊 Voiceprint DB record count after save: {final_count}")
+        except Exception as e:
+            print(f"[drift] ⚠️  Could not read voiceprint count: {e}")
 
-    # ── Commit savepoint: all operations succeeded ──
+        _dump_all_voiceprints("AFTER batch save")
+
+        # ── Commit savepoint: all operations succeeded ──
         _vp_conn.execute("RELEASE SAVEPOINT sp_label_and_resume")
     except BaseException as _sp_exc:
         _vp_conn.execute("ROLLBACK TO SAVEPOINT sp_label_and_resume")
