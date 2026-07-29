@@ -427,9 +427,19 @@ class EphemeralMemory:
         delete_voiceprint_by_name to keep both DBs in sync.
         """
         conn = self._get_conn()
-        conn.execute("DELETE FROM attendees WHERE name = ?", (name,))
+        # DIAGNOSTIC: check what we're about to delete
+        _before = conn.execute(
+            "SELECT id, name, email, source, job_id FROM attendees WHERE name=?",
+            (name,)
+        ).fetchall()
+        cursor = conn.execute("DELETE FROM attendees WHERE name = ?", (name,))
         conn.commit()
-        print(f"[ephemeral] 🗑️  Deleted attendee record for '{name}'")
+        if cursor.rowcount > 0:
+            print(f"[ephemeral] 🗑️  Deleted attendee '{name}': "
+                  f"{[dict(id=r[0], name=r[1], email=r[2]) for r in _before]}")
+        else:
+            print(f"[ephemeral] 🗑️  Attempted delete of attendee '{name}' but 0 rows matched. "
+                  f"Existing rows with that name: {[dict(id=r[0], name=r[1], email=r[2]) for r in _before]}")
 
     def query_attendees(self, name: str = "", limit: int = 50) -> List[dict]:
         """Search registered attendees by name (substring match)."""

@@ -545,7 +545,18 @@ class VoiceprintManager:
         )
         if cursor.rowcount > 0:
             print(f"[voiceprint] 🧹 Cleanup: deleted {cursor.rowcount} row(s) with "
-                  f"speaker_name='{name}' and email≠'{resolved_email}'")
+                  f"speaker_name='{name}' and email≠'{resolved_email}' "
+                  f"(saving '{name}' <{resolved_email}>)")
+        else:
+            # DIAGNOSTIC: log that cleanup found nothing, with pre-delete check
+            _before_cleanup = conn.execute(
+                "SELECT id, speaker_name, email FROM voiceprints "
+                "WHERE speaker_name=?",
+                (name,)
+            ).fetchall()
+            if _before_cleanup:
+                print(f"[voiceprint] 🧹 Cleanup: no delete for '{name}' — "
+                      f"existing rows with this name: {[dict(id=r[0], name=r[1], email=r[2]) for r in _before_cleanup]}")
 
         # Check if a row already exists for this email (to log INSERT vs UPDATE)
         existing = conn.execute(
@@ -607,17 +618,29 @@ class VoiceprintManager:
         print(f"[voiceprint] 🗑️  delete_voiceprint: '{email}' — "
               f"{cursor.rowcount} row(s) deleted")
 
-    def delete_voiceprint_by_name(self, name: str):
-        """Delete a voiceprint row by speaker_name.
+    def delete_voiceprint_by_name(self, name: str) -> int:
+        """Delete a voiceprint row by speaker_name. Returns rowcount deleted.
 
         Used when re-labeling cleans up an old voiceprint that is being
         replaced by a new name for the same voice.
         """
         conn = self._get_conn()
+        # DIAGNOSTIC: check what exists before delete
+        _before = conn.execute(
+            "SELECT id, speaker_name, email, sample_job_id FROM voiceprints WHERE speaker_name=?",
+            (name,)
+        ).fetchall()
         cursor = conn.execute("DELETE FROM voiceprints WHERE speaker_name = ?", (name,))
         conn.commit()
-        print(f"[voiceprint] 🗑️  delete_voiceprint_by_name: '{name}' — "
-              f"{cursor.rowcount} row(s) deleted")
+        if cursor.rowcount > 0:
+            print(f"[voiceprint] 🗑️  delete_voiceprint_by_name: '{name}' — "
+                  f"{cursor.rowcount} row(s) deleted. "
+                  f"Pre-delete: {[dict(id=r[0], name=r[1], email=r[2], job=r[3][:8]) for r in _before]}")
+        else:
+            print(f"[voiceprint] 🗑️  delete_voiceprint_by_name: '{name}' — "
+                  f"0 rows deleted (name not found or already deleted). "
+                  f"Searched for: {[dict(id=r[0], name=r[1], email=r[2]) for r in _before]}")
+        return cursor.rowcount
 
     @staticmethod
     def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:

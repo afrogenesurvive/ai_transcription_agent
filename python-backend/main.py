@@ -2066,7 +2066,16 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
                     print(f"[drift]   Candidate: '{om['name']}' (sim={om['similarity']:.3f}, "
                           f"name_differs={name_differs}, in_unreg={match_in_unreg})")
                     if name_differs and match_in_unreg:
-                        vp_manager.delete_voiceprint_by_name(om["name"])
+                        # Delete by speaker_name first, then by email as fallback
+                        # (email is the UNIQUE constraint key — more reliable)
+                        deleted_rows = vp_manager.delete_voiceprint_by_name(
+                            om["name"]
+                        )
+                        if deleted_rows == 0 and om.get("email"):
+                            print(f"[drift] ⚠️  delete by name '{om['name']}' "
+                                  f"returned 0 rows — falling back to email "
+                                  f"'{om['email']}'")
+                            vp_manager.delete_voiceprint(om["email"])
                         # Also clean up the stale attendee record so the
                         # attendee registry stays in sync with voiceprints
                         try:
@@ -2154,6 +2163,15 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
             },
         )
 
+    # ── Savepoint: wrap cleanup + batch-save in a transaction ──
+    # If something fails between cleanup and batch-save, roll back so the DB
+    # isn't left with stale deletions (e.g. old voiceprint deleted, new one
+    # not created). The drift audit check (409) happens BEFORE this point so
+    # nothing has been persisted yet when the user gets a conflict.
+    _vp_conn = vp_manager._get_conn()
+    _vp_conn.execute("SAVEPOINT sp_label_and_resume")
+    try:
+
     # ── Batch-save voiceprints: audit passed, persist all pending embeddings ──
     print(f"[drift] 💾 Batch-saving {len(pending_voiceprints)} voiceprint(s)...")
     for pvp in pending_voiceprints:
@@ -2176,6 +2194,14 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
         print(f"[drift] 📊 Voiceprint DB record count after save: {final_count}")
     except Exception as e:
         print(f"[drift] ⚠️  Could not read voiceprint count: {e}")
+
+    # ── Commit savepoint: all operations succeeded ──
+        _vp_conn.execute("RELEASE SAVEPOINT sp_label_and_resume")
+    except BaseException as _sp_exc:
+        _vp_conn.execute("ROLLBACK TO SAVEPOINT sp_label_and_resume")
+        print(f"[drift] ❌ Savepoint rollback due to: {_sp_exc}")
+        raise
+    # ── End savepoint ──
 
     # Determine how to proceed based on labeling phase
     labeling_phase = s.get("labeling_phase", "pre_asr")
