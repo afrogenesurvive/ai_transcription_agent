@@ -279,26 +279,22 @@ const FALLBACK_PIPELINE = {
     transcribe_get_summary:
       "Summary retrieved (read-only). If you haven't called transcribe_summarize yet, call it to generate a new summary. Otherwise continue with the pipeline.",
     transcribe_summarize: "Next: Call transcribe_analyze to store analysis of topics, sentiment, entities, and follow-ups...",
-    transcribe_analyze: "Next: If delivery review is enabled, call transcribe_approve_delivery to pause for user approval. Otherwise call transcribe_save_context.",
+    transcribe_analyze:
+      "Next: If delivery review is enabled, call transcribe_approve_delivery to pause for user approval. Otherwise call transcribe_save_context.",
     transcribe_approve_delivery: "Next: After user approves, call transcribe_save_context to persist the meeting...",
     transcribe_save_context: "Next: Call transcribe_prepare_delivery to package results for delivery.",
     transcribe_prepare_delivery: "Next: Deliver results using send_delivery_email.",
-    send_delivery_email:
-      "Delivery complete. Pipeline is finished.",
+    send_delivery_email: "Delivery complete. Pipeline is finished.",
     transcribe_label_speaker:
       "Speaker labeled. If more unknown speakers remain, call transcribe_label_speaker again for the next speaker. Otherwise, call transcribe_approve_delivery if delivery review is enabled, or transcribe_save_context to persist.",
     transcribe_search_attendees:
       "Search completed. Use the results to determine if attendees need registering. If someone attended but isn't in the metadata, consider re-checking. Otherwise continue with the main pipeline.",
-    transcribe_list_attendees:
-      "Attendee list shown. Use transcribe_search_attendees to find specific entries before registering duplicates.",
-    transcribe_list_voiceprints:
-      "Voiceprints listed. Use transcribe_label_speaker to label unknown speakers with name and email.",
+    transcribe_list_attendees: "Attendee list shown. Use transcribe_search_attendees to find specific entries before registering duplicates.",
+    transcribe_list_voiceprints: "Voiceprints listed. Use transcribe_label_speaker to label unknown speakers with name and email.",
     transcribe_search_memory:
       "Semantic search returned. Use the context in your summary. Continue with the main pipeline (refine, read, summarize, analyze, persist, deliver).",
-    transcribe_query_ephemeral:
-      "Ephemeral data retrieved. Use it in your summary. Continue with the main pipeline.",
-    transcribe_save_ephemeral:
-      "Data saved to ephemeral memory. Continue with the main pipeline.",
+    transcribe_query_ephemeral: "Ephemeral data retrieved. Use it in your summary. Continue with the main pipeline.",
+    transcribe_save_ephemeral: "Data saved to ephemeral memory. Continue with the main pipeline.",
     transcribe_upsert_job: "Job record updated. Continue with the main pipeline.",
   },
   event_templates: {
