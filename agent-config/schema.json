@@ -50,10 +50,9 @@
       "type": "object",
       "properties": {
         "ready_for_processing": { "type": "string", "maxLength": 2000 },
-        "labeling_needed": { "type": "string", "maxLength": 2000 },
         "failed": { "type": "string", "maxLength": 2000 }
       },
-      "required": ["ready_for_processing", "labeling_needed", "failed"]
+      "required": ["ready_for_processing", "failed"]
     }
   }
 }

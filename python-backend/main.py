@@ -993,25 +993,6 @@ async def agent_label_speakers(req: LabelRequest):
         else:
             print(f"[api]   ✅ Saved voiceprint metadata for '{pvp['name']}' ({pvp['spk']}) — no embedding")
 
-    # ── Back-sync attendee registry with voiceprint emails ──
-    # After successfully saving each voiceprint, update the ephemeral DB
-    # attendee record with the resolved email (including @voiceprint.local
-    # fallback) so the attendee registry key matches the voiceprint key.
-    for label in req.labels:
-        name = label.name.strip()
-        if not name:
-            continue
-        resolved_email = VoiceprintManager._make_email(name, label.email or "")
-        try:
-            ephemeral_memory.register_attendee(
-                name, resolved_email,
-                source="agent_labeling", job_id=req.job_id,
-            )
-            print(f"[api]   ✅ Synced attendee '{name}' → email '{resolved_email}' "
-                  f"after voiceprint save")
-        except Exception as _e:
-            print(f"[api]   ⚠️  Could not sync attendee '{name}': {_e}")
-
     if transcript_data:
         mapping = {l.speaker_id: l.name for l in req.labels}
         for seg in transcript_data:
@@ -2046,9 +2027,6 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
     # non-conflicting speakers' voiceprints (Bug C guard).
     saved_reconciliation = s.get("reconciliation", {})
     saved_vp_matches = s.get("voiceprint_matches_by_speaker", {})
-    saved_unreg_names = {us["name"].lower()
-                         for us in saved_reconciliation.get("unregistered_speakers", [])}
-    print(f"[drift] 📋 saved_unreg_names: {saved_unreg_names}")
     drift_entries = []
     for pvp in pending_voiceprints:
         spk = pvp["spk"]
@@ -2062,74 +2040,51 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
         # Skip drift audit for names the user explicitly wants to overwrite
         if name in overwrite_names:
             print(f"[drift] ➡️  '{name}' ({spk}) in overwrite_names — skipping drift audit")
-            # ── Deterministic overwrite cleanup using pipeline-computed matches ──
-            # Uses the voiceprint_matches_by_speaker data saved by the pipeline
-            # during voiceprint matching. This avoids re-running embedding
-            # comparison (which can silently fail due to threshold variance or
-            # segment selection differences). The pipeline already determined
-            # which voiceprint owner mapped to this speaker slot.
+            # ── Deterministic overwrite cleanup ──
+            # When the user chose "Use form entry", the old voiceprint (from a
+            # previous job) for this speaker slot must be deleted unconditionally.
+            # Uses saved pipeline match data (voiceprint_matches_by_speaker) when
+            # available; falls back to re-running embedding comparison when the
+            # pipeline paused pre-ASR (before voiceprint matching ran).
             spk_matches = saved_vp_matches.get(spk, [])
             print(f"[drift] 🔎 Cleanup for '{name}': saved_vp_matches for "
                   f"{spk} returned {len(spk_matches)} match(es)")
 
-            # ── Fallback: pipeline paused before voiceprint matching ──
-            # When saved_vp_matches is empty (diarization-only pause at progress=0.3),
-            # no voiceprint match data was persisted. Re-run embedding comparison
-            # against all enrolled voiceprints to find the old print to delete.
-            if not spk_matches and emb is not None:
-                all_matches = vp_manager.find_matching_voiceprints(
+            # Resolve the old voiceprint to delete: either from saved match data
+            # or by re-running embedding comparison.
+            old_matches = list(spk_matches)  # shallow copy
+            if not old_matches and emb is not None:
+                old_matches = vp_manager.find_matching_voiceprints(
                     emb, threshold=config.VOICEPRINT_THRESHOLD
                 )
-                for m in all_matches:
-                    if m["name"].lower() != name.lower():
-                        # Found a match — delete it directly (no reconciliation
-                        # data was saved, so skip the saved_unreg_names guard)
-                        deleted_rows = vp_manager.delete_voiceprint_by_name(m["name"])
-                        if deleted_rows == 0 and m.get("email"):
-                            print(f"[drift] ⚠️  Fallback: delete by name '{m['name']}' "
-                                  f"returned 0 rows — falling back to email "
-                                  f"'{m['email']}'")
-                            vp_manager.delete_voiceprint(m["email"])
-                        try:
-                            ephemeral_memory.delete_attendee_by_name(m["name"])
-                        except Exception as e:
-                            print(f"[drift] ⚠️  Could not delete attendee "
-                                  f"'{m['name']}': {e}")
-                        print(f"[drift] 🗑️  Deleted old voiceprint '{m['name']}' — "
-                              f"re-labeled as '{name}' (fallback match, "
-                              f"sim={m['similarity']:.3f})")
-                        break
-                else:
-                    print(f"[drift] ℹ️  Fallback: no matching voiceprint found "
-                          f"for '{name}' — nothing to delete")
-            else:
-                # Normal path: use saved pipeline match data
-                for old_match in spk_matches:
-                    old_name = old_match.get("name", "")
-                    if not old_name or old_name.lower() == name.lower():
-                        continue
-                    if old_name.lower() in saved_unreg_names:
-                        # Delete by speaker_name first, then by email as fallback
-                        deleted_rows = vp_manager.delete_voiceprint_by_name(old_name)
-                        if deleted_rows == 0 and old_match.get("email"):
-                            print(f"[drift] ⚠️  delete by name '{old_name}' "
-                                  f"returned 0 rows — falling back to email "
-                                  f"'{old_match['email']}'")
-                            vp_manager.delete_voiceprint(old_match["email"])
-                        # Also clean up the stale attendee record
-                        try:
-                            ephemeral_memory.delete_attendee_by_name(old_name)
-                        except Exception as e:
-                            print(f"[drift] ⚠️  Could not delete attendee "
-                                  f"'{old_name}': {e}")
-                        print(f"[drift] 🗑️  Deleted old voiceprint '{old_name}' — "
-                              f"re-labeled as '{name}' (pipeline match)")
-                        break  # Only the first (best) match
-                    else:
-                        print(f"[drift]   Candidate '{old_name}' not in saved_unreg_names — skipping")
-                else:
-                    print(f"[drift] ℹ️  No old voiceprint deleted for '{name}' — "
-                          f"no unregistered-name match in saved pipeline data")
+
+            deleted_any = False
+            for old_match in old_matches:
+                old_name = old_match.get("name", "")
+                if not old_name or old_name.lower() == name.lower():
+                    continue
+                # Delete voiceprint unconditionally — user chose to overwrite
+                deleted_rows = vp_manager.delete_voiceprint_by_name(old_name)
+                if deleted_rows == 0 and old_match.get("email"):
+                    print(f"[drift] ⚠️  delete by name '{old_name}' "
+                          f"returned 0 rows — falling back to email "
+                          f"'{old_match['email']}'")
+                    vp_manager.delete_voiceprint(old_match["email"])
+                # Also clean up the stale attendee record
+                try:
+                    ephemeral_memory.delete_attendee_by_name(old_name)
+                except Exception as e:
+                    print(f"[drift] ⚠️  Could not delete attendee "
+                          f"'{old_name}': {e}")
+                source = "pipeline match" if spk_matches else "fallback match"
+                print(f"[drift] 🗑️  Deleted old voiceprint '{old_name}' — "
+                      f"re-labeled as '{name}' ({source})")
+                deleted_any = True
+                break  # Only the first (best) match
+
+            if not deleted_any:
+                print(f"[drift] ℹ️  No old voiceprint deleted for '{name}' — "
+                      f"no conflicting match found")
             continue
 
         email_key = vp_manager._make_email(name, email)
@@ -2351,6 +2306,8 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
             print(f"[label_and_resume] Registered {len(all_attendee_names)} attendee(s) "
                   f"({len(matched_speakers)} spoke, {len(non_speaking)} non-speaking) "
                   f"after labeling")
+            # Dedup sweep: remove duplicate attendee rows by name (keep most recent)
+            _dedup_attendees(job_id)
         except Exception as e:
             print(f"[label_and_resume] ⚠️  Could not register attendees: {e}")
 
@@ -4494,8 +4451,49 @@ def _register_attendees_after_reconciliation(
               f"({len(reconciliation.get('matched_speakers', []))} spoke, "
               f"{len(reconciliation.get('non_speaking_attendees', []))} non-speaking) "
               f"for job {job_id[:8]} in ephemeral DB")
+        # Dedup sweep: remove duplicate attendee rows by name (keep most recent)
+        _dedup_attendees(job_id)
     except Exception as e:
-        print(f"[reconciliation] ⚠️  Could not register attendees for job {job_id}: {e}")
+        import traceback
+        # Capture full traceback for disk I/O and other transient errors
+        tb = traceback.format_exc()
+        sqlite_code = getattr(e, 'sqlite_errorcode', 'N/A')
+        print(f"[reconciliation] ⚠️  Could not register attendees for job {job_id}: "
+              f"{e} (sqlite3_code={sqlite_code})")
+        print(f"[reconciliation]   Traceback:\n{tb}")
+
+
+# ── Attendee dedup helper ──
+
+def _dedup_attendees(job_id: str = ""):
+    """Remove duplicate attendee rows per name, keeping only the most recent.
+
+    Called after every attendee registration to clean up any stale duplicates
+    that may have accumulated from registration paths with different ``source``
+    values or from earlier versions of the dedup logic.
+
+    Args:
+        job_id: Optional job ID for logging context.
+    """
+    try:
+        conn = ephemeral_memory._get_conn()
+        tag = job_id[:8] if job_id else "?"
+        deleted = conn.execute("""
+            DELETE FROM attendees WHERE id NOT IN (
+                SELECT id FROM (
+                    SELECT id, name,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY name ORDER BY last_seen DESC
+                           ) AS rn
+                    FROM attendees
+                ) WHERE rn = 1
+            )
+        """).rowcount
+        conn.commit()
+        if deleted:
+            print(f"[reconciliation] 🧹 Dedup sweep for {tag}: removed {deleted} duplicate attendee row(s)")
+    except Exception as e:
+        print(f"[reconciliation] ⚠️  Dedup sweep failed for {tag}: {e}")
 
 
 # ── Pipeline management ──

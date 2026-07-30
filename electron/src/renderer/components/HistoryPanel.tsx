@@ -26,6 +26,7 @@ interface Props {
   onStorageChanged?: () => void;
   onToggleCollapse?: () => void;
   onJobDeleted?: (jobId: string) => void;
+  historyRefreshTrigger?: number;
 }
 
 const STATUS_ICON: Record<string, string> = {
@@ -91,7 +92,7 @@ async function callBridge(tool: string, args: any = {}): Promise<any> {
   return res.json();
 }
 
-export default function HistoryPanel({ onSelectJob, collapsed, currentJobId, onNotify, onStorageChanged, onToggleCollapse, onJobDeleted }: Props) {
+export default function HistoryPanel({ onSelectJob, collapsed, currentJobId, onNotify, onStorageChanged, onToggleCollapse, onJobDeleted, historyRefreshTrigger }: Props) {
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -114,6 +115,14 @@ export default function HistoryPanel({ onSelectJob, collapsed, currentJobId, onN
   useEffect(() => {
     loadHistory();
   }, [loadHistory]);
+
+  // Re-fetch when parent signals storage was cleared (historyRefreshTrigger incremented)
+  useEffect(() => {
+    if (historyRefreshTrigger !== undefined) {
+      loadHistory();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyRefreshTrigger]);
 
   const handleDelete = useCallback(
     async (jobId: string) => {

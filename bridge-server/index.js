@@ -252,25 +252,8 @@ async function dispatch(tool, args) {
         summary: parseIfString(args.summary) || {},
       });
 
-    case "transcribe_label_speaker":
-      return await callPython("POST", "/agent/label_speakers", {
-        job_id: args.jobId,
-        labels: [{ speaker_id: args.speakerId, name: args.name, email: args.email || "" }],
-      });
-
-    case "transcribe_list_voiceprints": {
-      const vpResult = await callPython("GET", "/agent/voiceprints");
-      const vps = vpResult?.voiceprints || [];
-      if (vps.length > 0) {
-        console.log(`   🗣️ [BRIDGE] Voiceprints enrolled (${vps.length} total):`);
-        for (const vp of vps) {
-          console.log(`   🗣️ [BRIDGE]   - ${vp.name} (${vp.email || "no email"}) — enrolled ${vp.created_at || "?"}`);
-        }
-      } else {
-        console.log(`   🗣️ [BRIDGE] No voiceprints enrolled`);
-      }
-      return vpResult;
-    }
+    case "transcribe_list_voiceprints":
+      return await callPython("GET", "/agent/voiceprints");
 
     case "transcribe_delete_voiceprint":
       return await callPython("DELETE", `/agent/voiceprints/${encodeURIComponent(args.email)}`);

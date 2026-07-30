@@ -285,12 +285,9 @@ const FALLBACK_PIPELINE = {
     transcribe_save_context: "Next: Call transcribe_prepare_delivery to package results for delivery.",
     transcribe_prepare_delivery: "Next: Deliver results using send_delivery_email.",
     send_delivery_email: "Delivery complete. Pipeline is finished.",
-    transcribe_label_speaker:
-      "Speaker labeled. If more unknown speakers remain, call transcribe_label_speaker again for the next speaker. Otherwise, call transcribe_approve_delivery if delivery review is enabled, or transcribe_save_context to persist.",
     transcribe_search_attendees:
       "Search completed. Use the results to determine if attendees need registering. If someone attended but isn't in the metadata, consider re-checking. Otherwise continue with the main pipeline.",
     transcribe_list_attendees: "Attendee list shown. Use transcribe_search_attendees to find specific entries before registering duplicates.",
-    transcribe_list_voiceprints: "Voiceprints listed. Use transcribe_label_speaker to label unknown speakers with name and email.",
     transcribe_search_memory:
       "Semantic search returned. Use the context in your summary. Continue with the main pipeline (refine, read, summarize, analyze, persist, deliver).",
     transcribe_query_ephemeral: "Ephemeral data retrieved. Use it in your summary. Continue with the main pipeline.",
@@ -300,7 +297,6 @@ const FALLBACK_PIPELINE = {
   event_templates: {
     ready_for_processing:
       "Actions: refine transcript (removes fillers and PII, preserves timestamps), extract action items, generate summary, generate analysis, prepare delivery.\nExisting memory context is provided below...",
-    labeling_needed: "Unknown speakers detected. List voiceprints, notify user, or apply labels if info available.",
     failed: "Processing failed. Notify the user. Error: {{error}}",
   },
 };

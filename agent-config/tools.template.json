@@ -93,29 +93,7 @@
       "required": ["jobId", "summary"]
     }
   },
-  {
-    "name": "transcribe_label_speaker",
-    "description": "Label an unknown speaker and save their voiceprint.",
-    "terminal": false,
-    "handler": "bridge",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "jobId": { "type": "string" },
-        "speakerId": { "type": "string" },
-        "name": { "type": "string" },
-        "email": { "type": "string" }
-      },
-      "required": ["jobId", "speakerId", "name"]
-    }
-  },
-  {
-    "name": "transcribe_list_voiceprints",
-    "description": "List all stored voiceprints.",
-    "terminal": false,
-    "handler": "bridge",
-    "inputSchema": { "type": "object", "properties": {} }
-  },
+
   {
     "name": "transcribe_prepare_delivery",
     "description": "Prepare deliverable package with meeting summary, analysis, and attendee data.",

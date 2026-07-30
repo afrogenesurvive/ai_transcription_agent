@@ -10,6 +10,7 @@ All data is keyed by a semantic "topic" for easy agent lookup.
 import os
 import json
 import sqlite3
+import time
 import threading
 from typing import List, Optional, Union
 from datetime import datetime
@@ -43,9 +44,50 @@ class EphemeralMemory:
 
     _thread_local = threading.local()
 
+    @staticmethod
+    def _cleanup_companion_files(db_path: str):
+        """Remove stale SQLite WAL/shm companion files that can cause
+        'disk I/O error' on re-created databases.
+
+        See https://sqlite.org/wal.html for details on the mechanism.
+        """
+        for suffix in ("-wal", "-shm"):
+            path = db_path + suffix
+            if os.path.exists(path):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass  # Non-critical — may be in use by another process
+
+    @staticmethod
+    def _retry_on_io_error(fn, max_retries=3, delay=0.5):
+        """Retry a callable if it raises ``sqlite3.OperationalError`` with
+        'disk I/O error'. Uses exponential backoff between retries.
+
+        Returns the callable's result, or re-raises the last exception.
+        """
+        last_exc = None
+        for attempt in range(max_retries):
+            try:
+                return fn()
+            except sqlite3.OperationalError as e:
+                if "disk I/O error" in str(e) and attempt < max_retries - 1:
+                    wait = delay * (2 ** attempt)
+                    print(f"[ephemeral] ⚠️  disk I/O error on attempt {attempt + 1}/{max_retries}, "
+                          f"retrying in {wait:.1f}s: {e}")
+                    time.sleep(wait)
+                    last_exc = e
+                    continue
+                raise
+        raise last_exc  # type: ignore[misc] — only reached if all retries failed
+
     def __init__(self, db_path: Optional[str] = None):
         self.db_path = db_path or os.path.join(config.STORAGE_PATH, "ephemeral_memory.db")
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        # Remove stale WAL/shm companions before opening the DB so a
+        # prior database life (deleted db, stale -wal/-shm) doesn't
+        # cause "disk I/O error" when SQLite tries to recover from them.
+        self._cleanup_companion_files(self.db_path)
         self._init_db()
 
     def __enter__(self):
@@ -86,8 +128,16 @@ class EphemeralMemory:
         # .db-shm / .db-wal files that block subsequent startup.
         try:
             conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except Exception as exc:
+            print(f"[ephemeral] ⚠️  WAL checkpoint failed at startup: {exc}")
+
+        # Quick integrity check — catches stale/corrupt databases early
+        try:
+            row = conn.execute("PRAGMA integrity_check").fetchone()
+            if row and row[0] != "ok":
+                print(f"[ephemeral] ⚠️  Integrity check failed: {row[0]}")
         except Exception:
-            pass  # Non-critical — checkpoint may fail on read-only filesystems
+            pass
 
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS jobs (
@@ -373,51 +423,107 @@ class EphemeralMemory:
           - ``"new_job_form"``   — from the UploadPanel at job creation
           - ``"manual_labeling"`` — from the SpeakerLabelModal mid-pipeline
 
-        Dedup strategy (widened key):
-          - When a real email is provided → upsert on ``(name, email)``.
-            Same person entered from different sources → single row.
-          - When email is empty → fall back to ``(name, source)`` as before.
+        Dedup strategy:
+          - Always dedup on ``(name, resolved_email)`` where resolved_email is
+            the provided email or a deterministic ``@voiceprint.local`` fallback.
+            This prevents duplicate rows when the same person is registered from
+            different ``source`` values (``new_job_form`` vs ``manual_labeling``).
           - ``last_seen`` is always bumped so the registry tracks recency.
           - ``last_job_id`` is always updated to the most recent job.
         """
         conn = self._get_conn()
 
+        # Resolve empty emails to a deterministic key so dedup never falls
+        # back to (name, source), which creates duplicate rows.
         if email and email.strip():
-            # Real email: upsert on (name, email) — strongest dedup
-            existing = conn.execute(
-                "SELECT id FROM attendees WHERE name=? AND email=?",
-                (name, email.strip()),
-            ).fetchone()
+            resolved_email = email.strip()
         else:
-            # No email: fall back to (name, source)
-            existing = conn.execute(
-                "SELECT id FROM attendees WHERE name=? AND source=?",
-                (name, source),
-            ).fetchone()
+            slug = name.strip().lower().replace(" ", ".").replace("_", ".")
+            slug = "".join(c for c in slug if c.isalnum() or c in ".-")
+            resolved_email = f"{slug}@voiceprint.local"
+
+        existing = conn.execute(
+            "SELECT id FROM attendees WHERE name=? AND email=?",
+            (name, resolved_email),
+        ).fetchone()
 
         now = datetime.utcnow().isoformat()
-        if existing:
-            conn.execute(
-                "UPDATE attendees SET email=?, source=?, job_id=?, "
-                "last_job_id=?, last_seen=CURRENT_TIMESTAMP WHERE id=?",
-                (email, source, job_id, job_id, existing[0]),
-            )
-        else:
-            conn.execute(
-                "INSERT INTO attendees (name, email, source, job_id, last_job_id, created_at, last_seen) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (name, email, source, job_id, job_id, now, now),
-            )
-        conn.commit()
+        try:
+            if existing:
+                conn.execute(
+                    "UPDATE attendees SET email=?, source=?, job_id=?, "
+                    "last_job_id=?, last_seen=CURRENT_TIMESTAMP WHERE id=?",
+                    (resolved_email, source, job_id, job_id, existing[0]),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO attendees (name, email, source, job_id, last_job_id, created_at, last_seen) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (name, resolved_email, source, job_id, job_id, now, now),
+                )
+
+            def _do_commit():
+                conn.commit()
+
+            self._retry_on_io_error(_do_commit)
+        except sqlite3.OperationalError as e:
+            print(f"[ephemeral] ⚠️  Failed to register attendee '{name}': "
+                  f"{e} (sqlite3_code={getattr(e, 'sqlite_errorcode', 'N/A')})")
+            raise
 
     def register_attendees(self, names: List[str], emails: List[str] = None,
                            source: str = "new_job_form",
                            job_id: Optional[str] = None):
-        """Bulk-register multiple attendees at once."""
+        """Bulk-register multiple attendees at once.
+
+        Performs a single commit for the whole batch (instead of one per
+        attendee), then runs a passive WAL checkpoint to keep the WAL file
+        trimmed. Retries on transient disk I/O errors.
+        """
+        conn = self._get_conn()
         emails = emails or []
-        for i, name in enumerate(names):
-            email = emails[i] if i < len(emails) else ""
-            self.register_attendee(name, email, source=source, job_id=job_id)
+
+        def _do_batch():
+            for i, name in enumerate(names):
+                email = emails[i] if i < len(emails) else ""
+                if email and email.strip():
+                    existing = conn.execute(
+                        "SELECT id FROM attendees WHERE name=? AND email=?",
+                        (name, email.strip()),
+                    ).fetchone()
+                else:
+                    existing = conn.execute(
+                        "SELECT id FROM attendees WHERE name=? AND source=?",
+                        (name, source),
+                    ).fetchone()
+
+                now = datetime.utcnow().isoformat()
+                if existing:
+                    conn.execute(
+                        "UPDATE attendees SET email=?, source=?, job_id=?, "
+                        "last_job_id=?, last_seen=CURRENT_TIMESTAMP WHERE id=?",
+                        (email, source, job_id, job_id, existing[0]),
+                    )
+                else:
+                    conn.execute(
+                        "INSERT INTO attendees (name, email, source, job_id, "
+                        "last_job_id, created_at, last_seen) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (name, email, source, job_id, job_id, now, now),
+                    )
+            conn.commit()
+            # Trim WAL after batch write to prevent unbounded growth
+            try:
+                conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+            except Exception:
+                pass
+
+        try:
+            self._retry_on_io_error(_do_batch)
+        except sqlite3.OperationalError as e:
+            print(f"[ephemeral] ⚠️  Failed to register {len(names)} attendee(s): "
+                  f"{e} (sqlite3_code={getattr(e, 'sqlite_errorcode', 'N/A')})")
+            raise
 
     def delete_attendee_by_name(self, name: str):
         """Remove an attendee record by name.

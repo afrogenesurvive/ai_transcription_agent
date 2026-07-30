@@ -106,28 +106,7 @@ class AgentBridge:
             "actions": ["refine", "summarize", "extract_action_items"],
         })
 
-    def enqueue_labeling_needed(self, job_id: str, unknown_speakers: list,
-                                transcript: list, metadata: dict):
-        """Unknown speakers detected — agent should notify for labeling.
 
-        Includes the full transcript so the agent-runner's empty-transcript
-        guard can properly detect content (it reads ``event.data.transcript``).
-        Also keeps a preview for quick reference.
-
-        Includes skip_steps from metadata so the agent runner restricts
-        pipeline tools (analyze, delivery, etc.) — the LLM should only
-        handle labeling, not re-run the full pipeline.
-        """
-        skip_steps = metadata.get("skip_steps", config.DEFAULT_SKIP_STEPS)
-        return self.enqueue("labeling_needed", {
-            "jobId": job_id,
-            "title": metadata.get("title", "Untitled Meeting"),
-            "unknownSpeakers": unknown_speakers,
-            "transcript": transcript,
-            "transcriptPreview": transcript[:5] if transcript else [],
-            "skip_steps": skip_steps,
-            "actions": ["notify_labeling_needed"],
-        })
 
     def enqueue_failed(self, job_id: str, error: str, metadata: dict):
         return self.enqueue("failed", {

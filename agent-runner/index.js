@@ -186,7 +186,7 @@ async function processEvent(event) {
   // entirely to avoid wasting tokens on empty content. The job is marked as
   // complete with a warning so the frontend knows there's nothing to show.
   const transcriptHasContent = transcript.some((seg) => seg.text && seg.text.trim().length > 0);
-  if (!transcriptHasContent && (event.type === "ready_for_processing" || event.type === "labeling_needed")) {
+  if (!transcriptHasContent && event.type === "ready_for_processing") {
     console.log(`⏭️  [RUNNER] Empty transcript — skipping LLM processing (event.type=${event.type})`);
     console.log(`⏭️  [RUNNER]   Transcript has ${transcript.length} segment(s), 0 words of text`);
     logAction({
@@ -658,7 +658,7 @@ async function processEvent(event) {
         }
         if (hasReadTranscript) {
           availableTools = availableTools.filter(
-            (t) => t.name !== "transcribe_get_transcript" && t.name !== "transcribe_label_speaker" && t.name !== "transcribe_list_voiceprints",
+            (t) => t.name !== "transcribe_get_transcript",
           );
         }
         if (!summarizeCalled) {
@@ -992,23 +992,6 @@ async function processEvent(event) {
       logStepMessage(jobId, `🤖 Agent step ${step}: ${stepLabel}`);
     }
 
-    // ── Log voiceprint identification results ──
-    if (decision.name === "transcribe_list_voiceprints") {
-      const vps = result?.voiceprints || [];
-      if (vps.length > 0) {
-        console.log(`🗣️ [RUNNER] Enrolled voiceprints (${vps.length}):`);
-        for (const vp of vps) {
-          console.log(`🗣️ [RUNNER]   - ${vp.name}${vp.email ? ` (${vp.email})` : ""}`);
-        }
-      } else {
-        console.log(`🗣️ [RUNNER] No enrolled voiceprints`);
-      }
-    }
-    if (decision.name === "transcribe_label_speaker" && result) {
-      const labelArgs = decision.arguments || {};
-      console.log(`🏷️  [RUNNER] Speaker labeled: ${labelArgs.name || "?"} (speaker_id=${labelArgs.speakerId || "?"})`);
-    }
-
     // ── Record delivery tool results ──
     if (DELIVERY_TOOL_NAMES.has(decision.name)) {
       const resultData = result?.result || null;
@@ -1099,7 +1082,7 @@ async function processEvent(event) {
     if (decision.name === "transcribe_get_transcript") {
       hasReadTranscript = true;
       availableTools = availableTools.filter(
-        (t) => t.name !== "transcribe_get_transcript" && t.name !== "transcribe_label_speaker" && t.name !== "transcribe_list_voiceprints",
+        (t) => t.name !== "transcribe_get_transcript",
       );
       console.log(`🔒 [RUNNER] transcribe_get_transcript + labeling tools locked — must summarize first`);
     }
@@ -1487,8 +1470,7 @@ function buildInitialContext(event, transcript, safeTitle, safeAttendees, eventI
     ];
     if (event.type === "ready_for_processing")
       substitutions.push({ var: "{{transcript_preview}}", value: `${Math.min(transcript.length, 50)} segments preview` });
-    if (event.type === "labeling_needed")
-      substitutions.push({ var: "{{speaker_details}}", value: `${(jobData.unknownSpeakers || []).length} unknown speakers` });
+
     if (event.type === "delivery_approved") substitutions.push({ var: "{{edits_summary}}", value: (jobData.edits_made || []).join(", ") || "none" });
     console.log(`📝 [BUILD-CONTEXT]   Variable substitutions: ${substitutions.map((s) => `${s.var} → ${s.value}`).join(", ")}`);
 
@@ -1527,13 +1509,6 @@ function buildInitialContext(event, transcript, safeTitle, safeAttendees, eventI
       } else {
         lines.push(renderedWithPreview);
       }
-    } else if (event.type === "labeling_needed") {
-      const speakerLines = [];
-      for (const uk of jobData.unknownSpeakers || []) {
-        speakerLines.push(`  - ${uk.speaker_id}: "${(uk.sample_text || "").slice(0, 80)}"`);
-      }
-      console.log(`📝 [BUILD-CONTEXT]   Unknown speakers: ${(jobData.unknownSpeakers || []).length} speaker(s) in preview`);
-      lines.push(rendered.replace("{{speaker_details}}", speakerLines.join("\n")));
     } else if (event.type === "delivery_approved") {
       const editsSummary = (jobData.edits_made || []).join(", ") || "none";
       console.log(`📝 [BUILD-CONTEXT]   Delivery approved — edits: ${editsSummary}`);
@@ -1551,12 +1526,6 @@ function buildInitialContext(event, transcript, safeTitle, safeAttendees, eventI
         lines.push(`  [${seg.start?.toFixed(1)}s] ${seg.speaker}: ${(seg.text || "").slice(0, 100)}`);
       }
       if (transcript.length > 10) lines.push(`  ... (${transcript.length - 10} more)`);
-    } else if (event.type === "labeling_needed") {
-      console.log(`📝 [BUILD-CONTEXT]   Fallback: inline unknown speakers (${(jobData.unknownSpeakers || []).length})`);
-      lines.push(`Unknown speakers detected:`);
-      for (const uk of jobData.unknownSpeakers || []) {
-        lines.push(`  - ${uk.speaker_id}: "${(uk.sample_text || "").slice(0, 80)}"`);
-      }
     } else if (event.type === "failed") {
       console.log(`📝 [BUILD-CONTEXT]   Fallback: inline error message`);
       lines.push(`Processing failed. Error: ${jobData.error || "unknown"}`);

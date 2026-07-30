@@ -8,8 +8,8 @@ How it works:
 3. When a new meeting is processed, the pipeline extracts embeddings from each
    diarization segment and compares them (via cosine similarity) against stored
    voiceprints to identify known speakers.
-4. Unmatched speakers are flagged as "unknown" for the agent to handle later via
-   transcribe_label_speaker.
+4. Unmatched speakers are flagged as "unknown" for user to label via the
+   SpeakerLabelModal (deterministic label_and_resume path).
 
 Embedding provider (set via EMBEDDING_PROVIDER env var):
   pyannote (default)  — pyannote/embedding (ResNet-based, gated, needs HF token)
@@ -54,11 +54,10 @@ Three save paths:
   1. label_and_resume (user via SpeakerLabelModal)
      └─ Real embedding extracted from speaker's longest audio segment
      └─ Email from user input (or empty → @voiceprint.local fallback)
-  2. agent_label_speakers (LLM in agent pipeline)
+  2. agent_label_speakers (LLM in agent pipeline) — migrated to deterministic
+     label_and_resume path. No longer called from the agent runner.
      └─ Real embedding extracted from audio (if available)
      └─ Email empty → @voiceprint.local fallback
-  3. transcribe_label_speaker tool (agent bridge)
-     └─ Same as #2 — proxies through to agent_label_speakers
 
 Conflict checking (POST /voiceprints/check-conflicts):
   Before saving, the SpeakerLabelModal checks whether any entered name or email
@@ -107,6 +106,9 @@ class VoiceprintManager:
                              f"Supported: {list(self.EMBEDDING_PROVIDERS.keys())}")
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self._embedding_model = None  # Lazy-loaded embedding model (provider-specific)
+        # Remove stale WAL/shm companion files so a prior database life
+        # doesn't cause "disk I/O error" on startup.
+        self._cleanup_companion_files()
         self._init_db()
 
     def __enter__(self):
@@ -115,6 +117,14 @@ class VoiceprintManager:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
         return False
+
+    @staticmethod
+    def _cleanup_companion_files():
+        """Remove stale SQLite WAL/shm companion files."""
+        from ephemeral_memory import EphemeralMemory
+        EphemeralMemory._cleanup_companion_files(
+            config.VOICEPRINT_DB
+        )
 
     def _get_conn(self) -> sqlite3.Connection:
         """Get a thread-local SQLite connection. Reused across operations to

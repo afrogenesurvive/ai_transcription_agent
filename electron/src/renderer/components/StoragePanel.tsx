@@ -18,6 +18,7 @@ interface Props {
   refreshTrigger?: number;
   onDevAccessRequest?: () => void;
   devAccessSignal?: number;
+  onStorageCleared?: () => void;
 }
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
@@ -62,7 +63,7 @@ async function callBridge(tool: string, args: any = {}): Promise<any> {
   return res.json();
 }
 
-export default function StoragePanel({ onClose, onNotify, refreshTrigger, onDevAccessRequest, devAccessSignal }: Props) {
+export default function StoragePanel({ onClose, onNotify, refreshTrigger, onDevAccessRequest, devAccessSignal, onStorageCleared }: Props) {
   const [data, setData] = useState<StorageUsage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -125,6 +126,10 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger, onDevA
         onNotify?.(`${action.label}: ${msg}`);
         // Refresh storage usage to reflect the change
         fetchUsage();
+        // Notify parent to reset cached view/history state when jobs are removed
+        if (action.type === "jobs" || action.type === "all") {
+          onStorageCleared?.();
+        }
       } catch (err: any) {
         setActionResult(`Error: ${err.message}`);
         onNotify?.(`${action.label} failed: ${err.message}`);

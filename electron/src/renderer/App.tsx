@@ -85,6 +85,7 @@ export default function App() {
   const [historyJobStatus, setHistoryJobStatus] = useState<{ status: string; progress: number; error?: string | null } | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [storageRefreshTrigger, setStorageRefreshTrigger] = useState(0);
+  const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState(0);
   const [devAccessSignal, setDevAccessSignal] = useState(0);
   const [newJobCooldown, setNewJobCooldown] = useState(false);
   const [showNewForm, setShowNewForm] = useState(false);
@@ -320,6 +321,22 @@ export default function App() {
     useCallback((id: string) => fetcherRef.current?.(id) ?? Promise.reject(new Error("no fetcher")), []),
     serverStatus.allReady,
   );
+
+  // Callback for the StoragePanel to signal that ALL user data was cleared.
+  // Resets all cached view/history state so stale data doesn't persist in the UI.
+  const onStorageCleared = useCallback(() => {
+    setJobId(null);
+    setTranscript(null);
+    setJobMetadata(null);
+    setStatusData(null);
+    setHistoryJobId(null);
+    setHistoryTranscript(null);
+    setHistoryJobStatus(null);
+    setShowHistory(false);
+    statusHook.stopPolling();
+    setStorageRefreshTrigger((n) => n + 1);
+    setHistoryRefreshTrigger((n) => n + 1);
+  }, [statusHook]);
 
   // Whether a job is currently running (processing).
   // Includes backend_down so the cancel button stays available when backend is unreachable.
@@ -1282,6 +1299,7 @@ export default function App() {
                                 setHistoryJobStatus(null);
                               }
                             }}
+                            historyRefreshTrigger={historyRefreshTrigger}
                           />
                         ) : (
                           <>
@@ -1411,6 +1429,7 @@ export default function App() {
                   refreshTrigger={storageRefreshTrigger}
                   onDevAccessRequest={() => setDevWarningModal("storage")}
                   devAccessSignal={devAccessSignal}
+                  onStorageCleared={onStorageCleared}
                 />
               )}
 
