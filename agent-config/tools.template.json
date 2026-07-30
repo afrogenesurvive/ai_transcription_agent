@@ -146,22 +146,6 @@
     }
   },
   {
-    "name": "transcribe_register_attendees",
-    "description": "Register meeting attendees. Use when you know who attended a meeting but they weren't pre-registered. Source distinguishes 'new_job_form' (from upload) vs 'manual_labeling' (from speaker labeling).",
-    "terminal": false,
-    "handler": "bridge",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "jobId": { "type": "string" },
-        "names": { "type": "array", "items": { "type": "string" } },
-        "emails": { "type": "array", "items": { "type": "string" } },
-        "source": { "type": "string", "enum": ["new_job_form", "manual_labeling"], "default": "manual_labeling" }
-      },
-      "required": ["jobId", "names"]
-    }
-  },
-  {
     "name": "transcribe_list_attendees",
     "description": "List all registered attendees across all meetings, newest first.",
     "terminal": false,

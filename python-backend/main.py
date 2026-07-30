@@ -2071,32 +2071,65 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
             spk_matches = saved_vp_matches.get(spk, [])
             print(f"[drift] 🔎 Cleanup for '{name}': saved_vp_matches for "
                   f"{spk} returned {len(spk_matches)} match(es)")
-            for old_match in spk_matches:
-                old_name = old_match.get("name", "")
-                if not old_name or old_name.lower() == name.lower():
-                    continue
-                if old_name.lower() in saved_unreg_names:
-                    # Delete by speaker_name first, then by email as fallback
-                    deleted_rows = vp_manager.delete_voiceprint_by_name(old_name)
-                    if deleted_rows == 0 and old_match.get("email"):
-                        print(f"[drift] ⚠️  delete by name '{old_name}' "
-                              f"returned 0 rows — falling back to email "
-                              f"'{old_match['email']}'")
-                        vp_manager.delete_voiceprint(old_match["email"])
-                    # Also clean up the stale attendee record
-                    try:
-                        ephemeral_memory.delete_attendee_by_name(old_name)
-                    except Exception as e:
-                        print(f"[drift] ⚠️  Could not delete attendee "
-                              f"'{old_name}': {e}")
-                    print(f"[drift] 🗑️  Deleted old voiceprint '{old_name}' — "
-                          f"re-labeled as '{name}' (pipeline match)")
-                    break  # Only the first (best) match
+
+            # ── Fallback: pipeline paused before voiceprint matching ──
+            # When saved_vp_matches is empty (diarization-only pause at progress=0.3),
+            # no voiceprint match data was persisted. Re-run embedding comparison
+            # against all enrolled voiceprints to find the old print to delete.
+            if not spk_matches and emb is not None:
+                all_matches = vp_manager.find_matching_voiceprints(
+                    emb, threshold=config.VOICEPRINT_THRESHOLD
+                )
+                for m in all_matches:
+                    if m["name"].lower() != name.lower():
+                        # Found a match — delete it directly (no reconciliation
+                        # data was saved, so skip the saved_unreg_names guard)
+                        deleted_rows = vp_manager.delete_voiceprint_by_name(m["name"])
+                        if deleted_rows == 0 and m.get("email"):
+                            print(f"[drift] ⚠️  Fallback: delete by name '{m['name']}' "
+                                  f"returned 0 rows — falling back to email "
+                                  f"'{m['email']}'")
+                            vp_manager.delete_voiceprint(m["email"])
+                        try:
+                            ephemeral_memory.delete_attendee_by_name(m["name"])
+                        except Exception as e:
+                            print(f"[drift] ⚠️  Could not delete attendee "
+                                  f"'{m['name']}': {e}")
+                        print(f"[drift] 🗑️  Deleted old voiceprint '{m['name']}' — "
+                              f"re-labeled as '{name}' (fallback match, "
+                              f"sim={m['similarity']:.3f})")
+                        break
                 else:
-                    print(f"[drift]   Candidate '{old_name}' not in saved_unreg_names — skipping")
+                    print(f"[drift] ℹ️  Fallback: no matching voiceprint found "
+                          f"for '{name}' — nothing to delete")
             else:
-                print(f"[drift] ℹ️  No old voiceprint deleted for '{name}' — "
-                      f"no unregistered-name match in saved pipeline data")
+                # Normal path: use saved pipeline match data
+                for old_match in spk_matches:
+                    old_name = old_match.get("name", "")
+                    if not old_name or old_name.lower() == name.lower():
+                        continue
+                    if old_name.lower() in saved_unreg_names:
+                        # Delete by speaker_name first, then by email as fallback
+                        deleted_rows = vp_manager.delete_voiceprint_by_name(old_name)
+                        if deleted_rows == 0 and old_match.get("email"):
+                            print(f"[drift] ⚠️  delete by name '{old_name}' "
+                                  f"returned 0 rows — falling back to email "
+                                  f"'{old_match['email']}'")
+                            vp_manager.delete_voiceprint(old_match["email"])
+                        # Also clean up the stale attendee record
+                        try:
+                            ephemeral_memory.delete_attendee_by_name(old_name)
+                        except Exception as e:
+                            print(f"[drift] ⚠️  Could not delete attendee "
+                                  f"'{old_name}': {e}")
+                        print(f"[drift] 🗑️  Deleted old voiceprint '{old_name}' — "
+                              f"re-labeled as '{name}' (pipeline match)")
+                        break  # Only the first (best) match
+                    else:
+                        print(f"[drift]   Candidate '{old_name}' not in saved_unreg_names — skipping")
+                else:
+                    print(f"[drift] ℹ️  No old voiceprint deleted for '{name}' — "
+                          f"no unregistered-name match in saved pipeline data")
             continue
 
         email_key = vp_manager._make_email(name, email)

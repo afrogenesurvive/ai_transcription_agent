@@ -307,14 +307,6 @@ async function dispatch(tool, args) {
         limit: args.limit || 10,
       });
 
-    case "transcribe_register_attendees":
-      return await callPython("POST", "/memory/ephemeral/register_attendees", {
-        names: args.names || [],
-        emails: args.emails || [],
-        source: args.source || "agent_labeling",
-        job_id: args.jobId || "",
-      });
-
     case "transcribe_list_attendees":
       return await callPython("GET", `/memory/ephemeral/list_attendees?limit=${args.limit || 100}`);
 

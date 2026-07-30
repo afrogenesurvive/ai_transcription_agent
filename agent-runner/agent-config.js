@@ -101,22 +101,7 @@ const FALLBACK_TOOLS = [
       required: ["jobId"],
     },
   },
-  {
-    name: "transcribe_register_attendees",
-    description: "Register meeting attendees. Use when you know who attended a meeting but they weren't pre-registered.",
-    terminal: false,
-    handler: "bridge",
-    inputSchema: {
-      type: "object",
-      properties: {
-        jobId: { type: "string" },
-        names: { type: "array", items: { type: "string" } },
-        emails: { type: "array", items: { type: "string" } },
-        source: { type: "string", enum: ["new_job_form", "manual_labeling"], default: "manual_labeling" },
-      },
-      required: ["jobId", "names"],
-    },
-  },
+
   {
     name: "transcribe_list_attendees",
     description: "List all registered attendees across all meetings, newest first.",
@@ -302,10 +287,8 @@ const FALLBACK_PIPELINE = {
       "Delivery complete. Pipeline is finished.",
     transcribe_label_speaker:
       "Speaker labeled. If more unknown speakers remain, call transcribe_label_speaker again for the next speaker. Otherwise, call transcribe_approve_delivery if delivery review is enabled, or transcribe_save_context to persist.",
-    transcribe_register_attendees:
-      "Attendees registered. Continue with the main pipeline: call transcribe_save_context to persist meeting context.",
     transcribe_search_attendees:
-      "Search completed. If the person isn't found, call transcribe_register_attendees to add them. Otherwise continue with the main pipeline.",
+      "Search completed. Use the results to determine if attendees need registering. If someone attended but isn't in the metadata, consider re-checking. Otherwise continue with the main pipeline.",
     transcribe_list_attendees:
       "Attendee list shown. Use transcribe_search_attendees to find specific entries before registering duplicates.",
     transcribe_list_voiceprints:
