@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     python: boolean;
     bridge: boolean;
     agent: boolean;
+    diarizationAvailable: boolean | null;
+    diarizationError: string | null;
   }> => ipcRenderer.invoke("backend:status"),
 
   // checkServers is intentionally aliased to getBackendStatus for API clarity
@@ -24,6 +26,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     python: boolean;
     bridge: boolean;
     agent: boolean;
+    diarizationAvailable: boolean | null;
+    diarizationError: string | null;
   }> => ipcRenderer.invoke("backend:status"),
 
   // ── Service management ──

@@ -102,8 +102,8 @@ export interface StorageUsage {
 
 export interface ElectronAPI {
   selectAudioFile: () => Promise<string | null>;
-  getBackendStatus: () => Promise<{ python: boolean; bridge: boolean; agent: boolean }>;
-  checkServers: () => Promise<{ python: boolean; bridge: boolean; agent: boolean }>;
+  getBackendStatus: () => Promise<{ python: boolean; bridge: boolean; agent: boolean; diarizationAvailable: boolean | null; diarizationError: string | null }>;
+  checkServers: () => Promise<{ python: boolean; bridge: boolean; agent: boolean; diarizationAvailable: boolean | null; diarizationError: string | null }>;
   stopServices: () => Promise<{ success: boolean }>;
   restartServices: () => Promise<{ success: boolean }>;
   closeApp: () => Promise<{ success: boolean }>;

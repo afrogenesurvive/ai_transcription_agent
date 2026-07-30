@@ -33,6 +33,7 @@ import Icon from "./components/Icon";
 import { useApi } from "./hooks/useApi";
 import { useJobStatus } from "./hooks/useJobStatus";
 import type { PollingState } from "./hooks/useJobStatus";
+import { ServiceStatusProvider } from "./hooks/serviceStatusContext";
 import { useServerStatus } from "./hooks/useServerStatus";
 import { useForeignJobs } from "./hooks/useForeignJobs";
 import { loadAndApplyAppearance } from "./appearance";
@@ -868,6 +869,7 @@ export default function App() {
 
   return (
     <div className="app">
+      <ServiceStatusProvider ollamaRequired={ollamaRequired}>
       <header className="app-header">
         <Tooltip content="Home — Transcription Agent desktop app">
           <h1>
@@ -1249,21 +1251,7 @@ export default function App() {
           {sidebarView === "dev" && <DevPanel onClose={() => setSidebarView("current")} />}
 
           {/* ── Server status popover overlay ── */}
-          {sidebarView !== "dev" && (
-            <ServerStatusBanner
-              services={serverStatus.services}
-              diarizationOk={serverStatus.diarizationOk}
-              diarizationError={serverStatus.diarizationError}
-              ollamaOk={serverStatus.ollamaOk}
-              ollamaRequired={ollamaRequired}
-              checking={serverStatus.checking}
-              allReady={serverStatus.allReady}
-              onCheckServers={serverStatus.checkServers}
-              onRestartService={serverStatus.restartService}
-              onRestartAll={serverStatus.restartAll}
-              onStartOllama={serverStatus.startOllama}
-            />
-          )}
+          {sidebarView !== "dev" && <ServerStatusBanner />}
 
           {/* ── Normal content (always visible behind popover) ── */}
           {sidebarView !== "dev" && (
@@ -1446,6 +1434,7 @@ export default function App() {
       </div>
 
       <StatusBar configOk={configOk} onOpenConfig={() => setSidebarView("config")} onOpenDev={() => setSidebarView("dev")} />
+      </ServiceStatusProvider>
     </div>
   );
 }

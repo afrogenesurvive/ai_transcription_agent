@@ -49,7 +49,7 @@
 .config-body {
   flex: 1;
   overflow-y: auto;
-  padding: 16px 20px;
+  padding: 3px 20px !important;
 }
 
 .config-hint {

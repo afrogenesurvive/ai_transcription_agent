@@ -1923,6 +1923,20 @@ async def label_and_resume(job_id: str, payload: dict = Body(...)):
         raise HTTPException(500, f"label_and_resume failed: {e}")
 
 
+def _dump_all_voiceprints(label: str):
+    """Diagnostic helper: dump all voiceprint DB rows to stdout."""
+    try:
+        conn = vp_manager._get_conn()
+        rows = conn.execute(
+            "SELECT id, speaker_name, email, job_id FROM voiceprints"
+        ).fetchall()
+        print(f"[drift] 📋 Voiceprint DB state {label}:")
+        for r in rows:
+            print(f"  id={r[0]} name={r[1]} email={r[2]} job_id={r[3]}")
+    except Exception as e:
+        print(f"[drift] ⚠️  _dump_all_voiceprints error: {e}")
+
+
 def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = None):
     """Inner function — all the actual work, extracted so the async route
     handler has a clean try/except wrapper.
@@ -2031,6 +2045,7 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
     # need cleanup during overwrite — prevents accidental deletion of
     # non-conflicting speakers' voiceprints (Bug C guard).
     saved_reconciliation = s.get("reconciliation", {})
+    saved_vp_matches = s.get("voiceprint_matches_by_speaker", {})
     saved_unreg_names = {us["name"].lower()
                          for us in saved_reconciliation.get("unregistered_speakers", [])}
     print(f"[drift] 📋 saved_unreg_names: {saved_unreg_names}")
@@ -2047,49 +2062,41 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
         # Skip drift audit for names the user explicitly wants to overwrite
         if name in overwrite_names:
             print(f"[drift] ➡️  '{name}' ({spk}) in overwrite_names — skipping drift audit")
-            # Re-labeling cleanup: if this speaker's embedding matches an existing
-            # voiceprint under a different name, that old voiceprint is being
-            # re-labeled (e.g. Carol→Eve). Delete the old row so the DB doesn't
-            # accumulate orphaned voiceprints for the same voice.
-            if emb is not None:
-                old_matches = vp_manager.find_matching_voiceprints(
-                    emb, threshold=config.VOICEPRINT_THRESHOLD
-                )
-                print(f"[drift] 🔎 Cleanup for '{name}': find_matching_voiceprints "
-                      f"returned {len(old_matches)} match(es)")
-                for om in old_matches:
-                    # Only delete known-conflicting unregistered voiceprints
-                    # (identified during the pipeline run), not non-conflicting
-                    # speakers who happen to match acoustically (Bug C fix).
-                    match_in_unreg = om["name"].lower() in saved_unreg_names
-                    name_differs = om["name"].lower() != name.lower()
-                    print(f"[drift]   Candidate: '{om['name']}' (sim={om['similarity']:.3f}, "
-                          f"name_differs={name_differs}, in_unreg={match_in_unreg})")
-                    if name_differs and match_in_unreg:
-                        # Delete by speaker_name first, then by email as fallback
-                        # (email is the UNIQUE constraint key — more reliable)
-                        deleted_rows = vp_manager.delete_voiceprint_by_name(
-                            om["name"]
-                        )
-                        if deleted_rows == 0 and om.get("email"):
-                            print(f"[drift] ⚠️  delete by name '{om['name']}' "
-                                  f"returned 0 rows — falling back to email "
-                                  f"'{om['email']}'")
-                            vp_manager.delete_voiceprint(om["email"])
-                        # Also clean up the stale attendee record so the
-                        # attendee registry stays in sync with voiceprints
-                        try:
-                            ephemeral_memory.delete_attendee_by_name(om["name"])
-                        except Exception as e:
-                            print(f"[drift] ⚠️  Could not delete attendee "
-                                  f"'{om['name']}': {e}")
-                        print(f"[drift] 🗑️  Deleted old voiceprint '{om['name']}' — "
-                              f"re-labeled as '{name}' (sim={om['similarity']:.3f})")
-                        break  # Only the best (first) different-name match
+            # ── Deterministic overwrite cleanup using pipeline-computed matches ──
+            # Uses the voiceprint_matches_by_speaker data saved by the pipeline
+            # during voiceprint matching. This avoids re-running embedding
+            # comparison (which can silently fail due to threshold variance or
+            # segment selection differences). The pipeline already determined
+            # which voiceprint owner mapped to this speaker slot.
+            spk_matches = saved_vp_matches.get(spk, [])
+            print(f"[drift] 🔎 Cleanup for '{name}': saved_vp_matches for "
+                  f"{spk} returned {len(spk_matches)} match(es)")
+            for old_match in spk_matches:
+                old_name = old_match.get("name", "")
+                if not old_name or old_name.lower() == name.lower():
+                    continue
+                if old_name.lower() in saved_unreg_names:
+                    # Delete by speaker_name first, then by email as fallback
+                    deleted_rows = vp_manager.delete_voiceprint_by_name(old_name)
+                    if deleted_rows == 0 and old_match.get("email"):
+                        print(f"[drift] ⚠️  delete by name '{old_name}' "
+                              f"returned 0 rows — falling back to email "
+                              f"'{old_match['email']}'")
+                        vp_manager.delete_voiceprint(old_match["email"])
+                    # Also clean up the stale attendee record
+                    try:
+                        ephemeral_memory.delete_attendee_by_name(old_name)
+                    except Exception as e:
+                        print(f"[drift] ⚠️  Could not delete attendee "
+                              f"'{old_name}': {e}")
+                    print(f"[drift] 🗑️  Deleted old voiceprint '{old_name}' — "
+                          f"re-labeled as '{name}' (pipeline match)")
+                    break  # Only the first (best) match
                 else:
-                    # No match satisfied the deletion criteria
-                    print(f"[drift] ℹ️  No old voiceprint deleted for '{name}' — "
-                          f"no unregistered-name match above threshold")
+                    print(f"[drift]   Candidate '{old_name}' not in saved_unreg_names — skipping")
+            else:
+                print(f"[drift] ℹ️  No old voiceprint deleted for '{name}' — "
+                      f"no unregistered-name match in saved pipeline data")
             continue
 
         email_key = vp_manager._make_email(name, email)
@@ -2163,63 +2170,50 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
             },
         )
 
-    # ── Savepoint: wrap cleanup + batch-save in a transaction ──
-    # If something fails between cleanup and batch-save, roll back so the DB
-    # isn't left with stale deletions (e.g. old voiceprint deleted, new one
-    # not created). The drift audit check (409) happens BEFORE this point so
-    # nothing has been persisted yet when the user gets a conflict.
-    _vp_conn = vp_manager._get_conn()
-    _vp_conn.execute("SAVEPOINT sp_label_and_resume")
-    try:
-        # ── Batch-save voiceprints: audit passed, persist all pending embeddings ──
-        print(f"[drift] 💾 Batch-saving {len(pending_voiceprints)} voiceprint(s)...")
-        _dump_all_voiceprints("BEFORE batch save")
-        for pvp in pending_voiceprints:
-            # DIAGNOSTIC: check if a row already exists for this name/email
-            try:
-                _conn2 = vp_manager._get_conn()
-                _before = _conn2.execute(
-                    "SELECT id, speaker_name, email FROM voiceprints "
-                    "WHERE speaker_name=? OR email=?",
-                    (pvp["name"], pvp["email"])
-                ).fetchall()
-                if _before:
-                    print(f"[drift]   🔎 Pre-save check '{pvp['name']}': "
-                          f"existing row(s) = {[dict(id=r[0], name=r[1], email=r[2]) for r in _before]}")
-                else:
-                    print(f"[drift]   🔎 Pre-save check '{pvp['name']}': no existing row — will INSERT")
-            except Exception as e:
-                print(f"[drift]   ⚠️  Pre-save check error: {e}")
-
-            vp_manager.save_voiceprint(
-                pvp["name"], pvp["email"], pvp["embedding"],
-                sample_job_id=job_id,
-                sample_start=pvp["sample_start"],
-                sample_end=pvp["sample_end"],
-            )
-            if pvp["embedding"] is not None:
-                print(f"[api]   ✅ Saved voiceprint for '{pvp['name']}' ({pvp['spk']})")
-            else:
-                print(f"[api]   ✅ Saved voiceprint metadata for '{pvp['name']}' ({pvp['spk']}) — no embedding")
-
-        # Log final voiceprint count in DB after batch save
+    # ── Batch-save voiceprints: audit passed, persist all pending embeddings ──
+    # Note: save_voiceprint() internally calls conn.commit() for each save,
+    # so SQLite savepoints are NOT used here — they'd be immediately
+    # committed away. Each save is atomic on its own.
+    print(f"[drift] 💾 Batch-saving {len(pending_voiceprints)} voiceprint(s)...")
+    _dump_all_voiceprints("BEFORE batch save")
+    for pvp in pending_voiceprints:
+        # DIAGNOSTIC: check if a row already exists for this name/email
         try:
-            final_count = vp_manager._get_conn().execute(
-                "SELECT COUNT(*) FROM voiceprints"
-            ).fetchone()[0]
-            print(f"[drift] 📊 Voiceprint DB record count after save: {final_count}")
+            _conn2 = vp_manager._get_conn()
+            _before = _conn2.execute(
+                "SELECT id, speaker_name, email FROM voiceprints "
+                "WHERE speaker_name=? OR email=?",
+                (pvp["name"], pvp["email"])
+            ).fetchall()
+            if _before:
+                print(f"[drift]   🔎 Pre-save check '{pvp['name']}': "
+                      f"existing row(s) = {[dict(id=r[0], name=r[1], email=r[2]) for r in _before]}")
+            else:
+                print(f"[drift]   🔎 Pre-save check '{pvp['name']}': no existing row — will INSERT")
         except Exception as e:
-            print(f"[drift] ⚠️  Could not read voiceprint count: {e}")
+            print(f"[drift]   ⚠️  Pre-save check error: {e}")
 
-        _dump_all_voiceprints("AFTER batch save")
+        vp_manager.save_voiceprint(
+            pvp["name"], pvp["email"], pvp["embedding"],
+            sample_job_id=job_id,
+            sample_start=pvp["sample_start"],
+            sample_end=pvp["sample_end"],
+        )
+        if pvp["embedding"] is not None:
+            print(f"[api]   ✅ Saved voiceprint for '{pvp['name']}' ({pvp['spk']})")
+        else:
+            print(f"[api]   ✅ Saved voiceprint metadata for '{pvp['name']}' ({pvp['spk']}) — no embedding")
 
-        # ── Commit savepoint: all operations succeeded ──
-        _vp_conn.execute("RELEASE SAVEPOINT sp_label_and_resume")
-    except BaseException as _sp_exc:
-        _vp_conn.execute("ROLLBACK TO SAVEPOINT sp_label_and_resume")
-        print(f"[drift] ❌ Savepoint rollback due to: {_sp_exc}")
-        raise
-    # ── End savepoint ──
+    # Log final voiceprint count in DB after batch save
+    try:
+        final_count = vp_manager._get_conn().execute(
+            "SELECT COUNT(*) FROM voiceprints"
+        ).fetchone()[0]
+        print(f"[drift] 📊 Voiceprint DB record count after save: {final_count}")
+    except Exception as e:
+        print(f"[drift] ⚠️  Could not read voiceprint count: {e}")
+
+    _dump_all_voiceprints("AFTER batch save")
 
     # Determine how to proceed based on labeling phase
     labeling_phase = s.get("labeling_phase", "pre_asr")
@@ -4444,16 +4438,28 @@ def _register_attendees_after_reconciliation(
     if not all_attendees:
         return
 
+    # ── Defer if A/B conflicts exist ──
+    # When unregistered_speakers is non-empty, the user has unresolved A/B
+    # conflicts (voiceprint owners not in the form). Registering both sides
+    # before the user decides creates orphan records when the overwrite
+    # cleanup fails. Defer to _inner_label_and_resume which runs after the
+    # user resolves conflicts and is the single registration point.
+    has_conflicts = bool(reconciliation.get("unregistered_speakers"))
+    if has_conflicts:
+        unreg_count = len(reconciliation.get("unregistered_speakers", []))
+        print(f"[reconciliation] ⏸️  Deferring attendee registration for {job_id[:8]} — "
+              f"{unreg_count} unregistered speaker(s) need A/B conflict resolution first")
+        return
+
+    # ── No conflicts — safe to persist now ──
     try:
         ephemeral_memory.register_attendees(
             all_attendees, all_emails,
             source=source, job_id=job_id,
         )
-        unreg_count = len(reconciliation.get("unregistered_speakers", []))
         print(f"[reconciliation] Registered {len(all_attendees)} attendee(s) "
               f"({len(reconciliation.get('matched_speakers', []))} spoke, "
-              f"{len(reconciliation.get('non_speaking_attendees', []))} non-speaking"
-              f"{f', {unreg_count} unregistered' if unreg_count else ''}) "
+              f"{len(reconciliation.get('non_speaking_attendees', []))} non-speaking) "
               f"for job {job_id[:8]} in ephemeral DB")
     except Exception as e:
         print(f"[reconciliation] ⚠️  Could not register attendees for job {job_id}: {e}")
@@ -4755,14 +4761,9 @@ def _run_pipeline_sync(job_id: str):
         # label each detected speaker before we proceed to the expensive ASR step.
         speaker_count = len(speaker_segments)
         attendee_count = len(metadata.get("attendees", []))
-        should_pause = (
-            speaker_count > 0 and (
-                attendee_count == 0 or
-                attendee_count != speaker_count
-            )
-        )
+        should_pause = speaker_count > 0
         if should_pause:
-            jlog.log(f"\n   ⏸️  [PIPELINE] Speaker count ({speaker_count}) != attendee count ({attendee_count}) — pausing for labeling")
+            jlog.log(f"\n   ⏸️  [PIPELINE] {speaker_count} speaker(s) detected — pausing for labeling (attendees: {attendee_count})")
             uploader.save_diarization(job_id, {
                 "speaker_segments": speaker_segments,
                 "diarization": diarization,

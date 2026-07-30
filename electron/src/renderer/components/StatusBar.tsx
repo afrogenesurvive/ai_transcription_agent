@@ -6,15 +6,12 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import Icon from "./Icon";
 import Tooltip from "./Tooltip";
+import { useServiceStatus, SERVICES, type ServiceName } from "../hooks/serviceStatusContext";
 
-type ServiceStatus = boolean | null; // null = unknown/checking
 type FeedbackMsg = { text: string; type: "checking" | "success" | "error" } | null;
 type BusyService = string | null; // which service is being acted on, or null
 
-const SERVICES = ["python", "bridge", "agent"] as const;
-type Service = (typeof SERVICES)[number];
-
-const SERVICE_LABELS: Record<Service, string> = {
+const SERVICE_LABELS: Record<ServiceName, string> = {
   python: "Python",
   bridge: "Bridge",
   agent: "Agent",
@@ -27,17 +24,21 @@ interface StatusBarProps {
 }
 
 export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusBarProps) {
-  const [status, setStatus] = useState<Record<Service, ServiceStatus>>({
-    python: null,
-    bridge: null,
-    agent: null,
-  });
-  const [diarizationOk, setDiarizationOk] = useState<boolean | null>(null);
-  const [diarizationError, setDiarizationError] = useState<string | null>(null);
-  const [ollamaOk, setOllamaOk] = useState<boolean | null>(null);
-  const [ollamaProvider, setOllamaProvider] = useState(false);
+  const {
+    services: status,
+    diarizationOk,
+    diarizationError,
+    ollamaOk,
+    ollamaProvider,
+    checking,
+    checkServers: ctxCheckServers,
+    restartService: ctxRestartService,
+    startOllama: ctxStartOllama,
+    stopOllama: ctxStopOllama,
+    pollOllama: ctxPollOllama,
+  } = useServiceStatus();
+
   const [version, setVersion] = useState("1.0.0");
-  const [checking, setChecking] = useState(false);
   const [busy, setBusy] = useState<BusyService>(null);
   const [feedback, setFeedback] = useState<FeedbackMsg>(null);
   const [ollamaStarting, setOllamaStarting] = useState(false);
@@ -46,9 +47,7 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
   const [showCreditPopover, setShowCreditPopover] = useState(false);
   const creditBtnRef = useRef<HTMLButtonElement | null>(null);
   const feedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const checkTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const allReady = SERVICES.every((s) => status[s]);
   const anyBusy = busy !== null;
 
   const showFeedback = (msg: FeedbackMsg, duration = 4000) => {
@@ -57,54 +56,7 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
     if (msg) feedbackTimeoutRef.current = setTimeout(() => setFeedback(null), duration);
   };
 
-  // Poll all services via IPC every 5 seconds
-  const pollStatus = useCallback(async () => {
-    if (window.electronAPI) {
-      try {
-        const s = await window.electronAPI.getBackendStatus();
-        setStatus({ python: s.python, bridge: s.bridge, agent: s.agent });
-      } catch {
-        // IPC failed
-      }
-    } else {
-      try {
-        const res = await fetch("http://127.0.0.1:5010/health");
-        setStatus((prev) => ({ ...prev, bridge: res.ok }));
-      } catch {
-        setStatus((prev) => ({ ...prev, bridge: false }));
-      }
-    }
-  }, []);
-
-  // Poll diarization model status
-  const pollModels = useCallback(async () => {
-    try {
-      const res = await fetch("http://127.0.0.1:5010/tools/call", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tool: "transcribe_models_status", args: {} }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setDiarizationOk(data.diarization_available);
-        setDiarizationError(data.diarization_error);
-      }
-    } catch {
-      // Backend not reachable
-    }
-  }, []);
-
-  // Poll Ollama health
-  const pollOllama = useCallback(async () => {
-    try {
-      const result = await window.electronAPI?.checkOllamaHealth();
-      setOllamaOk(result?.healthy ?? false);
-    } catch {
-      setOllamaOk(false);
-    }
-  }, []);
-
-  // Poll DeepSeek API credit balance
+  // Poll DeepSeek API credit balance (unique to StatusBar)
   const pollDeepSeekBalance = useCallback(async () => {
     try {
       const result = await window.electronAPI?.checkDeepSeekBalance();
@@ -116,48 +68,11 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
     }
   }, []);
 
-  // Check if LLM provider is Ollama
-  const checkProvider = useCallback(async () => {
-    try {
-      const cfg = await window.electronAPI?.getConfig();
-      setOllamaProvider(cfg?.LLM_PROVIDER === "ollama");
-      // Also load credit poll interval from config
-      const intervalVal = Number(cfg?.CREDIT_POLL_INTERVAL) || 60000;
-      setCreditPollInterval(intervalVal);
-    } catch {
-      setOllamaProvider(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    pollStatus();
-    const interval = setInterval(pollStatus, 5000);
-    return () => clearInterval(interval);
-  }, [pollStatus]);
-
-  useEffect(() => {
-    pollModels();
-    const interval = setInterval(pollModels, 30000);
-    return () => clearInterval(interval);
-  }, [pollModels]);
-
-  useEffect(() => {
-    pollOllama();
-    const interval = setInterval(pollOllama, 15000);
-    return () => clearInterval(interval);
-  }, [pollOllama]);
-
   useEffect(() => {
     pollDeepSeekBalance();
     const interval = setInterval(pollDeepSeekBalance, creditPollInterval);
     return () => clearInterval(interval);
   }, [pollDeepSeekBalance, creditPollInterval]);
-
-  useEffect(() => {
-    checkProvider();
-    const interval = setInterval(checkProvider, 30000);
-    return () => clearInterval(interval);
-  }, [checkProvider]);
 
   useEffect(() => {
     window.electronAPI
@@ -180,7 +95,6 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
 
   useEffect(() => {
     return () => {
-      if (checkTimeoutRef.current) clearTimeout(checkTimeoutRef.current);
       if (feedbackTimeoutRef.current) clearTimeout(feedbackTimeoutRef.current);
     };
   }, []);
@@ -188,47 +102,19 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
   // ── Check all ──
 
   const handleCheckServers = useCallback(async () => {
-    setChecking(true);
-    setStatus({ python: null, bridge: null, agent: null });
     showFeedback({ text: "Checking…", type: "checking" });
-
-    checkTimeoutRef.current = setTimeout(() => {
-      setChecking(false);
-      showFeedback({ text: "Check timed out — servers unreachable", type: "error" });
-      pollStatus();
-    }, 6000);
-
     try {
-      if (window.electronAPI) {
-        const s = await window.electronAPI.checkServers();
-        setStatus({ python: s.python, bridge: s.bridge, agent: s.agent });
-
-        const parts: string[] = [];
-        for (const svc of SERVICES) {
-          parts.push(`${SERVICE_LABELS[svc]}: ${s[svc] ? "ok" : "err"}`);
-        }
-        const ok = s.python && s.bridge && s.agent;
-        showFeedback({ text: parts.join("  ·  "), type: ok ? "success" : "error" }, 5000);
-      } else {
-        try {
-          const res = await fetch("http://127.0.0.1:5010/health");
-          setStatus((prev) => ({ ...prev, bridge: res.ok }));
-          showFeedback({ text: res.ok ? "Bridge: ok" : "Bridge: err", type: res.ok ? "success" : "error" });
-        } catch {
-          setStatus((prev) => ({ ...prev, bridge: false }));
-          showFeedback({ text: "Bridge: err — unreachable", type: "error" });
-        }
+      const s = await ctxCheckServers();
+      const parts: string[] = [];
+      for (const svc of SERVICES) {
+        parts.push(`${SERVICE_LABELS[svc]}: ${s[svc] ? "ok" : "err"}`);
       }
+      const ok = SERVICES.every((svc) => s[svc]);
+      showFeedback({ text: parts.join("  ·  "), type: ok ? "success" : "error" }, 5000);
     } catch {
       showFeedback({ text: "Check failed — unexpected error", type: "error" });
-    } finally {
-      if (checkTimeoutRef.current) {
-        clearTimeout(checkTimeoutRef.current);
-        checkTimeoutRef.current = null;
-      }
-      setChecking(false);
     }
-  }, [pollStatus]);
+  }, [ctxCheckServers]);
 
   // ── Per-service actions ──
 
@@ -238,19 +124,18 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
     setOllamaStarting(true);
     showFeedback({ text: "Starting Ollama…", type: "checking" });
     try {
-      const result = await window.electronAPI?.startOllamaServer();
-      if (result?.success) {
+      const ok = await ctxStartOllama();
+      if (ok) {
         showFeedback({ text: "Ollama started ✓", type: "success" });
-        await pollOllama();
       } else {
-        showFeedback({ text: `Ollama start failed: ${result?.error || "unknown"}`, type: "error" });
+        showFeedback({ text: "Ollama start failed", type: "error" });
       }
     } catch {
       showFeedback({ text: "Failed to start Ollama", type: "error" });
     } finally {
       setOllamaStarting(false);
     }
-  }, [pollOllama]);
+  }, [ctxStartOllama]);
 
   // ── Force-stop Ollama ──
 
@@ -258,19 +143,14 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
     setBusy("ollama");
     showFeedback({ text: "Stopping Ollama…", type: "checking" });
     try {
-      const result = await window.electronAPI?.stopOllamaServer();
-      if (result?.success) {
-        setOllamaOk(false);
-        showFeedback({ text: "Ollama stopped", type: "error" });
-      } else {
-        showFeedback({ text: "Ollama stop failed", type: "error" });
-      }
+      const ok = await ctxStopOllama();
+      showFeedback({ text: ok ? "Ollama stopped" : "Ollama stop failed", type: ok ? "error" : "error" });
     } catch {
       showFeedback({ text: "Failed to stop Ollama", type: "error" });
     } finally {
       setBusy(null);
     }
-  }, []);
+  }, [ctxStopOllama]);
 
   // ── Restart Ollama ──
 
@@ -278,29 +158,22 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
     setBusy("ollama");
     showFeedback({ text: "Restarting Ollama…", type: "checking" });
     try {
-      await window.electronAPI?.stopOllamaServer();
-      setOllamaOk(false);
-      const result = await window.electronAPI?.startOllamaServer();
-      if (result?.success) {
-        showFeedback({ text: "Ollama restarted ✓", type: "success" });
-        await pollOllama();
-      } else {
-        showFeedback({ text: `Ollama restart failed: ${result?.error || "unknown"}`, type: "error" });
-      }
+      await ctxStopOllama();
+      const ok = await ctxStartOllama();
+      showFeedback({ text: ok ? "Ollama restarted ✓" : "Ollama restart failed", type: ok ? "success" : "error" });
     } catch {
       showFeedback({ text: "Failed to restart Ollama", type: "error" });
     } finally {
       setBusy(null);
     }
-  }, [pollOllama]);
+  }, [ctxStopOllama, ctxStartOllama]);
 
-  const handleStopService = useCallback(async (svc: Service) => {
+  const handleStopService = useCallback(async (svc: ServiceName) => {
     setBusy(svc);
     showFeedback({ text: `Stopping ${SERVICE_LABELS[svc]}…`, type: "checking" });
     try {
       if (window.electronAPI) {
         await window.electronAPI.stopService(svc);
-        setStatus((prev) => ({ ...prev, [svc]: false }));
         showFeedback({ text: `${SERVICE_LABELS[svc]} stopped`, type: "error" });
       }
     } catch {
@@ -311,22 +184,19 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
   }, []);
 
   const handleRestartService = useCallback(
-    async (svc: Service) => {
+    async (svc: ServiceName) => {
       setBusy(svc);
       showFeedback({ text: `Restarting ${SERVICE_LABELS[svc]}…`, type: "checking" });
       try {
-        if (window.electronAPI) {
-          await window.electronAPI.restartService(svc);
-          showFeedback({ text: `${SERVICE_LABELS[svc]} restarted ✓`, type: "success" });
-        }
+        const ok = await ctxRestartService(svc);
+        showFeedback({ text: ok ? `${SERVICE_LABELS[svc]} restarted ✓` : `Failed to restart ${SERVICE_LABELS[svc]}`, type: ok ? "success" : "error" });
       } catch {
         showFeedback({ text: `Failed to restart ${SERVICE_LABELS[svc]}`, type: "error" });
       } finally {
         setBusy(null);
-        pollStatus();
       }
     },
-    [pollStatus],
+    [ctxRestartService],
   );
 
   return (

@@ -426,6 +426,8 @@ ipcMain.handle("backend:status", async () => {
   let python = false;
   let bridge = false;
   const agent = isAgentRunning();
+  let diarizationAvailable: boolean | null = null;
+  let diarizationError: string | null = null;
 
   try {
     const pyRes = await fetch("http://127.0.0.1:5001/health", { signal: AbortSignal.timeout(2000) });
@@ -441,7 +443,26 @@ ipcMain.handle("backend:status", async () => {
     // bridge not running
   }
 
-  return { python, bridge, agent };
+  // Check diarization model status via bridge (backend caches for 60s)
+  if (bridge) {
+    try {
+      const toolsRes = await fetch("http://127.0.0.1:5010/tools/call", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tool: "transcribe_models_status", args: {} }),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (toolsRes.ok) {
+        const data = await toolsRes.json();
+        diarizationAvailable = data.diarization_available;
+        diarizationError = data.diarization_error;
+      }
+    } catch {
+      // diarization check failed
+    }
+  }
+
+  return { python, bridge, agent, diarizationAvailable, diarizationError };
 });
 
 ipcMain.handle("app:version", () => {

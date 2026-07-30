@@ -7,23 +7,8 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import type { ServiceName, ServiceStatus } from "../hooks/useServerStatus";
-import { SERVICES, SERVICE_LABELS } from "../hooks/useServerStatus";
+import { useServiceStatus, SERVICES, SERVICE_LABELS, type ServiceName } from "../hooks/serviceStatusContext";
 import Icon from "./Icon";
-
-interface Props {
-  services: Record<ServiceName, ServiceStatus>;
-  diarizationOk: boolean | null;
-  diarizationError: string | null;
-  ollamaOk: boolean | null;
-  ollamaRequired: boolean;
-  checking: boolean;
-  allReady: boolean;
-  onCheckServers: () => void;
-  onRestartService: (name: ServiceName) => Promise<boolean>;
-  onRestartAll: () => Promise<boolean>;
-  onStartOllama?: () => Promise<boolean>;
-}
 
 const SERVICE_ICONS: Record<string, string> = {
   python: "code",
@@ -34,19 +19,20 @@ const SERVICE_ICONS: Record<string, string> = {
 
 const COUNTDOWN_SECONDS = 25;
 
-export default function ServerStatusBanner({
-  services,
-  diarizationOk,
-  diarizationError,
-  ollamaOk,
-  ollamaRequired,
-  checking,
-  allReady,
-  onCheckServers,
-  onRestartService,
-  onRestartAll,
-  onStartOllama,
-}: Props) {
+export default function ServerStatusBanner() {
+  const {
+    services,
+    diarizationOk,
+    diarizationError,
+    ollamaOk,
+    ollamaProvider,
+    checking,
+    allReady,
+    checkServers: onCheckServers,
+    restartService: onRestartService,
+    restartAll: onRestartAll,
+    startOllama: onStartOllama,
+  } = useServiceStatus();
   const [restarting, setRestarting] = useState<Record<string, boolean>>({});
   const [countdown, setCountdown] = useState(COUNTDOWN_SECONDS);
   const [countdownActive, setCountdownActive] = useState(true);
@@ -128,7 +114,7 @@ export default function ServerStatusBanner({
     icon: SERVICE_ICONS.diarization,
     status: diarizationOk,
   });
-  if (ollamaRequired) {
+  if (ollamaProvider) {
     allItems.push({
       name: "ollama",
       label: "Ollama Server",

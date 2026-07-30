@@ -1,5 +1,9 @@
 /**
- * useServerStatus — polls backend service health + diarization model + Ollama status.
+ * @deprecated Use serviceStatusContext instead.
+ *
+ * Old hook — polls backend service health + diarization model + Ollama status.
+ * Replaced by ServiceStatusProvider + useServiceStatus() context for shared
+ * polling across StatusBar and ServerStatusBanner.
  *
  * Exposes:
  *   services        — { python, bridge, agent } boolean | null
@@ -50,6 +54,8 @@ export function useServerStatus(ollamaRequired = false) {
       try {
         const s = await window.electronAPI.getBackendStatus();
         setServices({ python: s.python, bridge: s.bridge, agent: s.agent });
+        setDiarizationOk(s.diarizationAvailable);
+        setDiarizationError(s.diarizationError);
       } catch {
         // IPC failed
       }
@@ -64,24 +70,6 @@ export function useServerStatus(ollamaRequired = false) {
     }
   }, []);
 
-  /** Poll diarization model status via bridge */
-  const pollDiarization = useCallback(async () => {
-    try {
-      const res = await fetch("http://127.0.0.1:5010/tools/call", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tool: "transcribe_models_status", args: {} }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setDiarizationOk(data.diarization_available);
-        setDiarizationError(data.diarization_error);
-      }
-    } catch {
-      // Backend not reachable
-    }
-  }, []);
-
   /** Poll Ollama health */
   const pollOllama = useCallback(async () => {
     try {
@@ -92,23 +80,17 @@ export function useServerStatus(ollamaRequired = false) {
     }
   }, []);
 
-  // Poll on mount and every 30s
-  // Model status (diarization availability) doesn't change during a session;
-  // the Python backend also caches the result for 60s, so frequent polling
-  // isn't needed and avoids POSIX semaphore leaks on macOS.
   useEffect(() => {
     pollStatus();
-    pollDiarization();
     pollOllama();
     intervalRef.current = setInterval(() => {
       pollStatus();
-      pollDiarization();
       pollOllama();
     }, 30000);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [pollStatus, pollDiarization, pollOllama]);
+  }, [pollStatus, pollOllama]);
 
   /** Manual re-check with loading state */
   const checkServers = useCallback(async () => {
@@ -118,14 +100,15 @@ export function useServerStatus(ollamaRequired = false) {
       if (window.electronAPI) {
         const s = await window.electronAPI.checkServers();
         setServices({ python: s.python, bridge: s.bridge, agent: s.agent });
+        setDiarizationOk(s.diarizationAvailable);
+        setDiarizationError(s.diarizationError);
       }
-      await pollDiarization();
     } catch {
       // ignore
     } finally {
       setChecking(false);
     }
-  }, [pollDiarization]);
+  }, []);
 
   /** Restart a single service via IPC */
   const restartService = useCallback(
@@ -136,7 +119,6 @@ export function useServerStatus(ollamaRequired = false) {
           // Small delay so the process has time to start before re-poll
           await new Promise((r) => setTimeout(r, 1000));
           await pollStatus();
-          await pollDiarization();
           return true;
         }
         return false;
@@ -144,7 +126,7 @@ export function useServerStatus(ollamaRequired = false) {
         return false;
       }
     },
-    [pollStatus, pollDiarization],
+    [pollStatus],
   );
 
   /** Restart all services */
@@ -154,14 +136,13 @@ export function useServerStatus(ollamaRequired = false) {
         await window.electronAPI.restartServices();
         await new Promise((r) => setTimeout(r, 2000));
         await pollStatus();
-        await pollDiarization();
         return true;
       }
       return false;
     } catch {
       return false;
     }
-  }, [pollStatus, pollDiarization]);
+  }, [pollStatus]);
 
   /** Start Ollama server */
   const startOllama = useCallback(async (): Promise<boolean> => {
