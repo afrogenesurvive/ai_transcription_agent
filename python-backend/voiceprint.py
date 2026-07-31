@@ -545,6 +545,23 @@ class VoiceprintManager:
         resolved_email = self._make_email(name, email)
         conn = self._get_conn()
 
+        # ── Email collision guard ──
+        # Before the cleanup DELETE, verify this email doesn't already belong
+        # to a DIFFERENT speaker_name. If it does, another speaker's record
+        # would be silently overwritten by ON CONFLICT(email) DO UPDATE below.
+        # This prevents the cascade where a label payload with wrong emails
+        # (e.g. from frontend positional alignment bugs) causes one speaker's
+        # voiceprint to be replaced by another.
+        existing_email_owner = conn.execute(
+            "SELECT speaker_name FROM voiceprints WHERE email = ? AND speaker_name != ?",
+            (resolved_email, name),
+        ).fetchone()
+        if existing_email_owner:
+            print(f"[voiceprint] ⚠️  EMAIL COLLISION: '{resolved_email}' already belongs to "
+                  f"'{existing_email_owner[0]}' — cannot save '{name}' with it. "
+                  f"Falling back to @voiceprint.local placeholder.")
+            resolved_email = self._make_email(name, "")
+
         # Remove any existing row whose speaker_name collides with the new
         # name but has a different email.  This prevents UNIQUE constraint
         # violation on speaker_name when the caller re-labels a speaker

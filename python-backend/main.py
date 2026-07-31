@@ -2158,6 +2158,26 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
             },
         )
 
+    # ── Cross-check label emails against metadata attendeeEmails ──
+    # If a label has an email that differs from what the job metadata knows
+    # for that attendee, the frontend likely assigned the wrong email via
+    # positional alignment. Use the metadata-correct value instead to prevent
+    # email collisions in the voiceprint DB.
+    metadata = uploader.get_metadata(job_id)
+    attendee_email_map = metadata.get("attendeeEmails", {})
+    if isinstance(attendee_email_map, list):
+        # Initial upload stores attendeeEmails as a list positionally aligned
+        # with attendees[]. Convert to dict keyed by name for lookup.
+        names = metadata.get("attendees", [])
+        attendee_email_map = dict(zip(names, attendee_email_map))
+    for pvp in pending_voiceprints:
+        expected_email = attendee_email_map.get(pvp["name"], "")
+        if expected_email and pvp["email"] and pvp["email"] != expected_email:
+            print(f"[label_and_resume] ⚠️  Email mismatch for '{pvp['name']}': "
+                  f"label says '{pvp['email']}', metadata has '{expected_email}'. "
+                  f"Using metadata value.")
+            pvp["email"] = expected_email
+
     # ── Batch-save voiceprints: audit passed, persist all pending embeddings ──
     # Note: save_voiceprint() internally calls conn.commit() for each save,
     # so SQLite savepoints are NOT used here — they'd be immediately

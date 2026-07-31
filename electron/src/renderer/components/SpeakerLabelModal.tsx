@@ -225,8 +225,11 @@ export default function SpeakerLabelModal({
       if (spk.suggested_name) {
         initialNames[spk.speaker_id] = spk.suggested_name;
       }
-      // Positional alignment: speaker[i] gets suggestedEmails[i]
-      if (i < suggestedEmails.length && suggestedEmails[i]) {
+      // Use backend-resolved email (matched by voiceprint identity in Pass 2)
+      // Falls back to positional alignment only when form_entry_email is empty.
+      if (spk.form_entry_email) {
+        initialEmails[spk.speaker_id] = spk.form_entry_email;
+      } else if (i < suggestedEmails.length && suggestedEmails[i]) {
         initialEmails[spk.speaker_id] = suggestedEmails[i];
       }
     }
