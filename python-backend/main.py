@@ -1919,12 +1919,19 @@ async def serve_speaker_clip(job_id: str, speaker_id: str, clip_index: int):
 async def label_and_resume(job_id: str, payload: dict = Body(...)):
     """Accept speaker labels from the user and resume the pipeline.
 
-    Body: {labels: [{speaker_id, name, email?}], overwrite_names?: [str]}
+    Body: {labels: [{speaker_id, name, email?}], overwrite_names?: [str],
+           excluded_non_speaking?: [str]}
     Saves voiceprints with actual audio embeddings, remaps speaker IDs,
     then continues the pipeline from diarization → ASR → alignment → agent.
 
     When overwrite_names is provided, the drift audit is skipped for those
     names, allowing the user to assign a different name to a known voice.
+
+    excluded_non_speaking is a list of form-entry names that were never assigned
+    to a speaker slot (A/B conflict losers the user resolved toward the existing
+    voice owner, plus any non-speaking attendees the user removed in the labeling
+    modal). Those names are dropped from the persisted attendee list, delivery
+    recipients, and agent context.
     """
     import traceback
     try:
@@ -1936,11 +1943,12 @@ async def label_and_resume(job_id: str, payload: dict = Body(...)):
 
         labels = payload.get("labels", [])
         overwrite_names = payload.get("overwrite_names", [])
+        excluded_non_speaking = payload.get("excluded_non_speaking", [])
 
         if not labels or not isinstance(labels, list):
             raise HTTPException(400, "Body must contain a 'labels' array of {speaker_id, name} objects")
 
-        _inner_label_and_resume(job_id, labels, overwrite_names)
+        _inner_label_and_resume(job_id, labels, overwrite_names, excluded_non_speaking)
     except HTTPException:
         raise
     except Exception as e:
@@ -1963,7 +1971,8 @@ def _dump_all_voiceprints(label: str):
         print(f"[drift] ⚠️  _dump_all_voiceprints error: {e}")
 
 
-def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = None):
+def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = None,
+                            excluded_non_speaking: list = None):
     """Inner function — all the actual work, extracted so the async route
     handler has a clean try/except wrapper.
 
@@ -1974,9 +1983,15 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
             When a name is in this list, the drift audit will not report
             conflicts for that label, allowing the user to assign a
             different name to a known voice.
+        excluded_non_speaking: Optional list of form-entry names that were never
+            assigned to a speaker slot (A/B conflict losers + user-removed
+            non-speaking attendees). They are dropped from the persisted attendee
+            list, delivery recipients, and agent context.
     """
     if overwrite_names is None:
         overwrite_names = []
+    if excluded_non_speaking is None:
+        excluded_non_speaking = []
     # Defer imports that rely on the module-level globals
     from config import config
     import json, os, numpy as np
@@ -2316,6 +2331,16 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
         labeled_names = {info["name"].lower() for info in label_map.values()}
         non_speaking = [ns for ns in non_speaking if ns["name"].lower() not in labeled_names]
 
+        # Drop form entries the user excluded (A/B conflict losers + X'd
+        # non-speaking attendees). These names were never assigned to a speaker
+        # slot, so they were not in the audio — they must not appear in the
+        # meeting record or delivery recipients.
+        kept_ns, removed_ns = _split_excluded_non_speaking(non_speaking, excluded_non_speaking)
+        if removed_ns:
+            print(f"[label_and_resume] 🗑️ Excluded {len(removed_ns)} non-speaking attendee(s) "
+                  f"({[r.get('name') for r in removed_ns]}) — dropped from meeting record + delivery")
+        non_speaking = kept_ns
+
         # Build the consolidated attendee list:
         # 1. All matched speakers (from reconciled labels + user labels)
         # 2. Non-speaking attendees (from form, silent)
@@ -2424,6 +2449,11 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
             e = _resolve_attendee_email(us["name"], us.get("email", ""))
             if e and "@voiceprint.local" not in e:
                 existing_recipients.add(e.lower())
+        # Prune delivery recipients for excluded non-speaking attendees — their
+        # emails were captured in the original form email_recipients, but they
+        # were never in the audio, so they must not receive the summary.
+        retained_emails = {e.lower() for e in all_attendee_emails}
+        _prune_excluded_emails(existing_recipients, removed_ns, retained_emails)
         metadata["email_recipients"] = list(existing_recipients)
         try:
             meta_path = os.path.join(config.STORAGE_PATH, job_id, "metadata.json")
@@ -2464,7 +2494,7 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
         return result
     else:
         # Pre-ASR (diarization only) — run full resumed pipeline (ASR → alignment → agent)
-        _start_resumed_pipeline(job_id, label_map)
+        _start_resumed_pipeline(job_id, label_map, excluded_non_speaking)
         result = {"job_id": job_id, "status": "resuming", "applied_labels": len(label_map)}
         if drift_entries:
             result["voice_match_conflicts"] = drift_entries
@@ -2699,13 +2729,15 @@ async def approve_gate2(job_id: str, body: dict = Body(...)):
         raise HTTPException(500, f"Gate 2 approval failed: {e}")
 
 
-def _start_resumed_pipeline(job_id: str, label_map: dict):
+def _start_resumed_pipeline(job_id: str, label_map: dict, excluded_non_speaking: list = None):
     """Launch the resumed pipeline in a background asyncio task."""
-    task = asyncio.create_task(_run_resumed_pipeline_async(job_id, label_map))
+    task = asyncio.create_task(
+        _run_resumed_pipeline_async(job_id, label_map, excluded_non_speaking)
+    )
     _pipeline_tasks[job_id] = task
 
 
-async def _run_resumed_pipeline_async(job_id: str, label_map: dict):
+async def _run_resumed_pipeline_async(job_id: str, label_map: dict, excluded_non_speaking: list = None):
     """Async wrapper for the resumed pipeline (diarization → ASR → alignment)."""
     async with _pipeline_semaphore:
         print(f"\n{'='*60}")
@@ -2718,7 +2750,9 @@ async def _run_resumed_pipeline_async(job_id: str, label_map: dict):
         except Exception:
             pass
         try:
-            await asyncio.to_thread(_run_pipeline_resumed_sync, job_id, label_map)
+            await asyncio.to_thread(
+                _run_pipeline_resumed_sync, job_id, label_map, excluded_non_speaking
+            )
             print(f"\n{'='*60}")
             print(f"   ✅ [PIPELINE] Resumed pipeline complete for job {job_id}")
             print(f"{'='*60}\n")
@@ -2740,7 +2774,7 @@ async def _run_resumed_pipeline_async(job_id: str, label_map: dict):
             _cleanup_pipeline_resources()
 
 
-def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
+def _run_pipeline_resumed_sync(job_id: str, label_map: dict, excluded_non_speaking: list = None):
     """Resumed pipeline — loads saved diarization, skips to ASR + alignment.
 
     The diarization was already done and saved. We load it, apply the
@@ -2802,6 +2836,19 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
             metadata_attendees, metadata_attendee_emails,
             match_result, speaker_segments,
         )
+
+        # Drop form entries the user excluded (A/B conflict losers + X'd
+        # non-speaking attendees) from the reconciliation, so they are not
+        # persisted to metadata/delivery/DB or passed to the agent context.
+        if excluded_non_speaking:
+            kept_ns, removed_ns = _split_excluded_non_speaking(
+                reconciliation.get("non_speaking_attendees", []), excluded_non_speaking)
+            if removed_ns:
+                reconciliation["non_speaking_attendees"] = kept_ns
+                jlog.log(f"[reconciliation] 🗑️ Excluded {len(removed_ns)} non-speaking "
+                      f"attendee(s) ({[r.get('name') for r in removed_ns]}) — "
+                      f"dropped from meeting record + delivery")
+
         matched_names = [s["name"] for s in reconciliation["matched_speakers"]]
         non_speaking_names = [s["name"] for s in reconciliation["non_speaking_attendees"]]
         unknown_ids = [u["speaker_id"] for u in reconciliation["unknown_speakers"]]
@@ -2964,7 +3011,8 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
                 # attendee list. After labeling, update metadata so downstream
                 # consumers (Gate 1 approval, agent runner delivery) get the
                 # full attendee list with delivery recipients.
-                _update_metadata_with_reconciliation(job_id, metadata, reconciliation, jlog)
+                _update_metadata_with_reconciliation(job_id, metadata, reconciliation, jlog,
+                                                    excluded_non_speaking)
 
                 # Register attendees before pausing so the approval panel has access to them
                 _register_attendees_after_reconciliation(
@@ -2975,7 +3023,8 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict):
             _update_active(job_id, "ready_for_agent", 0.95)
 
             # ── Persist reconciled attendee list back to metadata.json ──
-            _update_metadata_with_reconciliation(job_id, metadata, reconciliation, jlog)
+            _update_metadata_with_reconciliation(job_id, metadata, reconciliation, jlog,
+                                                excluded_non_speaking)
 
             skip = metadata.get("skip_steps")
             jlog.log(f"[pipeline] All speakers known — enqueueing ready_for_processing")
@@ -4415,9 +4464,45 @@ def _resolve_attendee_email(name: str, email: str) -> str:
     return VoiceprintManager._make_email(name, "")
 
 
+def _split_excluded_non_speaking(non_speaking: list, excluded_non_speaking: list):
+    """Partition non-speaking attendees into (kept, removed) based on an explicit
+    exclusion list (A/B conflict losers + user-removed non-speaking attendees).
+
+    Matching is case-insensitive on the attendee name. Handles both dict-style
+    ({name, email}) and plain-string entries defensively.
+    """
+    if not excluded_non_speaking or not non_speaking:
+        return non_speaking or [], []
+    excluded_lower = {e.strip().lower() for e in excluded_non_speaking if e and e.strip()}
+    if not excluded_lower:
+        return non_speaking, []
+    kept, removed = [], []
+    for ns in non_speaking:
+        name = ns.get("name", "") if isinstance(ns, dict) else str(ns)
+        if name.strip().lower() in excluded_lower:
+            removed.append(ns)
+        else:
+            kept.append(ns)
+    return kept, removed
+
+
+def _prune_excluded_emails(existing_recipients: set, removed_ns: list, retained_emails: set):
+    """Remove delivery recipients belonging to excluded non-speaking attendees,
+    unless the email is shared with a retained attendee."""
+    if not removed_ns:
+        return
+    excluded_emails = {
+        _resolve_attendee_email(ns["name"], ns.get("email", "")).lower()
+        for ns in removed_ns
+    }
+    for e in list(existing_recipients):
+        if e in excluded_emails and e not in retained_emails:
+            existing_recipients.discard(e)
+
+
 def _update_metadata_with_reconciliation(
     job_id: str, metadata: dict,
-    reconciliation: dict, jlog=None
+    reconciliation: dict, jlog=None, excluded_non_speaking: list = None
 ):
     """Update metadata.json with reconciled attendee list and delivery recipients.
 
@@ -4426,20 +4511,32 @@ def _update_metadata_with_reconciliation(
     speakers, and non-speaking attendees — to metadata.json. Without this,
     downstream consumers (approve_gate1, enqueue_ready, agent runner delivery)
     read stale metadata with only the original upload-form attendees.
+
+    excluded_non_speaking: names of form entries never assigned to a speaker slot
+        (A/B conflict losers + user-removed non-speaking attendees). They are
+        dropped from the attendee list and their emails are pruned from the
+        delivery recipients.
     """
     import json, os
     from config import config
 
+    non_speaking_full = reconciliation.get("non_speaking_attendees", [])
+    kept_ns, removed_ns = _split_excluded_non_speaking(non_speaking_full, excluded_non_speaking)
+    if removed_ns:
+        print(f"[pipeline] 🗑️ Excluded {len(removed_ns)} non-speaking attendee(s) "
+              f"({[r.get('name') for r in removed_ns]}) from metadata — "
+              f"dropped from meeting record + delivery")
+
     all_attendee_names = list(dict.fromkeys(
         [s["name"] for s in reconciliation.get("matched_speakers", [])] +
-        [ns["name"] for ns in reconciliation.get("non_speaking_attendees", [])] +
+        [ns["name"] for ns in kept_ns] +
         [us["name"] for us in reconciliation.get("unregistered_speakers", [])]
     ))
     all_attendee_emails = []
     for name in all_attendee_names:
         raw_email = next(
             (s.get("email", "") for s in reconciliation.get("matched_speakers", []) if s["name"] == name),
-            next((ns.get("email", "") for ns in reconciliation.get("non_speaking_attendees", []) if ns["name"] == name),
+            next((ns.get("email", "") for ns in kept_ns if ns["name"] == name),
                  next((us.get("email", "") for us in reconciliation.get("unregistered_speakers", []) if us["name"] == name), ""))
         )
         all_attendee_emails.append(
@@ -4464,6 +4561,9 @@ def _update_metadata_with_reconciliation(
         e = _resolve_attendee_email(us["name"], us.get("email", ""))
         if e and "@voiceprint.local" not in e:
             existing_recipients.add(e.lower())
+    # Prune delivery recipients for excluded non-speaking attendees.
+    retained_emails = {e.lower() for e in all_attendee_emails}
+    _prune_excluded_emails(existing_recipients, removed_ns, retained_emails)
     metadata["email_recipients"] = list(existing_recipients)
     try:
         meta_path = os.path.join(config.STORAGE_PATH, job_id, "metadata.json")

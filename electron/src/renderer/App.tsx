@@ -584,13 +584,16 @@ export default function App() {
 
   // Handle speaker label confirmation and pipeline resume
   const handleLabelConfirm = useCallback(
-    async (labels: Array<{ speaker_id: string; name: string; email?: string }>, options?: { overwriteNames?: string[] }) => {
+    async (
+      labels: Array<{ speaker_id: string; name: string; email?: string }>,
+      options?: { overwriteNames?: string[]; excludedNonSpeaking?: string[] },
+    ) => {
       if (!jobId) return;
       setLabelingError(null);
       setLabelingConflicts(null);
       setLabelingSubmitting(true);
       try {
-        const result = await api.labelAndResume(jobId, labels, options?.overwriteNames);
+        const result = await api.labelAndResume(jobId, labels, options?.overwriteNames, options?.excludedNonSpeaking);
         console.log("Label & resume result", result);
         setShowSpeakerModal(false);
         setSpeakerClips(null);

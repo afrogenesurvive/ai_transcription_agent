@@ -641,6 +641,26 @@
   opacity: 0.65;
 }
 
+.speaker-non-speaking-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.speaker-non-speaking-remove:hover {
+  background: var(--danger, #e5484d);
+  color: #fff;
+}
+
 /* ── Unregistered name warning banner ── */
 
 .speaker-unregistered-banner {

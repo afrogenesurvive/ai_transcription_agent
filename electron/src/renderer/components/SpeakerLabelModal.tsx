@@ -61,7 +61,10 @@ interface Props {
   jobId: string;
   speakers: SpeakerInfo[];
   suggestedEmails?: string[];
-  onConfirm: (labels: Array<{ speaker_id: string; name: string; email?: string }>, options?: { overwriteNames?: string[] }) => Promise<void>;
+  onConfirm: (
+    labels: Array<{ speaker_id: string; name: string; email?: string }>,
+    options?: { overwriteNames?: string[]; excludedNonSpeaking?: string[] },
+  ) => Promise<void>;
   onCancel: () => void;
   submitting: boolean;
   nonSpeakingAttendees?: NonSpeakingInfo[];
@@ -119,6 +122,11 @@ export default function SpeakerLabelModal({
   // 'form_entry' = use the name/email from the new job form (overwrite)
   // 'voice_owner' = use the matched voiceprint owner's name/email (keep existing)
   const [conflictChoices, setConflictChoices] = useState<Record<string, 'form_entry' | 'voice_owner'>>({});
+
+  // ── Non-speaking attendee manual removal (X buttons) ──
+  // Lowercased names the user removed from the "Also present but did not speak"
+  // section. They are excluded from the persisted attendee list + delivery.
+  const [removedNonSpeaking, setRemovedNonSpeaking] = useState<Set<string>>(new Set());
 
   // ── Derive which speakers have active conflicts (for highlighting) ──
   const conflictSpeakerIds = new Set<string>();
@@ -330,6 +338,37 @@ export default function SpeakerLabelModal({
       email: emails[s.speaker_id]?.trim() || "",
     }));
 
+  // ── Conflict losers: form entries that lost an A/B conflict ("use voice owner") ──
+  // The user kept the existing voiceprint owner, so the form entry was never
+  // assigned to a speaker slot and was not in the audio. These names are hidden
+  // from the non-speaking section and excluded from the persisted attendee list.
+  const conflictLoserNames = new Set<string>();
+  for (const [spkId, choice] of Object.entries(conflictChoices)) {
+    if (choice !== "voice_owner") continue;
+    const spk = speakers.find((s) => s.speaker_id === spkId);
+    const formName = spk?.form_entry_name?.trim();
+    if (formName) conflictLoserNames.add(formName.toLowerCase());
+  }
+
+  // Non-speaking attendees still visible (not removed via X, not a conflict loser).
+  const visibleNonSpeaking = nonSpeakingAttendees.filter((ns) => {
+    const key = (ns.name || "").toLowerCase();
+    return !removedNonSpeaking.has(key) && !conflictLoserNames.has(key);
+  });
+
+  /** Names to exclude from the persisted non-speaking attendee list.
+   *  = A/B conflict losers (form entry lost to an existing voice owner)
+   *    ∪ non-speaking attendees removed via the X button
+   *    − any name actually assigned to a speaker slot. */
+  const buildExcludedNonSpeaking = (
+    result: Array<{ speaker_id: string; name: string; email?: string }>,
+  ): string[] => {
+    const excluded = new Set<string>(conflictLoserNames);
+    for (const n of removedNonSpeaking) excluded.add(n);
+    const labeled = new Set(result.map((l) => l.name.trim().toLowerCase()).filter(Boolean));
+    return Array.from(excluded).filter((n) => !labeled.has(n));
+  };
+
   // ── Voiceprint + voice-match conflict checking ──
   const handleConfirm = async () => {
     // Re-validate all emails before proceeding
@@ -436,7 +475,13 @@ export default function SpeakerLabelModal({
     const overwriteNames = Array.from(perSpeakerOverwrite)
       .map((sid) => labels[sid]?.trim())
       .filter(Boolean) as string[];
-    await onConfirm(result, overwriteNames.length > 0 ? { overwriteNames } : undefined);
+    const excludedNonSpeaking = buildExcludedNonSpeaking(result);
+    await onConfirm(
+      result,
+      overwriteNames.length > 0 || excludedNonSpeaking.length > 0
+        ? { overwriteNames, excludedNonSpeaking }
+        : undefined,
+    );
   };
 
   /** Toggle whether a conflicting voiceprint should be overwritten. */
@@ -453,8 +498,9 @@ export default function SpeakerLabelModal({
   const handleConflictConfirm = async () => {
     const result = buildResult();
     const overwriteNames = Array.from(overwriteSet);
+    const excludedNonSpeaking = buildExcludedNonSpeaking(result);
     setConflicts([]);
-    await onConfirm(result, { overwriteNames });
+    await onConfirm(result, { overwriteNames, excludedNonSpeaking });
   };
 
   /** Per-conflict accept/reject toggles (Phase C3). */
@@ -509,7 +555,8 @@ export default function SpeakerLabelModal({
     // Collect all originally-typed names as overwrite targets
     const result = buildResult();
     const overwriteNames = result.map((l) => l.name).filter(Boolean);
-    await onConfirm(result, { overwriteNames });
+    const excludedNonSpeaking = buildExcludedNonSpeaking(result);
+    await onConfirm(result, { overwriteNames, excludedNonSpeaking });
   };
 
   /** Accept selected matches and/or keep per-speaker names, then proceed.
@@ -550,7 +597,13 @@ export default function SpeakerLabelModal({
     setShowVoiceWarnings(false);
     setVerificationDone(true);
     setCheckingConflicts(false);
-    await onConfirm(result, buildOverwriteNames.length > 0 ? { overwriteNames: buildOverwriteNames } : undefined);
+    const excludedNonSpeaking = buildExcludedNonSpeaking(result);
+    await onConfirm(
+      result,
+      buildOverwriteNames.length > 0 || excludedNonSpeaking.length > 0
+        ? { overwriteNames: buildOverwriteNames, excludedNonSpeaking }
+        : undefined,
+    );
   };
 
   // ── Live per-speaker conflict detection on name blur (Phase C) ──
@@ -640,7 +693,8 @@ export default function SpeakerLabelModal({
       name: labels[s.speaker_id]?.trim() || s.speaker_id,
       email: emails[s.speaker_id]?.trim() || "",
     }));
-    onConfirm(defaultLabels);
+    const excludedNonSpeaking = buildExcludedNonSpeaking(defaultLabels);
+    onConfirm(defaultLabels, excludedNonSpeaking.length > 0 ? { excludedNonSpeaking } : undefined);
   };
 
   return (
@@ -851,16 +905,16 @@ export default function SpeakerLabelModal({
         </div>
 
         {/* ── Non-speaking attendees ── */}
-        {nonSpeakingAttendees.length > 0 && (
+        {visibleNonSpeaking.length > 0 && (
           <div className="speaker-non-speaking-section">
             <h3 className="speaker-non-speaking-heading">
               <Icon name="visibility_off" size="14" color="muted" /> Also present but did not speak
             </h3>
             <p className="speaker-non-speaking-desc">
-              These registered attendees had no detected speech segments. No voiceprint is needed — they are included in the meeting record.
+              These registered attendees had no detected speech segments. No voiceprint is needed — they are included in the meeting record unless you remove them.
             </p>
             <ul className="speaker-non-speaking-list">
-              {nonSpeakingAttendees.map((ns, i) => (
+              {visibleNonSpeaking.map((ns, i) => (
                 <li key={i} className="speaker-non-speaking-item">
                   <span className="speaker-non-speaking-name">{ns.name}</span>
                   {ns.email ? (
@@ -868,6 +922,16 @@ export default function SpeakerLabelModal({
                   ) : (
                     <span className="speaker-non-speaking-email-missing">(no email)</span>
                   )}
+                  <button
+                    className="speaker-non-speaking-remove"
+                    title="Remove from meeting record"
+                    onClick={() =>
+                      setRemovedNonSpeaking((prev) =>
+                        new Set(prev).add((ns.name || "").toLowerCase()),
+                      )
+                    }>
+                    <Icon name="close" size="14" />
+                  </button>
                 </li>
               ))}
             </ul>

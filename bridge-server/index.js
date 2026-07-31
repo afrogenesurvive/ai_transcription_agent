@@ -350,6 +350,7 @@ async function dispatch(tool, args) {
         const lrResult = await callPython("POST", `/transcribe/label_and_resume/${args.jobId}`, {
           labels: args.labels || [],
           overwrite_names: args.overwrite_names || [],
+          excluded_non_speaking: args.excluded_non_speaking || [],
         });
         if (lrResult?.voice_match_conflicts?.length) {
           console.warn(`[bridge] ⚠️  Voice match conflict(s) detected for job ${args.jobId?.slice(0, 8) || "?"}:`);

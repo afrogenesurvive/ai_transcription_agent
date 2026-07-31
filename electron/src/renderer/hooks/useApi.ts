@@ -126,11 +126,13 @@ export function useApi() {
       jobId: string,
       labels: Array<{ speaker_id: string; name: string; email?: string }>,
       overwriteNames?: string[],
+      excludedNonSpeaking?: string[],
     ) => {
       const result = await bridgeCall("transcribe_label_and_resume", {
         jobId,
         labels,
         overwrite_names: overwriteNames || [],
+        excluded_non_speaking: excludedNonSpeaking || [],
       });
       // Check for voice match conflict response from the bridge
       if (result && (result as any).conflict === true) {
