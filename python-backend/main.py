@@ -2284,6 +2284,28 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
             [ns["name"] for ns in non_speaking]
         ))
 
+        # ── Remove overwritten unregistered speakers from the attendee list ──
+        # The saved reconciliation includes old voiceprint owners (e.g. A, C) in
+        # matched_speakers when unregistered voiceprint matches were found during
+        # the pipeline. When the user chooses "Use form entry" for a conflicted
+        # speaker, the overwrite cleanup deletes the old voiceprint + attendee
+        # record, but the old name STILL appears in `all_attendee_names` because
+        # it was baked into `matched_speakers` before the cleanup ran.
+        # Without this filter, the attendee registry ends up with both the old
+        # and new names side by side — giving 6 records instead of 4 (Bug D fix).
+        overwritten_unregistered = set()
+        for us in saved_unregistered:
+            existing_vp = vp_manager.get_voiceprint(us["name"])
+            if existing_vp is None:
+                overwritten_unregistered.add(us["name"])
+        if overwritten_unregistered:
+            print(f"[label_and_resume] 🧹 Removing overwritten unregistered "
+                  f"speakers from attendee list: {overwritten_unregistered}")
+            all_attendee_names = [
+                n for n in all_attendee_names
+                if n not in overwritten_unregistered
+            ]
+
         # Include unregistered speakers kept via "Use voice owner" choice.
         # These names were in voiceprints from previous jobs but NOT in the
         # new job form. If the user chose to keep them, add them to the
