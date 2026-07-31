@@ -45,6 +45,7 @@ const STATUS_ICON: Record<string, string> = {
   delivered: "mail",
   failed: "error",
   corrupted: "warning",
+  complete_with_warning: "warning",
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -63,6 +64,7 @@ const STATUS_LABEL: Record<string, string> = {
   delivered: "Delivered",
   failed: "Failed",
   corrupted: "Corrupted data",
+  complete_with_warning: "Completed with warning",
 };
 
 function formatDate(ts: number): string {

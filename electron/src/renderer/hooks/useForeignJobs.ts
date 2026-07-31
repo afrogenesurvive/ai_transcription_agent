@@ -18,7 +18,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 
 /** Terminal statuses — a job with one of these is definitely done.
  *  Matches the IPC handler in electron/src/main/index.ts so the two don't drift. */
-const TERMINAL_STATUSES = new Set(["complete", "delivered", "failed", "corrupted"]);
+const TERMINAL_STATUSES = new Set(["complete", "delivered", "failed", "corrupted", "complete_with_warning"]);
 
 const POLL_INTERVAL_MS = 5000;
 const MAX_CONCURRENT_STATUS_CHECKS = 3;

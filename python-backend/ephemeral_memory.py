@@ -45,12 +45,24 @@ class EphemeralMemory:
     _thread_local = threading.local()
 
     @staticmethod
-    def _cleanup_companion_files(db_path: str):
+    def _cleanup_companion_files(db_path: str, force: bool = False):
         """Remove stale SQLite WAL/shm companion files that can cause
         'disk I/O error' on re-created databases.
 
         See https://sqlite.org/wal.html for details on the mechanism.
+
+        Args:
+            db_path: Path to the SQLite database file.
+            force: When True, delete companion files unconditionally. Only
+                safe when no other connection holds the database open.
+                When False, companions are only deleted if the main database
+                file itself does not exist (a fresh create — always safe).
         """
+        if not force and os.path.exists(db_path):
+            # Live database — do NOT delete companions. A connection from
+            # another thread/process may still hold them and would hit
+            # "disk I/O error" if the files vanish underneath it.
+            return
         for suffix in ("-wal", "-shm"):
             path = db_path + suffix
             if os.path.exists(path):
@@ -59,10 +71,13 @@ class EphemeralMemory:
                 except OSError:
                     pass  # Non-critical — may be in use by another process
 
-    @staticmethod
-    def _retry_on_io_error(fn, max_retries=3, delay=0.5):
+    def _retry_on_io_error(self, fn, max_retries=3, delay=0.5):
         """Retry a callable if it raises ``sqlite3.OperationalError`` with
         'disk I/O error'. Uses exponential backoff between retries.
+
+        Before each retry the SQLite connection is reset, so the retried
+        callable runs against a freshly opened connection — re-running on the
+        same broken connection keeps failing on WAL companion-file races.
 
         Returns the callable's result, or re-raises the last exception.
         """
@@ -71,24 +86,46 @@ class EphemeralMemory:
             try:
                 return fn()
             except sqlite3.OperationalError as e:
-                if "disk I/O error" in str(e) and attempt < max_retries - 1:
-                    wait = delay * (2 ** attempt)
-                    print(f"[ephemeral] ⚠️  disk I/O error on attempt {attempt + 1}/{max_retries}, "
-                          f"retrying in {wait:.1f}s: {e}")
-                    time.sleep(wait)
-                    last_exc = e
-                    continue
-                raise
+                if "disk I/O error" not in str(e) or attempt >= max_retries - 1:
+                    raise
+                wait = delay * (2 ** attempt)
+                print(f"[ephemeral] ⚠️  disk I/O error on attempt {attempt + 1}/{max_retries}, "
+                      f"retrying in {wait:.1f}s: {e}")
+                time.sleep(wait)
+                # Reset the connection — a fresh connect re-creates the WAL/shm
+                # companion files cleanly instead of reusing the broken one.
+                self._reset_conn()
+                # Guarded recovery: try a WAL checkpoint first; only delete the
+                # companion files if the checkpoint itself fails.
+                try:
+                    _tmp = sqlite3.connect(self.db_path)
+                    _tmp.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                    _tmp.close()
+                except Exception:
+                    self._cleanup_companion_files(self.db_path, force=False)
+                last_exc = e
         raise last_exc  # type: ignore[misc] — only reached if all retries failed
 
     def __init__(self, db_path: Optional[str] = None):
         self.db_path = db_path or os.path.join(config.STORAGE_PATH, "ephemeral_memory.db")
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-        # Remove stale WAL/shm companions before opening the DB so a
-        # prior database life (deleted db, stale -wal/-shm) doesn't
-        # cause "disk I/O error" when SQLite tries to recover from them.
-        self._cleanup_companion_files(self.db_path)
-        self._init_db()
+        # Track every connection this instance creates so they can all be
+        # closed before the DB file or its WAL companions are removed.
+        self._conns: set = set()
+        self._conns_lock = threading.Lock()
+        # Close any connections other threads may still hold (e.g. when this
+        # instance is re-initialized via /storage/ephemeral) before we touch
+        # the database file.
+        self.close_all()
+        # Open the DB normally. Only if that fails (e.g. stale -wal/-shm from
+        # a prior crash) delete the companion files and retry once — never
+        # delete them while the DB might still be in active use.
+        try:
+            self._init_db()
+        except Exception:
+            self.close_all()
+            self._cleanup_companion_files(self.db_path, force=True)
+            self._init_db()
 
     def __enter__(self):
         return self
@@ -100,24 +137,76 @@ class EphemeralMemory:
     def _get_conn(self) -> sqlite3.Connection:
         """Get a thread-local SQLite connection. Creates one if this thread
         hasn't connected yet. Connections are NOT closed between operations
-        — they are reused until the thread exits or close() is called."""
-        if not hasattr(self._thread_local, "conn") or self._thread_local.conn is None:
+        — they are reused until the thread exits or close() is called.
+
+        The cached connection is validated on reuse: if it has been closed or
+        points at a different database file (e.g. after the DB was deleted and
+        re-initialized), it is discarded and a fresh one is created. Every
+        created connection is registered so ``close_all()`` can close them
+        across all threads before the DB file is removed.
+        """
+        conn = getattr(self._thread_local, "conn", None)
+        if conn is not None:
+            if getattr(self._thread_local, "conn_db_path", None) != self.db_path:
+                self.close()  # stale — points at a different DB
+                conn = None
+            else:
+                try:
+                    conn.execute("SELECT 1")  # still usable?
+                except sqlite3.Error:
+                    self.close()  # dead/stale — discard and recreate
+                    conn = None
+        if conn is None:
             conn = sqlite3.connect(self.db_path)
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA foreign_keys=ON")
             conn.execute("PRAGMA busy_timeout=5000")
             self._thread_local.conn = conn
-        return self._thread_local.conn
+            self._thread_local.conn_db_path = self.db_path
+            with self._conns_lock:
+                self._conns.add(conn)
+        return conn
 
     def close(self):
         """Close the thread-local connection if open. Safe to call multiple times."""
         conn = getattr(self._thread_local, "conn", None)
         if conn is not None:
+            conns = getattr(self, "_conns", None)
+            lock = getattr(self, "_conns_lock", None)
+            if conns is not None and lock is not None:
+                with lock:
+                    conns.discard(conn)
             try:
                 conn.close()
             except Exception:
                 pass
             self._thread_local.conn = None
+            self._thread_local.conn_db_path = None
+
+    def close_all(self):
+        """Close every registered SQLite connection across all threads.
+
+        Called before the database file or its WAL companions are deleted, so
+        no live connection can hit 'disk I/O error' from files vanishing
+        underneath it.
+        """
+        with self._conns_lock:
+            conns = list(self._conns)
+            self._conns.clear()
+        for conn in conns:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        # Drop this thread's cached reference (it may have been one of them)
+        self._thread_local.conn = None
+        self._thread_local.conn_db_path = None
+
+    def _reset_conn(self):
+        """Close and discard this thread's SQLite connection so the next
+        ``_get_conn()`` creates a fresh one (recovers from WAL 'disk I/O
+        error' conditions)."""
+        self.close()
 
     def _init_db(self):
         conn = sqlite3.connect(self.db_path)
@@ -431,24 +520,24 @@ class EphemeralMemory:
           - ``last_seen`` is always bumped so the registry tracks recency.
           - ``last_job_id`` is always updated to the most recent job.
         """
-        conn = self._get_conn()
+        def _do_single():
+            conn = self._get_conn()
 
-        # Resolve empty emails to a deterministic key so dedup never falls
-        # back to (name, source), which creates duplicate rows.
-        if email and email.strip():
-            resolved_email = email.strip()
-        else:
-            slug = name.strip().lower().replace(" ", ".").replace("_", ".")
-            slug = "".join(c for c in slug if c.isalnum() or c in ".-")
-            resolved_email = f"{slug}@voiceprint.local"
+            # Resolve empty emails to a deterministic key so dedup never falls
+            # back to (name, source), which creates duplicate rows.
+            if email and email.strip():
+                resolved_email = email.strip()
+            else:
+                slug = name.strip().lower().replace(" ", ".").replace("_", ".")
+                slug = "".join(c for c in slug if c.isalnum() or c in ".-")
+                resolved_email = f"{slug}@voiceprint.local"
 
-        existing = conn.execute(
-            "SELECT id FROM attendees WHERE name=? AND email=?",
-            (name, resolved_email),
-        ).fetchone()
+            existing = conn.execute(
+                "SELECT id FROM attendees WHERE name=? AND email=?",
+                (name, resolved_email),
+            ).fetchone()
 
-        now = datetime.utcnow().isoformat()
-        try:
+            now = datetime.utcnow().isoformat()
             if existing:
                 conn.execute(
                     "UPDATE attendees SET email=?, source=?, job_id=?, "
@@ -461,11 +550,10 @@ class EphemeralMemory:
                     "VALUES (?, ?, ?, ?, ?, ?, ?)",
                     (name, resolved_email, source, job_id, job_id, now, now),
                 )
+            conn.commit()
 
-            def _do_commit():
-                conn.commit()
-
-            self._retry_on_io_error(_do_commit)
+        try:
+            self._retry_on_io_error(_do_single)
         except sqlite3.OperationalError as e:
             print(f"[ephemeral] ⚠️  Failed to register attendee '{name}': "
                   f"{e} (sqlite3_code={getattr(e, 'sqlite_errorcode', 'N/A')})")
@@ -480,10 +568,10 @@ class EphemeralMemory:
         attendee), then runs a passive WAL checkpoint to keep the WAL file
         trimmed. Retries on transient disk I/O errors.
         """
-        conn = self._get_conn()
         emails = emails or []
 
         def _do_batch():
+            conn = self._get_conn()
             for i, name in enumerate(names):
                 email = emails[i] if i < len(emails) else ""
                 if email and email.strip():

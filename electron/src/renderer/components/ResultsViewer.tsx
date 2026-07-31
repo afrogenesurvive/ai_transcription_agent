@@ -1895,7 +1895,7 @@ const PIPELINE: StageDef[] = [
   { key: "delivery", icon: "mail", label: "Delivering Results", description: "Sending via email, Trello & Drive", matches: ["delivered", "delivery_approved"] },
 ];
 
-const COMPLETE_STATUSES = new Set(["delivered", "complete"]);
+const COMPLETE_STATUSES = new Set(["delivered", "complete", "complete_with_warning"]);
 
 function getStageState(stage: StageDef, status: string, isFailed: boolean, isComplete: boolean): "done" | "active" | "pending" | "error" {
   if (isFailed && stage.matches.includes(status)) return "error";

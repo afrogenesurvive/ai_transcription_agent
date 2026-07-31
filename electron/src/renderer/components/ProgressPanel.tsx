@@ -190,12 +190,12 @@ export default function PipelineProgress({
   const [showConfirmCancel, setShowConfirmCancel] = useState(false);
   const pct = Math.round(progress * 100);
   const isFailed = status === "failed";
-  const isComplete = ["delivered", "complete"].includes(status);
+  const isComplete = ["delivered", "complete", "complete_with_warning"].includes(status);
   const isProcessing = !isFailed && !isComplete;
 
   const activeStage = PIPELINE.find((s) => s.matches.includes(status));
   const activeLabel = activeStage?.label || status;
-  const friendlyMessage = isFailed ? "Something went wrong" : isComplete ? "All done!" : activeStage?.description || "Processing...";
+  const friendlyMessage = isFailed ? "Something went wrong" : status === "complete_with_warning" ? "Completed with warning" : isComplete ? "All done!" : activeStage?.description || "Processing...";
 
   return (
     <>

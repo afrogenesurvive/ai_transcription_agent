@@ -35,7 +35,7 @@ export function useJobStatus(jobId: string | null, fetcher: (id: string) => Prom
   // agent runner explicitly marks it "complete" (success) or "delivered".
   // "failed" is terminal ONLY after a grace period allows the agent runner
   // to retry and potentially succeed.
-  const successStatuses = useRef(new Set(["complete", "delivered"])).current;
+  const successStatuses = useRef(new Set(["complete", "delivered", "complete_with_warning"])).current;
   // Safety timeout: if the job hasn't reached a terminal state within 30 minutes,
   // force-complete to prevent infinite polling (e.g. if the agent runner crashed).
   // Increased from 10 min to 30 min to accommodate longer meetings — a 21-minute

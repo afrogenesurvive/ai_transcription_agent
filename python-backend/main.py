@@ -133,6 +133,7 @@ _STATUS_MESSAGES = {
     "pending_delivery_review":  "⏸️ Paused — waiting for delivery review",
     "delivered":                "📬 Results delivered!",
     "complete":                 "✅ All done!",
+    "complete_with_warning":    "⚠️ Completed with warning — attendee registration failed",
     "failed":                   "❌ Pipeline failed",
 }
 _MAX_STEP_MESSAGES = 30
@@ -269,6 +270,49 @@ async def lifespan(app: FastAPI):
     reclaimed = ephemeral_memory.reclaim_stale_events(max_age_seconds=300)
     if reclaimed:
         print(f"   🧹 [startup] Reclaimed {reclaimed} stale queue event(s)")
+
+    # ── Startup attendee repair: jobs flagged complete_with_warning ──
+    # If attendee registration failed mid-pipeline (e.g. a transient SQLite
+    # "disk I/O error"), the job is flagged complete_with_warning and its
+    # attendee records are missing. Rebuild them from metadata.json (the
+    # durable source of truth) now that the DB is guaranteed healthy, and
+    # clear the warning so the job becomes genuinely complete.
+    repaired = 0
+    still_warning = 0
+    for entry in os.scandir(config.STORAGE_PATH):
+        if not entry.is_dir() or entry.name in ("chroma", "logs", "uploads", ".model_cache"):
+            continue
+        status_path = os.path.join(entry.path, "status.json")
+        if not os.path.exists(status_path):
+            continue
+        try:
+            with open(status_path) as f:
+                _status = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            continue
+        if _status.get("status") != "complete_with_warning" and not _status.get("warnings"):
+            continue
+        _job_id = _status.get("job_id", entry.name)
+        if _ensure_job_attendees_registered(_job_id):
+            try:
+                uploader.update_status(_job_id, {"status": "complete", "progress": 1.0, "warnings": []})
+            except Exception:
+                pass
+            try:
+                ephemeral_memory.upsert_job(_job_id, {"result": "success"})
+            except Exception:
+                pass
+            print(f"   🧹 [startup] Repaired attendee records for job {_job_id} — marked complete")
+            repaired += 1
+        else:
+            still_warning += 1
+            try:
+                uploader.update_status(_job_id, {"status": "complete_with_warning", "progress": 1.0})
+            except Exception:
+                pass
+            print(f"   ⚠️  [startup] Could not repair attendees for job {_job_id} — keeping complete_with_warning")
+    if repaired or still_warning:
+        print(f"   🧹 [startup] Attendee repair sweep: {repaired} repaired, {still_warning} still flagged")
 
     # ── Periodic queue cleanup: expire old completed events ──
     # Every 30 minutes, delete completed events older than their ttl_seconds.
@@ -566,6 +610,7 @@ async def get_job_history():
             "status": pipeline_stage,
             "progress": pipeline_progress,
             "error": pipeline_error,
+            "warnings": status.get("warnings", []),
             "title": metadata.get("title", "Untitled"),
             "event_type": metadata.get("event_type", ""),
             "attendees": metadata.get("attendees", []),
@@ -3101,10 +3146,36 @@ async def fail_job(job_id: str, error: str = "Processing failed"):
 
 @app.post("/transcribe/complete/{job_id}")
 async def complete_job(job_id: str):
-    """Mark a job as complete. Called by the agent runner when the LLM pipeline finishes successfully."""
+    """Mark a job as complete. Called by the agent runner when the LLM pipeline finishes successfully.
+
+    If the job is flagged ``complete_with_warning`` (attendee registration
+    failed), the attendee registry is repaired from metadata.json first. Only
+    if that repair succeeds is the job marked complete — otherwise the warning
+    state is preserved so the job is never silently "complete" with missing
+    attendee records.
+    """
     s = uploader.get_status(job_id)
     if s["status"] == "not_found":
         raise HTTPException(404, "Job not found")
+
+    # A pending attendee-registration warning (or an already-flagged
+    # complete_with_warning) means the job must NOT be marked complete until
+    # the attendee registry is repaired. Try the repair; only proceed to
+    # "complete" if it succeeds.
+    if s.get("warnings") or s.get("status") == "complete_with_warning":
+        if _ensure_job_attendees_registered(job_id):
+            print(f"[api] POST /transcribe/complete/{job_id} → repaired attendees, marking complete")
+            try:
+                uploader.update_status(job_id, {"warnings": []})
+            except Exception:
+                pass
+        else:
+            _active_jobs.pop(job_id, None)
+            uploader.update_status(job_id, {"status": "complete_with_warning", "progress": 1.0})
+            print(f"[api] POST /transcribe/complete/{job_id} → preserved complete_with_warning "
+                  f"(attendee registration pending)")
+            return {"job_id": job_id, "status": "complete_with_warning"}
+
     uploader.update_status(job_id, {"status": "complete", "progress": 1.0})
     _active_jobs.pop(job_id, None)
 
@@ -3439,9 +3510,12 @@ async def clear_ephemeral_data():
         fpath = os.path.join(storage_path, fname)
         if os.path.exists(fpath):
             try:
-                # Close any open connections first
+                # Close any open connections first (close_all so connections
+                # held by OTHER threads are closed too — closing only this
+                # thread's connection can leave stale conns that later hit
+                # "disk I/O error" when the DB file is recreated).
                 if fname == "ephemeral_memory.db" and ephemeral_memory:
-                    ephemeral_memory.close()
+                    ephemeral_memory.close_all()
                 if fname == "voiceprints.db" and vp_manager:
                     vp_manager.close()
                 os.remove(fpath)
@@ -4495,6 +4569,7 @@ def _register_attendees_after_reconciliation(
               f"for job {job_id[:8]} in ephemeral DB")
         # Dedup sweep: remove duplicate attendee rows by name (keep most recent)
         _dedup_attendees(job_id)
+        return True
     except Exception as e:
         import traceback
         # Capture full traceback for disk I/O and other transient errors
@@ -4503,6 +4578,25 @@ def _register_attendees_after_reconciliation(
         print(f"[reconciliation] ⚠️  Could not register attendees for job {job_id}: "
               f"{e} (sqlite3_code={sqlite_code})")
         print(f"[reconciliation]   Traceback:\n{tb}")
+        # Record the failure WITHOUT changing the current status — registration
+        # runs at review-gate points (paused_for_labeling / pending_raw_review),
+        # so overwriting status here would strand the job at the gate. The
+        # warning is merged into status.json (survives to completion) and is
+        # checked by complete_job() / the startup sweep, which refuse to mark
+        # the job "complete" until the attendees are repaired (Fix 1).
+        try:
+            uploader.update_status(job_id, {
+                "warnings": [f"attendee registration failed: {e}"],
+            })
+        except Exception as _se:
+            print(f"[reconciliation] ⚠️  Could not persist attendee warning: {_se}")
+        try:
+            ephemeral_memory.upsert_job(job_id, {
+                "error_message": f"Attendee registration failed: {e}",
+            })
+        except Exception as _ue:
+            print(f"[reconciliation] ⚠️  Could not persist warning to jobs table: {_ue}")
+        return False
 
 
 # ── Attendee dedup helper ──
@@ -4536,6 +4630,49 @@ def _dedup_attendees(job_id: str = ""):
             print(f"[reconciliation] 🧹 Dedup sweep for {tag}: removed {deleted} duplicate attendee row(s)")
     except Exception as e:
         print(f"[reconciliation] ⚠️  Dedup sweep failed for {tag}: {e}")
+
+
+# ── Attendee repair helper (self-healing guarantee) ──
+
+def _ensure_job_attendees_registered(job_id: str, source: str = "manual_labeling") -> bool:
+    """Idempotent repair: rebuild a job's attendee records from metadata.json.
+
+    metadata.json is the durable, post-reconciliation source of truth for who
+    attended a meeting. This upserts those names/emails into the ephemeral DB
+    attendee registry so the projection always converges even if the original
+    registration write failed (e.g. transient SQLite "disk I/O error").
+
+    Safe to re-run: ``register_attendees()`` is an idempotent SELECT-then-UPSERT
+    and the dedup sweep removes stale duplicates.
+
+    Returns True iff the job's registered attendees are present in the DB.
+    """
+    meta = uploader.get_metadata(job_id)
+    if not meta:
+        return False
+    names = meta.get("attendees", []) or []
+    if not names:
+        return True  # nothing to register
+
+    emails_raw = meta.get("attendeeEmails", {})
+    if isinstance(emails_raw, list):
+        emails = list(emails_raw)
+    elif isinstance(emails_raw, dict):
+        emails = [emails_raw.get(n, "") for n in names]
+    else:
+        emails = []
+    # Pad/truncate to align with names, then resolve empties so registry keys
+    # match voiceprint keys (same as the normal registration path).
+    emails = (emails + [""] * len(names))[:len(names)]
+    emails = [_resolve_attendee_email(n, e) for n, e in zip(names, emails)]
+
+    try:
+        ephemeral_memory.register_attendees(names, emails, source=source, job_id=job_id)
+        _dedup_attendees(job_id)
+        return True
+    except Exception as e:
+        print(f"[reconciliation] ⚠️  Repair failed for job {job_id}: {e}")
+        return False
 
 
 # ── Pipeline management ──
