@@ -20,10 +20,9 @@ const SERVICE_LABELS: Record<ServiceName, string> = {
 interface StatusBarProps {
   configOk: boolean;
   onOpenConfig: () => void;
-  onOpenDev: () => void;
 }
 
-export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusBarProps) {
+export default function StatusBar({ configOk, onOpenConfig }: StatusBarProps) {
   const {
     services: status,
     diarizationOk,
@@ -336,9 +335,6 @@ export default function StatusBar({ configOk, onOpenConfig, onOpenDev }: StatusB
               <Icon name="settings" size="12" /> Config
             </button>
           )}
-          <button className="action-btn dev-btn" onClick={onOpenDev} title="Open developer tools panel">
-            <Icon name="build" size="12" /> Dev
-          </button>
           <div className="credit-btn-wrapper">
             <button
               ref={creditBtnRef}

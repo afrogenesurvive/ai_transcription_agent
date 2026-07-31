@@ -182,18 +182,6 @@
   color: var(--red);
 }
 
-.dev-btn {
-  border-color: var(--text-muted);
-  color: var(--text-muted);
-  font-family: monospace;
-}
-
-.dev-btn--active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-
 .credit-btn {
   border-color: var(--border);
   color: var(--text-muted);

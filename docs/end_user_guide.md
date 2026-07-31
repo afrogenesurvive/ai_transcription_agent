@@ -104,7 +104,6 @@ The sidebar can be **dragged wider or narrower** by clicking and dragging the re
 | ⚙️ **Settings**                  | Open the configuration panel                                                                                                    |
 | 📋 **History**                   | Browse past meetings                                                                                                            |
 | 💾 **Storage**                   | View disk usage                                                                                                                 |
-| 🖥️ **Dev Tools**                 | Open developer tools                                                                                                            |
 
 **Header bar** at the top:
 
@@ -634,7 +633,7 @@ The Testing tab is located in **Dev Tools → Testing** — see the [Dev Tools �
 
 ## Dev Tools
 
-Click the **�️ Dev** button in the sidebar (or **🖥️ Dev Tools** in the status bar) to open the developer panel. A confirmation dialog appears the first time — click **Proceed** to continue.
+Click the **�️ Dev** button in the sidebar to open the developer panel. A confirmation dialog appears the first time — click **Proceed** to continue.
 
 The Dev panel has the following tabs:
 

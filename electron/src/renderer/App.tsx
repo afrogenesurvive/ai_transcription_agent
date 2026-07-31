@@ -1452,7 +1452,7 @@ export default function App() {
         </main>
       </div>
 
-      <StatusBar configOk={configOk} onOpenConfig={() => setSidebarView("config")} onOpenDev={() => setSidebarView("dev")} />
+      <StatusBar configOk={configOk} onOpenConfig={() => setSidebarView("config")} />
       </ServiceStatusProvider>
     </div>
   );
