@@ -566,6 +566,10 @@ export default function SpeakerLabelModal({
   const handleVoiceWarningAcceptSelected = async () => {
     const result = buildResult();
     const buildOverwriteNames: string[] = [];
+    // Form entries replaced by accepted voiceprint owners ("use voice owner" in
+    // the voice-match dialog) — they lose their speaker slot and must be
+    // excluded from the meeting record + delivery.
+    const conflictLosers: string[] = [];
 
     for (const vc of voiceMatchConflicts) {
       const spkId = vc.speaker_id;
@@ -585,6 +589,14 @@ export default function SpeakerLabelModal({
         if (acceptedConflicts.has(key)) {
           const found = result.find((l) => l.speaker_id === spkId);
           if (found) {
+            // Voice owner wins — the replaced form entry is a conflict loser
+            // (never assigned to a speaker slot), so exclude it from the
+            // meeting record + delivery, matching the A/B "use voice owner"
+            // behavior.
+            const replacedName = found.name?.trim();
+            if (replacedName && replacedName.toLowerCase() !== (mc.name || "").toLowerCase()) {
+              conflictLosers.push(replacedName);
+            }
             found.name = mc.name;
             // Use existing voiceprint email only if it's a real address;
             // otherwise keep the user's typed email so it reaches delivery.
@@ -598,10 +610,17 @@ export default function SpeakerLabelModal({
     setVerificationDone(true);
     setCheckingConflicts(false);
     const excludedNonSpeaking = buildExcludedNonSpeaking(result);
+    // Merge the voice-match-dialog conflict losers into the exclusion list
+    // (minus any name that still ended up assigned to a speaker slot).
+    const labeled = new Set(result.map((l) => l.name.trim().toLowerCase()).filter(Boolean));
+    const mergedExcluded = Array.from(new Set([
+      ...excludedNonSpeaking,
+      ...conflictLosers.map((n) => n.toLowerCase()).filter((n) => !labeled.has(n)),
+    ]));
     await onConfirm(
       result,
-      buildOverwriteNames.length > 0 || excludedNonSpeaking.length > 0
-        ? { overwriteNames: buildOverwriteNames, excludedNonSpeaking }
+      buildOverwriteNames.length > 0 || mergedExcluded.length > 0
+        ? { overwriteNames: buildOverwriteNames, excludedNonSpeaking: mergedExcluded }
         : undefined,
     );
   };

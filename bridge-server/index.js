@@ -50,19 +50,42 @@ function snapshotDefaults() {
         break;
       }
     }
-    if (!snapshotNeeded) {
+    if (snapshotNeeded) {
+      for (const f of files) {
+        const src = path.join(AGENT_CONFIG_DIR, f);
+        const dst = path.join(DEFAULTS_DIR, f);
+        if (fs.existsSync(src)) {
+          fs.copyFileSync(src, dst);
+          console.log(`[bridge]   Snapshot: ${f}`);
+        }
+      }
+      console.log(`[bridge] ✅ Default agent configs snapshotted to ${DEFAULTS_DIR}`);
+    } else {
       console.log(`[bridge] Defaults already snapshotted at ${DEFAULTS_DIR}`);
-      return;
     }
-    for (const f of files) {
-      const src = path.join(AGENT_CONFIG_DIR, f);
-      const dst = path.join(DEFAULTS_DIR, f);
-      if (fs.existsSync(src)) {
-        fs.copyFileSync(src, dst);
-        console.log(`[bridge]   Snapshot: ${f}`);
+
+    // Stamp the defaults snapshot with the app version (APP_VERSION is set by
+    // the Electron main process via getChildEnv()). The Electron main owns
+    // refreshing the snapshot from bundled defaults when the app version
+    // changes — the bridge never overwrites the snapshot with user-edited
+    // live files, so it only ever stamps/creates here.
+    const appVersion = process.env.APP_VERSION || "";
+    if (appVersion) {
+      const versionFile = path.join(DEFAULTS_DIR, "version.json");
+      let stamp = "";
+      try {
+        if (fs.existsSync(versionFile)) {
+          const parsed = JSON.parse(fs.readFileSync(versionFile, "utf8"));
+          if (parsed && typeof parsed.version === "string") stamp = parsed.version;
+        }
+      } catch {
+        // ignore parse errors
+      }
+      if (stamp !== appVersion) {
+        fs.writeFileSync(versionFile, JSON.stringify({ version: appVersion }, null, 2), "utf8");
+        console.log(`[bridge]   .defaults/version.json → v${appVersion}`);
       }
     }
-    console.log(`[bridge] ✅ Default agent configs snapshotted to ${DEFAULTS_DIR}`);
   } catch (err) {
     console.error(`[bridge] ⚠️  Could not snapshot defaults: ${err.message}`);
   }

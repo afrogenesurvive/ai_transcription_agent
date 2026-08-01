@@ -17,6 +17,7 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import Icon from "./Icon";
 import Tooltip from "./Tooltip";
 import LoadingModal from "./LoadingModal";
+import { loadAndApplyAppearance } from "../appearance";
 import type { PipelineStep, ConfigValueSource } from "../types";
 
 interface Props {
@@ -131,6 +132,64 @@ const SOURCE_LABELS: Record<string, string> = {
   environment: "Environment (.env)",
   default: "Default value",
 };
+
+/**
+ * Build the full ConfigValues object from getConfigWithSources() output.
+ * Centralizes every key so mount/import/clear/restore all reload identically
+ * (including keys not rendered in this panel: PERF_METRICS, APPEARANCE, PLAYWRIGHT).
+ */
+function loadConfigValues(cfg: Record<string, { value: string; source: string }>): ConfigValues {
+  return {
+    DEEPSEEK_API_KEY: cfg.DEEPSEEK_API_KEY?.value || "",
+    LLM_PROVIDER: cfg.LLM_PROVIDER?.value || "deepseek",
+    OLLAMA_BASE_URL: cfg.OLLAMA_BASE_URL?.value || "http://127.0.0.1:11434/v1",
+    OLLAMA_MODEL: cfg.OLLAMA_MODEL?.value || "",
+    OLLAMA_NUM_CTX: cfg.OLLAMA_NUM_CTX?.value || "32768",
+    EMBEDDING_PROVIDER: cfg.EMBEDDING_PROVIDER?.value || "",
+    HUGGING_FACE_TOKEN: cfg.HUGGING_FACE_TOKEN?.value || "",
+    GITHUB_TOKEN: cfg.GITHUB_TOKEN?.value || "",
+    WHISPER_MODEL_SIZE: cfg.WHISPER_MODEL_SIZE?.value || "medium",
+    KEEP_TRANSCRIPT_TIMESTAMPS: cfg.KEEP_TRANSCRIPT_TIMESTAMPS?.value || "false",
+    WHISPER_INITIAL_PROMPT_ENABLED: cfg.WHISPER_INITIAL_PROMPT_ENABLED?.value || "false",
+    WHISPER_INITIAL_PROMPT: cfg.WHISPER_INITIAL_PROMPT?.value || "",
+    GMAIL_CLIENT_ID: cfg.GMAIL_CLIENT_ID?.value || "",
+    GMAIL_CLIENT_SECRET: cfg.GMAIL_CLIENT_SECRET?.value || "",
+    GMAIL_REFRESH_TOKEN: cfg.GMAIL_REFRESH_TOKEN?.value || "",
+    GMAIL_USER: cfg.GMAIL_USER?.value || "",
+    TRELLO_KEY: cfg.TRELLO_KEY?.value || "",
+    TRELLO_TOKEN: cfg.TRELLO_TOKEN?.value || "",
+    DSMON_INSTANCE_ID: cfg.DSMON_INSTANCE_ID?.value || "",
+    DSMON_PUSH_INTERVAL: cfg.DSMON_PUSH_INTERVAL?.value || "300000",
+    DSMON_GIST_RAW_URL: cfg.DSMON_GIST_RAW_URL?.value || "",
+    DSMON_GIST_POLL_INTERVAL: cfg.DSMON_GIST_POLL_INTERVAL?.value || "60000",
+    USAGE_TRACKING_ENABLED: cfg.USAGE_TRACKING_ENABLED?.value || "false",
+    LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
+    LOG_COLLAPSE_REPEATED_PREFIXES: cfg.LOG_COLLAPSE_REPEATED_PREFIXES?.value || "true",
+    LLM_TEMPERATURE: cfg.LLM_TEMPERATURE?.value || "0.1",
+    PERF_METRICS_POLL_INTERVAL: cfg.PERF_METRICS_POLL_INTERVAL?.value || "10000",
+    CREDIT_POLL_INTERVAL: cfg.CREDIT_POLL_INTERVAL?.value || "60000",
+    PIPELINE_TIMEOUT_MINUTES: cfg.PIPELINE_TIMEOUT_MINUTES?.value || "15",
+    GATE_RAW_REVIEW_ENABLED: cfg.GATE_RAW_REVIEW_ENABLED?.value || "false",
+    GATE_DELIVERY_REVIEW_ENABLED: cfg.GATE_DELIVERY_REVIEW_ENABLED?.value || "false",
+    KEEP_MODELS_WARM: cfg.KEEP_MODELS_WARM?.value || "false",
+    DIARIZATION_MIN_SPEAKER_DURATION: cfg.DIARIZATION_MIN_SPEAKER_DURATION?.value || "3.0",
+    DIARIZATION_MIN_SPEAKER_SEGMENTS: cfg.DIARIZATION_MIN_SPEAKER_SEGMENTS?.value || "3",
+    DIARIZATION_MERGING_GAP: cfg.DIARIZATION_MERGING_GAP?.value || "0.5",
+    DIARIZATION_CLUSTERING_THRESHOLD: cfg.DIARIZATION_CLUSTERING_THRESHOLD?.value || "0.0",
+    DIARIZATION_MAX_SPEAKERS: cfg.DIARIZATION_MAX_SPEAKERS?.value || "0",
+    DELIVERY_RECIPIENT_EMAILS: cfg.DELIVERY_RECIPIENT_EMAILS?.value || "",
+    DELIVERY_EMAIL_SUBJECT: cfg.DELIVERY_EMAIL_SUBJECT?.value || "Meeting Summary: {title}",
+    DELIVERY_EMAIL_ADDITIONAL_CONTENT: cfg.DELIVERY_EMAIL_ADDITIONAL_CONTENT?.value || "",
+    DELIVERY_DRIVE_FOLDER: cfg.DELIVERY_DRIVE_FOLDER?.value || "Meeting Transcripts",
+    APPEARANCE_THEME: cfg.APPEARANCE_THEME?.value || "dark",
+    APPEARANCE_ACCENT_COLOR: cfg.APPEARANCE_ACCENT_COLOR?.value || "#58a6ff",
+    APPEARANCE_FONT_SIZE: cfg.APPEARANCE_FONT_SIZE?.value || "medium",
+    APPEARANCE_SIDEBAR_WIDTH: cfg.APPEARANCE_SIDEBAR_WIDTH?.value || "48",
+    PLAYWRIGHT_AUDIO_FILE_PATH: cfg.PLAYWRIGHT_AUDIO_FILE_PATH?.value || "",
+    PLAYWRIGHT_TITLE_TEMPLATE: cfg.PLAYWRIGHT_TITLE_TEMPLATE?.value || "test {autoNum}",
+    PLAYWRIGHT_GENERIC_NAMES: cfg.PLAYWRIGHT_GENERIC_NAMES?.value || "",
+  };
+}
 
 // ── Email validation ──
 
@@ -509,7 +568,8 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
     try {
       const result = await window.electronAPI?.exportConfig();
       if (result?.success) {
-        setExportResult(`Exported to ${result.filePath}`);
+        const warn = result.warnings?.length ? ` (${result.warnings.length} warning(s): ${result.warnings.join("; ")})` : "";
+        setExportResult(`Exported to ${result.filePath}${warn}`);
       } else if (result?.cancelled) {
         setExportResult(null);
       } else {
@@ -534,49 +594,11 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
         if (result.userDefaultsImported) parts.push("user defaults");
         const detail = parts.length > 0 ? ` (${parts.join(", ")} included)` : "";
         setImportResult(`Configuration imported successfully${detail}`);
+        // Re-apply appearance settings (theme/accent may have been imported)
+        loadAndApplyAppearance().catch(() => {});
         // Reload config values after import
         window.electronAPI?.getConfigWithSources().then((cfg) => {
-          setValues({
-            DEEPSEEK_API_KEY: cfg.DEEPSEEK_API_KEY?.value || "",
-            LLM_PROVIDER: cfg.LLM_PROVIDER?.value || "deepseek",
-            OLLAMA_BASE_URL: cfg.OLLAMA_BASE_URL?.value || "http://127.0.0.1:11434/v1",
-            OLLAMA_MODEL: cfg.OLLAMA_MODEL?.value || "",
-            OLLAMA_NUM_CTX: cfg.OLLAMA_NUM_CTX?.value || "32768",
-            EMBEDDING_PROVIDER: cfg.EMBEDDING_PROVIDER?.value || "",
-            HUGGING_FACE_TOKEN: cfg.HUGGING_FACE_TOKEN?.value || "",
-            GITHUB_TOKEN: cfg.GITHUB_TOKEN?.value || "",
-            WHISPER_MODEL_SIZE: cfg.WHISPER_MODEL_SIZE?.value || "medium",
-            KEEP_TRANSCRIPT_TIMESTAMPS: cfg.KEEP_TRANSCRIPT_TIMESTAMPS?.value || "false",
-            WHISPER_INITIAL_PROMPT_ENABLED: cfg.WHISPER_INITIAL_PROMPT_ENABLED?.value || "false",
-            WHISPER_INITIAL_PROMPT: cfg.WHISPER_INITIAL_PROMPT?.value || "",
-            GMAIL_CLIENT_ID: cfg.GMAIL_CLIENT_ID?.value || "",
-            GMAIL_CLIENT_SECRET: cfg.GMAIL_CLIENT_SECRET?.value || "",
-            GMAIL_REFRESH_TOKEN: cfg.GMAIL_REFRESH_TOKEN?.value || "",
-            GMAIL_USER: cfg.GMAIL_USER?.value || "",
-            TRELLO_KEY: cfg.TRELLO_KEY?.value || "",
-            TRELLO_TOKEN: cfg.TRELLO_TOKEN?.value || "",
-            DSMON_INSTANCE_ID: cfg.DSMON_INSTANCE_ID?.value || "",
-            DSMON_PUSH_INTERVAL: cfg.DSMON_PUSH_INTERVAL?.value || "300000",
-            DSMON_GIST_RAW_URL: cfg.DSMON_GIST_RAW_URL?.value || "",
-            DSMON_GIST_POLL_INTERVAL: cfg.DSMON_GIST_POLL_INTERVAL?.value || "60000",
-            USAGE_TRACKING_ENABLED: cfg.USAGE_TRACKING_ENABLED?.value || "false",
-            LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
-            LOG_COLLAPSE_REPEATED_PREFIXES: cfg.LOG_COLLAPSE_REPEATED_PREFIXES?.value || "true",
-            LLM_TEMPERATURE: cfg.LLM_TEMPERATURE?.value || "0.1",
-            PIPELINE_TIMEOUT_MINUTES: cfg.PIPELINE_TIMEOUT_MINUTES?.value || "15",
-            DIARIZATION_MIN_SPEAKER_DURATION: cfg.DIARIZATION_MIN_SPEAKER_DURATION?.value || "3.0",
-            DIARIZATION_MIN_SPEAKER_SEGMENTS: cfg.DIARIZATION_MIN_SPEAKER_SEGMENTS?.value || "3",
-            DIARIZATION_MERGING_GAP: cfg.DIARIZATION_MERGING_GAP?.value || "0.5",
-            DIARIZATION_CLUSTERING_THRESHOLD: cfg.DIARIZATION_CLUSTERING_THRESHOLD?.value || "0.0",
-            DIARIZATION_MAX_SPEAKERS: cfg.DIARIZATION_MAX_SPEAKERS?.value || "0",
-            GATE_RAW_REVIEW_ENABLED: cfg.GATE_RAW_REVIEW_ENABLED?.value || "false",
-            GATE_DELIVERY_REVIEW_ENABLED: cfg.GATE_DELIVERY_REVIEW_ENABLED?.value || "false",
-            KEEP_MODELS_WARM: cfg.KEEP_MODELS_WARM?.value || "false",
-            DELIVERY_RECIPIENT_EMAILS: cfg.DELIVERY_RECIPIENT_EMAILS?.value || "",
-            DELIVERY_EMAIL_SUBJECT: cfg.DELIVERY_EMAIL_SUBJECT?.value || "Meeting Summary: {title}",
-            DELIVERY_EMAIL_ADDITIONAL_CONTENT: cfg.DELIVERY_EMAIL_ADDITIONAL_CONTENT?.value || "",
-            DELIVERY_DRIVE_FOLDER: cfg.DELIVERY_DRIVE_FOLDER?.value || "Meeting Transcripts",
-          });
+          setValues(loadConfigValues(cfg));
           setSourceInfo(cfg);
         });
         // Refresh active jobs list after import (services were restarted)
@@ -612,47 +634,7 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
       if (result?.success) {
         // Reload config values (will now show defaults)
         window.electronAPI?.getConfigWithSources().then((cfg) => {
-          setValues({
-            DEEPSEEK_API_KEY: cfg.DEEPSEEK_API_KEY?.value || "",
-            LLM_PROVIDER: cfg.LLM_PROVIDER?.value || "deepseek",
-            OLLAMA_BASE_URL: cfg.OLLAMA_BASE_URL?.value || "http://127.0.0.1:11434/v1",
-            OLLAMA_MODEL: cfg.OLLAMA_MODEL?.value || "",
-            OLLAMA_NUM_CTX: cfg.OLLAMA_NUM_CTX?.value || "32768",
-            EMBEDDING_PROVIDER: cfg.EMBEDDING_PROVIDER?.value || "",
-            HUGGING_FACE_TOKEN: cfg.HUGGING_FACE_TOKEN?.value || "",
-            GITHUB_TOKEN: cfg.GITHUB_TOKEN?.value || "",
-            WHISPER_MODEL_SIZE: cfg.WHISPER_MODEL_SIZE?.value || "medium",
-            KEEP_TRANSCRIPT_TIMESTAMPS: cfg.KEEP_TRANSCRIPT_TIMESTAMPS?.value || "false",
-            WHISPER_INITIAL_PROMPT_ENABLED: cfg.WHISPER_INITIAL_PROMPT_ENABLED?.value || "false",
-            WHISPER_INITIAL_PROMPT: cfg.WHISPER_INITIAL_PROMPT?.value || "",
-            GMAIL_CLIENT_ID: cfg.GMAIL_CLIENT_ID?.value || "",
-            GMAIL_CLIENT_SECRET: cfg.GMAIL_CLIENT_SECRET?.value || "",
-            GMAIL_REFRESH_TOKEN: cfg.GMAIL_REFRESH_TOKEN?.value || "",
-            GMAIL_USER: cfg.GMAIL_USER?.value || "",
-            TRELLO_KEY: cfg.TRELLO_KEY?.value || "",
-            TRELLO_TOKEN: cfg.TRELLO_TOKEN?.value || "",
-            DSMON_INSTANCE_ID: cfg.DSMON_INSTANCE_ID?.value || "",
-            DSMON_PUSH_INTERVAL: cfg.DSMON_PUSH_INTERVAL?.value || "300000",
-            DSMON_GIST_RAW_URL: cfg.DSMON_GIST_RAW_URL?.value || "",
-            DSMON_GIST_POLL_INTERVAL: cfg.DSMON_GIST_POLL_INTERVAL?.value || "60000",
-            USAGE_TRACKING_ENABLED: cfg.USAGE_TRACKING_ENABLED?.value || "false",
-            LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
-            LOG_COLLAPSE_REPEATED_PREFIXES: cfg.LOG_COLLAPSE_REPEATED_PREFIXES?.value || "true",
-            LLM_TEMPERATURE: cfg.LLM_TEMPERATURE?.value || "0.1",
-            PIPELINE_TIMEOUT_MINUTES: cfg.PIPELINE_TIMEOUT_MINUTES?.value || "15",
-            GATE_RAW_REVIEW_ENABLED: cfg.GATE_RAW_REVIEW_ENABLED?.value || "false",
-            GATE_DELIVERY_REVIEW_ENABLED: cfg.GATE_DELIVERY_REVIEW_ENABLED?.value || "false",
-            KEEP_MODELS_WARM: cfg.KEEP_MODELS_WARM?.value || "false",
-            DIARIZATION_MIN_SPEAKER_DURATION: cfg.DIARIZATION_MIN_SPEAKER_DURATION?.value || "3.0",
-            DIARIZATION_MIN_SPEAKER_SEGMENTS: cfg.DIARIZATION_MIN_SPEAKER_SEGMENTS?.value || "3",
-            DIARIZATION_MERGING_GAP: cfg.DIARIZATION_MERGING_GAP?.value || "0.5",
-            DIARIZATION_CLUSTERING_THRESHOLD: cfg.DIARIZATION_CLUSTERING_THRESHOLD?.value || "0.0",
-            DIARIZATION_MAX_SPEAKERS: cfg.DIARIZATION_MAX_SPEAKERS?.value || "0",
-            DELIVERY_RECIPIENT_EMAILS: cfg.DELIVERY_RECIPIENT_EMAILS?.value || "",
-            DELIVERY_EMAIL_SUBJECT: cfg.DELIVERY_EMAIL_SUBJECT?.value || "Meeting Summary: {title}",
-            DELIVERY_EMAIL_ADDITIONAL_CONTENT: cfg.DELIVERY_EMAIL_ADDITIONAL_CONTENT?.value || "",
-            DELIVERY_DRIVE_FOLDER: cfg.DELIVERY_DRIVE_FOLDER?.value || "Meeting Transcripts",
-          });
+          setValues(loadConfigValues(cfg));
           setSourceInfo(cfg);
         });
         setClearResult("Configuration cleared — all values reset to defaults");
@@ -677,50 +659,12 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
       if (result?.success) {
         // Reload config values (will now show defaults)
         window.electronAPI?.getConfigWithSources().then((cfg) => {
-          setValues({
-            DEEPSEEK_API_KEY: cfg.DEEPSEEK_API_KEY?.value || "",
-            LLM_PROVIDER: cfg.LLM_PROVIDER?.value || "deepseek",
-            OLLAMA_BASE_URL: cfg.OLLAMA_BASE_URL?.value || "http://127.0.0.1:11434/v1",
-            OLLAMA_MODEL: cfg.OLLAMA_MODEL?.value || "",
-            OLLAMA_NUM_CTX: cfg.OLLAMA_NUM_CTX?.value || "32768",
-            EMBEDDING_PROVIDER: cfg.EMBEDDING_PROVIDER?.value || "",
-            HUGGING_FACE_TOKEN: cfg.HUGGING_FACE_TOKEN?.value || "",
-            GITHUB_TOKEN: cfg.GITHUB_TOKEN?.value || "",
-            WHISPER_MODEL_SIZE: cfg.WHISPER_MODEL_SIZE?.value || "medium",
-            KEEP_TRANSCRIPT_TIMESTAMPS: cfg.KEEP_TRANSCRIPT_TIMESTAMPS?.value || "false",
-            WHISPER_INITIAL_PROMPT_ENABLED: cfg.WHISPER_INITIAL_PROMPT_ENABLED?.value || "false",
-            WHISPER_INITIAL_PROMPT: cfg.WHISPER_INITIAL_PROMPT?.value || "",
-            GMAIL_CLIENT_ID: cfg.GMAIL_CLIENT_ID?.value || "",
-            GMAIL_CLIENT_SECRET: cfg.GMAIL_CLIENT_SECRET?.value || "",
-            GMAIL_REFRESH_TOKEN: cfg.GMAIL_REFRESH_TOKEN?.value || "",
-            GMAIL_USER: cfg.GMAIL_USER?.value || "",
-            TRELLO_KEY: cfg.TRELLO_KEY?.value || "",
-            TRELLO_TOKEN: cfg.TRELLO_TOKEN?.value || "",
-            DSMON_INSTANCE_ID: cfg.DSMON_INSTANCE_ID?.value || "",
-            DSMON_PUSH_INTERVAL: cfg.DSMON_PUSH_INTERVAL?.value || "300000",
-            DSMON_GIST_RAW_URL: cfg.DSMON_GIST_RAW_URL?.value || "",
-            DSMON_GIST_POLL_INTERVAL: cfg.DSMON_GIST_POLL_INTERVAL?.value || "60000",
-            USAGE_TRACKING_ENABLED: cfg.USAGE_TRACKING_ENABLED?.value || "false",
-            LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
-            LOG_COLLAPSE_REPEATED_PREFIXES: cfg.LOG_COLLAPSE_REPEATED_PREFIXES?.value || "true",
-            LLM_TEMPERATURE: cfg.LLM_TEMPERATURE?.value || "0.1",
-            PIPELINE_TIMEOUT_MINUTES: cfg.PIPELINE_TIMEOUT_MINUTES?.value || "15",
-            GATE_RAW_REVIEW_ENABLED: cfg.GATE_RAW_REVIEW_ENABLED?.value || "false",
-            GATE_DELIVERY_REVIEW_ENABLED: cfg.GATE_DELIVERY_REVIEW_ENABLED?.value || "false",
-            KEEP_MODELS_WARM: cfg.KEEP_MODELS_WARM?.value || "false",
-            DIARIZATION_MIN_SPEAKER_DURATION: cfg.DIARIZATION_MIN_SPEAKER_DURATION?.value || "3.0",
-            DIARIZATION_MIN_SPEAKER_SEGMENTS: cfg.DIARIZATION_MIN_SPEAKER_SEGMENTS?.value || "3",
-            DIARIZATION_MERGING_GAP: cfg.DIARIZATION_MERGING_GAP?.value || "0.5",
-            DIARIZATION_CLUSTERING_THRESHOLD: cfg.DIARIZATION_CLUSTERING_THRESHOLD?.value || "0.0",
-            DIARIZATION_MAX_SPEAKERS: cfg.DIARIZATION_MAX_SPEAKERS?.value || "0",
-            DELIVERY_RECIPIENT_EMAILS: cfg.DELIVERY_RECIPIENT_EMAILS?.value || "",
-            DELIVERY_EMAIL_SUBJECT: cfg.DELIVERY_EMAIL_SUBJECT?.value || "Meeting Summary: {title}",
-            DELIVERY_EMAIL_ADDITIONAL_CONTENT: cfg.DELIVERY_EMAIL_ADDITIONAL_CONTENT?.value || "",
-            DELIVERY_DRIVE_FOLDER: cfg.DELIVERY_DRIVE_FOLDER?.value || "Meeting Transcripts",
-          });
+          setValues(loadConfigValues(cfg));
           setSourceInfo(cfg);
         });
         setRestoreUserDefaultsResult("User configuration restored to shipped defaults");
+        // Re-apply appearance settings (theme/accent may have been restored)
+        loadAndApplyAppearance().catch(() => {});
       } else if (result?.blocked) {
         setRestoreUserDefaultsResult(result.error || "Cannot restore: jobs are running");
       } else {
@@ -771,47 +715,7 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
     setRestartNeeded(false);
     // Use getConfigWithSources so .env values appear as fallback when not in config.json
     window.electronAPI?.getConfigWithSources().then((cfg) => {
-      setValues({
-        DEEPSEEK_API_KEY: cfg.DEEPSEEK_API_KEY?.value || "",
-        LLM_PROVIDER: cfg.LLM_PROVIDER?.value || "deepseek",
-        OLLAMA_BASE_URL: cfg.OLLAMA_BASE_URL?.value || "http://127.0.0.1:11434/v1",
-        OLLAMA_MODEL: cfg.OLLAMA_MODEL?.value || "",
-        OLLAMA_NUM_CTX: cfg.OLLAMA_NUM_CTX?.value || "32768",
-        EMBEDDING_PROVIDER: cfg.EMBEDDING_PROVIDER?.value || "",
-        HUGGING_FACE_TOKEN: cfg.HUGGING_FACE_TOKEN?.value || "",
-        GITHUB_TOKEN: cfg.GITHUB_TOKEN?.value || "",
-        WHISPER_MODEL_SIZE: cfg.WHISPER_MODEL_SIZE?.value || "medium",
-        KEEP_TRANSCRIPT_TIMESTAMPS: cfg.KEEP_TRANSCRIPT_TIMESTAMPS?.value || "false",
-        WHISPER_INITIAL_PROMPT_ENABLED: cfg.WHISPER_INITIAL_PROMPT_ENABLED?.value || "false",
-        WHISPER_INITIAL_PROMPT: cfg.WHISPER_INITIAL_PROMPT?.value || "",
-        GMAIL_CLIENT_ID: cfg.GMAIL_CLIENT_ID?.value || "",
-        GMAIL_CLIENT_SECRET: cfg.GMAIL_CLIENT_SECRET?.value || "",
-        GMAIL_REFRESH_TOKEN: cfg.GMAIL_REFRESH_TOKEN?.value || "",
-        GMAIL_USER: cfg.GMAIL_USER?.value || "",
-        TRELLO_KEY: cfg.TRELLO_KEY?.value || "",
-        TRELLO_TOKEN: cfg.TRELLO_TOKEN?.value || "",
-        DSMON_INSTANCE_ID: cfg.DSMON_INSTANCE_ID?.value || "",
-        DSMON_PUSH_INTERVAL: cfg.DSMON_PUSH_INTERVAL?.value || "300000",
-        DSMON_GIST_RAW_URL: cfg.DSMON_GIST_RAW_URL?.value || "",
-        DSMON_GIST_POLL_INTERVAL: cfg.DSMON_GIST_POLL_INTERVAL?.value || "60000",
-        USAGE_TRACKING_ENABLED: cfg.USAGE_TRACKING_ENABLED?.value || "false",
-        LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
-        LOG_COLLAPSE_REPEATED_PREFIXES: cfg.LOG_COLLAPSE_REPEATED_PREFIXES?.value || "true",
-        LLM_TEMPERATURE: cfg.LLM_TEMPERATURE?.value || "0.1",
-        GATE_RAW_REVIEW_ENABLED: cfg.GATE_RAW_REVIEW_ENABLED?.value || "false",
-        GATE_DELIVERY_REVIEW_ENABLED: cfg.GATE_DELIVERY_REVIEW_ENABLED?.value || "false",
-        KEEP_MODELS_WARM: cfg.KEEP_MODELS_WARM?.value || "false",
-        PIPELINE_TIMEOUT_MINUTES: cfg.PIPELINE_TIMEOUT_MINUTES?.value || "15",
-        DIARIZATION_MIN_SPEAKER_DURATION: cfg.DIARIZATION_MIN_SPEAKER_DURATION?.value || "3.0",
-        DIARIZATION_MIN_SPEAKER_SEGMENTS: cfg.DIARIZATION_MIN_SPEAKER_SEGMENTS?.value || "3",
-        DIARIZATION_MERGING_GAP: cfg.DIARIZATION_MERGING_GAP?.value || "0.5",
-        DIARIZATION_CLUSTERING_THRESHOLD: cfg.DIARIZATION_CLUSTERING_THRESHOLD?.value || "0.0",
-        DIARIZATION_MAX_SPEAKERS: cfg.DIARIZATION_MAX_SPEAKERS?.value || "0",
-        DELIVERY_RECIPIENT_EMAILS: cfg.DELIVERY_RECIPIENT_EMAILS?.value || "",
-        DELIVERY_EMAIL_SUBJECT: cfg.DELIVERY_EMAIL_SUBJECT?.value || "Meeting Summary: {title}",
-        DELIVERY_EMAIL_ADDITIONAL_CONTENT: cfg.DELIVERY_EMAIL_ADDITIONAL_CONTENT?.value || "",
-        DELIVERY_DRIVE_FOLDER: cfg.DELIVERY_DRIVE_FOLDER?.value || "Meeting Transcripts",
-      });
+      setValues(loadConfigValues(cfg));
       setSourceInfo(cfg);
     });
   }, []);

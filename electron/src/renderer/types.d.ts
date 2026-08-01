@@ -126,7 +126,7 @@ export interface ElectronAPI {
   saveConfig: (values: Record<string, string>) => Promise<Record<string, string>>;
   checkConfig: () => Promise<{ ok: boolean; missing: string[] }>;
   getConfigWithSources: () => Promise<Record<string, ConfigValueSource>>;
-  exportConfig: () => Promise<{ success: boolean; filePath?: string; error?: string; cancelled?: boolean }>;
+  exportConfig: () => Promise<{ success: boolean; filePath?: string; error?: string; cancelled?: boolean; warnings?: string[] }>;
   clearConfig: () => Promise<{ success: boolean; error?: string; blocked?: boolean }>;
   importConfig: () => Promise<{
     success: boolean;

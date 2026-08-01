@@ -2944,40 +2944,26 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict, excluded_non_speaki
                     "sample_start": longest.get("start", 0),
                     "sample_end": longest.get("end", 0),
                 })
-            # ── Build pre-computed voiceprint matches for consistent conflict detection ──
+            # ── Pre-computed voiceprint matches for consistent conflict detection ──
             # Maps speaker_id → list of voiceprint matches found by the pipeline.
             # get_speaker_clips uses this to avoid re-running voiceprint matching
-            # (which can produce non-deterministic results).
-            voiceprint_matches_by_speaker = {}
-            vp_scores = match_result.get("scores", {})
-            # Known speakers (matched to registered attendees in attendee list)
-            for matched_name, segs in match_result.get("known", {}).items():
-                score = vp_scores.get(matched_name, 0)
-                if segs and "speaker" in segs[0]:
-                    spk_id = segs[0]["speaker"]
-                    voiceprint_matches_by_speaker[spk_id] = [{
-                        "name": matched_name,
-                        "similarity": round(score, 3),
-                    }]
-            # Unregistered matches (moved to unknown — voiceprint owners not in form)
-            if unregistered:
-                for name, segs in unregistered.items():
-                    u_email = ""
-                    u_job_id = ""
-                    try:
-                        vp = vp_manager.get_voiceprint(name)
-                        if vp:
-                            u_email = vp.get("email", "")
-                            u_job_id = vp.get("sample_job_id", "")
-                    except Exception:
-                        pass
+            # (which can produce non-deterministic results). Reuse the map saved
+            # during the initial (pre-ASR) pause — it already includes both known
+            # and unregistered voiceprint owners, and diarization is identical so
+            # the speaker_id → matches mapping is still valid. update_status()
+            # merges fields, so the saved map survives this function's earlier
+            # status updates. Fall back to a known-only rebuild if unavailable.
+            saved_status = uploader.get_status(job_id)
+            voiceprint_matches_by_speaker = saved_status.get("voiceprint_matches_by_speaker", {}) or {}
+            if not voiceprint_matches_by_speaker:
+                vp_scores = match_result.get("scores", {})
+                for matched_name, segs in match_result.get("known", {}).items():
+                    score = vp_scores.get(matched_name, 0)
                     if segs and "speaker" in segs[0]:
                         spk_id = segs[0]["speaker"]
                         voiceprint_matches_by_speaker[spk_id] = [{
-                            "name": name,
-                            "email": u_email,
-                            "similarity": 1.0,
-                            "sample_job_id": u_job_id,
+                            "name": matched_name,
+                            "similarity": round(score, 3),
                         }]
 
             _update_active(job_id, "paused_for_labeling", 0.9,
@@ -4520,6 +4506,19 @@ def _update_metadata_with_reconciliation(
     import json, os
     from config import config
 
+    # Capture the original form's attendee emails BEFORE metadata["attendeeEmails"]
+    # is overwritten below. Excluded form entries (A/B conflict losers + X'd
+    # non-speaking attendees) are resolved to their emails from here so they can
+    # be pruned from delivery recipients even when the caller (resumed pipeline)
+    # already stripped them from reconciliation["non_speaking_attendees"] — which
+    # would otherwise leave `removed_ns` empty and leak their emails into delivery.
+    _orig_attendees = metadata.get("attendees", [])
+    _orig_emails_raw = metadata.get("attendeeEmails", {})
+    if isinstance(_orig_emails_raw, list):
+        _orig_email_map = dict(zip(_orig_attendees, _orig_emails_raw))
+    else:
+        _orig_email_map = _orig_emails_raw if isinstance(_orig_emails_raw, dict) else {}
+
     non_speaking_full = reconciliation.get("non_speaking_attendees", [])
     kept_ns, removed_ns = _split_excluded_non_speaking(non_speaking_full, excluded_non_speaking)
     if removed_ns:
@@ -4563,6 +4562,31 @@ def _update_metadata_with_reconciliation(
             existing_recipients.add(e.lower())
     # Prune delivery recipients for excluded non-speaking attendees.
     retained_emails = {e.lower() for e in all_attendee_emails}
+    # `removed_ns` may be empty here because the caller already stripped the
+    # excluded names from reconciliation["non_speaking_attendees"]. Resolve each
+    # excluded form-entry name to its email from the original form metadata so
+    # its email is still removed from delivery recipients (prevents excluded
+    # names from leaking into email_recipients / actual deliveries).
+    _covered_names = {ns["name"].lower() for ns in removed_ns}
+    for _ex_name in (excluded_non_speaking or []):
+        if not _ex_name or not _ex_name.strip():
+            continue
+        if _ex_name.strip().lower() in _covered_names:
+            continue
+        # Resolve this excluded name's email from the original form metadata
+        # (case-insensitive, matching how the attendee names were recorded).
+        _ex_email = _orig_email_map.get(_ex_name, "")
+        if not _ex_email:
+            _ex_lower = _ex_name.strip().lower()
+            _ex_email = next(
+                (v for k, v in _orig_email_map.items()
+                 if isinstance(k, str) and k.strip().lower() == _ex_lower),
+                "",
+            )
+        removed_ns.append({
+            "name": _ex_name.strip(),
+            "email": _ex_email,
+        })
     _prune_excluded_emails(existing_recipients, removed_ns, retained_emails)
     metadata["email_recipients"] = list(existing_recipients)
     try:

@@ -1294,6 +1294,14 @@ function PerformanceTab() {
     }
   }, []);
 
+  // Load the configured performance polling interval (PERF_METRICS_POLL_INTERVAL)
+  useEffect(() => {
+    window.electronAPI?.getConfig().then((cfg) => {
+      const val = Number(cfg?.PERF_METRICS_POLL_INTERVAL) || 10000;
+      setPollIntervalMs(val);
+    });
+  }, []);
+
   useEffect(() => {
     fetchData();
     const interval = setInterval(fetchData, pollIntervalMs);
@@ -1361,7 +1369,11 @@ function PerformanceTab() {
           <select
             className="dev-panel-select"
             value={pollIntervalMs}
-            onChange={(e) => setPollIntervalMs(Number(e.target.value))}
+            onChange={async (e) => {
+              const ms = Number(e.target.value);
+              setPollIntervalMs(ms);
+              await window.electronAPI?.saveConfig({ PERF_METRICS_POLL_INTERVAL: String(ms) });
+            }}
             title="Performance data polling interval">
             {POLL_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>

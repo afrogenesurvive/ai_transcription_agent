@@ -160,6 +160,43 @@ export interface AgentConfigInitResult {
 }
 
 /**
+ * Refresh {destDir}/.defaults/ from the bundled source when the app version
+ * changes, so "restore agent defaults" yields the CURRENT shipped defaults
+ * (not the ones frozen at install time). Stamps .defaults/version.json.
+ * No-op on first install (initAgentConfigDir seeds below) or when versions match.
+ */
+function refreshAgentDefaultsIfVersionChanged(destDir: string): void {
+  try {
+    const versionFile = path.join(destDir, ".defaults", "version.json");
+    let stamp = "";
+    if (fs.existsSync(versionFile)) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(versionFile, "utf8"));
+        if (parsed && typeof parsed.version === "string") stamp = parsed.version;
+      } catch {
+        // ignore parse errors — refresh below
+      }
+    }
+    if (stamp === app.getVersion()) return;
+
+    const srcDefaults = path.join(resourcePath("agent-config"), ".defaults");
+    if (!fs.existsSync(srcDefaults)) return; // nothing bundled to refresh from
+
+    const destDefaults = path.join(destDir, ".defaults");
+    fs.mkdirSync(destDefaults, { recursive: true });
+    for (const name of ["pipeline.json", "tools.json", "system-prompt.md"]) {
+      const s = path.join(srcDefaults, name);
+      const d = path.join(destDefaults, name);
+      if (fs.existsSync(s)) fs.copyFileSync(s, d);
+    }
+    fs.writeFileSync(versionFile, JSON.stringify({ version: app.getVersion() }, null, 2), "utf8");
+    console.log(`[backend] Refreshed agent-config .defaults/ for version ${app.getVersion()}`);
+  } catch (err: any) {
+    console.warn(`[backend] Could not refresh agent-config defaults: ${err.message}`);
+  }
+}
+
+/**
  * Initialize a writable copy of agent-config in userData on first launch.
  *
  * Bundled agent-config (in extraResources) is read-only in production.
@@ -178,8 +215,12 @@ export interface AgentConfigInitResult {
 export function initAgentConfigDir(): AgentConfigInitResult {
   const destDir = getUserDataAgentConfigDir();
 
-  // Already initialized — nothing to do
-  if (fs.existsSync(destDir)) return { path: destDir, fromTemplates: false, created: false };
+  // Already initialized — refresh the defaults snapshot if the app version
+  // changed (new keys / changed defaults after an upgrade).
+  if (fs.existsSync(destDir)) {
+    refreshAgentDefaultsIfVersionChanged(destDir);
+    return { path: destDir, fromTemplates: false, created: false };
+  }
 
   const srcDir = resourcePath("agent-config");
   console.log(`[backend] Initializing agent-config in userData from ${srcDir}`);
@@ -247,6 +288,13 @@ export function initAgentConfigDir(): AgentConfigInitResult {
         fs.copyFileSync(m.dest, d);
       }
       console.log(`[backend]   Seeded .defaults/ from live files (no bundled snapshot)`);
+    }
+
+    // Stamp the defaults snapshot with the current app version
+    try {
+      fs.writeFileSync(path.join(destDefaults, "version.json"), JSON.stringify({ version: app.getVersion() }, null, 2), "utf8");
+    } catch {
+      // non-fatal — snapshot just won't carry a version stamp
     }
 
     console.log(`[backend] ✅ Agent config initialized at ${destDir}`);

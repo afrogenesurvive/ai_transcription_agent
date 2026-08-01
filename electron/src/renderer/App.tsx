@@ -33,9 +33,9 @@ import Icon from "./components/Icon";
 import { useApi } from "./hooks/useApi";
 import { useJobStatus } from "./hooks/useJobStatus";
 import type { PollingState } from "./hooks/useJobStatus";
-import { ServiceStatusProvider } from "./hooks/serviceStatusContext";
 import { useServerStatus } from "./hooks/useServerStatus";
 import { useForeignJobs } from "./hooks/useForeignJobs";
+import { ServiceStatusProvider } from "./hooks/serviceStatusContext";
 import { loadAndApplyAppearance } from "./appearance";
 import type { JobStatus } from "./types";
 
@@ -85,7 +85,6 @@ export default function App() {
   const [historyJobStatus, setHistoryJobStatus] = useState<{ status: string; progress: number; error?: string | null } | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [storageRefreshTrigger, setStorageRefreshTrigger] = useState(0);
-  const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState(0);
   const [devAccessSignal, setDevAccessSignal] = useState(0);
   const [newJobCooldown, setNewJobCooldown] = useState(false);
   const [showNewForm, setShowNewForm] = useState(false);
@@ -321,22 +320,6 @@ export default function App() {
     useCallback((id: string) => fetcherRef.current?.(id) ?? Promise.reject(new Error("no fetcher")), []),
     serverStatus.allReady,
   );
-
-  // Callback for the StoragePanel to signal that ALL user data was cleared.
-  // Resets all cached view/history state so stale data doesn't persist in the UI.
-  const onStorageCleared = useCallback(() => {
-    setJobId(null);
-    setTranscript(null);
-    setJobMetadata(null);
-    setStatusData(null);
-    setHistoryJobId(null);
-    setHistoryTranscript(null);
-    setHistoryJobStatus(null);
-    setShowHistory(false);
-    statusHook.stopPolling();
-    setStorageRefreshTrigger((n) => n + 1);
-    setHistoryRefreshTrigger((n) => n + 1);
-  }, [statusHook]);
 
   // Whether a job is currently running (processing).
   // Includes backend_down so the cancel button stays available when backend is unreachable.
@@ -584,10 +567,7 @@ export default function App() {
 
   // Handle speaker label confirmation and pipeline resume
   const handleLabelConfirm = useCallback(
-    async (
-      labels: Array<{ speaker_id: string; name: string; email?: string }>,
-      options?: { overwriteNames?: string[]; excludedNonSpeaking?: string[] },
-    ) => {
+    async (labels: Array<{ speaker_id: string; name: string; email?: string }>, options?: { overwriteNames?: string[]; excludedNonSpeaking?: string[] }) => {
       if (!jobId) return;
       setLabelingError(null);
       setLabelingConflicts(null);
@@ -888,8 +868,8 @@ export default function App() {
   };
 
   return (
-    <div className="app">
-      <ServiceStatusProvider ollamaRequired={ollamaRequired}>
+    <ServiceStatusProvider ollamaRequired={ollamaRequired}>
+      <div className="app">
       <header className="app-header">
         <Tooltip content="Home — Transcription Agent desktop app">
           <h1>
@@ -1302,7 +1282,6 @@ export default function App() {
                                 setHistoryJobStatus(null);
                               }
                             }}
-                            historyRefreshTrigger={historyRefreshTrigger}
                           />
                         ) : (
                           <>
@@ -1432,7 +1411,6 @@ export default function App() {
                   refreshTrigger={storageRefreshTrigger}
                   onDevAccessRequest={() => setDevWarningModal("storage")}
                   devAccessSignal={devAccessSignal}
-                  onStorageCleared={onStorageCleared}
                 />
               )}
 
@@ -1456,7 +1434,7 @@ export default function App() {
       </div>
 
       <StatusBar configOk={configOk} onOpenConfig={() => setSidebarView("config")} />
-      </ServiceStatusProvider>
-    </div>
+      </div>
+    </ServiceStatusProvider>
   );
 }

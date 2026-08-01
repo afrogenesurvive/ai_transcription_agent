@@ -78,6 +78,7 @@ import {
 } from "./backend-manager";
 import { subscribe, getLogs, clearLogs, addLog, setStorageBase, setCurrentJobId, listJobLogFiles, readLogFile } from "./logger";
 import {
+  CONFIG_KEYS,
   getConfig,
   getChildEnv,
   saveConfig,
@@ -820,6 +821,33 @@ ipcMain.handle("logs:clear", () => {
 
 // ── Config IPC ──
 
+/**
+ * AppConfig keys consumed by the Python backend (python-backend/config.py) at
+ * process start via os.getenv(). Changing any of these requires a Python
+ * backend restart to take effect.
+ */
+const PYTHON_CONFIG_KEYS = new Set<string>([
+  "WHISPER_MODEL_SIZE",
+  "WHISPER_INITIAL_PROMPT_ENABLED",
+  "WHISPER_INITIAL_PROMPT",
+  "EMBEDDING_PROVIDER",
+  "HUGGING_FACE_TOKEN",
+  "KEEP_TRANSCRIPT_TIMESTAMPS",
+  "PIPELINE_TIMEOUT_MINUTES",
+  "DELIVERY_RECIPIENT_EMAILS",
+  "DELIVERY_EMAIL_SUBJECT",
+  "DELIVERY_EMAIL_ADDITIONAL_CONTENT",
+  "DELIVERY_DRIVE_FOLDER",
+  "KEEP_MODELS_WARM",
+  "GATE_RAW_REVIEW_ENABLED",
+  "GATE_DELIVERY_REVIEW_ENABLED",
+  "DIARIZATION_MIN_SPEAKER_DURATION",
+  "DIARIZATION_MIN_SPEAKER_SEGMENTS",
+  "DIARIZATION_MERGING_GAP",
+  "DIARIZATION_CLUSTERING_THRESHOLD",
+  "DIARIZATION_MAX_SPEAKERS",
+]);
+
 ipcMain.handle("config:get", () => {
   const cfg = getConfig();
   addLog("main", "info", "[config] retrieved");
@@ -870,39 +898,36 @@ ipcMain.handle("config:save", async (_event, values: Record<string, string>) => 
     addLog("main", "error", msg);
   }
 
-  // ── Restart Python backend if gate configs changed ──
-  // Gate 1 (GATE_RAW_REVIEW_ENABLED) is enforced inside the Python backend at
-  // import time via os.getenv(). The agent runner restart above doesn't affect
-  // the Python process, so we must restart it to pick up the new values.
-  // Gate 2 (GATE_DELIVERY_REVIEW_ENABLED) is handled by the agent runner which
-  // IS restarted above.
-  const GATE_KEYS = new Set(["GATE_RAW_REVIEW_ENABLED", "GATE_DELIVERY_REVIEW_ENABLED"]);
-  const hasGateChanges = Object.keys(values).some((k) => GATE_KEYS.has(k));
-  if (hasGateChanges) {
-    try {
-      const activeRes = await fetch("http://127.0.0.1:5001/transcribe/active", {
-        signal: AbortSignal.timeout(3000),
-      });
-      let hasActiveJobs = false;
-      let activeData: any = null;
-      if (activeRes.ok) {
-        activeData = await activeRes.json();
-        hasActiveJobs = (activeData.active_jobs || []).length > 0;
-      }
-      if (hasActiveJobs) {
-        addLog(
-          "main",
-          "warn",
-          `Gate config changed but ${(activeData.active_jobs || []).length} job(s) running — Python backend NOT restarted. Gates apply after next restart.`,
-        );
-      } else {
+// ── Restart Python backend if any Python-consumed config changed ──
+    // python-backend/config.py reads these at import time via os.getenv().
+    // The agent runner restart above doesn't affect the Python process, so we
+    // must restart it to pick up the new values.
+    const hasPythonChanges = Object.keys(values).some((k) => PYTHON_CONFIG_KEYS.has(k));
+    if (hasPythonChanges) {
+      try {
+        const activeRes = await fetch("http://127.0.0.1:5001/transcribe/active", {
+          signal: AbortSignal.timeout(3000),
+        });
+        let hasActiveJobs = false;
+        let activeData: any = null;
+        if (activeRes.ok) {
+          activeData = await activeRes.json();
+          hasActiveJobs = (activeData.active_jobs || []).length > 0;
+        }
+        if (hasActiveJobs) {
+          addLog(
+            "main",
+            "warn",
+            `Python config changed but ${(activeData.active_jobs || []).length} job(s) running — Python backend NOT restarted. Changes apply after next restart.`,
+          );
+        } else {
+          await restartPythonBackend();
+          addLog("main", "info", "Python backend restarted after config change");
+        }
+      } catch {
+        // Backend unreachable — restart anyway to pick up env vars
         await restartPythonBackend();
-        addLog("main", "info", "Python backend restarted after gate config change");
-      }
-    } catch {
-      // Backend unreachable — restart anyway to pick up env vars
-      await restartPythonBackend();
-      addLog("main", "info", "Python backend restarted after gate config change (backend was unreachable)");
+        addLog("main", "info", "Python backend restarted after config change (backend was unreachable)");
     }
   }
 
@@ -1023,6 +1048,14 @@ ipcMain.handle("config:clear", async () => {
       addLog("main", "error", `Failed to restart agent runner after config clear: ${err.message}`);
     }
 
+    // Restart Python backend so Python-consumed values revert to defaults too
+    try {
+      await restartPythonBackend();
+      addLog("main", "info", "Python backend restarted after config clear");
+    } catch (err: any) {
+      addLog("main", "error", `Failed to restart Python backend after config clear: ${err.message}`);
+    }
+
     return { success: true };
   } catch (err: any) {
     addLog("main", "error", `Config clear failed: ${err.message}`);
@@ -1045,6 +1078,9 @@ ipcMain.handle("config:export", async () => {
     // Read user config defaults snapshot
     const userDefaultsConfig = readUserConfigDefaults();
 
+    // Collect non-fatal warnings so the UI can surface an incomplete export.
+    const warnings: string[] = [];
+
     // Try to read agent config from bridge
     let agentConfig: any = null;
     try {
@@ -1054,6 +1090,7 @@ ipcMain.handle("config:export", async () => {
       if (res.ok) agentConfig = await res.json();
     } catch {
       addLog("main", "warn", "Agent config unavailable for export — bridge not reachable");
+      warnings.push("Agent instructions (tools/pipeline/system prompt) were not captured — bridge not reachable.");
     }
 
     // Try to read shipped defaults from bridge
@@ -1065,6 +1102,7 @@ ipcMain.handle("config:export", async () => {
       if (res.ok) defaultsConfig = await res.json();
     } catch {
       addLog("main", "debug", "Defaults config unavailable for export — bridge not reachable");
+      warnings.push("Agent defaults snapshot was not captured — bridge not reachable.");
     }
 
     const exportData = {
@@ -1090,7 +1128,7 @@ ipcMain.handle("config:export", async () => {
 
     fs.writeFileSync(result.filePath, JSON.stringify(exportData, null, 2), "utf8");
     addLog("main", "info", `Config exported to ${result.filePath}`);
-    return { success: true, filePath: result.filePath };
+    return { success: true, filePath: result.filePath, warnings };
   } catch (err: any) {
     addLog("main", "error", `Config export failed: ${err.message}`);
     return { success: false, error: err.message };
@@ -1145,8 +1183,30 @@ ipcMain.handle("config:import", async () => {
       return { success: false, error: "Invalid config file format — missing version or userConfig" };
     }
 
-    // Import user config
-    const updatedConfig = saveConfig(importData.userConfig);
+    // Best-effort versioning: warn on unknown/old formats but still attempt import.
+    const exportVersion = typeof importData.version === "number" ? importData.version : NaN;
+    if (!Number.isFinite(exportVersion) || exportVersion < 3) {
+      addLog(
+        "main",
+        "warn",
+        `Config file version ${String(importData.version)} is older than the current format (3) — importing best-effort.`,
+      );
+    }
+
+    // Import user config — coerce values to strings and drop non-scalars so
+    // config.json never ends up with numbers/booleans/objects/arrays.
+    const coercedUserConfig: Record<string, string> = {};
+    if (importData.userConfig && typeof importData.userConfig === "object") {
+      for (const [key, value] of Object.entries(importData.userConfig)) {
+        if (value === null || value === undefined) continue;
+        if (typeof value === "object") {
+          addLog("main", "warn", `Config import: dropping non-scalar value for "${key}"`);
+          continue;
+        }
+        coercedUserConfig[key] = String(value);
+      }
+    }
+    const updatedConfig = saveConfig(coercedUserConfig);
     addLog("main", "info", "User config imported successfully");
 
     // Check config completeness
@@ -1235,8 +1295,16 @@ ipcMain.handle("config:import", async () => {
     let userDefaultsImported = false;
     if (importData.userDefaultsConfig) {
       try {
+        // Only keep known config keys (strip stale/unknown keys) but preserve
+        // the internal __version stamp so restore fidelity is kept.
         const defaultsPath = path.join(app.getPath("userData"), "config.defaults.json");
-        fs.writeFileSync(defaultsPath, JSON.stringify(importData.userDefaultsConfig, null, 2), "utf8");
+        const clean: Record<string, any> = {};
+        for (const key of Object.keys(importData.userDefaultsConfig)) {
+          if (key === "__version" || (CONFIG_KEYS as string[]).includes(key)) {
+            clean[key] = importData.userDefaultsConfig[key];
+          }
+        }
+        fs.writeFileSync(defaultsPath, JSON.stringify(clean, null, 2), "utf8");
         userDefaultsImported = true;
         addLog("main", "info", "User config defaults imported successfully to config.defaults.json");
       } catch (err: any) {
@@ -1370,6 +1438,14 @@ ipcMain.handle("config:restore-defaults", async () => {
       addLog("main", "info", "Agent runner restarted after user config restore");
     } catch (err: any) {
       addLog("main", "error", `Failed to restart agent runner after user config restore: ${err.message}`);
+    }
+
+    // Restart Python backend so restored Python-consumed values take effect
+    try {
+      await restartPythonBackend();
+      addLog("main", "info", "Python backend restarted after user config restore");
+    } catch (err: any) {
+      addLog("main", "error", `Failed to restart Python backend after user config restore: ${err.message}`);
     }
 
     return { success: true };

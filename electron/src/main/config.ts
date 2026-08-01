@@ -3,11 +3,12 @@
  *
  * Two user-level config files in app.getPath("userData"):
  *   config.json          — UI-written values (user overrides)
- *   config.defaults.json — shipped-defaults snapshot (first-launch copy)
+ *   config.defaults.json — shipped-defaults snapshot (version-stamped copy)
  *
  * Hardcoded DEFAULTS are used as fallback when no value is set in config.json.
- * config.defaults.json is snapshotted once on first launch so users can restore
- * the original shipped defaults, symmetric to agent-config/.defaults/.
+ * config.defaults.json is snapshotted on first launch and re-snapshotted on
+ * every app-version change so users can restore the current shipped defaults,
+ * symmetric to agent-config/.defaults/.
  *
  * The user config file is written by the ConfigPanel in the renderer.
  */
@@ -171,6 +172,9 @@ const DEFAULTS: AppConfig = {
 /** Keys the UI considers "required" before the pipeline can run. */
 export const REQUIRED_CONFIG_KEYS: (keyof AppConfig)[] = ["DEEPSEEK_API_KEY"];
 
+/** All known config keys (from the hardcoded DEFAULTS object). Used to validate imported data. */
+export const CONFIG_KEYS: (keyof AppConfig)[] = Object.keys(DEFAULTS) as (keyof AppConfig)[];
+
 let userConfigPath: string;
 let userConfigDefaultsPath: string;
 let cachedConfig: AppConfig | null = null;
@@ -183,16 +187,45 @@ function ensureUserDataDir(): void {
   ensureUserConfigDefaults();
 }
 
+/** Key inside config.defaults.json that stamps the app version the snapshot was created for. */
+const USER_CONFIG_DEFAULTS_VERSION_KEY = "__version";
+
 /**
- * Snapshot the shipped DEFAULTS to config.defaults.json on first launch.
- * Only writes if the file does not already exist (once-per-install).
+ * Snapshot the shipped DEFAULTS to config.defaults.json.
+ *
+ * Written on first launch; then regenerated whenever the app version changes
+ * so "restore defaults" always yields the CURRENT shipped defaults (not the
+ * ones frozen at install time). The snapshot stores an `__version` stamp.
+ *
  * Symmetric to how the bridge snapshots agent-config/.defaults/.
  */
 function ensureUserConfigDefaults(): void {
   try {
-    if (fs.existsSync(userConfigDefaultsPath)) return;
-    // Merge DEFAULTS with any already-saved user values so the snapshot
-    // captures the full picture of what was originally shipped.
+    if (fs.existsSync(userConfigDefaultsPath)) {
+      // Snapshot already exists — only regenerate if it was created for a
+      // different app version (new keys / changed defaults after an upgrade).
+      let snapshotVersion = "";
+      try {
+        const raw = fs.readFileSync(userConfigDefaultsPath, "utf8");
+        const existing = JSON.parse(raw);
+        if (existing && typeof existing[USER_CONFIG_DEFAULTS_VERSION_KEY] === "string") {
+          snapshotVersion = existing[USER_CONFIG_DEFAULTS_VERSION_KEY];
+        }
+      } catch {
+        // ignore parse errors — regenerate below
+      }
+      if (snapshotVersion === app.getVersion()) return;
+
+      // App version changed — regenerate from the CURRENT shipped DEFAULTS.
+      // Deliberately NOT merged with the previous snapshot or the user's live
+      // config, so "restore defaults" restores true current defaults.
+      const snapshot = { ...DEFAULTS, [USER_CONFIG_DEFAULTS_VERSION_KEY]: app.getVersion() };
+      fs.writeFileSync(userConfigDefaultsPath, JSON.stringify(snapshot, null, 2), "utf8");
+      return;
+    }
+
+    // First launch — merge DEFAULTS with any already-saved user values so the
+    // snapshot captures the full picture of what was originally shipped.
     const existing: Partial<AppConfig> = {};
     if (fs.existsSync(userConfigPath)) {
       try {
@@ -202,7 +235,7 @@ function ensureUserConfigDefaults(): void {
         // ignore parse errors
       }
     }
-    const snapshot = { ...DEFAULTS, ...existing };
+    const snapshot = { ...DEFAULTS, ...existing, [USER_CONFIG_DEFAULTS_VERSION_KEY]: app.getVersion() };
     fs.writeFileSync(userConfigDefaultsPath, JSON.stringify(snapshot, null, 2), "utf8");
   } catch {
     // Non-fatal — defaults just won't be snapshotted
@@ -354,66 +387,70 @@ export function checkConfig(): { ok: boolean; missing: string[] } {
 /** Get environment variables for child processes (config values merged in). */
 export function getChildEnv(): NodeJS.ProcessEnv {
   const config = getConfig();
-  const userVals = parseUserConfig(); // only explicitly-set keys, not DEFAULTS
+  // Use parseUserConfig() (explicitly-set keys only, NOT DEFAULTS) as the
+  // primary source so that non-empty DEFAULTS (truthy strings like "false")
+  // don't prevent fallthrough to process.env. This lets .env or host env vars
+  // override whenever the user hasn't explicitly set a value in config.json.
+  const userVals = parseUserConfig();
   const userData = app.getPath("userData");
 
   return {
     ...process.env,
-    DEEPSEEK_API_KEY: config.DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY || "",
-    LLM_PROVIDER: config.LLM_PROVIDER || process.env.LLM_PROVIDER || "deepseek",
-    OLLAMA_BASE_URL: config.OLLAMA_BASE_URL || process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434/v1",
-    OLLAMA_MODEL: config.OLLAMA_MODEL || process.env.OLLAMA_MODEL || "",
-    GMAIL_CLIENT_ID: config.GMAIL_CLIENT_ID || process.env.GMAIL_CLIENT_ID || "",
-    GMAIL_CLIENT_SECRET: config.GMAIL_CLIENT_SECRET || process.env.GMAIL_CLIENT_SECRET || "",
-    GMAIL_REFRESH_TOKEN: config.GMAIL_REFRESH_TOKEN || process.env.GMAIL_REFRESH_TOKEN || "",
-    GMAIL_USER: config.GMAIL_USER || process.env.GMAIL_USER || "",
-    TRELLO_KEY: config.TRELLO_KEY || process.env.TRELLO_KEY || "",
-    TRELLO_TOKEN: config.TRELLO_TOKEN || process.env.TRELLO_TOKEN || "",
-    HUGGING_FACE_TOKEN: config.HUGGING_FACE_TOKEN || process.env.HUGGING_FACE_TOKEN || "",
-    GITHUB_TOKEN: config.GITHUB_TOKEN || process.env.GITHUB_TOKEN || "",
+    APP_VERSION: app.getVersion(),
+    DEEPSEEK_API_KEY: userVals.DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY || "",
+    LLM_PROVIDER: userVals.LLM_PROVIDER || process.env.LLM_PROVIDER || "deepseek",
+    OLLAMA_BASE_URL: userVals.OLLAMA_BASE_URL || process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434/v1",
+    OLLAMA_MODEL: userVals.OLLAMA_MODEL || process.env.OLLAMA_MODEL || "",
+    OLLAMA_NUM_CTX: userVals.OLLAMA_NUM_CTX || process.env.OLLAMA_NUM_CTX || "32768",
+    GMAIL_CLIENT_ID: userVals.GMAIL_CLIENT_ID || process.env.GMAIL_CLIENT_ID || "",
+    GMAIL_CLIENT_SECRET: userVals.GMAIL_CLIENT_SECRET || process.env.GMAIL_CLIENT_SECRET || "",
+    GMAIL_REFRESH_TOKEN: userVals.GMAIL_REFRESH_TOKEN || process.env.GMAIL_REFRESH_TOKEN || "",
+    GMAIL_USER: userVals.GMAIL_USER || process.env.GMAIL_USER || "",
+    TRELLO_KEY: userVals.TRELLO_KEY || process.env.TRELLO_KEY || "",
+    TRELLO_TOKEN: userVals.TRELLO_TOKEN || process.env.TRELLO_TOKEN || "",
+    HUGGING_FACE_TOKEN: userVals.HUGGING_FACE_TOKEN || process.env.HUGGING_FACE_TOKEN || "",
+    GITHUB_TOKEN: userVals.GITHUB_TOKEN || process.env.GITHUB_TOKEN || "",
     GH_TOKEN: config.GITHUB_TOKEN || process.env.GH_TOKEN || "", // electron-updater uses GH_TOKEN
-    CREDIT_POLL_INTERVAL: config.CREDIT_POLL_INTERVAL || process.env.CREDIT_POLL_INTERVAL || "60000",
-    EMBEDDING_PROVIDER: config.EMBEDDING_PROVIDER || process.env.EMBEDDING_PROVIDER || "pyannote",
-    WHISPER_MODEL_SIZE: config.WHISPER_MODEL_SIZE || process.env.WHISPER_MODEL_SIZE || "medium",
-    KEEP_TRANSCRIPT_TIMESTAMPS: config.KEEP_TRANSCRIPT_TIMESTAMPS || process.env.KEEP_TRANSCRIPT_TIMESTAMPS || "false",
-    WHISPER_INITIAL_PROMPT_ENABLED: config.WHISPER_INITIAL_PROMPT_ENABLED || process.env.WHISPER_INITIAL_PROMPT_ENABLED || "false",
-    WHISPER_INITIAL_PROMPT: config.WHISPER_INITIAL_PROMPT || process.env.WHISPER_INITIAL_PROMPT || "",
-    LOG_LLM_DATA: config.LOG_LLM_DATA || process.env.LOG_LLM_DATA || "false",
-    LLM_TEMPERATURE: config.LLM_TEMPERATURE || process.env.LLM_TEMPERATURE || "0.1",
-    APPEARANCE_THEME: config.APPEARANCE_THEME || process.env.APPEARANCE_THEME || "dark",
-    APPEARANCE_ACCENT_COLOR: config.APPEARANCE_ACCENT_COLOR || process.env.APPEARANCE_ACCENT_COLOR || "#58a6ff",
-    APPEARANCE_FONT_SIZE: config.APPEARANCE_FONT_SIZE || process.env.APPEARANCE_FONT_SIZE || "medium",
-    APPEARANCE_SIDEBAR_WIDTH: config.APPEARANCE_SIDEBAR_WIDTH || process.env.APPEARANCE_SIDEBAR_WIDTH || "48",
-    PLAYWRIGHT_AUDIO_FILE_PATH: config.PLAYWRIGHT_AUDIO_FILE_PATH || process.env.PLAYWRIGHT_AUDIO_FILE_PATH || "",
-    PLAYWRIGHT_TITLE_TEMPLATE: config.PLAYWRIGHT_TITLE_TEMPLATE || process.env.PLAYWRIGHT_TITLE_TEMPLATE || "test {autoNum}",
+    PERF_METRICS_POLL_INTERVAL: userVals.PERF_METRICS_POLL_INTERVAL || process.env.PERF_METRICS_POLL_INTERVAL || "10000",
+    CREDIT_POLL_INTERVAL: userVals.CREDIT_POLL_INTERVAL || process.env.CREDIT_POLL_INTERVAL || "60000",
+    EMBEDDING_PROVIDER: userVals.EMBEDDING_PROVIDER || process.env.EMBEDDING_PROVIDER || "pyannote",
+    WHISPER_MODEL_SIZE: userVals.WHISPER_MODEL_SIZE || process.env.WHISPER_MODEL_SIZE || "medium",
+    KEEP_TRANSCRIPT_TIMESTAMPS: userVals.KEEP_TRANSCRIPT_TIMESTAMPS || process.env.KEEP_TRANSCRIPT_TIMESTAMPS || "false",
+    WHISPER_INITIAL_PROMPT_ENABLED: userVals.WHISPER_INITIAL_PROMPT_ENABLED || process.env.WHISPER_INITIAL_PROMPT_ENABLED || "false",
+    WHISPER_INITIAL_PROMPT: userVals.WHISPER_INITIAL_PROMPT || process.env.WHISPER_INITIAL_PROMPT || "",
+    LOG_LLM_DATA: userVals.LOG_LLM_DATA || process.env.LOG_LLM_DATA || "false",
+    LOG_COLLAPSE_REPEATED_PREFIXES: userVals.LOG_COLLAPSE_REPEATED_PREFIXES || process.env.LOG_COLLAPSE_REPEATED_PREFIXES || "true",
+    LLM_TEMPERATURE: userVals.LLM_TEMPERATURE || process.env.LLM_TEMPERATURE || "0.1",
+    APPEARANCE_THEME: userVals.APPEARANCE_THEME || process.env.APPEARANCE_THEME || "dark",
+    APPEARANCE_ACCENT_COLOR: userVals.APPEARANCE_ACCENT_COLOR || process.env.APPEARANCE_ACCENT_COLOR || "#58a6ff",
+    APPEARANCE_FONT_SIZE: userVals.APPEARANCE_FONT_SIZE || process.env.APPEARANCE_FONT_SIZE || "medium",
+    APPEARANCE_SIDEBAR_WIDTH: userVals.APPEARANCE_SIDEBAR_WIDTH || process.env.APPEARANCE_SIDEBAR_WIDTH || "48",
+    PLAYWRIGHT_AUDIO_FILE_PATH: userVals.PLAYWRIGHT_AUDIO_FILE_PATH || process.env.PLAYWRIGHT_AUDIO_FILE_PATH || "",
+    PLAYWRIGHT_TITLE_TEMPLATE: userVals.PLAYWRIGHT_TITLE_TEMPLATE || process.env.PLAYWRIGHT_TITLE_TEMPLATE || "test {autoNum}",
     PLAYWRIGHT_GENERIC_NAMES:
-      config.PLAYWRIGHT_GENERIC_NAMES ||
+      userVals.PLAYWRIGHT_GENERIC_NAMES ||
       process.env.PLAYWRIGHT_GENERIC_NAMES ||
       "Alex,Blake,Casey,Drew,Ellis,Finley,Gray,Harper,Indigo,Jade,Kai,Logan,Morgan,Nico,Oakley,Parker,Quinn,Reese,Skyler,Taylor",
-    PIPELINE_TIMEOUT_MINUTES: config.PIPELINE_TIMEOUT_MINUTES || process.env.PIPELINE_TIMEOUT_MINUTES || "15",
+    PIPELINE_TIMEOUT_MINUTES: userVals.PIPELINE_TIMEOUT_MINUTES || process.env.PIPELINE_TIMEOUT_MINUTES || "15",
     // Delivery config — forwarded to Python backend for email + drive delivery
-    DELIVERY_RECIPIENT_EMAILS: config.DELIVERY_RECIPIENT_EMAILS || process.env.DELIVERY_RECIPIENT_EMAILS || "",
-    DELIVERY_EMAIL_SUBJECT: config.DELIVERY_EMAIL_SUBJECT || process.env.DELIVERY_EMAIL_SUBJECT || "Meeting Summary: {title}",
-    DELIVERY_EMAIL_ADDITIONAL_CONTENT: config.DELIVERY_EMAIL_ADDITIONAL_CONTENT || process.env.DELIVERY_EMAIL_ADDITIONAL_CONTENT || "",
-    DELIVERY_DRIVE_FOLDER: config.DELIVERY_DRIVE_FOLDER || process.env.DELIVERY_DRIVE_FOLDER || "Meeting Transcripts",
-    // Use parseUserConfig() instead of the merged config for gate flags so that
-    // DEFAULTS (which are truthy strings like "false") don't prevent fallthrough
-    // to process.env. This lets .env or host env vars override when the user
-    // hasn't explicitly set a value in config.json.
+    DELIVERY_RECIPIENT_EMAILS: userVals.DELIVERY_RECIPIENT_EMAILS || process.env.DELIVERY_RECIPIENT_EMAILS || "",
+    DELIVERY_EMAIL_SUBJECT: userVals.DELIVERY_EMAIL_SUBJECT || process.env.DELIVERY_EMAIL_SUBJECT || "Meeting Summary: {title}",
+    DELIVERY_EMAIL_ADDITIONAL_CONTENT: userVals.DELIVERY_EMAIL_ADDITIONAL_CONTENT || process.env.DELIVERY_EMAIL_ADDITIONAL_CONTENT || "",
+    DELIVERY_DRIVE_FOLDER: userVals.DELIVERY_DRIVE_FOLDER || process.env.DELIVERY_DRIVE_FOLDER || "Meeting Transcripts",
     GATE_RAW_REVIEW_ENABLED: userVals.GATE_RAW_REVIEW_ENABLED || process.env.GATE_RAW_REVIEW_ENABLED || "false",
     GATE_DELIVERY_REVIEW_ENABLED: userVals.GATE_DELIVERY_REVIEW_ENABLED || process.env.GATE_DELIVERY_REVIEW_ENABLED || "false",
     KEEP_MODELS_WARM: userVals.KEEP_MODELS_WARM || process.env.KEEP_MODELS_WARM || "false",
-    DSMON_INSTANCE_ID: config.DSMON_INSTANCE_ID || process.env.DSMON_INSTANCE_ID || "",
-    DSMON_PUSH_INTERVAL: config.DSMON_PUSH_INTERVAL || process.env.DSMON_PUSH_INTERVAL || "300000",
-    DSMON_GIST_RAW_URL: config.DSMON_GIST_RAW_URL || process.env.DSMON_GIST_RAW_URL || "",
-    DSMON_GIST_POLL_INTERVAL: config.DSMON_GIST_POLL_INTERVAL || process.env.DSMON_GIST_POLL_INTERVAL || "60000",
-    USAGE_TRACKING_ENABLED: config.USAGE_TRACKING_ENABLED || process.env.USAGE_TRACKING_ENABLED || "false",
+    DSMON_INSTANCE_ID: userVals.DSMON_INSTANCE_ID || process.env.DSMON_INSTANCE_ID || "",
+    DSMON_PUSH_INTERVAL: userVals.DSMON_PUSH_INTERVAL || process.env.DSMON_PUSH_INTERVAL || "300000",
+    DSMON_GIST_RAW_URL: userVals.DSMON_GIST_RAW_URL || process.env.DSMON_GIST_RAW_URL || "",
+    DSMON_GIST_POLL_INTERVAL: userVals.DSMON_GIST_POLL_INTERVAL || process.env.DSMON_GIST_POLL_INTERVAL || "60000",
+    USAGE_TRACKING_ENABLED: userVals.USAGE_TRACKING_ENABLED || process.env.USAGE_TRACKING_ENABLED || "false",
     // ── Diarization tuning (passed to Python backend) ──
-    DIARIZATION_MIN_SPEAKER_DURATION: config.DIARIZATION_MIN_SPEAKER_DURATION || process.env.DIARIZATION_MIN_SPEAKER_DURATION || "3.0",
-    DIARIZATION_MIN_SPEAKER_SEGMENTS: config.DIARIZATION_MIN_SPEAKER_SEGMENTS || process.env.DIARIZATION_MIN_SPEAKER_SEGMENTS || "3",
-    DIARIZATION_MERGING_GAP: config.DIARIZATION_MERGING_GAP || process.env.DIARIZATION_MERGING_GAP || "0.5",
-    DIARIZATION_CLUSTERING_THRESHOLD: config.DIARIZATION_CLUSTERING_THRESHOLD || process.env.DIARIZATION_CLUSTERING_THRESHOLD || "0.0",
-    DIARIZATION_MAX_SPEAKERS: config.DIARIZATION_MAX_SPEAKERS || process.env.DIARIZATION_MAX_SPEAKERS || "0",
+    DIARIZATION_MIN_SPEAKER_DURATION: userVals.DIARIZATION_MIN_SPEAKER_DURATION || process.env.DIARIZATION_MIN_SPEAKER_DURATION || "3.0",
+    DIARIZATION_MIN_SPEAKER_SEGMENTS: userVals.DIARIZATION_MIN_SPEAKER_SEGMENTS || process.env.DIARIZATION_MIN_SPEAKER_SEGMENTS || "3",
+    DIARIZATION_MERGING_GAP: userVals.DIARIZATION_MERGING_GAP || process.env.DIARIZATION_MERGING_GAP || "0.5",
+    DIARIZATION_CLUSTERING_THRESHOLD: userVals.DIARIZATION_CLUSTERING_THRESHOLD || process.env.DIARIZATION_CLUSTERING_THRESHOLD || "0.0",
+    DIARIZATION_MAX_SPEAKERS: userVals.DIARIZATION_MAX_SPEAKERS || process.env.DIARIZATION_MAX_SPEAKERS || "0",
     // Storage paths — only override in packaged (prod) mode so DBs land in a
     // writable location. In dev the Python backend defaults to the project-
     // relative storage/ dir, which is already writable.
