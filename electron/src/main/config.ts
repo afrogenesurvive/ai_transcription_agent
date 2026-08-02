@@ -100,6 +100,8 @@ export interface AppConfig {
   DSMON_GIST_RAW_URL: string;
   /** Gist poll interval in milliseconds (default 60000) */
   DSMON_GIST_POLL_INTERVAL: string;
+  /** Shared bearer token required by the DS-mon host's /sync/push endpoint (empty = no auth) */
+  DSMON_PUSH_TOKEN: string;
   /** Master toggle: enable/disable DS-mon usage tracking entirely */
   USAGE_TRACKING_ENABLED: string;
 
@@ -158,8 +160,11 @@ const DEFAULTS: AppConfig = {
   KEEP_MODELS_WARM: "false",
   DSMON_INSTANCE_ID: "",
   DSMON_PUSH_INTERVAL: "300000",
-  DSMON_GIST_RAW_URL: "https://gist.githubusercontent.com/afrogenesurvive/35f2d48d11f40af54c91154a2067a700/raw/dsmon-tunnel-url.txt",
+  // Gist raw URL is intentionally NOT shipped here — it's a per-machine secret
+  // configured via local config.json / .env so it never appears in the repo.
+  DSMON_GIST_RAW_URL: "",
   DSMON_GIST_POLL_INTERVAL: "60000",
+  DSMON_PUSH_TOKEN: "",
   USAGE_TRACKING_ENABLED: "false",
   // ── Diarization tuning defaults ──
   DIARIZATION_MIN_SPEAKER_DURATION: "3.0",
@@ -444,6 +449,7 @@ export function getChildEnv(): NodeJS.ProcessEnv {
     DSMON_PUSH_INTERVAL: userVals.DSMON_PUSH_INTERVAL || process.env.DSMON_PUSH_INTERVAL || "300000",
     DSMON_GIST_RAW_URL: userVals.DSMON_GIST_RAW_URL || process.env.DSMON_GIST_RAW_URL || "",
     DSMON_GIST_POLL_INTERVAL: userVals.DSMON_GIST_POLL_INTERVAL || process.env.DSMON_GIST_POLL_INTERVAL || "60000",
+    DSMON_PUSH_TOKEN: userVals.DSMON_PUSH_TOKEN || process.env.DSMON_PUSH_TOKEN || "",
     USAGE_TRACKING_ENABLED: userVals.USAGE_TRACKING_ENABLED || process.env.USAGE_TRACKING_ENABLED || "false",
     // ── Diarization tuning (passed to Python backend) ──
     DIARIZATION_MIN_SPEAKER_DURATION: userVals.DIARIZATION_MIN_SPEAKER_DURATION || process.env.DIARIZATION_MIN_SPEAKER_DURATION || "3.0",

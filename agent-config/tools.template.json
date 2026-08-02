@@ -214,14 +214,18 @@
   },
   {
     "name": "send_delivery_email",
-    "description": "SEND an email with meeting summary and analysis to recipients. Attachments are generated and read from the job's delivery directory. Accepts custom From name and optional CC. Call this AFTER transcribe_prepare_delivery has run successfully. The actual email delivery happens asynchronously.",
+    "description": "SEND an email with meeting summary and analysis. Include EVERY email recipient from the delivery config (email_recipients) — never drop any. Call this AFTER transcribe_prepare_delivery has run successfully. The actual email delivery happens asynchronously.",
     "terminal": true,
     "handler": "direct",
     "inputSchema": {
       "type": "object",
       "properties": {
         "jobId": { "type": "string" },
-        "recipients": { "type": "array", "items": { "type": "string" } },
+        "recipients": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "ALL email recipients — include every address from the delivery config (email_recipients)"
+        },
         "cc": { "type": "array", "items": { "type": "string" } },
         "fromName": { "type": "string" },
         "subject": { "type": "string" },

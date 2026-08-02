@@ -2466,7 +2466,20 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
         # were never in the audio, so they must not receive the summary.
         retained_emails = {e.lower() for e in all_attendee_emails}
         _prune_excluded_emails(existing_recipients, removed_ns, retained_emails)
-        metadata["email_recipients"] = list(existing_recipients)
+        # Deterministic email_recipients ordering (same as _update_metadata_with_reconciliation).
+        _recipient_set = set(e.lower() for e in existing_recipients if e)
+        _ordered_recipients = []
+        _seen = set()
+        for _e in all_attendee_emails:
+            _key = _e.lower()
+            if _e and _key in _recipient_set and _key not in _seen:
+                _seen.add(_key)
+                _ordered_recipients.append(_e)
+        for _e in sorted(existing_recipients):
+            if _e not in _seen:
+                _seen.add(_e)
+                _ordered_recipients.append(_e)
+        metadata["email_recipients"] = _ordered_recipients
         try:
             meta_path = os.path.join(config.STORAGE_PATH, job_id, "metadata.json")
             with open(meta_path, "w") as f:
@@ -4611,7 +4624,23 @@ def _update_metadata_with_reconciliation(
             "email": _ex_email,
         })
     _prune_excluded_emails(existing_recipients, removed_ns, retained_emails)
-    metadata["email_recipients"] = list(existing_recipients)
+    # Deterministic email_recipients ordering: reconciled attendee order first,
+    # then any remaining configured recipients (sorted). `existing_recipients` is
+    # a set, so iterating it directly would produce an arbitrary order that made
+    # "which recipient is first" unstable run to run.
+    _recipient_set = set(e.lower() for e in existing_recipients if e)
+    _ordered_recipients = []
+    _seen = set()
+    for _e in all_attendee_emails:
+        _key = _e.lower()
+        if _e and _key in _recipient_set and _key not in _seen:
+            _seen.add(_key)
+            _ordered_recipients.append(_e)
+    for _e in sorted(existing_recipients):
+        if _e not in _seen:
+            _seen.add(_e)
+            _ordered_recipients.append(_e)
+    metadata["email_recipients"] = _ordered_recipients
     try:
         meta_path = os.path.join(config.STORAGE_PATH, job_id, "metadata.json")
         with open(meta_path, "w") as f:

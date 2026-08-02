@@ -15,6 +15,7 @@ import Icon from "./Icon";
 import Tooltip from "./Tooltip";
 import LoadingModal from "./LoadingModal";
 import ExportButton from "./ExportButton";
+import { PIPELINE, getStageState, getSubStepState, useMaxReachedStage, WAITING_LABEL } from "./pipelineStages";
 import type { TranscriptionSegment, AnalysisData } from "../types";
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
@@ -1829,90 +1830,14 @@ function TokensTab({ jobId }: { jobId: string }) {
   );
 }
 
-/* ── Pipeline stage definitions (mirrors ProgressPanel) ── */
-
-interface StageDef {
-  key: string;
-  icon: string;
-  label: string;
-  description: string;
-  matches: string[];
-}
-
-const PIPELINE: StageDef[] = [
-  { key: "uploaded", icon: "upload_file", label: "Uploading", description: "Receiving your audio file", matches: ["uploaded"] },
-  { key: "initializing", icon: "build", label: "Getting Ready", description: "Preparing the transcription system", matches: ["initializing"] },
-  {
-    key: "diarization",
-    icon: "group",
-    label: "Identifying Speakers",
-    description: "Detecting who speaks and when",
-    matches: ["processing_diarization"],
-  },
-  {
-    key: "voiceprints",
-    icon: "badge",
-    label: "Matching Voices",
-    description: "Matching voices to known attendees",
-    matches: ["matching_voiceprints"],
-  },
-  {
-    key: "transcription",
-    icon: "mic",
-    label: "Transcribing Speech",
-    description: "Converting speech to text",
-    matches: ["processing_transcription"],
-  },
-  { key: "aligning", icon: "link", label: "Building Transcript", description: "Matching words to each speaker", matches: ["aligning"] },
-  {
-    key: "agent",
-    icon: "smart_toy",
-    label: "AI Processing",
-    description: "Refining, summarizing & analyzing",
-    matches: ["transcribed", "ready_for_agent", "labeling_needed", "refined", "summarized", "enqueued"],
-  },
-  {
-    key: "analyzing",
-    icon: "insights",
-    label: "Analyzing Content",
-    description: "Analyzing topics, sentiment, and key items",
-    matches: ["analyzed"],
-  },
-  {
-    key: "saving_memory",
-    icon: "memory",
-    label: "Saving to Memory",
-    description: "Storing meeting context for future reference",
-    matches: ["saving_memory"],
-  },
-  {
-    key: "delivery_review",
-    icon: "fact_check",
-    label: "Review Deliverable",
-    description: "Reviewing the deliverable package",
-    matches: ["pending_delivery_review"],
-  },
-  { key: "delivery", icon: "mail", label: "Delivering Results", description: "Sending via email, Trello & Drive", matches: ["delivered", "delivery_approved"] },
-];
-
 const COMPLETE_STATUSES = new Set(["delivered", "complete", "complete_with_warning"]);
-
-function getStageState(stage: StageDef, status: string, isFailed: boolean, isComplete: boolean): "done" | "active" | "pending" | "error" {
-  if (isFailed && stage.matches.includes(status)) return "error";
-  if (isFailed) return "done";
-  if (isComplete) return "done";
-  if (stage.matches.includes(status)) return "active";
-  const currentIdx = PIPELINE.findIndex((s) => s.matches.includes(status));
-  const stageIdx = PIPELINE.findIndex((s) => s.key === stage.key);
-  if (stageIdx < currentIdx) return "done";
-  return "pending";
-}
 
 /* ── Tab: Pipeline ── */
 
 function PipelineTab({ status, progress, error }: { status: string; progress: number; error?: string | null }) {
   const isFailed = status === "failed";
   const isComplete = COMPLETE_STATUSES.has(status);
+  const maxReached = useMaxReachedStage(status, isFailed);
   // Progress comes in as 0-1; for completed jobs the backend may return a
   // small value (e.g. 0.01), so always clamp to 100% when complete.
   const barWidth = isComplete ? "100%" : `${Math.min(Math.round(progress * 100), 100)}%`;
@@ -1940,9 +1865,10 @@ function PipelineTab({ status, progress, error }: { status: string; progress: nu
       {/* Pipeline stepper */}
       <div className="pp-stepper">
         {PIPELINE.map((stage) => {
-          const state = getStageState(stage, status, isFailed, isComplete);
+          const state = getStageState(stage, status, isFailed, isComplete, maxReached);
+          const waiting = state === "active" && WAITING_LABEL[status] != null;
           return (
-            <div key={stage.key} className={`pp-step pp-step--${state}`}>
+            <div key={stage.key} className={`pp-step pp-step--${state}${waiting ? " pp-step--waiting" : ""}`}>
               <div className="pp-step-line" />
               <div className="pp-step-dot">
                 {state === "done" && (
@@ -1950,7 +1876,7 @@ function PipelineTab({ status, progress, error }: { status: string; progress: nu
                     <Icon name="check" size="12" />
                   </span>
                 )}
-                {state === "active" && <span className="pp-step-spinner" />}
+                {state === "active" && (waiting ? <Icon name="schedule" size="12" /> : <span className="pp-step-spinner" />)}
                 {state === "error" && (
                   <span className="pp-step-check" style={{ color: "#fff" }}>
                     <Icon name="close" size="12" />
@@ -1967,13 +1893,39 @@ function PipelineTab({ status, progress, error }: { status: string; progress: nu
                   {(state === "done" || state === "active" || state === "error") && <span className="pp-step-desc">{stage.description}</span>}
                 </div>
                 {state === "done" && <span className="pp-step-done-badge">Done</span>}
-                {state === "active" && <span className="pp-step-active-badge">In progress</span>}
+                {state === "active" && (
+                  <span className={`pp-step-active-badge${waiting ? " pp-step-active-badge--waiting" : ""}`}>
+                    {WAITING_LABEL[status] ?? "In progress"}
+                  </span>
+                )}
                 {state === "error" && (
                   <span className="pp-step-done-badge" style={{ color: "var(--red)", background: "rgba(248, 81, 73, 0.12)" }}>
                     Error
                   </span>
                 )}
               </div>
+              {stage.subSteps && (
+                <div className="pp-substeps">
+                  {stage.subSteps.map((sub) => {
+                    const subState = getSubStepState(stage, sub, status, isFailed, isComplete);
+                    return (
+                      <div key={sub.key} className={`pp-substep pp-substep--${subState}`}>
+                        <div className="pp-substep-dot">
+                          {subState === "done" && <Icon name="check" size="10" />}
+                          {subState === "active" && <span className="pp-step-spinner" />}
+                          {subState === "pending" && <span className="pp-step-pending-dot" />}
+                        </div>
+                        <div className="pp-substep-text">
+                          <span className="pp-step-label">{sub.label}</span>
+                          <span className="pp-step-desc">{sub.description}</span>
+                        </div>
+                        {subState === "active" && <span className="pp-step-active-badge">In progress</span>}
+                        {subState === "done" && <span className="pp-step-done-badge">Done</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           );
         })}
@@ -2009,10 +1961,11 @@ const PERF_STAGE_COLORS: Record<string, string> = {
   voiceprints: "#bc8cff",
   transcription: "#3fb950",
   aligning: "#79c0ff",
+  review: "#f0883e",
   agent: "#f0883e",
-  analyzing: "#f85149",
-  saving_memory: "#da3633",
   delivery_review: "#d29922",
+  delivery_prep: "#da3633",
+  saving_memory: "#da3633",
   delivery: "#2ea043",
 };
 
@@ -2023,10 +1976,11 @@ const PERF_STAGE_LABELS: Record<string, string> = {
   voiceprints: "Voices",
   transcription: "Transcribe",
   aligning: "Align",
+  review: "Review",
   agent: "AI",
-  analyzing: "Analyze",
-  saving_memory: "Memory",
   delivery_review: "Review",
+  delivery_prep: "Prep",
+  saving_memory: "Memory",
   delivery: "Delivery",
 };
 

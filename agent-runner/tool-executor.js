@@ -7,6 +7,8 @@
  */
 
 import "dotenv/config";
+import fs from "fs";
+import path from "path";
 import { sanitizeApiResponse } from "./sanitize.js";
 
 const BRIDGE = process.env.BRIDGE_URL || "http://127.0.0.1:5010";
@@ -23,20 +25,55 @@ async function callBridge(tool, args) {
 
 // ── Delivery handlers (direct API calls) ──
 
-async function sendEmail(to, subject, body, meetingTitle) {
+/** Resolve the authoritative delivery recipients from the job's delivery.json.
+ *
+ * transcribe_prepare_delivery (Python backend) writes the complete merged
+ * email_recipients list to delivery.json. The LLM sometimes under-specifies
+ * recipients (e.g. only the first email it sees) — prefer the authoritative
+ * list so every configured recipient always receives the email. Returns null
+ * when delivery.json is missing/unreadable so callers fall back to the
+ * LLM-provided recipients.
+ */
+function resolveAuthoritativeRecipients(jobId) {
+  if (!jobId) return null;
+  try {
+    const storageBase = process.env.TRANSCRIPTION_STORAGE || path.resolve(process.cwd(), "storage");
+    const deliveryPath = path.join(storageBase, jobId, "delivery.json");
+    if (!fs.existsSync(deliveryPath)) return null;
+    const pkg = JSON.parse(fs.readFileSync(deliveryPath, "utf8"));
+    const recipients = (pkg.email_recipients || [])
+      .map((e) => (typeof e === "string" ? e.trim() : ""))
+      .filter(Boolean);
+    return recipients.length > 0 ? recipients : null;
+  } catch (err) {
+    console.log(`⚠️  [EXECUTOR] Could not resolve delivery recipients from delivery.json: ${err.message}`);
+    return null;
+  }
+}
+
+async function sendEmail(to, subject, body, meetingTitle, jobId) {
   // Replace {title} placeholder with the actual meeting title as a safety net
   // (the LLM should already substitute it, but this ensures correctness)
   if (subject && meetingTitle) {
     subject = subject.replace(/\{title\}/g, meetingTitle);
   }
 
-  // Support both comma-separated string and array of recipients
-  const recipients = Array.isArray(to)
-    ? to
-    : to
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
+  // ── Recipients ──
+  // Prefer the authoritative email_recipients from delivery.json (written by
+  // transcribe_prepare_delivery) so the LLM cannot silently drop recipients.
+  // Fall back to the LLM-provided `to` (comma-separated string or array).
+  let recipients = resolveAuthoritativeRecipients(jobId);
+  if (!recipients || recipients.length === 0) {
+    recipients = Array.isArray(to)
+      ? to
+      : String(to || "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+  }
+  if (recipients.length === 0) {
+    return { ok: false, tool: "send_delivery_email", error: "No email recipients provided (to is empty)" };
+  }
 
   const { google } = await import("googleapis");
   const { OAuth2Client } = await import("google-auth-library");
@@ -150,7 +187,7 @@ const HANDLERS = {
   transcribe_update_status: (a) => callBridge("transcribe_update_status", a),
   transcribe_fail_job: (a) => callBridge("transcribe_fail_job", a),
   transcribe_complete_job: (a) => callBridge("transcribe_complete_job", a),
-  send_delivery_email: (a) => sendEmail(a.to, a.subject, a.body, a.title),
+  send_delivery_email: (a) => sendEmail(a.recipients || a.to, a.subject, a.body, a.title, a.jobId),
   create_trello_action_items: (a) => createTrelloCards(a.listId, a.actionItems),
   save_to_drive: (a) => saveToDrive(a.folderName, a.title, a.summary),
 };

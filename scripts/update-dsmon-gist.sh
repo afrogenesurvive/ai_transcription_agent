@@ -13,10 +13,12 @@
 # Requirements:
 #   - curl, jq
 #   - A GitHub Personal Access Token (classic) with "gist" scope
-#   - A pre-created secret Gist with a file named "dsmon-tunnel-url.txt"
+#   - GIST_ID (env var or ~/.config/dsmon/gist-id) of a pre-created secret Gist
+#     with a file named "dsmon-tunnel-url.txt"
 #
-# Usage (env vars override hardcoded defaults):
+# Usage (env vars override defaults):
 #   export DSMON_PORT=18888
+#   export GIST_ID='<gist-id>'
 #   ./scripts/update-dsmon-gist.sh
 #
 # Can be run in a loop (e.g. via cron, launchd, or alongside the tunnel):
@@ -29,7 +31,7 @@
 set -euo pipefail
 
 # ── Configuration ──
-GIST_ID="${GIST_ID:-35f2d48d11f40af54c91154a2067a700}"
+# GIST_ID is resolved below from env var or ~/.config/dsmon/gist-id — never hardcoded.
 
 # Resolve GITHUB_TOKEN: env var > ~/.config/dsmon/gist-token > error
 if [ -z "${GITHUB_TOKEN:-}" ]; then
@@ -43,6 +45,21 @@ if [ -z "${GITHUB_TOKEN:-}" ]; then
   echo "[dsmon-gist] ERROR: GITHUB_TOKEN is not set."
   echo "  Set it via: export GITHUB_TOKEN='ghp_...'"
   echo "  Or save it to: echo 'ghp_...' > ~/.config/dsmon/gist-token && chmod 600 ~/.config/dsmon/gist-token"
+  exit 1
+fi
+
+# Resolve GIST_ID: env var > ~/.config/dsmon/gist-id > error
+if [ -z "${GIST_ID:-}" ]; then
+  GIST_ID_FILE="$HOME/.config/dsmon/gist-id"
+  if [ -f "$GIST_ID_FILE" ]; then
+    GIST_ID="$(cat "$GIST_ID_FILE" | tr -d '\n')"
+  fi
+fi
+
+if [ -z "${GIST_ID:-}" ]; then
+  echo "[dsmon-gist] ERROR: GIST_ID is not set."
+  echo "  Set it via: export GIST_ID='<gist-id>'"
+  echo "  Or save it to: echo '<gist-id>' > ~/.config/dsmon/gist-id && chmod 600 ~/.config/dsmon/gist-id"
   exit 1
 fi
 

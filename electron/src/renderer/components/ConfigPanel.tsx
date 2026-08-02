@@ -44,6 +44,7 @@ interface ConfigValues {
   DSMON_PUSH_INTERVAL: string;
   DSMON_GIST_RAW_URL: string;
   DSMON_GIST_POLL_INTERVAL: string;
+  DSMON_PUSH_TOKEN: string;
   USAGE_TRACKING_ENABLED: string;
   HUGGING_FACE_TOKEN: string;
   GITHUB_TOKEN: string;
@@ -111,6 +112,7 @@ const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secre
   { key: "DSMON_PUSH_INTERVAL", label: "DS-mon Push Interval (ms)", required: false, secret: false, section: "Usage Tracking" },
   { key: "DSMON_GIST_RAW_URL", label: "DS-mon Gist Raw URL", required: false, secret: false, section: "Usage Tracking" },
   { key: "DSMON_GIST_POLL_INTERVAL", label: "DS-mon Gist Poll Interval (ms)", required: false, secret: false, section: "Usage Tracking" },
+  { key: "DSMON_PUSH_TOKEN", label: "DS-mon Push Token", required: false, secret: true, section: "Usage Tracking" },
   { key: "USAGE_TRACKING_ENABLED", label: "Enable Usage Tracking", required: false, secret: false, section: "Usage Tracking" },
   // ── Diarization tuning ──
   { key: "DIARIZATION_MIN_SPEAKER_DURATION", label: "Min Speaker Duration (s)", required: false, secret: false, section: "Diarization" },
@@ -162,6 +164,7 @@ function loadConfigValues(cfg: Record<string, { value: string; source: string }>
     DSMON_PUSH_INTERVAL: cfg.DSMON_PUSH_INTERVAL?.value || "300000",
     DSMON_GIST_RAW_URL: cfg.DSMON_GIST_RAW_URL?.value || "",
     DSMON_GIST_POLL_INTERVAL: cfg.DSMON_GIST_POLL_INTERVAL?.value || "60000",
+    DSMON_PUSH_TOKEN: cfg.DSMON_PUSH_TOKEN?.value || "",
     USAGE_TRACKING_ENABLED: cfg.USAGE_TRACKING_ENABLED?.value || "false",
     LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
     LOG_COLLAPSE_REPEATED_PREFIXES: cfg.LOG_COLLAPSE_REPEATED_PREFIXES?.value || "true",
@@ -1871,12 +1874,14 @@ The system provides existing memory context at the start of each pipeline run. U
                                     field.key === "DSMON_INSTANCE_ID"
                                       ? "my-mbp (default: hostname)"
                                       : field.key === "DSMON_GIST_RAW_URL"
-                                        ? "https://gist.githubusercontent.com/.../raw/..."
-                                        : field.key === "DSMON_PUSH_INTERVAL"
-                                          ? "300000"
-                                          : field.key === "DSMON_GIST_POLL_INTERVAL"
-                                            ? "60000"
-                                            : "Optional"
+                                        ? "https://gist.githubusercontent.com/<user>/<id>/raw/<file>"
+                                        : field.key === "DSMON_PUSH_TOKEN"
+                                          ? "Optional — required if the host enforces a token"
+                                          : field.key === "DSMON_PUSH_INTERVAL"
+                                            ? "300000"
+                                            : field.key === "DSMON_GIST_POLL_INTERVAL"
+                                              ? "60000"
+                                              : "Optional"
                                   }
                                   disabled={activeJobs.length > 0}
                                 />
@@ -1887,7 +1892,9 @@ The system provides existing memory context at the start of each pipeline run. U
                                 {field.key === "DSMON_PUSH_INTERVAL" &&
                                   "How often (ms) buffered usage records are pushed to DS-mon. Default: 300000 (5 min)."}
                                 {field.key === "DSMON_GIST_RAW_URL" &&
-                                  "Raw URL of a GitHub Gist whose content is the live tunnel URL (e.g. http://host:18888/sync/push). The runner polls this URL and auto-updates."}
+                                  "Raw URL of a GitHub Gist whose content is the live tunnel URL (e.g. http://host:18888/sync/push). The runner polls this URL and auto-updates. This value is stored in this machine's local config only — never shipped in the repo."}
+                                {field.key === "DSMON_PUSH_TOKEN" &&
+                                  "Shared secret required by the DS-mon host's /sync/push endpoint. Must match the push token configured in DS-mon. Stored locally only."}
                                 {field.key === "DSMON_GIST_POLL_INTERVAL" &&
                                   "How often (ms) the Gist is polled for URL changes. Default: 60000 (1 min)."}
                               </p>
@@ -1927,6 +1934,10 @@ The system provides existing memory context at the start of each pipeline run. U
                               <strong>Turn ON</strong> the Enable Sync toggle — status should show green &quot;Listening :18888&quot;
                             </li>
                             <li style={{ marginTop: 8 }}>
+                              <strong>Set a DS-mon Push Token</strong> (Settings → Services → Push Token). Remote runners must send this token
+                              as <code>Authorization: Bearer &lt;token&gt;</code> on <code>/sync/push</code> — without it the host returns 401.
+                            </li>
+                            <li style={{ marginTop: 8 }}>
                               Click <strong>Start Cloudflare Tunnel (port 18888)</strong> below to expose the sync server — or run{" "}
                               <code>cloudflared tunnel --url http://localhost:18888</code> manually
                             </li>
@@ -1939,16 +1950,20 @@ The system provides existing memory context at the start of each pipeline run. U
                             🖥️ Remote Machine Setup (each agent runner)
                           </p>
                           <p className="config-field-hint" style={{ marginBottom: 4 }}>
-                            Enable <strong>Usage Tracking</strong> above — the Gist raw URL is pre-filled automatically. The runner polls the Gist for
-                            tunnel URL changes and pushes buffered records to the DS-mon host.
+                            Enable <strong>Usage Tracking</strong> above and paste your Gist raw URL (or set <code>DSMON_GIST_RAW_URL</code> via{" "}
+                            <code>.env</code>). The runner polls the Gist for tunnel URL changes and pushes buffered records to the DS-mon host.
                           </p>
                           <ol className="config-field-hint" style={{ paddingLeft: 20, lineHeight: 1.8, marginBottom: 8 }}>
                             <li>
                               <strong>Enable Usage Tracking</strong> toggle → <code>ON</code>
                             </li>
                             <li>
-                              <strong>DS-mon Gist Raw URL</strong> is pre-configured (the secret Gist at <code>35f2d48d11f40af54c91154a2067a700</code>
-                              )
+                              <strong>DS-mon Gist Raw URL</strong> — paste the raw URL of your private Gist
+                              (<code>https://gist.githubusercontent.com/&lt;user&gt;/&lt;id&gt;/raw/dsmon-tunnel-url.txt</code>). This is stored in this
+                              machine's local config only — never shipped in the repo.
+                            </li>
+                            <li>
+                              <strong>DS-mon Push Token</strong> — enter the same token set on the DS-mon host. Required only if the host enforces one.
                             </li>
                             <li>
                               <strong>DS-mon Gist Poll Interval</strong> defaults to 60s — the runner polls for URL changes automatically

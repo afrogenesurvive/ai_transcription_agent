@@ -284,7 +284,7 @@ const FALLBACK_PIPELINE = {
     transcribe_approve_delivery: "Next: After user approves, call transcribe_save_context to persist the meeting...",
     transcribe_save_context: "Next: Call transcribe_prepare_delivery to package results for delivery.",
     transcribe_prepare_delivery: "Next: Deliver results using send_delivery_email.",
-    send_delivery_email: "Delivery complete. Pipeline is finished.",
+    send_delivery_email: "Send the delivery email to ALL recipients (email_recipients), then the pipeline is finished.",
     transcribe_search_attendees:
       "Search completed. Use the results to determine if attendees need registering. If someone attended but isn't in the metadata, consider re-checking. Otherwise continue with the main pipeline.",
     transcribe_list_attendees: "Attendee list shown. Use transcribe_search_attendees to find specific entries before registering duplicates.",

@@ -15,6 +15,7 @@
  *   DSMON_PUSH_INTERVAL     — Flush interval in ms (default: 300000 = 5 min)
  *   DSMON_GIST_RAW_URL      — GitHub Gist raw URL to poll for live tunnel URL
  *   DSMON_GIST_POLL_INTERVAL — Gist poll interval in ms (default: 60000 = 1 min)
+ *   DSMON_PUSH_TOKEN        — Shared bearer token required by the DS-mon host's /sync/push endpoint
  */
 
 import crypto from "crypto";
@@ -30,6 +31,7 @@ let PUSH_URL = "";
 const PUSH_INTERVAL = parseInt(process.env.DSMON_PUSH_INTERVAL || "300000", 10);
 const GIST_RAW_URL = process.env.DSMON_GIST_RAW_URL || "";
 const GIST_POLL_INTERVAL = parseInt(process.env.DSMON_GIST_POLL_INTERVAL || "60000", 10);
+const PUSH_TOKEN = process.env.DSMON_PUSH_TOKEN || "";
 const STORAGE_BASE = process.env.TRANSCRIPTION_STORAGE || path.resolve(__dirname, "..", "storage");
 const BUFFER_FILE = path.join(STORAGE_BASE, "dsmon_buffer.jsonl");
 
@@ -143,9 +145,12 @@ export async function flushBuffer() {
   if (records.length === 0) return;
 
   try {
+    // Authenticate against the DS-mon host when a shared push token is configured.
+    const headers = { "Content-Type": "application/json" };
+    if (PUSH_TOKEN) headers["Authorization"] = `Bearer ${PUSH_TOKEN}`;
     const resp = await fetch(PUSH_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(records),
       signal: AbortSignal.timeout(15000),
     });

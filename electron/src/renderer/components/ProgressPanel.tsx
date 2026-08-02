@@ -13,6 +13,15 @@ import Icon from "./Icon";
 import Tooltip from "./Tooltip";
 import GateReviewModal from "./GateReviewModal";
 import MiniLiveLog from "./MiniLiveLog";
+import {
+  PIPELINE,
+  findActiveStage,
+  getStageState,
+  getSubStepState,
+  useMaxReachedStage,
+  STATUS_FRIENDLY,
+  WAITING_LABEL,
+} from "./pipelineStages";
 
 interface Props {
   status: string;
@@ -49,127 +58,6 @@ interface Props {
   onRejectGate2?: (action: "cancel" | "retry", feedback?: string) => Promise<void>;
 }
 
-/* ── Pipeline stages (non-technical friendly labels) ── */
-
-interface StageDef {
-  key: string;
-  icon: string;
-  label: string;
-  description: string;
-  /** One or more backend statuses that map to this stage */
-  matches: string[];
-}
-
-const PIPELINE: StageDef[] = [
-  {
-    key: "uploaded",
-    icon: "upload_file",
-    label: "Uploading",
-    description: "Receiving your audio file",
-    matches: ["uploaded"],
-  },
-  {
-    key: "initializing",
-    icon: "build",
-    label: "Getting Ready",
-    description: "Preparing the transcription system",
-    matches: ["initializing"],
-  },
-  {
-    key: "diarization",
-    icon: "group",
-    label: "Identifying Speakers",
-    description: "Detecting who speaks and when",
-    matches: ["processing_diarization"],
-  },
-  {
-    key: "voiceprints",
-    icon: "badge",
-    label: "Matching Voices",
-    description: "Identifying and labeling each speaker",
-    matches: ["matching_voiceprints", "paused_for_labeling", "resuming"],
-  },
-  {
-    key: "transcription",
-    icon: "mic",
-    label: "Transcribing Speech",
-    description: "Converting speech to text",
-    matches: ["processing_transcription"],
-  },
-  {
-    key: "aligning",
-    icon: "link",
-    label: "Building Transcript",
-    description: "Matching words to each speaker",
-    matches: ["aligning"],
-  },
-  {
-    key: "review",
-    icon: "rate_review",
-    label: "Review Transcript",
-    description: "Reviewing the raw transcript",
-    matches: ["pending_raw_review"],
-  },
-  {
-    key: "agent",
-    icon: "smart_toy",
-    label: "AI Processing",
-    description: "Refining, summarizing & analyzing",
-    matches: ["transcribed", "ready_for_agent", "labeling_needed", "refined", "summarized", "enqueued"],
-  },
-  {
-    key: "analyzing",
-    icon: "insights",
-    label: "Analyzing Content",
-    description: "Analyzing topics, sentiment, and key items",
-    matches: ["analyzed"],
-  },
-  {
-    key: "saving_memory",
-    icon: "memory",
-    label: "Saving to Memory",
-    description: "Storing meeting context for future reference",
-    matches: ["saving_memory"],
-  },
-  {
-    key: "delivery_review",
-    icon: "fact_check",
-    label: "Review Deliverable",
-    description: "Reviewing the deliverable package",
-    matches: ["pending_delivery_review"],
-  },
-  {
-    key: "delivery",
-    icon: "mail",
-    label: "Delivering Results",
-    description: "Sending via email, Trello & Drive",
-    matches: ["delivered", "delivery_approved"],
-  },
-];
-
-/**
- * Determine the status of each pipeline stage based on the current backend status.
- * Returns: "done" | "active" | "pending" | "error" | "skipped"
- */
-function getStageState(
-  stage: StageDef,
-  currentStatus: string,
-  isFailed: boolean,
-  isComplete: boolean,
-  skippedSteps?: Set<string>,
-): "done" | "active" | "pending" | "error" | "skipped" {
-  if (skippedSteps?.has(stage.key)) return "skipped";
-  if (isFailed && stage.matches.includes(currentStatus)) return "error";
-  if (isFailed) return "done"; // All previous stages succeeded
-  if (isComplete) return "done"; // Pipeline fully done — all stages completed
-  if (stage.matches.includes(currentStatus)) return "active";
-  // Check if this stage comes before or after the current one
-  const currentIdx = PIPELINE.findIndex((s) => s.matches.includes(currentStatus));
-  const stageIdx = PIPELINE.findIndex((s) => s.key === stage.key);
-  if (stageIdx < currentIdx) return "done";
-  return "pending";
-}
-
 export default function PipelineProgress({
   status,
   progress,
@@ -193,9 +81,17 @@ export default function PipelineProgress({
   const isComplete = ["delivered", "complete", "complete_with_warning"].includes(status);
   const isProcessing = !isFailed && !isComplete;
 
-  const activeStage = PIPELINE.find((s) => s.matches.includes(status));
-  const activeLabel = activeStage?.label || status;
-  const friendlyMessage = isFailed ? "Something went wrong" : status === "complete_with_warning" ? "Completed with warning" : isComplete ? "All done!" : activeStage?.description || "Processing...";
+  const maxReached = useMaxReachedStage(status, isFailed, jobId);
+
+  const active = findActiveStage(status);
+  const activeLabel = active?.sub?.label ?? active?.stage?.label ?? STATUS_FRIENDLY[status] ?? status;
+  const friendlyMessage = isFailed
+    ? "Something went wrong"
+    : status === "complete_with_warning"
+      ? "Completed with warning"
+      : isComplete
+        ? "All done!"
+        : active?.sub?.description ?? active?.stage?.description ?? STATUS_FRIENDLY[status] ?? "Processing...";
 
   return (
     <>
@@ -232,9 +128,10 @@ export default function PipelineProgress({
         {/* ── Vertical pipeline stepper ── */}
         <div className="pp-stepper">
           {PIPELINE.map((stage) => {
-            const state = getStageState(stage, status, isFailed, isComplete, skippedSteps);
+            const state = getStageState(stage, status, isFailed, isComplete, maxReached, skippedSteps);
+            const waiting = state === "active" && WAITING_LABEL[status] != null;
             return (
-              <div key={stage.key} className={`pp-step pp-step--${state}`}>
+              <div key={stage.key} className={`pp-step pp-step--${state}${waiting ? " pp-step--waiting" : ""}`}>
                 {/* Connector line */}
                 <div className="pp-step-line" />
 
@@ -245,7 +142,8 @@ export default function PipelineProgress({
                       <Icon name="check" size="12" />
                     </span>
                   )}
-                  {state === "active" && <span className="pp-step-spinner" />}
+                  {state === "active" &&
+                    (waiting ? <Icon name="schedule" size="12" /> : <span className="pp-step-spinner" />)}
                   {state === "error" && (
                     <span className="pp-step-error-icon">
                       <Icon name="close" size="12" />
@@ -268,10 +166,38 @@ export default function PipelineProgress({
                     <span className="pp-step-label">{stage.label}</span>
                     <span className="pp-step-desc">{stage.description}</span>
                   </div>
-                  {state === "active" && <span className="pp-step-active-badge">In progress</span>}
+                  {state === "active" && (
+                    <span className={`pp-step-active-badge${waiting ? " pp-step-active-badge--waiting" : ""}`}>
+                      {WAITING_LABEL[status] ?? "In progress"}
+                    </span>
+                  )}
                   {state === "done" && <span className="pp-step-done-badge">Done</span>}
                   {state === "skipped" && <span className="pp-step-skipped-badge">Skipped</span>}
                 </div>
+
+                {/* Sub-steps (AI Processing phases) */}
+                {stage.subSteps && (
+                  <div className="pp-substeps">
+                    {stage.subSteps.map((sub) => {
+                      const subState = getSubStepState(stage, sub, status, isFailed, isComplete);
+                      return (
+                        <div key={sub.key} className={`pp-substep pp-substep--${subState}`}>
+                          <div className="pp-substep-dot">
+                            {subState === "done" && <Icon name="check" size="10" />}
+                            {subState === "active" && <span className="pp-step-spinner" />}
+                            {subState === "pending" && <span className="pp-step-pending-dot" />}
+                          </div>
+                          <div className="pp-substep-text">
+                            <span className="pp-step-label">{sub.label}</span>
+                            <span className="pp-step-desc">{sub.description}</span>
+                          </div>
+                          {subState === "active" && <span className="pp-step-active-badge">In progress</span>}
+                          {subState === "done" && <span className="pp-step-done-badge">Done</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             );
           })}

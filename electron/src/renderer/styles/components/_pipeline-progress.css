@@ -1212,3 +1212,93 @@
     transform: translateY(0);
   }
 }
+
+/* ═══════════════════════════════════════════════
+   Sub-steps under a stage (AI Processing phases)
+   ═══════════════════════════════════════════════ */
+
+.pp-step {
+  flex-wrap: wrap; /* let the sub-step block wrap onto its own line */
+}
+
+.pp-substeps {
+  flex-basis: 100%;
+  margin: 2px 0 10px 30px;
+  padding-left: 14px;
+  border-left: 2px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pp-step--active .pp-substeps {
+  border-left-color: var(--accent);
+}
+
+.pp-step--done .pp-substeps {
+  border-left-color: var(--green);
+}
+
+.pp-substep {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.pp-substep-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.pp-substep--done .pp-substep-dot {
+  background: var(--green);
+}
+
+.pp-substep--active .pp-substep-dot {
+  background: var(--accent);
+}
+
+.pp-substep--pending .pp-substep-dot {
+  background: var(--border);
+}
+
+.pp-substep-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.pp-substep-text .pp-step-label {
+  font-size: var(--fs-12);
+}
+
+.pp-substep-text .pp-step-desc {
+  font-size: var(--fs-11);
+  color: var(--text-muted);
+}
+
+/* ── Waiting state (paused for review / queued / waiting for labels) ── */
+
+.pp-step--waiting .pp-step-dot {
+  background: var(--orange, #d29922);
+}
+
+.pp-step-active-badge--waiting {
+  background: rgba(210, 153, 34, 0.15);
+  color: var(--orange, #d29922);
+}
+
+/* ── Smooth progress bar (progress jumps 0.85 → 0.95 → 0.97 → 1.0) ── */
+
+.pp-bar-fill {
+  transition: width 0.6s ease;
+}

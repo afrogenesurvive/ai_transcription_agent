@@ -919,6 +919,32 @@ async function processEvent(event) {
       }
     }
 
+    // ── Enforce ALL delivery recipients ──
+    // The LLM sometimes emails only the first recipient it sees. The Python
+    // backend's transcribe_prepare_delivery writes the complete email_recipients
+    // list to delivery.json — override the LLM's `to` with that authoritative
+    // list so every configured recipient gets the email. Only applies to
+    // send_delivery_email; falls back to the LLM args if delivery.json is absent.
+    if (decision.name === "send_delivery_email" && decision.arguments) {
+      try {
+        const deliveryPath = path.join(storageDir, "delivery.json");
+        if (fs.existsSync(deliveryPath)) {
+          const deliveryPkg = JSON.parse(fs.readFileSync(deliveryPath, "utf8"));
+          const recipients = (deliveryPkg.email_recipients || []).filter((e) => typeof e === "string" && e.trim());
+          if (recipients.length > 0) {
+            // Set both forms the executor understands (comma-separated `to` and
+            // array `recipients`) so the authoritative list wins regardless of
+            // which tool schema the LLM was given.
+            decision.arguments.to = recipients.join(", ");
+            decision.arguments.recipients = recipients;
+            console.log(`📬 [RUNNER] Enforced ${recipients.length} delivery recipient(s) from delivery.json: ${recipients.join(", ")}`);
+          }
+        }
+      } catch (err) {
+        console.log(`⚠️  [RUNNER] Could not enforce delivery recipients from delivery.json: ${err.message}`);
+      }
+    }
+
     console.log(`🎯 [RUNNER] ${decision.name}`);
     let result;
     try {
