@@ -23,6 +23,10 @@
 .app-header h1 {
   font-size: var(--fs-18);
   font-weight: 600;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ── App Header — job-in-progress indicator ── */
@@ -37,6 +41,8 @@
   border-radius: 20px;
   -webkit-app-region: no-drag;
   animation: header-indicator-fadein 0.3s ease-out;
+  max-width: 70vw;
+  min-width: 0;
 }
 
 @keyframes header-indicator-fadein {
@@ -56,6 +62,7 @@
   border-radius: 50%;
   background: var(--orange);
   animation: header-indicator-pulse 1.5s ease-in-out infinite;
+  flex-shrink: 0;
 }
 
 @keyframes header-indicator-pulse {
@@ -93,18 +100,33 @@
   text-transform: uppercase;
   letter-spacing: 0.4px;
   white-space: nowrap;
+  min-width: 0;
+}
+
+.app-header-job-indicator-title {
+  text-transform: none;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  max-width: 340px;
 }
 
 .app-header-job-indicator-id {
   font-family: var(--font-mono, "SF Mono", "Fira Code", monospace);
   font-size: var(--fs-10);
   letter-spacing: 0.6px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .app-header-job-indicator-sep {
   opacity: 0.5;
   margin: 0 2px;
   font-weight: 400;
+  flex-shrink: 0;
 }
 
 /* ── App Body (sidebar + main) ── */

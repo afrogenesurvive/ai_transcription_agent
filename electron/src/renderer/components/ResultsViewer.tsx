@@ -15,10 +15,7 @@ import Icon from "./Icon";
 import Tooltip from "./Tooltip";
 import LoadingModal from "./LoadingModal";
 import ExportButton from "./ExportButton";
-import RichTextEditor from "./RichTextEditor";
-import RichTextView from "./RichTextView";
-import type { TranscriptionSegment, AnalysisData, SummaryData } from "../types";
-import { pickRich, pickRichList, sanitizeRichHtml } from "../utils/richText";
+import type { TranscriptionSegment, AnalysisData } from "../types";
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
@@ -72,7 +69,12 @@ const TABS: TabDef[] = [
 interface Props {
   jobId: string;
   segments?: TranscriptionSegment[];
-  summary?: SummaryData;
+  summary?: {
+    executive_summary?: string;
+    key_decisions?: string[];
+    discussion_points?: string[];
+    action_items?: { description: string; assignee?: string; deadline?: string }[];
+  };
   onSummaryUpdate?: (updated: NonNullable<Props["summary"]>) => void;
   metadata?: {
     title?: string;
@@ -262,41 +264,27 @@ function TranscriptTab({ segments }: { segments?: TranscriptionSegment[] }) {
 
 /* ── Export helpers ── */
 
-/** Serialize a rich-text-or-plain field into export HTML. */
-function exportRich(html: string | undefined, plain: string | undefined): string {
-  if (html && html.trim()) return sanitizeRichHtml(html);
-  return `<p>${escapeHtml(plain || "")}</p>`;
-}
-
 /** Build an HTML string from summary data for PDF/Word export. */
 function buildSummaryExportHtml(summary: Props["summary"]): string {
   if (!summary) return "<p>No summary data available.</p>";
   const parts: string[] = [];
-  if (summary.executive_summary || summary.executive_summary_html) {
-    parts.push(`<div class="section"><h2>Executive Summary</h2>${exportRich(summary.executive_summary_html, summary.executive_summary)}</div>`);
+  if (summary.executive_summary) {
+    parts.push(`<div class="section"><h2>Executive Summary</h2><p>${escapeHtml(summary.executive_summary)}</p></div>`);
   }
-  if (summary.discussion_points?.length || summary.discussion_points_html?.length) {
-    const items = pickRichList(summary.discussion_points_html, summary.discussion_points)
-      .map((h) => `<li>${sanitizeRichHtml(h)}</li>`)
-      .join("");
-    parts.push(`<div class="section"><h2>Discussion Points</h2><ul>${items}</ul></div>`);
+  if (summary.discussion_points?.length) {
+    parts.push(
+      `<div class="section"><h2>Discussion Points</h2><ul>${summary.discussion_points.map((p) => `<li>${escapeHtml(p)}</li>`).join("")}</ul></div>`,
+    );
   }
-  if (summary.key_decisions?.length || summary.key_decisions_html?.length) {
-    const items = pickRichList(summary.key_decisions_html, summary.key_decisions)
-      .map((h) => `<li>${sanitizeRichHtml(h)}</li>`)
-      .join("");
-    parts.push(`<div class="section"><h2>Key Decisions</h2><ul>${items}</ul></div>`);
+  if (summary.key_decisions?.length) {
+    parts.push(`<div class="section"><h2>Key Decisions</h2><ul>${summary.key_decisions.map((d) => `<li>${escapeHtml(d)}</li>`).join("")}</ul></div>`);
   }
   if (summary.action_items?.length) {
     const items = summary.action_items
       .map((a) => {
         const assignee = a.assignee ? ` — ${escapeHtml(a.assignee)}` : "";
         const deadline = a.deadline ? ` (due: ${escapeHtml(a.deadline)})` : "";
-        const desc =
-          a.description_html && a.description_html.trim()
-            ? sanitizeRichHtml(a.description_html)
-            : `<strong>${escapeHtml(a.description)}</strong>`;
-        return `<li>${desc}${assignee}${deadline}</li>`;
+        return `<li><strong>${escapeHtml(a.description)}</strong>${assignee}${deadline}</li>`;
       })
       .join("");
     parts.push(`<div class="section"><h2>Action Items</h2><ul>${items}</ul></div>`);
@@ -313,20 +301,17 @@ function buildAnalysisExportHtml(analysis: AnalysisData | null): string {
       `<div class="section"><h2>Topics Discussed</h2><p>${analysis.topics.map((t) => `<span class="tag">${escapeHtml(t)}</span>`).join(" ")}</p></div>`,
     );
   }
-  if (analysis.sentiment || analysis.sentiment_html) {
-    parts.push(`<div class="section"><h2>Meeting Sentiment</h2>${exportRich(analysis.sentiment_html, analysis.sentiment)}</div>`);
+  if (analysis.sentiment) {
+    parts.push(`<div class="section"><h2>Meeting Sentiment</h2><p>${escapeHtml(analysis.sentiment)}</p></div>`);
   }
   if (analysis.key_entities?.length) {
     parts.push(`<div class="section"><h2>Key Entities</h2><ul>${analysis.key_entities.map((e) => `<li>${escapeHtml(e)}</li>`).join("")}</ul></div>`);
   }
-  if (analysis.effectiveness || analysis.effectiveness_html) {
-    parts.push(`<div class="section"><h2>Meeting Effectiveness</h2>${exportRich(analysis.effectiveness_html, analysis.effectiveness)}</div>`);
+  if (analysis.effectiveness) {
+    parts.push(`<div class="section"><h2>Meeting Effectiveness</h2><p>${escapeHtml(analysis.effectiveness)}</p></div>`);
   }
-  if (analysis.follow_ups?.length || analysis.follow_ups_html?.length) {
-    const items = pickRichList(analysis.follow_ups_html, analysis.follow_ups)
-      .map((h) => `<li>${sanitizeRichHtml(h)}</li>`)
-      .join("");
-    parts.push(`<div class="section"><h2>Follow-Ups</h2><ul>${items}</ul></div>`);
+  if (analysis.follow_ups?.length) {
+    parts.push(`<div class="section"><h2>Follow-Ups</h2><ul>${analysis.follow_ups.map((f) => `<li>${escapeHtml(f)}</li>`).join("")}</ul></div>`);
   }
   return parts.join("\n");
 }
@@ -363,11 +348,8 @@ function SummaryTab({
   const hasSummaryContent =
     summary &&
     (summary.executive_summary ||
-      summary.executive_summary_html ||
       (summary.discussion_points && summary.discussion_points.length > 0) ||
-      (summary.discussion_points_html && summary.discussion_points_html.length > 0) ||
       (summary.key_decisions && summary.key_decisions.length > 0) ||
-      (summary.key_decisions_html && summary.key_decisions_html.length > 0) ||
       (summary.action_items && summary.action_items.length > 0));
   if (!hasSummaryContent) {
     return (
@@ -413,37 +395,6 @@ function SummaryTab({
     setEditedSummary((prev) => ({ ...prev, [field]: value }));
   };
 
-  // Rich text helpers — keep a plain field and its parallel _html twin in sync.
-  const updateRichField = (field: string, html: string, text: string) => {
-    setEditedSummary((prev) => ({ ...prev, [field]: text, [`${field}_html`]: html }));
-  };
-
-  const updateRichListItem = (field: string, htmlField: string, index: number, html: string, text: string) => {
-    setEditedSummary((prev) => {
-      const plainList = [...((prev[field as keyof typeof prev] as string[]) || [])];
-      const htmlList = [...((prev[htmlField as keyof typeof prev] as string[]) || [])];
-      plainList[index] = text;
-      htmlList[index] = html;
-      return { ...prev, [field]: plainList, [htmlField]: htmlList };
-    });
-  };
-
-  const addRichListItem = (field: string, htmlField: string) => {
-    setEditedSummary((prev) => {
-      const plainList = [...((prev[field as keyof typeof prev] as string[]) || []), ""];
-      const htmlList = [...((prev[htmlField as keyof typeof prev] as string[]) || []), ""];
-      return { ...prev, [field]: plainList, [htmlField]: htmlList };
-    });
-  };
-
-  const removeRichListItem = (field: string, htmlField: string, index: number) => {
-    setEditedSummary((prev) => {
-      const plainList = ((prev[field as keyof typeof prev] as string[]) || []).filter((_, i) => i !== index);
-      const htmlList = ((prev[htmlField as keyof typeof prev] as string[]) || []).filter((_, i) => i !== index);
-      return { ...prev, [field]: plainList, [htmlField]: htmlList };
-    });
-  };
-
   const updateActionItem = (index: number, field: string, value: string) => {
     const items = [...(editedSummary.action_items || [])];
     items[index] = { ...items[index], [field]: value };
@@ -460,10 +411,19 @@ function SummaryTab({
     updateField("action_items", items);
   };
 
-  const updateActionItemBoth = (index: number, html: string, text: string) => {
-    const items = [...(editedSummary.action_items || [])];
-    items[index] = { ...items[index], description: text, description_html: html };
-    updateField("action_items", items);
+  const addListItem = (field: string) => {
+    updateField(field, [...(editedSummary[field as keyof typeof editedSummary] || []), ""]);
+  };
+
+  const updateListItem = (field: string, index: number, value: string) => {
+    const list = [...((editedSummary[field as keyof typeof editedSummary] as string[]) || [])];
+    list[index] = value;
+    updateField(field, list);
+  };
+
+  const removeListItem = (field: string, index: number) => {
+    const list = ((editedSummary[field as keyof typeof editedSummary] as string[]) || []).filter((_, i) => i !== index);
+    updateField(field, list);
   };
 
   const summaryHtml = buildSummaryExportHtml(editing ? editedSummary : summary);
@@ -492,7 +452,7 @@ function SummaryTab({
 
       {editing ? (
         <>
-          {/* Executive Summary - rich text */}
+          {/* Executive Summary - editable textarea */}
           <div className="rv-summary-card">
             <div className="rv-summary-card-header">
               <span className="rv-summary-card-icon">
@@ -500,58 +460,61 @@ function SummaryTab({
               </span>
               <h3>Executive Summary</h3>
             </div>
-            <RichTextEditor
-              value={pickRich(editedSummary.executive_summary_html, editedSummary.executive_summary)}
-              onChange={(html, text) => updateRichField("executive_summary", html, text)}
+            <textarea
+              className="rv-edit-textarea"
+              rows={4}
+              value={editedSummary.executive_summary || ""}
+              onChange={(e) => updateField("executive_summary", e.target.value)}
               placeholder="Executive summary text…"
-              minHeight={110}
             />
           </div>
 
-          {/* Discussion Points - rich text list */}
+          {/* Discussion Points - editable list */}
           <div className="rv-summary-card">
             <div className="rv-summary-card-header">
               <span className="rv-summary-card-icon">
                 <Icon name="chat" size="16" color="accent" />
               </span>
               <h3>Discussion Points</h3>
-              <button className="rv-edit-inline-add" onClick={() => addRichListItem("discussion_points", "discussion_points_html")}>
+              <button className="rv-edit-inline-add" onClick={() => addListItem("discussion_points")}>
                 + Add
               </button>
             </div>
-            {pickRichList(editedSummary.discussion_points_html, editedSummary.discussion_points).map((h, i) => (
+            {(editedSummary.discussion_points || []).map((p, i) => (
               <div key={i} className="rv-edit-list-row">
-                <RichTextEditor
-                  compact
-                  value={h}
-                  onChange={(html, text) => updateRichListItem("discussion_points", "discussion_points_html", i, html, text)}
+                <textarea
+                  className="rv-edit-textarea rv-edit-textarea--inline"
+                  rows={2}
+                  value={p}
+                  onChange={(e) => updateListItem("discussion_points", i, e.target.value)}
                 />
-                <button className="rv-edit-list-remove" onClick={() => removeRichListItem("discussion_points", "discussion_points_html", i)}>
+                <button className="rv-edit-list-remove" onClick={() => removeListItem("discussion_points", i)}>
                   ✕
                 </button>
               </div>
             ))}
           </div>
 
-          {/* Key Decisions - rich text list */}
+          {/* Key Decisions - editable list */}
           <div className="rv-summary-card">
             <div className="rv-summary-card-header">
               <span className="rv-summary-card-icon">
                 <Icon name="check_circle" size="16" color="green" />
               </span>
               <h3>Key Decisions</h3>
-              <button className="rv-edit-inline-add" onClick={() => addRichListItem("key_decisions", "key_decisions_html")}>
+              <button className="rv-edit-inline-add" onClick={() => addListItem("key_decisions")}>
                 + Add
               </button>
             </div>
-            {pickRichList(editedSummary.key_decisions_html, editedSummary.key_decisions).map((h, i) => (
+            {(editedSummary.key_decisions || []).map((d, i) => (
               <div key={i} className="rv-edit-list-row">
-                <RichTextEditor
-                  compact
-                  value={h}
-                  onChange={(html, text) => updateRichListItem("key_decisions", "key_decisions_html", i, html, text)}
+                <textarea
+                  className="rv-edit-textarea rv-edit-textarea--inline"
+                  rows={2}
+                  value={d}
+                  onChange={(e) => updateListItem("key_decisions", i, e.target.value)}
                 />
-                <button className="rv-edit-list-remove" onClick={() => removeRichListItem("key_decisions", "key_decisions_html", i)}>
+                <button className="rv-edit-list-remove" onClick={() => removeListItem("key_decisions", i)}>
                   ✕
                 </button>
               </div>
@@ -571,36 +534,34 @@ function SummaryTab({
             </div>
             {(editedSummary.action_items || []).map((a, i) => (
               <div key={i} className="rv-edit-action-row">
-                <RichTextEditor
-                  compact
-                  className="rv-edit-action-desc"
-                  value={pickRich(a.description_html, a.description)}
-                  onChange={(html, text) => updateActionItemBoth(i, html, text)}
+                <input
+                  className="rv-edit-input"
+                  value={a.description}
+                  onChange={(e) => updateActionItem(i, "description", e.target.value)}
+                  placeholder="Description"
                 />
-                <div className="rv-edit-action-meta">
-                  <input
-                    className="rv-edit-input rv-edit-input--short"
-                    value={a.assignee || ""}
-                    onChange={(e) => updateActionItem(i, "assignee", e.target.value)}
-                    placeholder="Assignee"
-                  />
-                  <input
-                    className="rv-edit-input rv-edit-input--short"
-                    value={a.deadline || ""}
-                    onChange={(e) => updateActionItem(i, "deadline", e.target.value)}
-                    placeholder="Deadline"
-                  />
-                  <button className="rv-edit-list-remove" onClick={() => removeActionItem(i)}>
-                    ✕
-                  </button>
-                </div>
+                <input
+                  className="rv-edit-input rv-edit-input--short"
+                  value={a.assignee || ""}
+                  onChange={(e) => updateActionItem(i, "assignee", e.target.value)}
+                  placeholder="Assignee"
+                />
+                <input
+                  className="rv-edit-input rv-edit-input--short"
+                  value={a.deadline || ""}
+                  onChange={(e) => updateActionItem(i, "deadline", e.target.value)}
+                  placeholder="Deadline"
+                />
+                <button className="rv-edit-list-remove" onClick={() => removeActionItem(i)}>
+                  ✕
+                </button>
               </div>
             ))}
           </div>
         </>
       ) : (
         <>
-          {(summary!.executive_summary || summary!.executive_summary_html) && (
+          {summary!.executive_summary && (
             <div className="rv-summary-card">
               <div className="rv-summary-card-header">
                 <span className="rv-summary-card-icon">
@@ -608,16 +569,11 @@ function SummaryTab({
                 </span>
                 <h3>Executive Summary</h3>
               </div>
-              <RichTextView
-                className="rv-summary-text rv-rich"
-                html={summary!.executive_summary_html}
-                text={summary!.executive_summary}
-              />
+              <p className="rv-summary-text">{summary!.executive_summary}</p>
             </div>
           )}
 
-          {(summary!.discussion_points && summary!.discussion_points.length > 0) ||
-          (summary!.discussion_points_html && summary!.discussion_points_html.length > 0) ? (
+          {summary!.discussion_points && summary!.discussion_points.length > 0 && (
             <div className="rv-summary-card">
               <div className="rv-summary-card-header">
                 <span className="rv-summary-card-icon">
@@ -626,17 +582,14 @@ function SummaryTab({
                 <h3>Discussion Points</h3>
               </div>
               <ul className="rv-summary-list">
-                {pickRichList(summary!.discussion_points_html, summary!.discussion_points).map((h, i) => (
-                  <li key={i}>
-                    <RichTextView className="rv-rich" html={h} text={summary!.discussion_points?.[i]} />
-                  </li>
+                {summary!.discussion_points.map((p, i) => (
+                  <li key={i}>{p}</li>
                 ))}
               </ul>
             </div>
-          ) : null}
+          )}
 
-          {(summary!.key_decisions && summary!.key_decisions.length > 0) ||
-          (summary!.key_decisions_html && summary!.key_decisions_html.length > 0) ? (
+          {summary!.key_decisions && summary!.key_decisions.length > 0 && (
             <div className="rv-summary-card">
               <div className="rv-summary-card-header">
                 <span className="rv-summary-card-icon">
@@ -645,14 +598,12 @@ function SummaryTab({
                 <h3>Key Decisions</h3>
               </div>
               <ul className="rv-summary-list rv-list--decisions">
-                {pickRichList(summary!.key_decisions_html, summary!.key_decisions).map((h, i) => (
-                  <li key={i}>
-                    <RichTextView className="rv-rich" html={h} text={summary!.key_decisions?.[i]} />
-                  </li>
+                {summary!.key_decisions.map((d, i) => (
+                  <li key={i}>{d}</li>
                 ))}
               </ul>
             </div>
-          ) : null}
+          )}
 
           {summary!.action_items && summary!.action_items.length > 0 && (
             <div className="rv-summary-card">
@@ -668,11 +619,7 @@ function SummaryTab({
                     <label className="rv-action-checkbox">
                       <input type="checkbox" />
                       <span className="rv-action-text">
-                        {a.description_html && a.description_html.trim() ? (
-                          <RichTextView className="rv-rich" html={a.description_html} text={a.description} />
-                        ) : (
-                          <strong>{a.description}</strong>
-                        )}
+                        <strong>{a.description}</strong>
                         {a.assignee && <span className="rv-assignee"> — {a.assignee}</span>}
                         {a.deadline && <span className="rv-deadline"> (due: {a.deadline})</span>}
                       </span>
@@ -716,12 +663,9 @@ function AnalysisTab({
     analysis &&
     ((analysis.topics && analysis.topics.length > 0) ||
       analysis.sentiment ||
-      analysis.sentiment_html ||
       (analysis.key_entities && analysis.key_entities.length > 0) ||
       analysis.effectiveness ||
-      analysis.effectiveness_html ||
-      (analysis.follow_ups && analysis.follow_ups.length > 0) ||
-      (analysis.follow_ups_html && analysis.follow_ups_html.length > 0));
+      (analysis.follow_ups && analysis.follow_ups.length > 0));
   if (!hasAnalysisContent) {
     return (
       <div className="rv-tab-content">
@@ -764,37 +708,6 @@ function AnalysisTab({
 
   const updateField = (field: string, value: any) => {
     setEditedAnalysis((prev) => ({ ...prev, [field]: value }));
-  };
-
-  // Rich text helpers — keep a plain field and its parallel _html twin in sync.
-  const updateRichField = (field: string, html: string, text: string) => {
-    setEditedAnalysis((prev) => ({ ...prev, [field]: text, [`${field}_html`]: html }));
-  };
-
-  const updateRichListItem = (field: string, htmlField: string, index: number, html: string, text: string) => {
-    setEditedAnalysis((prev) => {
-      const plainList = [...((prev[field as keyof AnalysisData] as string[]) || [])];
-      const htmlList = [...((prev[htmlField as keyof AnalysisData] as string[]) || [])];
-      plainList[index] = text;
-      htmlList[index] = html;
-      return { ...prev, [field]: plainList, [htmlField]: htmlList };
-    });
-  };
-
-  const addRichListItem = (field: string, htmlField: string) => {
-    setEditedAnalysis((prev) => {
-      const plainList = [...((prev[field as keyof AnalysisData] as string[]) || []), ""];
-      const htmlList = [...((prev[htmlField as keyof AnalysisData] as string[]) || []), ""];
-      return { ...prev, [field]: plainList, [htmlField]: htmlList };
-    });
-  };
-
-  const removeRichListItem = (field: string, htmlField: string, index: number) => {
-    setEditedAnalysis((prev) => {
-      const plainList = ((prev[field as keyof AnalysisData] as string[]) || []).filter((_, i) => i !== index);
-      const htmlList = ((prev[htmlField as keyof AnalysisData] as string[]) || []).filter((_, i) => i !== index);
-      return { ...prev, [field]: plainList, [htmlField]: htmlList };
-    });
   };
 
   const addListItem = (field: string) => {
@@ -860,7 +773,7 @@ function AnalysisTab({
               ))}
             </div>
 
-            {/* Sentiment - rich text */}
+            {/* Sentiment - editable textarea */}
             <div className="rv-analysis-card">
               <div className="rv-analysis-card-header">
                 <span className="rv-analysis-icon">
@@ -868,11 +781,12 @@ function AnalysisTab({
                 </span>
                 <h3>Meeting Sentiment</h3>
               </div>
-              <RichTextEditor
-                value={pickRich(editedAnalysis.sentiment_html, editedAnalysis.sentiment)}
-                onChange={(html, text) => updateRichField("sentiment", html, text)}
+              <textarea
+                className="rv-edit-textarea"
+                rows={3}
+                value={editedAnalysis.sentiment || ""}
+                onChange={(e) => updateField("sentiment", e.target.value)}
                 placeholder="Sentiment description…"
-                minHeight={80}
               />
             </div>
 
@@ -902,7 +816,7 @@ function AnalysisTab({
               ))}
             </div>
 
-            {/* Effectiveness - rich text */}
+            {/* Effectiveness - editable textarea */}
             <div className="rv-analysis-card">
               <div className="rv-analysis-card-header">
                 <span className="rv-analysis-icon">
@@ -910,33 +824,36 @@ function AnalysisTab({
                 </span>
                 <h3>Meeting Effectiveness</h3>
               </div>
-              <RichTextEditor
-                value={pickRich(editedAnalysis.effectiveness_html, editedAnalysis.effectiveness)}
-                onChange={(html, text) => updateRichField("effectiveness", html, text)}
+              <textarea
+                className="rv-edit-textarea"
+                rows={3}
+                value={editedAnalysis.effectiveness || ""}
+                onChange={(e) => updateField("effectiveness", e.target.value)}
                 placeholder="Effectiveness notes…"
-                minHeight={80}
               />
             </div>
 
-            {/* Follow-Ups - rich text list */}
+            {/* Follow-Ups - editable list */}
             <div className="rv-analysis-card">
               <div className="rv-analysis-card-header">
                 <span className="rv-analysis-icon">
                   <Icon name="outgoing_mail" size="16" color="accent" />
                 </span>
                 <h3>Follow-Ups</h3>
-                <button className="rv-edit-inline-add" onClick={() => addRichListItem("follow_ups", "follow_ups_html")}>
+                <button className="rv-edit-inline-add" onClick={() => addListItem("follow_ups")}>
                   + Add
                 </button>
               </div>
-              {pickRichList(editedAnalysis.follow_ups_html, editedAnalysis.follow_ups).map((h, i) => (
+              {(editedAnalysis.follow_ups || []).map((f, i) => (
                 <div key={i} className="rv-edit-list-row">
-                  <RichTextEditor
-                    compact
-                    value={h}
-                    onChange={(html, text) => updateRichListItem("follow_ups", "follow_ups_html", i, html, text)}
+                  <textarea
+                    className="rv-edit-textarea rv-edit-textarea--inline"
+                    rows={2}
+                    value={f}
+                    onChange={(e) => updateListItem("follow_ups", i, e.target.value)}
+                    placeholder="Follow-up item…"
                   />
-                  <button className="rv-edit-list-remove" onClick={() => removeRichListItem("follow_ups", "follow_ups_html", i)}>
+                  <button className="rv-edit-list-remove" onClick={() => removeListItem("follow_ups", i)}>
                     ✕
                   </button>
                 </div>
@@ -963,7 +880,7 @@ function AnalysisTab({
               </div>
             )}
 
-            {(analysis!.sentiment || analysis!.sentiment_html) && (
+            {analysis!.sentiment && (
               <div className="rv-analysis-card">
                 <div className="rv-analysis-card-header">
                   <span className="rv-analysis-icon">
@@ -971,7 +888,7 @@ function AnalysisTab({
                   </span>
                   <h3>Meeting Sentiment</h3>
                 </div>
-                <RichTextView className="rv-analysis-text rv-rich" html={analysis!.sentiment_html} text={analysis!.sentiment} />
+                <p className="rv-analysis-text">{analysis!.sentiment}</p>
               </div>
             )}
 
@@ -991,7 +908,7 @@ function AnalysisTab({
               </div>
             )}
 
-            {(analysis!.effectiveness || analysis!.effectiveness_html) && (
+            {analysis!.effectiveness && (
               <div className="rv-analysis-card">
                 <div className="rv-analysis-card-header">
                   <span className="rv-analysis-icon">
@@ -999,12 +916,11 @@ function AnalysisTab({
                   </span>
                   <h3>Meeting Effectiveness</h3>
                 </div>
-                <RichTextView className="rv-analysis-text rv-rich" html={analysis!.effectiveness_html} text={analysis!.effectiveness} />
+                <p className="rv-analysis-text">{analysis!.effectiveness}</p>
               </div>
             )}
 
-            {(analysis!.follow_ups && analysis!.follow_ups.length > 0) ||
-            (analysis!.follow_ups_html && analysis!.follow_ups_html.length > 0) ? (
+            {analysis!.follow_ups && analysis!.follow_ups.length > 0 && (
               <div className="rv-analysis-card">
                 <div className="rv-analysis-card-header">
                   <span className="rv-analysis-icon">
@@ -1013,14 +929,12 @@ function AnalysisTab({
                   <h3>Follow-Ups</h3>
                 </div>
                 <ul className="rv-entity-list">
-                  {pickRichList(analysis!.follow_ups_html, analysis!.follow_ups).map((h, i) => (
-                    <li key={i}>
-                      <RichTextView className="rv-rich" html={h} text={analysis!.follow_ups?.[i]} />
-                    </li>
+                  {analysis!.follow_ups.map((f, i) => (
+                    <li key={i}>{f}</li>
                   ))}
                 </ul>
               </div>
-            ) : null}
+            )}
           </>
         )}
       </div>
@@ -3177,33 +3091,63 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
   const [analysis, setAnalysis] = useState<AnalysisData | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(true);
 
+  // Terminal statuses after which analysis.json is guaranteed to be on disk
+  // (mirrors `successStatuses` in hooks/useJobStatus.ts).
+  const terminalStatusesRef = useRef<Set<string>>(new Set(["complete", "delivered", "complete_with_warning"]));
+
+  // Stable fetch so the mount effect and refetch triggers can share it.
+  const fetchAnalysis = useCallback(async () => {
+    setAnalysisLoading(true);
+    try {
+      const res = await fetch(`${BRIDGE_URL}/tools/call`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tool: "transcribe_get_analysis", args: { jobId } }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        // Not ready yet (e.g. analysis.json not written) — don't commit the
+        // error body as analysis; a later refetch will pick it up.
+        setAnalysis(null);
+      } else {
+        setAnalysis(data.analysis || data || null);
+      }
+    } catch {
+      setAnalysis(null);
+    } finally {
+      setAnalysisLoading(false);
+    }
+  }, [jobId]);
+
   // Fetch analysis data when the component mounts
   useEffect(() => {
-    let cancelled = false;
-    const fetchAnalysis = async () => {
-      try {
-        const res = await fetch(`${BRIDGE_URL}/tools/call`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tool: "transcribe_get_analysis", args: { jobId } }),
-        });
-        const data = await res.json();
-        if (!cancelled) {
-          setAnalysis(data.analysis || data || null);
-          setAnalysisLoading(false);
-        }
-      } catch {
-        if (!cancelled) {
-          setAnalysis(null);
-          setAnalysisLoading(false);
-        }
-      }
-    };
     fetchAnalysis();
-    return () => {
-      cancelled = true;
-    };
-  }, [jobId]);
+  }, [fetchAnalysis]);
+
+  // The live ResultsViewer can mount before analysis.json exists (e.g. the user
+  // clicked a "view results" notification while the job was still processing).
+  // Refetch when the job transitions into a terminal status so the Analysis tab
+  // populates on completion without needing a History round-trip.
+  const prevStatusRef = useRef<string | undefined>(jobStatus);
+  useEffect(() => {
+    const wasTerminal = prevStatusRef.current !== undefined && terminalStatusesRef.current.has(prevStatusRef.current);
+    const isTerminal = jobStatus !== undefined && terminalStatusesRef.current.has(jobStatus);
+    if (isTerminal && !wasTerminal) {
+      fetchAnalysis();
+    }
+    prevStatusRef.current = jobStatus;
+  }, [jobStatus, fetchAnalysis]);
+
+  // Safety net: refetch when the user opens the Analysis tab while it is empty
+  // (covers transient mount-fetch failures that weren't already recovered).
+  const prevActiveTabRef = useRef<TabId>(activeTab);
+  useEffect(() => {
+    const wasAnalysisTab = prevActiveTabRef.current === "analysis";
+    if (activeTab === "analysis" && !wasAnalysisTab && !analysis) {
+      fetchAnalysis();
+    }
+    prevActiveTabRef.current = activeTab;
+  }, [activeTab, analysis, fetchAnalysis]);
 
   const isDevTab = (id: TabId) => DEV_SUB_TABS.some((st) => st.id === id);
   const effectiveTab = isDevTab(activeTab) ? "developer" : activeTab;

@@ -568,7 +568,10 @@ export default function App() {
 
   // Handle speaker label confirmation and pipeline resume
   const handleLabelConfirm = useCallback(
-    async (labels: Array<{ speaker_id: string; name: string; email?: string }>, options?: { overwriteNames?: string[]; excludedNonSpeaking?: string[] }) => {
+    async (
+      labels: Array<{ speaker_id: string; name: string; email?: string }>,
+      options?: { overwriteNames?: string[]; excludedNonSpeaking?: string[] },
+    ) => {
       if (!jobId) return;
       setLabelingError(null);
       setLabelingConflicts(null);
@@ -887,572 +890,572 @@ export default function App() {
   return (
     <ServiceStatusProvider ollamaRequired={ollamaRequired}>
       <div className="app">
-      <header className="app-header">
-        <Tooltip content="Home — Transcription Agent desktop app">
-          <h1>
-            <Icon name="mic" size="24" color="accent" /> Transcription Agent
-          </h1>
-        </Tooltip>
-        {isJobRunning && jobId && (
-          <Tooltip content={`Job running — click to copy full job ID`}>
-            <span
-              className="app-header-job-indicator app-header-job-indicator--clickable"
-              onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(jobId);
-                  notify(`Job ID copied: ${jobId.slice(0, 8)}`);
-                } catch {
-                  notify("Failed to copy job ID");
-                }
-              }}>
-              <span className="app-header-job-indicator-dot" />
-              <span className="app-header-job-indicator-text">
-                Job Running
-                <span className="app-header-job-indicator-sep">·</span>
-                <span className="app-header-job-indicator-id">{jobId.slice(0, 8)}</span>
-              </span>
-            </span>
+        <header className="app-header">
+          <Tooltip content="Home — Transcription Agent desktop app">
+            <h1>
+              <Icon name="mic" size="24" color="accent" /> Transcription Agent
+            </h1>
           </Tooltip>
-        )}
-      </header>
-
-      {notification && (
-        <div className="notification" onClick={() => setNotification(null)}>
-          <span className="notification-text">{notification}</span>
-          <Tooltip content="Dismiss this notification">
-            <button
-              className="notification-close"
-              onClick={(e) => {
-                e.stopPropagation();
-                setNotification(null);
-              }}
-              title="Dismiss this notification">
-              <Icon name="close" size="14" />
-            </button>
-          </Tooltip>
-        </div>
-      )}
-
-      {/* Speaker labeling modal — shown when pipeline pauses after diarization */}
-      {showSpeakerModal && speakerClips && speakerClips.speakers && (
-        <SpeakerLabelModal
-          jobId={jobId!}
-          speakers={speakerClips.speakers}
-          suggestedEmails={jobMetadata?.attendeeEmails || []}
-          nonSpeakingAttendees={speakerClips.non_speaking_attendees || []}
-          onConfirm={handleLabelConfirm}
-          onCancel={handleLabelCancel}
-          submitting={labelingSubmitting}
-          error={labelingError}
-          onClearError={() => {
-            setLabelingError(null);
-            setLabelingConflicts(null);
-          }}
-          postSubmitConflicts={labelingConflicts}
-        />
-      )}
-
-      {/* Dev/Config warning modal */}
-      {devWarningModal && (
-        <div className="lm-overlay">
-          <div
-            style={{
-              background: "var(--surface)",
-              borderRadius: "var(--radius)",
-              padding: 24,
-              maxWidth: 420,
-              textAlign: "center",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 16,
-              boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
-            }}>
-            <Icon name="warning" size="48" color="orange" />
-            <h3 style={{ margin: 0, color: "var(--text)", fontSize: "var(--fs-16)" }}>Developer Section</h3>
-            <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "var(--fs-13)", lineHeight: 1.5 }}>
-              This section is for developers. Proceed with caution. Do you want to proceed?
-            </p>
-            <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-              <button
-                className="dev-panel-btn"
-                onClick={() => {
-                  sessionStorage.setItem("dev_warning_accepted", "true");
-                  if (sidebarView === "storage") {
-                    setDevAccessSignal(v => v + 1);
-                  } else {
-                    setSidebarView(devWarningModal);
-                  }
-                  setDevWarningModal(null);
-                }}
-                style={{ padding: "8px 24px", fontWeight: 600 }}
-                title="Proceed to this section">
-                <Icon name="check_circle" size="16" color="green" /> Proceed
-              </button>
-              <button
-                className="dev-panel-btn"
-                onClick={() => {
-                  setDevWarningModal(null);
-                  if (sidebarView !== "storage") {
-                    setSidebarView("current");
-                  }
-                }}
-                style={{ padding: "8px 24px", fontWeight: 600 }}
-                title="Go back to the current job view">
-                <Icon name="cancel" size="16" color="red" /> Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Missing-config overlay — blocks other views when no API keys are configured */}
-      {showConfigOverlay && (
-        <div className="lm-overlay" style={{ zIndex: 900 }}>
-          <div
-            style={{
-              background: "var(--surface)",
-              borderRadius: "var(--radius)",
-              padding: 32,
-              maxWidth: 440,
-              textAlign: "center",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 16,
-              boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
-            }}>
-            <Icon name="info" size="48" color="accent" />
-            <h3 style={{ margin: 0, color: "var(--text)", fontSize: "var(--fs-16)" }}>Configuration Required</h3>
-            <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "var(--fs-13)", lineHeight: 1.5 }}>
-              This app requires API keys to function. Please configure your settings or import a configuration file from a previous install.
-            </p>
-            <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-              <button
-                className="dev-panel-btn"
-                onClick={() => {
-                  setSidebarView("config");
-                  setShowConfigOverlay(false);
-                }}
-                style={{ padding: "8px 24px", fontWeight: 600 }}
-                title="Open the configuration panel to enter API keys">
-                <Icon name="settings" size="16" /> Open Settings
-              </button>
-              <button
-                className="config-io-btn config-io-btn--import-highlight"
+          {isJobRunning && jobId && (
+            <Tooltip content={`Job running — click to copy job ID`}>
+              <span
+                className="app-header-job-indicator app-header-job-indicator--clickable"
                 onClick={async () => {
-                  const result = await window.electronAPI?.importConfig();
-                  if (result?.success) {
-                    setShowConfigOverlay(false);
-                    setSidebarView("config");
-                    window.electronAPI?.checkConfig().then((r) => setConfigOk(r.ok));
+                  try {
+                    await navigator.clipboard.writeText(jobId);
+                    notify(`Job ID copied: ${jobId.slice(0, 8)}`);
+                  } catch {
+                    notify("Failed to copy job ID");
                   }
-                }}
-                style={{ padding: "8px 24px", fontWeight: 600 }}
-                title="Import configuration from a previously exported JSON file">
-                <Icon name="download" size="16" /> Import Config
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Quit confirmation dialog */}
-      {showQuitConfirm && (
-        <div className="confirm-overlay" onClick={() => setShowQuitConfirm(false)}>
-          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
-            <h3 className="confirm-dialog-title">
-              <Icon name="power_settings_new" size="16" color="orange" /> Quit Transcription Agent
-            </h3>
-            <p className="confirm-dialog-text">
-              {isJobRunning
-                ? "A meeting is currently being processed. Are you sure you want to quit?"
-                : "Are you sure you want to quit the app?"}
-            </p>
-            <div className="confirm-dialog-actions">
-              <button className="btn-secondary" onClick={() => setShowQuitConfirm(false)}>
-                Cancel
-              </button>
-              <button
-                className="btn-danger"
-                onClick={async () => {
-                  setShowQuitConfirm(false);
-                  await window.electronAPI?.quitApp();
                 }}>
-                Quit
+                <span className="app-header-job-indicator-dot" />
+                <span className="app-header-job-indicator-text">
+                  Job Running
+                  <span className="app-header-job-indicator-sep">·</span>
+                  <span className="app-header-job-indicator-title">{jobMetadata?.title || "Untitled Meeting"}</span>
+                  <span className="app-header-job-indicator-sep">·</span>
+                  <span className="app-header-job-indicator-id">{jobId}</span>
+                </span>
+              </span>
+            </Tooltip>
+          )}
+        </header>
+
+        {notification && (
+          <div className="notification" onClick={() => setNotification(null)}>
+            <span className="notification-text">{notification}</span>
+            <Tooltip content="Dismiss this notification">
+              <button
+                className="notification-close"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setNotification(null);
+                }}
+                title="Dismiss this notification">
+                <Icon name="close" size="14" />
               </button>
+            </Tooltip>
+          </div>
+        )}
+
+        {/* Speaker labeling modal — shown when pipeline pauses after diarization */}
+        {showSpeakerModal && speakerClips && speakerClips.speakers && (
+          <SpeakerLabelModal
+            jobId={jobId!}
+            speakers={speakerClips.speakers}
+            suggestedEmails={jobMetadata?.attendeeEmails || []}
+            nonSpeakingAttendees={speakerClips.non_speaking_attendees || []}
+            onConfirm={handleLabelConfirm}
+            onCancel={handleLabelCancel}
+            submitting={labelingSubmitting}
+            error={labelingError}
+            onClearError={() => {
+              setLabelingError(null);
+              setLabelingConflicts(null);
+            }}
+            postSubmitConflicts={labelingConflicts}
+          />
+        )}
+
+        {/* Dev/Config warning modal */}
+        {devWarningModal && (
+          <div className="lm-overlay">
+            <div
+              style={{
+                background: "var(--surface)",
+                borderRadius: "var(--radius)",
+                padding: 24,
+                maxWidth: 420,
+                textAlign: "center",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 16,
+                boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+              }}>
+              <Icon name="warning" size="48" color="orange" />
+              <h3 style={{ margin: 0, color: "var(--text)", fontSize: "var(--fs-16)" }}>Developer Section</h3>
+              <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "var(--fs-13)", lineHeight: 1.5 }}>
+                This section is for developers. Proceed with caution. Do you want to proceed?
+              </p>
+              <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+                <button
+                  className="dev-panel-btn"
+                  onClick={() => {
+                    sessionStorage.setItem("dev_warning_accepted", "true");
+                    if (sidebarView === "storage") {
+                      setDevAccessSignal((v) => v + 1);
+                    } else {
+                      setSidebarView(devWarningModal);
+                    }
+                    setDevWarningModal(null);
+                  }}
+                  style={{ padding: "8px 24px", fontWeight: 600 }}
+                  title="Proceed to this section">
+                  <Icon name="check_circle" size="16" color="green" /> Proceed
+                </button>
+                <button
+                  className="dev-panel-btn"
+                  onClick={() => {
+                    setDevWarningModal(null);
+                    if (sidebarView !== "storage") {
+                      setSidebarView("current");
+                    }
+                  }}
+                  style={{ padding: "8px 24px", fontWeight: 600 }}
+                  title="Go back to the current job view">
+                  <Icon name="cancel" size="16" color="red" /> Cancel
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Global loading modal — covers everything during data fetches */}
-      <LoadingModal visible={!!loadingMessage} message={loadingMessage || undefined} />
+        {/* Missing-config overlay — blocks other views when no API keys are configured */}
+        {showConfigOverlay && (
+          <div className="lm-overlay" style={{ zIndex: 900 }}>
+            <div
+              style={{
+                background: "var(--surface)",
+                borderRadius: "var(--radius)",
+                padding: 32,
+                maxWidth: 440,
+                textAlign: "center",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 16,
+                boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+              }}>
+              <Icon name="info" size="48" color="accent" />
+              <h3 style={{ margin: 0, color: "var(--text)", fontSize: "var(--fs-16)" }}>Configuration Required</h3>
+              <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "var(--fs-13)", lineHeight: 1.5 }}>
+                This app requires API keys to function. Please configure your settings or import a configuration file from a previous install.
+              </p>
+              <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+                <button
+                  className="dev-panel-btn"
+                  onClick={() => {
+                    setSidebarView("config");
+                    setShowConfigOverlay(false);
+                  }}
+                  style={{ padding: "8px 24px", fontWeight: 600 }}
+                  title="Open the configuration panel to enter API keys">
+                  <Icon name="settings" size="16" /> Open Settings
+                </button>
+                <button
+                  className="config-io-btn config-io-btn--import-highlight"
+                  onClick={async () => {
+                    const result = await window.electronAPI?.importConfig();
+                    if (result?.success) {
+                      setShowConfigOverlay(false);
+                      setSidebarView("config");
+                      window.electronAPI?.checkConfig().then((r) => setConfigOk(r.ok));
+                    }
+                  }}
+                  style={{ padding: "8px 24px", fontWeight: 600 }}
+                  title="Import configuration from a previously exported JSON file">
+                  <Icon name="download" size="16" /> Import Config
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
-      <div className="app-body">
-        <nav className="sidebar" ref={sidebarRef}>
-          <div className="sidebar-resize-handle" onMouseDown={handleSidebarMouseDown} />
-          <Tooltip
-            content={
-              isJobRunning
-                ? "A transcription job is in progress — start a new one after it finishes"
-                : "Start a new transcription — upload audio and configure meeting details"
-            }
-            position="right">
-            <button
-              className={`sidebar-btn ${showNewForm ? "sidebar-btn--active" : ""}`}
-              onClick={() => {
-                handleNew();
-                setShowNewForm(true);
-                setSidebarView("current");
-              }}
-              disabled={isJobRunning}
-              title={
+        {/* Quit confirmation dialog */}
+        {showQuitConfirm && (
+          <div className="confirm-overlay" onClick={() => setShowQuitConfirm(false)}>
+            <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+              <h3 className="confirm-dialog-title">
+                <Icon name="power_settings_new" size="16" color="orange" /> Quit Transcription Agent
+              </h3>
+              <p className="confirm-dialog-text">
+                {isJobRunning ? "A meeting is currently being processed. Are you sure you want to quit?" : "Are you sure you want to quit the app?"}
+              </p>
+              <div className="confirm-dialog-actions">
+                <button className="btn-secondary" onClick={() => setShowQuitConfirm(false)}>
+                  Cancel
+                </button>
+                <button
+                  className="btn-danger"
+                  onClick={async () => {
+                    setShowQuitConfirm(false);
+                    await window.electronAPI?.quitApp();
+                  }}>
+                  Quit
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Global loading modal — covers everything during data fetches */}
+        <LoadingModal visible={!!loadingMessage} message={loadingMessage || undefined} />
+
+        <div className="app-body">
+          <nav className="sidebar" ref={sidebarRef}>
+            <div className="sidebar-resize-handle" onMouseDown={handleSidebarMouseDown} />
+            <Tooltip
+              content={
                 isJobRunning
-                  ? "A job is currently running — wait for it to finish"
+                  ? "A transcription job is in progress — start a new one after it finishes"
                   : "Start a new transcription — upload audio and configure meeting details"
-              }>
-              <span className="sidebar-btn-icon">
-                <Icon name="add_circle" size="16" />
-              </span>
-              <span className="sidebar-btn-label">New</span>
-            </button>
-          </Tooltip>
-          <Tooltip
-            content={
-              foreignJobs.hasForeignRunningJobs
-                ? "A bot job is running — click to see status"
-                : "View active or most recent job — pipeline progress, transcript, and results"
-            }
-            position="right">
-            <button
-              className={`sidebar-btn ${sidebarView === "current" && !showHistory && !showNewForm ? "sidebar-btn--active" : ""}`}
-              onClick={() => {
-                setSidebarView("current");
-                setShowNewForm(false);
-                setShowHistory(false);
-                setHistoryJobId(null);
-              }}
-              title="View active or most recent job — pipeline progress, transcript, and results">
-              <span className="sidebar-btn-icon">
-                <Icon name="home" size="16" />
-                {foreignJobs.hasForeignRunningJobs && <span className="sidebar-badge sidebar-badge--pulsing" />}
-              </span>
-              <span className="sidebar-btn-label">Current</span>
-            </button>
-          </Tooltip>
-          <Tooltip content="Browse past transcription jobs — reload or delete previous sessions" position="right">
-            <button
-              className={`sidebar-btn ${showHistory && sidebarView === "current" ? "sidebar-btn--active" : ""}`}
-              onClick={() => {
-                if (showHistory) {
+              }
+              position="right">
+              <button
+                className={`sidebar-btn ${showNewForm ? "sidebar-btn--active" : ""}`}
+                onClick={() => {
+                  handleNew();
+                  setShowNewForm(true);
+                  setSidebarView("current");
+                }}
+                disabled={isJobRunning}
+                title={
+                  isJobRunning
+                    ? "A job is currently running — wait for it to finish"
+                    : "Start a new transcription — upload audio and configure meeting details"
+                }>
+                <span className="sidebar-btn-icon">
+                  <Icon name="add_circle" size="16" />
+                </span>
+                <span className="sidebar-btn-label">New</span>
+              </button>
+            </Tooltip>
+            <Tooltip
+              content={
+                foreignJobs.hasForeignRunningJobs
+                  ? "A bot job is running — click to see status"
+                  : "View active or most recent job — pipeline progress, transcript, and results"
+              }
+              position="right">
+              <button
+                className={`sidebar-btn ${sidebarView === "current" && !showHistory && !showNewForm ? "sidebar-btn--active" : ""}`}
+                onClick={() => {
+                  setSidebarView("current");
+                  setShowNewForm(false);
+                  setShowHistory(false);
                   setHistoryJobId(null);
-                }
-                setSidebarView("current");
-                setShowNewForm(false);
-                setShowHistory((v) => !v);
-              }}
-              title="Browse past transcription jobs — reload or delete previous sessions">
-              <span className="sidebar-btn-icon">
-                <Icon name="history" size="16" />
-              </span>
-              <span className="sidebar-btn-label">History</span>
-            </button>
-          </Tooltip>
-          <Tooltip content="View disk usage breakdown — jobs, logs, databases, and models" position="right">
-            <button
-              className={`sidebar-btn ${sidebarView === "storage" ? "sidebar-btn--active" : ""}`}
-              onClick={() => {
-                setSidebarView("storage");
-                setShowNewForm(false);
-                setShowHistory(false);
-              }}
-              title="View disk usage breakdown — jobs, logs, databases, and models">
-              <span className="sidebar-btn-icon">
-                <Icon name="storage" size="16" />
-              </span>
-              <span className="sidebar-btn-label">Storage</span>
-            </button>
-          </Tooltip>
-          <Tooltip content="Developer tools — live logs, database browser, performance metrics, and updates" position="right">
-            <button
-              className={`sidebar-btn ${sidebarView === "dev" ? "sidebar-btn--active" : ""}`}
-              onClick={() => {
-                if (sessionStorage.getItem("dev_warning_accepted")) {
-                  setSidebarView("dev");
-                } else {
-                  setDevWarningModal("dev");
-                }
-                setShowNewForm(false);
-                setShowHistory(false);
-              }}
-              title="Developer tools — live logs, database browser, performance metrics, and updates">
-              <span className="sidebar-btn-icon">
-                <Icon name="build" size="16" />
-              </span>
-              <span className="sidebar-btn-label">Dev</span>
-            </button>
-          </Tooltip>
-          <Tooltip content="Configure API keys, LLM provider, delivery services, and agent pipeline settings" position="right">
-            <button
-              className={`sidebar-btn ${sidebarView === "config" ? "sidebar-btn--active" : ""}`}
-              onClick={() => {
-                if (sessionStorage.getItem("dev_warning_accepted")) {
-                  setSidebarView("config");
-                } else {
-                  setDevWarningModal("config");
-                }
-                setShowNewForm(false);
-                setShowHistory(false);
-                window.electronAPI?.getConfigWithSources();
-              }}
-              title="Configure API keys, LLM provider, delivery services, and agent pipeline settings">
-              <span className="sidebar-btn-icon">
-                <Icon name="settings" size="16" />
-              </span>
-              <span className="sidebar-btn-label">Config</span>
-              {!configOk && <span className="sidebar-badge" />}
-            </button>
-          </Tooltip>
-          <Tooltip content="Customize theme, accent color, font size, and sidebar width" position="right">
-            <button
-              className={`sidebar-btn ${sidebarView === "appearance" ? "sidebar-btn--active" : ""}`}
-              onClick={() => {
-                setSidebarView("appearance");
-                setShowNewForm(false);
-                setShowHistory(false);
-              }}
-              title="Customize theme, accent color, font size, and sidebar width">
-              <span className="sidebar-btn-icon">
-                <Icon name="palette" size="16" />
-              </span>
-              <span className="sidebar-btn-label">Appearance</span>
-            </button>
-          </Tooltip>
-          <Tooltip content="App version, name, and README — learn about the Transcription Agent" position="right">
-            <button
-              className={`sidebar-btn ${sidebarView === "about" ? "sidebar-btn--active" : ""}`}
-              onClick={() => {
-                setSidebarView("about");
-                setShowNewForm(false);
-                setShowHistory(false);
-              }}
-              title="App version, name, and README — learn about the Transcription Agent">
-              <span className="sidebar-btn-icon">
-                <Icon name="info" size="16" />
-              </span>
-              <span className="sidebar-btn-label">About</span>
-            </button>
-          </Tooltip>
+                }}
+                title="View active or most recent job — pipeline progress, transcript, and results">
+                <span className="sidebar-btn-icon">
+                  <Icon name="home" size="16" />
+                  {foreignJobs.hasForeignRunningJobs && <span className="sidebar-badge sidebar-badge--pulsing" />}
+                </span>
+                <span className="sidebar-btn-label">Current</span>
+              </button>
+            </Tooltip>
+            <Tooltip content="Browse past transcription jobs — reload or delete previous sessions" position="right">
+              <button
+                className={`sidebar-btn ${showHistory && sidebarView === "current" ? "sidebar-btn--active" : ""}`}
+                onClick={() => {
+                  if (showHistory) {
+                    setHistoryJobId(null);
+                  }
+                  setSidebarView("current");
+                  setShowNewForm(false);
+                  setShowHistory((v) => !v);
+                }}
+                title="Browse past transcription jobs — reload or delete previous sessions">
+                <span className="sidebar-btn-icon">
+                  <Icon name="history" size="16" />
+                </span>
+                <span className="sidebar-btn-label">History</span>
+              </button>
+            </Tooltip>
+            <Tooltip content="View disk usage breakdown — jobs, logs, databases, and models" position="right">
+              <button
+                className={`sidebar-btn ${sidebarView === "storage" ? "sidebar-btn--active" : ""}`}
+                onClick={() => {
+                  setSidebarView("storage");
+                  setShowNewForm(false);
+                  setShowHistory(false);
+                }}
+                title="View disk usage breakdown — jobs, logs, databases, and models">
+                <span className="sidebar-btn-icon">
+                  <Icon name="storage" size="16" />
+                </span>
+                <span className="sidebar-btn-label">Storage</span>
+              </button>
+            </Tooltip>
+            <Tooltip content="Developer tools — live logs, database browser, performance metrics, and updates" position="right">
+              <button
+                className={`sidebar-btn ${sidebarView === "dev" ? "sidebar-btn--active" : ""}`}
+                onClick={() => {
+                  if (sessionStorage.getItem("dev_warning_accepted")) {
+                    setSidebarView("dev");
+                  } else {
+                    setDevWarningModal("dev");
+                  }
+                  setShowNewForm(false);
+                  setShowHistory(false);
+                }}
+                title="Developer tools — live logs, database browser, performance metrics, and updates">
+                <span className="sidebar-btn-icon">
+                  <Icon name="build" size="16" />
+                </span>
+                <span className="sidebar-btn-label">Dev</span>
+              </button>
+            </Tooltip>
+            <Tooltip content="Configure API keys, LLM provider, delivery services, and agent pipeline settings" position="right">
+              <button
+                className={`sidebar-btn ${sidebarView === "config" ? "sidebar-btn--active" : ""}`}
+                onClick={() => {
+                  if (sessionStorage.getItem("dev_warning_accepted")) {
+                    setSidebarView("config");
+                  } else {
+                    setDevWarningModal("config");
+                  }
+                  setShowNewForm(false);
+                  setShowHistory(false);
+                  window.electronAPI?.getConfigWithSources();
+                }}
+                title="Configure API keys, LLM provider, delivery services, and agent pipeline settings">
+                <span className="sidebar-btn-icon">
+                  <Icon name="settings" size="16" />
+                </span>
+                <span className="sidebar-btn-label">Config</span>
+                {!configOk && <span className="sidebar-badge" />}
+              </button>
+            </Tooltip>
+            <Tooltip content="Customize theme, accent color, font size, and sidebar width" position="right">
+              <button
+                className={`sidebar-btn ${sidebarView === "appearance" ? "sidebar-btn--active" : ""}`}
+                onClick={() => {
+                  setSidebarView("appearance");
+                  setShowNewForm(false);
+                  setShowHistory(false);
+                }}
+                title="Customize theme, accent color, font size, and sidebar width">
+                <span className="sidebar-btn-icon">
+                  <Icon name="palette" size="16" />
+                </span>
+                <span className="sidebar-btn-label">Appearance</span>
+              </button>
+            </Tooltip>
+            <Tooltip content="App version, name, and README — learn about the Transcription Agent" position="right">
+              <button
+                className={`sidebar-btn ${sidebarView === "about" ? "sidebar-btn--active" : ""}`}
+                onClick={() => {
+                  setSidebarView("about");
+                  setShowNewForm(false);
+                  setShowHistory(false);
+                }}
+                title="App version, name, and README — learn about the Transcription Agent">
+                <span className="sidebar-btn-icon">
+                  <Icon name="info" size="16" />
+                </span>
+                <span className="sidebar-btn-label">About</span>
+              </button>
+            </Tooltip>
 
-          {/* Spacer to push Quit to the bottom */}
-          <div style={{ flex: 1 }} />
+            {/* Spacer to push Quit to the bottom */}
+            <div style={{ flex: 1 }} />
 
-          <div className="sidebar-separator" />
+            <div className="sidebar-separator" />
 
-          <Tooltip content="Quit the application — stops all background services" position="right">
-            <button
-              className="sidebar-btn sidebar-btn--quit"
-              onClick={() => setShowQuitConfirm(true)}
-              title="Quit the application — stops all background services">
-              <span className="sidebar-btn-icon">
-                <Icon name="power_settings_new" size="16" />
-              </span>
-              <span className="sidebar-btn-label">Quit</span>
-            </button>
-          </Tooltip>
-        </nav>
+            <Tooltip content="Quit the application — stops all background services" position="right">
+              <button
+                className="sidebar-btn sidebar-btn--quit"
+                onClick={() => setShowQuitConfirm(true)}
+                title="Quit the application — stops all background services">
+                <span className="sidebar-btn-icon">
+                  <Icon name="power_settings_new" size="16" />
+                </span>
+                <span className="sidebar-btn-label">Quit</span>
+              </button>
+            </Tooltip>
+          </nav>
 
-        <main className="app-main">
-          {/* ── Dev view: always interactive (logs help debug startup) ── */}
-          {sidebarView === "dev" && <DevPanel onClose={() => setSidebarView("current")} />}
+          <main className="app-main">
+            {/* ── Dev view: always interactive (logs help debug startup) ── */}
+            {sidebarView === "dev" && <DevPanel onClose={() => setSidebarView("current")} />}
 
-          {/* ── Server status popover overlay ── */}
-          {sidebarView !== "dev" && <ServerStatusBanner />}
+            {/* ── Server status popover overlay ── */}
+            {sidebarView !== "dev" && <ServerStatusBanner />}
 
-          {/* ── Normal content (always visible behind popover) ── */}
-          {sidebarView !== "dev" && (
-            <>
-              {sidebarView === "current" && (
-                <>
-                  {showNewForm ? (
-                    <div className="upload-panel-full">
-                      <UploadPanel onUpload={handleUpload} uploading={uploading} disabled={isJobRunning} initialSkipSteps={defaultSkipSteps} />
-                    </div>
-                  ) : (
-                    <>
-                      <div className={"left-col" + (leftColCollapsed && showHistory ? " left-col--collapsed" : "")} id="left-col">
-                        {showHistory ? (
-                          <HistoryPanel
-                            onSelectJob={(jobId) => {
-                              loadHistoryJob(jobId);
-                            }}
-                            collapsed={leftColCollapsed}
-                            currentJobId={historyJobId || jobId}
-                            onNotify={notify}
-                            onStorageChanged={onStorageChanged}
-                            historyRefreshTrigger={historyRefreshTrigger}
-                            onToggleCollapse={() => setLeftColCollapsed((v) => !v)}
-                            onJobDeleted={(deletedJobId) => {
-                              if (deletedJobId === historyJobId) {
-                                setHistoryJobId(null);
-                                setHistoryTranscript(null);
-                                setHistoryJobStatus(null);
-                              }
-                            }}
-                          />
-                        ) : (
-                          <>
-                            {(view === "processing" || view === "results") &&
-                              statusData &&
-                              !(foreignJobs.hasForeignRunningJobs && (statusHook.state === "complete" || statusHook.state === "error")) && (
-                                <PipelineProgress
-                                  status={statusData.status}
-                                  progress={statusData.progress}
-                                  error={statusData.error}
-                                  titleError={statusData.titleError}
-                                  onCancel={handleCancel}
-                                  cancelling={cancelling}
-                                  diarizationAvailable={diarizationAvailable}
-                                  skippedSteps={computeSkippedStages(statusData)}
-                                  onNewJob={() => {
-                                    handleNew();
-                                    setShowNewForm(true);
-                                    setSidebarView("current");
-                                  }}
-                                  jobId={historyJobId || jobId || undefined}
-                                  onApproveGate1={handleGate1Approve}
-                                  onRejectGate1={handleGate1Reject}
-                                  onApproveGate2={handleGate2Approve}
-                                  onRejectGate2={handleGate2Reject}
-                                />
+            {/* ── Normal content (always visible behind popover) ── */}
+            {sidebarView !== "dev" && (
+              <>
+                {sidebarView === "current" && (
+                  <>
+                    {showNewForm ? (
+                      <div className="upload-panel-full">
+                        <UploadPanel onUpload={handleUpload} uploading={uploading} disabled={isJobRunning} initialSkipSteps={defaultSkipSteps} />
+                      </div>
+                    ) : (
+                      <>
+                        <div className={"left-col" + (leftColCollapsed && showHistory ? " left-col--collapsed" : "")} id="left-col">
+                          {showHistory ? (
+                            <HistoryPanel
+                              onSelectJob={(jobId) => {
+                                loadHistoryJob(jobId);
+                              }}
+                              collapsed={leftColCollapsed}
+                              currentJobId={historyJobId || jobId}
+                              onNotify={notify}
+                              onStorageChanged={onStorageChanged}
+                              historyRefreshTrigger={historyRefreshTrigger}
+                              onToggleCollapse={() => setLeftColCollapsed((v) => !v)}
+                              onJobDeleted={(deletedJobId) => {
+                                if (deletedJobId === historyJobId) {
+                                  setHistoryJobId(null);
+                                  setHistoryTranscript(null);
+                                  setHistoryJobStatus(null);
+                                }
+                              }}
+                            />
+                          ) : (
+                            <>
+                              {(view === "processing" || view === "results") &&
+                                statusData &&
+                                !(foreignJobs.hasForeignRunningJobs && (statusHook.state === "complete" || statusHook.state === "error")) && (
+                                  <PipelineProgress
+                                    status={statusData.status}
+                                    progress={statusData.progress}
+                                    error={statusData.error}
+                                    titleError={statusData.titleError}
+                                    onCancel={handleCancel}
+                                    cancelling={cancelling}
+                                    diarizationAvailable={diarizationAvailable}
+                                    skippedSteps={computeSkippedStages(statusData)}
+                                    onNewJob={() => {
+                                      handleNew();
+                                      setShowNewForm(true);
+                                      setSidebarView("current");
+                                    }}
+                                    jobId={historyJobId || jobId || undefined}
+                                    onApproveGate1={handleGate1Approve}
+                                    onRejectGate1={handleGate1Reject}
+                                    onApproveGate2={handleGate2Approve}
+                                    onRejectGate2={handleGate2Reject}
+                                  />
+                                )}
+
+                              {view === "results" && statusHook.state === "error" && !statusData && (
+                                <div className="panel">
+                                  <h2>
+                                    <Icon name="error" color="red" /> Processing Failed
+                                  </h2>
+                                  <p className="error-box" style={{ marginBottom: 12 }}>
+                                    {statusHook.error || "Unknown error"}
+                                  </p>
+                                </div>
                               )}
 
-                            {view === "results" && statusHook.state === "error" && !statusData && (
-                              <div className="panel">
-                                <h2>
-                                  <Icon name="error" color="red" /> Processing Failed
-                                </h2>
-                                <p className="error-box" style={{ marginBottom: 12 }}>
-                                  {statusHook.error || "Unknown error"}
-                                </p>
-                              </div>
-                            )}
+                              {!jobId &&
+                                foreignJobs.hasForeignRunningJobs &&
+                                (() => {
+                                  const firstEntry = Array.from(foreignJobs.foreignJobsStatus.entries())[0];
+                                  const [foreignJobId, foreignInfo] = firstEntry || [];
+                                  if (!foreignInfo) return null;
+                                  return (
+                                    <PipelineProgress
+                                      status={foreignInfo.status}
+                                      progress={foreignInfo.progress}
+                                      onCancel={handleCancelForeign}
+                                      cancelling={cancellingForeign}
+                                      diarizationAvailable={diarizationAvailable}
+                                      isForeignJob={true}
+                                      onNewJob={handleNew}
+                                      jobId={foreignJobId}
+                                    />
+                                  );
+                                })()}
+                              {!jobId && !foreignJobs.hasForeignRunningJobs && (
+                                <div className="panel">
+                                  <h2>No Active Job</h2>
+                                  <p className="placeholder" style={{ color: "var(--text-muted)" }}>
+                                    Click{" "}
+                                    <strong>
+                                      <Icon name="add_circle" size="14" /> New
+                                    </strong>{" "}
+                                    to start a new transcription.
+                                  </p>
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
 
-                            {!jobId &&
-                              foreignJobs.hasForeignRunningJobs &&
-                              (() => {
-                                const firstEntry = Array.from(foreignJobs.foreignJobsStatus.entries())[0];
-                                const [foreignJobId, foreignInfo] = firstEntry || [];
-                                if (!foreignInfo) return null;
-                                return (
-                                  <PipelineProgress
-                                    status={foreignInfo.status}
-                                    progress={foreignInfo.progress}
-                                    onCancel={handleCancelForeign}
-                                    cancelling={cancellingForeign}
-                                    diarizationAvailable={diarizationAvailable}
-                                    isForeignJob={true}
-                                    onNewJob={handleNew}
-                                    jobId={foreignJobId}
-                                  />
-                                );
-                              })()}
-                            {!jobId && !foreignJobs.hasForeignRunningJobs && (
-                              <div className="panel">
-                                <h2>No Active Job</h2>
-                                <p className="placeholder" style={{ color: "var(--text-muted)" }}>
-                                  Click{" "}
-                                  <strong>
-                                    <Icon name="add_circle" size="14" /> New
-                                  </strong>{" "}
-                                  to start a new transcription.
-                                </p>
-                              </div>
-                            )}
-                          </>
-                        )}
-                      </div>
+                        {/* ── Left-col resize handle ── */}
+                        <div className="left-col-resize-handle" onMouseDown={handleLeftColMouseDown} />
 
-                      {/* ── Left-col resize handle ── */}
-                      <div className="left-col-resize-handle" onMouseDown={handleLeftColMouseDown} />
+                        <div className="right-col">
+                          {/* Show results for a history job (history panel visible in left column) */}
+                          {historyJobId && (
+                            <ResultsViewer
+                              key={"history-" + historyJobId}
+                              jobId={historyJobId}
+                              segments={historyTranscript?.transcript}
+                              summary={historyTranscript?.summary}
+                              metadata={jobMetadata}
+                              jobStatus={historyJobStatus?.status}
+                              jobProgress={historyJobStatus?.progress}
+                              jobError={historyJobStatus?.error}
+                              onSummaryUpdate={(updated) => setHistoryTranscript((prev: any) => (prev ? { ...prev, summary: updated } : prev))}
+                            />
+                          )}
+                          {/* Processing placeholder — hidden when viewing history */}
+                          {!historyJobId && view === "processing" && (
+                            <div className="panel transcript-panel">
+                              <h2>Transcript</h2>
+                              <p className="placeholder">
+                                Your results will appear here automatically once processing is complete. You&#39;ll be able to browse the full
+                                transcript, summary, and audio recording.
+                              </p>
+                            </div>
+                          )}
+                          {/* Live results from current upload — hidden when viewing history */}
+                          {!historyJobId && view === "results" && jobId && (
+                            <ResultsViewer
+                              key={"live-" + jobId}
+                              jobId={jobId}
+                              segments={transcript?.transcript}
+                              summary={transcript?.summary}
+                              metadata={jobMetadata}
+                              jobStatus={statusData?.status}
+                              jobProgress={statusData?.progress}
+                              jobError={statusData?.error}
+                              onSummaryUpdate={(updated) => setTranscript((prev: any) => (prev ? { ...prev, summary: updated } : prev))}
+                            />
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </>
+                )}
 
-                      <div className="right-col">
-                        {/* Show results for a history job (history panel visible in left column) */}
-                        {historyJobId && (
-                          <ResultsViewer
-                            key={"history-" + historyJobId}
-                            jobId={historyJobId}
-                            segments={historyTranscript?.transcript}
-                            summary={historyTranscript?.summary}
-                            metadata={jobMetadata}
-                            jobStatus={historyJobStatus?.status}
-                            jobProgress={historyJobStatus?.progress}
-                            jobError={historyJobStatus?.error}
-                            onSummaryUpdate={(updated) => setHistoryTranscript((prev: any) => (prev ? { ...prev, summary: updated } : prev))}
-                          />
-                        )}
-                        {/* Processing placeholder — hidden when viewing history */}
-                        {!historyJobId && view === "processing" && (
-                          <div className="panel transcript-panel">
-                            <h2>Transcript</h2>
-                            <p className="placeholder">
-                              Your results will appear here automatically once processing is complete. You&#39;ll be able to browse the full
-                              transcript, summary, and audio recording.
-                            </p>
-                          </div>
-                        )}
-                        {/* Live results from current upload — hidden when viewing history */}
-                        {!historyJobId && view === "results" && jobId && (
-                          <ResultsViewer
-                            key={"live-" + jobId}
-                            jobId={jobId}
-                            segments={transcript?.transcript}
-                            summary={transcript?.summary}
-                            metadata={jobMetadata}
-                            jobStatus={statusData?.status}
-                            jobProgress={statusData?.progress}
-                            jobError={statusData?.error}
-                            onSummaryUpdate={(updated) => setTranscript((prev: any) => (prev ? { ...prev, summary: updated } : prev))}
-                          />
-                        )}
-                      </div>
-                    </>
-                  )}
-                </>
-              )}
+                {sidebarView === "storage" && (
+                  <StoragePanel
+                    onClose={() => setSidebarView("current")}
+                    onNotify={notify}
+                    refreshTrigger={storageRefreshTrigger}
+                    onDevAccessRequest={() => setDevWarningModal("storage")}
+                    devAccessSignal={devAccessSignal}
+                    onStorageCleared={handleStorageCleared}
+                  />
+                )}
 
-              {sidebarView === "storage" && (
-                <StoragePanel
-                  onClose={() => setSidebarView("current")}
-                  onNotify={notify}
-                  refreshTrigger={storageRefreshTrigger}
-                  onDevAccessRequest={() => setDevWarningModal("storage")}
-                  devAccessSignal={devAccessSignal}
-                  onStorageCleared={handleStorageCleared}
-                />
-              )}
+                {sidebarView === "config" && (
+                  <ConfigPanel
+                    key="config-panel"
+                    configOk={configOk}
+                    onClose={() => {
+                      setSidebarView("current");
+                      window.electronAPI?.checkConfig().then((r) => setConfigOk(r.ok));
+                    }}
+                  />
+                )}
 
-              {sidebarView === "config" && (
-                <ConfigPanel
-                  key="config-panel"
-                  configOk={configOk}
-                  onClose={() => {
-                    setSidebarView("current");
-                    window.electronAPI?.checkConfig().then((r) => setConfigOk(r.ok));
-                  }}
-                />
-              )}
+                {sidebarView === "about" && <AboutPanel onClose={() => setSidebarView("current")} />}
 
-              {sidebarView === "about" && <AboutPanel onClose={() => setSidebarView("current")} />}
+                {sidebarView === "appearance" && <AppearancePanel onClose={() => setSidebarView("current")} />}
+              </>
+            )}
+          </main>
+        </div>
 
-              {sidebarView === "appearance" && <AppearancePanel onClose={() => setSidebarView("current")} />}
-            </>
-          )}
-        </main>
-      </div>
-
-      <StatusBar configOk={configOk} onOpenConfig={() => setSidebarView("config")} />
+        <StatusBar configOk={configOk} onOpenConfig={() => setSidebarView("config")} />
       </div>
     </ServiceStatusProvider>
   );

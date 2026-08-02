@@ -50,7 +50,11 @@ function RichListEditor({
   placeholder?: string;
 }) {
   const add = () => onChange([...items, ""], [...htmlItems, ""]);
-  const remove = (i: number) => onChange(items.filter((_, idx) => idx !== i), htmlItems.filter((_, idx) => idx !== i));
+  const remove = (i: number) =>
+    onChange(
+      items.filter((_, idx) => idx !== i),
+      htmlItems.filter((_, idx) => idx !== i),
+    );
   return (
     <div style={{ marginTop: 8 }}>
       <div className="pp-gate-section-title" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -86,8 +90,6 @@ function RichListEditor({
 export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, onRejectGate1, onApproveGate2, onRejectGate2 }: Props) {
   const isGate1 = gate === "gate1";
   const isGate2 = gate === "gate2";
-
-  if (!visible) return null;
 
   // ── Gate 1 state ──
   const [gate1Loading, setGate1Loading] = useState(false);
@@ -210,7 +212,7 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
 
   // ── Fetch data when Gate 1 panel opens ──
   useEffect(() => {
-    if (!isGate1 || !jobId || gate1Transcript) return;
+    if (!visible || !isGate1 || !jobId || gate1Transcript) return;
     let cancelled = false;
     const fetchData = async () => {
       setGate1Loading(true);
@@ -256,11 +258,11 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
     return () => {
       cancelled = true;
     };
-  }, [isGate1, jobId, gate1Transcript]);
+  }, [visible, isGate1, jobId, gate1Transcript]);
 
   // ── Fetch data when Gate 2 panel opens ──
   useEffect(() => {
-    if (!isGate2 || !jobId || gate2Summary) return;
+    if (!visible || !isGate2 || !jobId || gate2Summary) return;
     let cancelled = false;
     const FETCH_TIMEOUT = 15000; // 15s timeout for each fetch
     const fetchData = async () => {
@@ -331,7 +333,9 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
     return () => {
       cancelled = true;
     };
-  }, [isGate2, jobId, gate2Summary]);
+  }, [visible, isGate2, jobId, gate2Summary]);
+
+  if (!visible) return null;
 
   return (
     <div className="pp-gate-modal-overlay">
@@ -416,9 +420,7 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
                         <div className="pp-gate-edit-segments">
                           {(gate1SegmentsDraft || []).map((seg, i) => (
                             <div key={i} className="pp-gate-edit-segment">
-                              <span className="pp-gate-transcript-time">
-                                [{typeof seg.start === "number" ? seg.start.toFixed(1) : "?"}s]
-                              </span>
+                              <span className="pp-gate-transcript-time">[{typeof seg.start === "number" ? seg.start.toFixed(1) : "?"}s]</span>
                               <input
                                 className="pp-gate-edit-speaker"
                                 value={seg.speaker}
@@ -750,7 +752,10 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
                               onChange={(e) =>
                                 setGate2AnalysisDraft((prev) => ({
                                   ...prev,
-                                  topics: e.target.value.split(",").map((t) => t.trim()).filter(Boolean),
+                                  topics: e.target.value
+                                    .split(",")
+                                    .map((t) => t.trim())
+                                    .filter(Boolean),
                                 }))
                               }
                               placeholder="Topics (comma-separated)"
@@ -761,7 +766,10 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
                               onChange={(e) =>
                                 setGate2AnalysisDraft((prev) => ({
                                   ...prev,
-                                  key_entities: e.target.value.split(",").map((t) => t.trim()).filter(Boolean),
+                                  key_entities: e.target.value
+                                    .split(",")
+                                    .map((t) => t.trim())
+                                    .filter(Boolean),
                                 }))
                               }
                               placeholder="Key entities (comma-separated)"
@@ -795,9 +803,7 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
                       <div className="pp-gate-edit-segments">
                         {gate2TranscriptDraft.map((seg, i) => (
                           <div key={i} className="pp-gate-edit-segment">
-                            <span className="pp-gate-transcript-time">
-                              [{typeof seg.start === "number" ? seg.start.toFixed(1) : "?"}s]
-                            </span>
+                            <span className="pp-gate-transcript-time">[{typeof seg.start === "number" ? seg.start.toFixed(1) : "?"}s]</span>
                             <input
                               className="pp-gate-edit-speaker"
                               value={seg.speaker}
@@ -839,9 +845,9 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
                           disabled={gate2Submitting}
                           onClick={() => {
                             setGate2EditMode(true);
-                          setGate2SummaryDraft({ ...(gate2Summary || {}) });
-                          setGate2AnalysisDraft({ ...(gate2Analysis || {}) });
-                          setGate2TranscriptDraft((gate2Transcript || []).map((s) => ({ ...s })));
+                            setGate2SummaryDraft({ ...(gate2Summary || {}) });
+                            setGate2AnalysisDraft({ ...(gate2Analysis || {}) });
+                            setGate2TranscriptDraft((gate2Transcript || []).map((s) => ({ ...s })));
                           }}>
                           <Icon name="edit" size="14" /> Edit
                         </button>
