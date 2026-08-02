@@ -173,7 +173,7 @@ function loadConfigValues(cfg: Record<string, { value: string; source: string }>
     USAGE_TRACKING_ENABLED: cfg.USAGE_TRACKING_ENABLED?.value || "false",
     LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
     LOG_COLLAPSE_REPEATED_PREFIXES: cfg.LOG_COLLAPSE_REPEATED_PREFIXES?.value || "true",
-    LOG_CHROMIUM: cfg.LOG_CHROMIUM?.value || "false",
+    LOG_CHROMIUM: cfg.LOG_CHROMIUM?.value || "true",
     LLM_TEMPERATURE: cfg.LLM_TEMPERATURE?.value || "0.1",
     PERF_METRICS_POLL_INTERVAL: cfg.PERF_METRICS_POLL_INTERVAL?.value || "10000",
     CREDIT_POLL_INTERVAL: cfg.CREDIT_POLL_INTERVAL?.value || "60000",
