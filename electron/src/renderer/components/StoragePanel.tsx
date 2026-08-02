@@ -18,7 +18,7 @@ interface Props {
   refreshTrigger?: number;
   onDevAccessRequest?: () => void;
   devAccessSignal?: number;
-  onStorageCleared?: () => void;
+  onStorageCleared?: () => void | Promise<void>;
 }
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
@@ -79,6 +79,8 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger, onDevA
   } | null>(null);
   const [processingAction, setProcessingAction] = useState<string | null>(null);
   const [actionResult, setActionResult] = useState<string | null>(null);
+  // Full-screen loading overlay shown during a clear + the post-clear refresh
+  const [clearing, setClearing] = useState(false);
 
   // Watch for dev access signal from parent (triggered after modal acceptance)
   useEffect(() => {
@@ -115,6 +117,9 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger, onDevA
       setConfirmAction(null);
       setProcessingAction(action.type);
       setActionResult(null);
+      // Show a full-screen loading overlay for the whole clear + post-clear
+      // refresh (storage usage refetch + current/history panel reset).
+      setClearing(true);
       try {
         const result = await callBridge(action.bridgeTool, action.bridgeArgs || {});
         // For log clearing, also flush the in-memory live log buffer used by DevPanel
@@ -125,15 +130,16 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger, onDevA
         setActionResult(msg);
         onNotify?.(`${action.label}: ${msg}`);
         // Refresh storage usage to reflect the change
-        fetchUsage();
+        await fetchUsage();
         // Notify parent to reset cached view/history state when jobs are removed
         if (action.type === "jobs" || action.type === "all") {
-          onStorageCleared?.();
+          await onStorageCleared?.();
         }
       } catch (err: any) {
         setActionResult(`Error: ${err.message}`);
         onNotify?.(`${action.label} failed: ${err.message}`);
       } finally {
+        setClearing(false);
         setProcessingAction(null);
       }
     },
@@ -168,6 +174,7 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger, onDevA
 
       <div className="config-body" style={{ padding: "16px 24px" }}>
         <LoadingModal visible={loading && !data} message="Fetching storage usage…" />
+        <LoadingModal visible={clearing} message="Clearing data and refreshing views…" />
 
         {error && (
           <div className="error-box" style={{ marginBottom: 16 }}>

@@ -150,6 +150,12 @@
     }
   },
   "dependencies": {
+    "@tiptap/extension-link": "^3.29.2",
+    "@tiptap/extension-placeholder": "^3.29.2",
+    "@tiptap/pm": "^3.29.2",
+    "@tiptap/react": "^3.29.2",
+    "@tiptap/starter-kit": "^3.29.2",
+    "dompurify": "^3.4.12",
     "electron-updater": "^6.8.9",
     "material-symbols": "^0.45.6",
     "pidusage": "^4.0.1",

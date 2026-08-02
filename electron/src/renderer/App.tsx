@@ -85,6 +85,7 @@ export default function App() {
   const [historyJobStatus, setHistoryJobStatus] = useState<{ status: string; progress: number; error?: string | null } | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [storageRefreshTrigger, setStorageRefreshTrigger] = useState(0);
+  const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState(0);
   const [devAccessSignal, setDevAccessSignal] = useState(0);
   const [newJobCooldown, setNewJobCooldown] = useState(false);
   const [showNewForm, setShowNewForm] = useState(false);
@@ -867,6 +868,22 @@ export default function App() {
     statusHook.stopPolling();
   };
 
+  // When storage data is cleared (Clear All Data / Clear All Jobs), reset the
+  // Current + History panels so no stale job data remains visible, and force the
+  // History list to refetch (it should now be empty).
+  const handleStorageCleared = async () => {
+    setView("upload");
+    setJobId(null);
+    setTranscript(null);
+    setJobMetadata(null);
+    setStatusData(null);
+    setHistoryJobId(null);
+    setHistoryTranscript(null);
+    setHistoryJobStatus(null);
+    statusHook.stopPolling();
+    setHistoryRefreshTrigger((n) => n + 1);
+  };
+
   return (
     <ServiceStatusProvider ollamaRequired={ollamaRequired}>
       <div className="app">
@@ -1274,6 +1291,7 @@ export default function App() {
                             currentJobId={historyJobId || jobId}
                             onNotify={notify}
                             onStorageChanged={onStorageChanged}
+                            historyRefreshTrigger={historyRefreshTrigger}
                             onToggleCollapse={() => setLeftColCollapsed((v) => !v)}
                             onJobDeleted={(deletedJobId) => {
                               if (deletedJobId === historyJobId) {
@@ -1411,6 +1429,7 @@ export default function App() {
                   refreshTrigger={storageRefreshTrigger}
                   onDevAccessRequest={() => setDevWarningModal("storage")}
                   devAccessSignal={devAccessSignal}
+                  onStorageCleared={handleStorageCleared}
                 />
               )}
 

@@ -3045,3 +3045,35 @@
   flex: 1;
   min-width: 120px;
 }
+
+/* Rich text editors inside edit rows fill the available width */
+.rv-edit-list-row .rte {
+  flex: 1;
+  min-width: 0;
+}
+
+.rv-edit-action-row .rte.rv-edit-action-desc {
+  flex: 1 1 100%;
+}
+
+.rv-edit-action-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Read-only rich text keeps the card's body typography */
+.rv-summary-text.rv-rich {
+  font-size: var(--fs-13);
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.rv-analysis-text.rv-rich {
+  font-size: var(--fs-13);
+  line-height: 1.6;
+  color: var(--text);
+}

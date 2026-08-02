@@ -708,6 +708,147 @@
   margin-bottom: 3px;
 }
 
+/* ── Rich-text editing (gate modals) ── */
+
+.pp-gate-edit-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pp-gate-edit-segments {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.pp-gate-edit-segment {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.pp-gate-edit-segment .pp-gate-transcript-time {
+  flex-shrink: 0;
+  margin-top: 7px;
+}
+
+.pp-gate-edit-speaker {
+  width: 110px;
+  flex-shrink: 0;
+  padding: 5px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: var(--fs-12);
+  font-family: var(--font);
+}
+
+.pp-gate-edit-speaker:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.pp-gate-edit-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.pp-gate-edit-list-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.pp-gate-edit-list-row .rte {
+  flex: 1;
+  min-width: 0;
+}
+
+.pp-gate-edit-action {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.pp-gate-edit-action-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pp-gate-edit-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.pp-gate-edit-input {
+  flex: 1;
+  min-width: 120px;
+  padding: 5px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: var(--fs-12);
+  font-family: var(--font);
+}
+
+.pp-gate-edit-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.pp-gate-edit-add {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--accent);
+  font-size: var(--fs-11);
+  font-family: var(--font);
+  cursor: pointer;
+  padding: 3px 10px;
+  border-radius: 6px;
+  transition: all 0.15s;
+}
+
+.pp-gate-edit-add:hover {
+  background: rgba(88, 166, 255, 0.1);
+  border-color: var(--accent);
+}
+
+.pp-gate-edit-remove {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--red);
+  cursor: pointer;
+  font-size: var(--fs-13);
+  padding: 3px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  opacity: 0.6;
+  transition: all 0.15s;
+}
+
+.pp-gate-edit-remove:hover {
+  opacity: 1;
+  background: rgba(248, 81, 73, 0.1);
+  border-color: rgba(248, 81, 73, 0.3);
+}
+
+.pp-gate-muted {
+  font-size: var(--fs-11);
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 /* ── Delivery options ── */
 
 .pp-gate-delivery-options {

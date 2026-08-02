@@ -19,6 +19,29 @@ export interface TranscriptionSegment {
   end: number;
 }
 
+/** A summary action item. description_html holds optional rich-text markup. */
+export interface ActionItem {
+  description: string;
+  description_html?: string;
+  assignee?: string;
+  deadline?: string;
+}
+
+/**
+ * Structured meeting summary. Each text field may have a parallel `_html`
+ * twin holding Tiptap-generated rich text; the plain fields remain
+ * authoritative for downstream consumers (semantic memory, exports, etc.).
+ */
+export interface SummaryData {
+  executive_summary?: string;
+  executive_summary_html?: string;
+  key_decisions?: string[];
+  key_decisions_html?: string[];
+  discussion_points?: string[];
+  discussion_points_html?: string[];
+  action_items?: ActionItem[];
+}
+
 export interface JobStatus {
   job_id: string;
   status: string;
@@ -26,12 +49,7 @@ export interface JobStatus {
   error?: string;
   unknown_speakers?: unknown[];
   transcript?: TranscriptionSegment[];
-  summary?: {
-    executive_summary?: string;
-    key_decisions?: string[];
-    discussion_points?: string[];
-    action_items?: { description: string; assignee?: string; deadline?: string }[];
-  };
+  summary?: SummaryData;
   metadata?: {
     title?: string;
     originalFilename?: string;
@@ -64,9 +82,12 @@ export interface LogGroupEntry {
 export interface AnalysisData {
   topics?: string[];
   sentiment?: string;
+  sentiment_html?: string;
   key_entities?: string[];
   effectiveness?: string;
+  effectiveness_html?: string;
   follow_ups?: string[];
+  follow_ups_html?: string[];
 }
 
 export interface MemorySearchResult {

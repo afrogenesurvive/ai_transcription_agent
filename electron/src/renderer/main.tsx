@@ -26,6 +26,7 @@ import "./styles/components/_delivery-config.css";
 import "./styles/components/_dev-panel-testing.css";
 import "./styles/components/_loading-modal.css";
 import "./styles/components/_tooltip.css";
+import "./styles/components/_rich-text-editor.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
