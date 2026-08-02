@@ -271,12 +271,16 @@ async def lifespan(app: FastAPI):
     if reclaimed:
         print(f"   🧹 [startup] Reclaimed {reclaimed} stale queue event(s)")
 
-    # ── Startup attendee repair: jobs flagged complete_with_warning ──
-    # If attendee registration failed mid-pipeline (e.g. a transient SQLite
-    # "disk I/O error"), the job is flagged complete_with_warning and its
-    # attendee records are missing. Rebuild them from metadata.json (the
-    # durable source of truth) now that the DB is guaranteed healthy, and
-    # clear the warning so the job becomes genuinely complete.
+    # ── Startup attendee repair: warning jobs + silently-short complete jobs ──
+    # Two classes are repaired here, both rebuilt from metadata.json (the
+    # durable source of truth):
+    #   1. Jobs flagged complete_with_warning / warnings — registration failed
+    #      mid-pipeline (e.g. a transient SQLite "disk I/O error").
+    #   2. Otherwise-complete jobs whose attendee registry is silently short —
+    #      registration was deferred on A/B conflicts in the pre-ASR path
+    #      (which never re-registers) and no warning was recorded.
+    # The shortfall check for class 2 keeps us from touching healthy jobs, so
+    # their `last_seen` timestamps aren't bumped on every startup.
     repaired = 0
     still_warning = 0
     for entry in os.scandir(config.STORAGE_PATH):
@@ -290,9 +294,17 @@ async def lifespan(app: FastAPI):
                 _status = json.load(f)
         except (json.JSONDecodeError, OSError):
             continue
-        if _status.get("status") != "complete_with_warning" and not _status.get("warnings"):
-            continue
         _job_id = _status.get("job_id", entry.name)
+        is_warning = (
+            _status.get("status") == "complete_with_warning"
+            or bool(_status.get("warnings"))
+        )
+        if not is_warning:
+            # Only touch otherwise-complete jobs that actually have a shortfall.
+            if _status.get("status") != "complete":
+                continue
+            if not _job_attendee_shortfall(_job_id):
+                continue
         if _ensure_job_attendees_registered(_job_id):
             try:
                 uploader.update_status(_job_id, {"status": "complete", "progress": 1.0, "warnings": []})
@@ -3183,9 +3195,11 @@ async def fail_job(job_id: str, error: str = "Processing failed"):
 async def complete_job(job_id: str):
     """Mark a job as complete. Called by the agent runner when the LLM pipeline finishes successfully.
 
-    If the job is flagged ``complete_with_warning`` (attendee registration
-    failed), the attendee registry is repaired from metadata.json first. Only
-    if that repair succeeds is the job marked complete — otherwise the warning
+    The attendee registry is always reconciled from metadata.json before the
+    job is marked complete. This covers registrations that were deferred on
+    A/B conflicts (the pre-ASR labeling path defers and never re-registers) and
+    any transient failure, so no job ever completes with a silently-short
+    attendee registry. If the reconcile fails, the ``complete_with_warning``
     state is preserved so the job is never silently "complete" with missing
     attendee records.
     """
@@ -3193,23 +3207,26 @@ async def complete_job(job_id: str):
     if s["status"] == "not_found":
         raise HTTPException(404, "Job not found")
 
-    # A pending attendee-registration warning (or an already-flagged
-    # complete_with_warning) means the job must NOT be marked complete until
-    # the attendee registry is repaired. Try the repair; only proceed to
-    # "complete" if it succeeds.
-    if s.get("warnings") or s.get("status") == "complete_with_warning":
-        if _ensure_job_attendees_registered(job_id):
+    # Always reconcile the attendee registry from metadata.json before marking
+    # the job complete. This covers registrations that were deferred on A/B
+    # conflicts (the pre-ASR labeling path defers and never re-registers) and
+    # any transient failure, so the registry converges to metadata.json for
+    # every completed job — even without a `warnings` flag. Idempotent
+    # (upsert + dedup), so it is safe to run on every completion.
+    if _ensure_job_attendees_registered(job_id):
+        # Clear any stale warning from an earlier failed registration attempt.
+        if s.get("warnings") or s.get("status") == "complete_with_warning":
             print(f"[api] POST /transcribe/complete/{job_id} → repaired attendees, marking complete")
             try:
                 uploader.update_status(job_id, {"warnings": []})
             except Exception:
                 pass
-        else:
-            _active_jobs.pop(job_id, None)
-            uploader.update_status(job_id, {"status": "complete_with_warning", "progress": 1.0})
-            print(f"[api] POST /transcribe/complete/{job_id} → preserved complete_with_warning "
-                  f"(attendee registration pending)")
-            return {"job_id": job_id, "status": "complete_with_warning"}
+    else:
+        _active_jobs.pop(job_id, None)
+        uploader.update_status(job_id, {"status": "complete_with_warning", "progress": 1.0})
+        print(f"[api] POST /transcribe/complete/{job_id} → preserved complete_with_warning "
+              f"(attendee registration pending)")
+        return {"job_id": job_id, "status": "complete_with_warning"}
 
     uploader.update_status(job_id, {"status": "complete", "progress": 1.0})
     _active_jobs.pop(job_id, None)
@@ -4803,6 +4820,50 @@ def _ensure_job_attendees_registered(job_id: str, source: str = "manual_labeling
     except Exception as e:
         print(f"[reconciliation] ⚠️  Repair failed for job {job_id}: {e}")
         return False
+
+
+def _job_attendee_shortfall(job_id: str) -> list:
+    """Return metadata attendee names missing from the registry that are still
+    "current" (i.e. still have an enrolled voiceprint).
+
+    Used by the startup sweep to detect silently-short registries (registration
+    deferred on A/B conflicts leaves the DB short with no warning flag) without
+    bumping ``last_seen`` for healthy jobs and without resurrecting attendees
+    that a later job overwrote/replaced — those names no longer have a
+    voiceprint (e.g. Sags replaced by smart mike). Read-only and idempotent.
+    """
+    meta = uploader.get_metadata(job_id)
+    if not meta:
+        return []
+    names = [n for n in (meta.get("attendees", []) or []) if n]
+    if not names:
+        return []
+    placeholders = ",".join("?" for _ in names)
+    try:
+        conn = ephemeral_memory._get_conn()
+        rows = conn.execute(
+            f"SELECT name FROM attendees WHERE name IN ({placeholders})",
+            names,
+        ).fetchall()
+        present = {r[0].lower() for r in rows}
+    except Exception:
+        present = set()
+    missing = [n for n in names if n.lower() not in present]
+    if not missing:
+        return []
+    # Only names that still have an enrolled voiceprint are "current" and safe
+    # to re-register. Overwritten/replaced names no longer have a voiceprint.
+    try:
+        conn = vp_manager._get_conn()
+        vp_rows = conn.execute(
+            f"SELECT speaker_name FROM voiceprints WHERE speaker_name IN "
+            f"({','.join('?' for _ in missing)})",
+            missing,
+        ).fetchall()
+        current = {r[0].lower() for r in vp_rows}
+    except Exception:
+        current = set()
+    return [n for n in missing if n.lower() in current]
 
 
 # ── Pipeline management ──
