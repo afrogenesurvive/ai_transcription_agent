@@ -69,6 +69,7 @@ import os
 import sqlite3
 import pickle
 import threading
+import time
 import numpy as np
 import torch
 from typing import List, Optional, Dict
@@ -106,10 +107,22 @@ class VoiceprintManager:
                              f"Supported: {list(self.EMBEDDING_PROVIDERS.keys())}")
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self._embedding_model = None  # Lazy-loaded embedding model (provider-specific)
-        # Remove stale WAL/shm companion files so a prior database life
-        # doesn't cause "disk I/O error" on startup.
-        self._cleanup_companion_files()
-        self._init_db()
+        # Track every connection this instance creates so they can all be
+        # closed before the DB file or its WAL companions are removed.
+        self._conns: set = set()
+        self._conns_lock = threading.Lock()
+        # Close any connections other threads may still hold (e.g. when this
+        # instance is re-initialized) before we touch the database file.
+        self.close_all()
+        # Open the DB normally. Only if that fails (e.g. stale -wal/-shm from
+        # a prior crash) delete the companion files and retry once — never
+        # delete them while the DB might still be in active use.
+        try:
+            self._init_db()
+        except Exception:
+            self.close_all()
+            self._cleanup_companion_files(force=True)
+            self._init_db()
 
     def __enter__(self):
         return self
@@ -119,31 +132,117 @@ class VoiceprintManager:
         return False
 
     @staticmethod
-    def _cleanup_companion_files():
-        """Remove stale SQLite WAL/shm companion files."""
+    def _cleanup_companion_files(force: bool = False):
+        """Remove stale SQLite WAL/shm companion files.
+
+        Args:
+            force: When True, delete companion files unconditionally. Only
+                safe when no other connection holds the database open.
+                When False, companions are only deleted if the main database
+                file itself does not exist (a fresh create — always safe).
+        """
         from ephemeral_memory import EphemeralMemory
         EphemeralMemory._cleanup_companion_files(
-            config.VOICEPRINT_DB
+            config.VOICEPRINT_DB, force=force
         )
 
     def _get_conn(self) -> sqlite3.Connection:
         """Get a thread-local SQLite connection. Reused across operations to
-        avoid the overhead of open/close per call."""
-        if not hasattr(self._thread_local, "conn") or self._thread_local.conn is None:
+        avoid the overhead of open/close per call.
+
+        The cached connection is validated on reuse: if it has been closed or
+        points at a deleted/re-created database file, it is discarded and a
+        fresh one is created. Every created connection is registered so
+        ``close_all()`` can close them across all threads before the DB file is
+        removed.
+        """
+        conn = getattr(self._thread_local, "conn", None)
+        if conn is not None:
+            try:
+                conn.execute("SELECT 1")  # still usable?
+            except sqlite3.Error:
+                self.close()  # dead/stale — discard and recreate
+                conn = None
+        if conn is None:
             conn = sqlite3.connect(self.db_path)
             conn.execute("PRAGMA busy_timeout=5000")
             self._thread_local.conn = conn
-        return self._thread_local.conn
+            with self._conns_lock:
+                self._conns.add(conn)
+        return conn
 
     def close(self):
-        """Close the thread-local connection if open."""
+        """Close the thread-local connection if open. Safe to call multiple times."""
         conn = getattr(self._thread_local, "conn", None)
         if conn is not None:
+            conns = getattr(self, "_conns", None)
+            lock = getattr(self, "_conns_lock", None)
+            if conns is not None and lock is not None:
+                with lock:
+                    conns.discard(conn)
             try:
                 conn.close()
             except Exception:
                 pass
             self._thread_local.conn = None
+
+    def close_all(self):
+        """Close every registered SQLite connection across all threads.
+
+        Called before the database file or its WAL companions are deleted, so
+        no live connection can hit 'disk I/O error' from files vanishing
+        underneath it.
+        """
+        conns = getattr(self, "_conns", None)
+        lock = getattr(self, "_conns_lock", None)
+        if conns is not None and lock is not None:
+            with lock:
+                conns_list = list(conns)
+                conns.clear()
+        else:
+            conns_list = []
+        for conn in conns_list:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        # Drop this thread's cached reference (it may have been one of them)
+        self._thread_local.conn = None
+
+    def _retry_on_io_error(self, fn, max_retries=3, delay=0.5):
+        """Retry a callable if it raises ``sqlite3.OperationalError`` with
+        'disk I/O error'. Uses exponential backoff between retries.
+
+        Before each retry the SQLite connection is reset, so the retried
+        callable runs against a freshly opened connection — re-running on the
+        same broken connection keeps failing on WAL companion-file races.
+
+        Returns the callable's result, or re-raises the last exception.
+        """
+        last_exc = None
+        for attempt in range(max_retries):
+            try:
+                return fn()
+            except sqlite3.OperationalError as e:
+                if "disk I/O error" not in str(e) or attempt >= max_retries - 1:
+                    raise
+                wait = delay * (2 ** attempt)
+                print(f"[voiceprint] ⚠️  disk I/O error on attempt {attempt + 1}/{max_retries}, "
+                      f"retrying in {wait:.1f}s: {e}")
+                time.sleep(wait)
+                # Reset the connection — a fresh connect re-creates the WAL/shm
+                # companion files cleanly instead of reusing the broken one.
+                self.close()
+                # Guarded recovery: try a WAL checkpoint first; only delete the
+                # companion files if the checkpoint itself fails.
+                try:
+                    _tmp = sqlite3.connect(self.db_path)
+                    _tmp.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                    _tmp.close()
+                except Exception:
+                    self._cleanup_companion_files(force=False)
+                last_exc = e
+        raise last_exc  # type: ignore[misc] — only reached if all retries failed
 
     def _init_db(self):
         """Create the SQLite voiceprints table if it doesn't exist.
@@ -462,54 +561,56 @@ class VoiceprintManager:
         Uses a single batched query (email IN (...) OR speaker_name IN (...))
         instead of N individual queries.
         """
-        conn = self._get_conn()
+        def _run():
+            conn = self._get_conn()
 
-        if not attendees:
-            # No attendees provided — try loading ALL voiceprints so previously
-            # enrolled speakers can still be matched.
-            rows = conn.execute(
-                "SELECT DISTINCT speaker_name, email, embedding FROM voiceprints"
-            ).fetchall()
-        else:
-            placeholders = ",".join("?" for _ in attendees)
-            rows = conn.execute(
-                f"""
-                SELECT DISTINCT speaker_name, email, embedding
-                FROM voiceprints
-                WHERE email IN ({placeholders}) OR speaker_name IN ({placeholders})
-                """,
-                (*attendees, *attendees),
-            ).fetchall()
+            if not attendees:
+                # No attendees provided — try loading ALL voiceprints so previously
+                # enrolled speakers can still be matched.
+                rows = conn.execute(
+                    "SELECT DISTINCT speaker_name, email, embedding FROM voiceprints"
+                ).fetchall()
+            else:
+                placeholders = ",".join("?" for _ in attendees)
+                rows = conn.execute(
+                    f"""
+                    SELECT DISTINCT speaker_name, email, embedding
+                    FROM voiceprints
+                    WHERE email IN ({placeholders}) OR speaker_name IN ({placeholders})
+                    """,
+                    (*attendees, *attendees),
+                ).fetchall()
 
-        # Build result set — deduplicate by email (primary key), then by name.
-        # The SQL query may return the same row twice if an attendee matches
-        # both the email IN (...) and speaker_name IN (...) clauses. Also handle
-        # the edge case where different names map to the same email alias.
-        seen_emails = set()
-        seen_names = set()
-        known = {}
-        for name, email, blob in rows:
-            # Dedup by email first (most reliable — it's the unique key)
-            email_key = (email or "").lower()
-            if email_key and email_key in seen_emails:
-                continue
-            if email_key:
-                seen_emails.add(email_key)
-            # Also dedup by name (for rows without email)
-            if name in seen_names:
-                continue
-            seen_names.add(name)
-            try:
-                emb = pickle.loads(blob)
-            except Exception:
-                continue
-            if emb is None:
-                continue
-            known[name] = emb
+            # Build result set — deduplicate by email (primary key), then by name.
+            # The SQL query may return the same row twice if an attendee matches
+            # both the email IN (...) and speaker_name IN (...) clauses. Also handle
+            # the edge case where different names map to the same email alias.
+            seen_emails = set()
+            seen_names = set()
+            known = {}
+            for name, email, blob in rows:
+                # Dedup by email first (most reliable — it's the unique key)
+                email_key = (email or "").lower()
+                if email_key and email_key in seen_emails:
+                    continue
+                if email_key:
+                    seen_emails.add(email_key)
+                # Also dedup by name (for rows without email)
+                if name in seen_names:
+                    continue
+                seen_names.add(name)
+                try:
+                    emb = pickle.loads(blob)
+                except Exception:
+                    continue
+                if emb is None:
+                    continue
+                known[name] = emb
 
-        print(f"[voiceprint] 📦 _get_known_embeddings: loaded {len(known)} voiceprint(s) "
-              f"from {len(rows)} row(s) for {len(attendees) if attendees else 'ALL'} attendee(s)")
-        return known
+            print(f"[voiceprint] 📦 _get_known_embeddings: loaded {len(known)} voiceprint(s) "
+                  f"from {len(rows)} row(s) for {len(attendees) if attendees else 'ALL'} attendee(s)")
+            return known
+        return self._retry_on_io_error(_run)
 
     @staticmethod
     def _make_email(name: str, email: str) -> str:
@@ -542,108 +643,117 @@ class VoiceprintManager:
             sample_start: Start time in seconds of the sample clip.
             sample_end: End time in seconds of the sample clip.
         """
-        resolved_email = self._make_email(name, email)
-        conn = self._get_conn()
+        def _run():
+            resolved_email = self._make_email(name, email)
+            conn = self._get_conn()
 
-        # ── Email collision guard ──
-        # Before the cleanup DELETE, verify this email doesn't already belong
-        # to a DIFFERENT speaker_name. If it does, another speaker's record
-        # would be silently overwritten by ON CONFLICT(email) DO UPDATE below.
-        # This prevents the cascade where a label payload with wrong emails
-        # (e.g. from frontend positional alignment bugs) causes one speaker's
-        # voiceprint to be replaced by another.
-        existing_email_owner = conn.execute(
-            "SELECT speaker_name FROM voiceprints WHERE email = ? AND speaker_name != ?",
-            (resolved_email, name),
-        ).fetchone()
-        if existing_email_owner:
-            print(f"[voiceprint] ⚠️  EMAIL COLLISION: '{resolved_email}' already belongs to "
-                  f"'{existing_email_owner[0]}' — cannot save '{name}' with it. "
-                  f"Falling back to @voiceprint.local placeholder.")
-            resolved_email = self._make_email(name, "")
+            # ── Email collision guard ──
+            # Before the cleanup DELETE, verify this email doesn't already belong
+            # to a DIFFERENT speaker_name. If it does, another speaker's record
+            # would be silently overwritten by ON CONFLICT(email) DO UPDATE below.
+            # This prevents the cascade where a label payload with wrong emails
+            # (e.g. from frontend positional alignment bugs) causes one speaker's
+            # voiceprint to be replaced by another.
+            existing_email_owner = conn.execute(
+                "SELECT speaker_name FROM voiceprints WHERE email = ? AND speaker_name != ?",
+                (resolved_email, name),
+            ).fetchone()
+            if existing_email_owner:
+                print(f"[voiceprint] ⚠️  EMAIL COLLISION: '{resolved_email}' already belongs to "
+                      f"'{existing_email_owner[0]}' — cannot save '{name}' with it. "
+                      f"Falling back to @voiceprint.local placeholder.")
+                resolved_email = self._make_email(name, "")
 
-        # Remove any existing row whose speaker_name collides with the new
-        # name but has a different email.  This prevents UNIQUE constraint
-        # violation on speaker_name when the caller re-labels a speaker
-        # that previously enrolled under a different email.
-        cursor = conn.execute(
-            "DELETE FROM voiceprints WHERE speaker_name = ? AND email != ?",
-            (name, resolved_email),
-        )
-        if cursor.rowcount > 0:
-            print(f"[voiceprint] 🧹 Cleanup: deleted {cursor.rowcount} row(s) with "
-                  f"speaker_name='{name}' and email≠'{resolved_email}' "
-                  f"(saving '{name}' <{resolved_email}>)")
-        else:
-            # DIAGNOSTIC: log that cleanup found nothing, with pre-delete check
-            _before_cleanup = conn.execute(
-                "SELECT id, speaker_name, email FROM voiceprints "
-                "WHERE speaker_name=?",
-                (name,)
-            ).fetchall()
-            if _before_cleanup:
-                print(f"[voiceprint] 🧹 Cleanup: no delete for '{name}' — "
-                      f"existing rows with this name: {[dict(id=r[0], name=r[1], email=r[2]) for r in _before_cleanup]}")
+            # Remove any existing row whose speaker_name collides with the new
+            # name but has a different email.  This prevents UNIQUE constraint
+            # violation on speaker_name when the caller re-labels a speaker
+            # that previously enrolled under a different email.
+            cursor = conn.execute(
+                "DELETE FROM voiceprints WHERE speaker_name = ? AND email != ?",
+                (name, resolved_email),
+            )
+            if cursor.rowcount > 0:
+                print(f"[voiceprint] 🧹 Cleanup: deleted {cursor.rowcount} row(s) with "
+                      f"speaker_name='{name}' and email≠'{resolved_email}' "
+                      f"(saving '{name}' <{resolved_email}>)")
+            else:
+                # DIAGNOSTIC: log that cleanup found nothing, with pre-delete check
+                _before_cleanup = conn.execute(
+                    "SELECT id, speaker_name, email FROM voiceprints "
+                    "WHERE speaker_name=?",
+                    (name,)
+                ).fetchall()
+                if _before_cleanup:
+                    print(f"[voiceprint] 🧹 Cleanup: no delete for '{name}' — "
+                          f"existing rows with this name: {[dict(id=r[0], name=r[1], email=r[2]) for r in _before_cleanup]}")
 
-        # Check if a row already exists for this email (to log INSERT vs UPDATE)
-        existing = conn.execute(
-            "SELECT speaker_name FROM voiceprints WHERE email = ?",
-            (resolved_email,),
-        ).fetchone()
+            # Check if a row already exists for this email (to log INSERT vs UPDATE)
+            existing = conn.execute(
+                "SELECT speaker_name FROM voiceprints WHERE email = ?",
+                (resolved_email,),
+            ).fetchone()
 
-        conn.execute("""
-            INSERT INTO voiceprints (speaker_name, email, embedding,
-                                     sample_job_id, sample_start, sample_end)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(email) DO UPDATE SET
-                speaker_name=excluded.speaker_name, embedding=excluded.embedding,
-                sample_job_id=excluded.sample_job_id,
-                sample_start=excluded.sample_start,
-                sample_end=excluded.sample_end,
-                updated_at=CURRENT_TIMESTAMP
-        """, (name, resolved_email, pickle.dumps(embedding),
-              sample_job_id, sample_start, sample_end))
-        conn.commit()
+            conn.execute("""
+                INSERT INTO voiceprints (speaker_name, email, embedding,
+                                         sample_job_id, sample_start, sample_end)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(email) DO UPDATE SET
+                    speaker_name=excluded.speaker_name, embedding=excluded.embedding,
+                    sample_job_id=excluded.sample_job_id,
+                    sample_start=excluded.sample_start,
+                    sample_end=excluded.sample_end,
+                    updated_at=CURRENT_TIMESTAMP
+            """, (name, resolved_email, pickle.dumps(embedding),
+                  sample_job_id, sample_start, sample_end))
+            conn.commit()
 
-        action = "UPDATE" if existing else "INSERT"
-        print(f"[voiceprint] {'🔄' if existing else '✅'} {action}: '{name}' <{resolved_email}>"
-              f" (job={sample_job_id or '?'[:8]})")
+            action = "UPDATE" if existing else "INSERT"
+            print(f"[voiceprint] {'🔄' if existing else '✅'} {action}: '{name}' <{resolved_email}>"
+                  f" (job={sample_job_id or '?'[:8]})")
+
+        self._retry_on_io_error(_run)
 
     def list_voiceprints(self) -> List[dict]:
-        conn = self._get_conn()
-        rows = conn.execute(
-            "SELECT speaker_name, email, created_at, updated_at, "
-            "sample_job_id, sample_start, sample_end "
-            "FROM voiceprints ORDER BY speaker_name"
-        ).fetchall()
-        return [{
-            "name": r[0], "email": r[1],
-            "created_at": r[2], "updated_at": r[3],
-            "sample_job_id": r[4], "sample_start": r[5], "sample_end": r[6],
-        } for r in rows]
+        def _run():
+            conn = self._get_conn()
+            rows = conn.execute(
+                "SELECT speaker_name, email, created_at, updated_at, "
+                "sample_job_id, sample_start, sample_end "
+                "FROM voiceprints ORDER BY speaker_name"
+            ).fetchall()
+            return [{
+                "name": r[0], "email": r[1],
+                "created_at": r[2], "updated_at": r[3],
+                "sample_job_id": r[4], "sample_start": r[5], "sample_end": r[6],
+            } for r in rows]
+        return self._retry_on_io_error(_run)
 
     def get_voiceprint(self, name_or_email: str) -> Optional[dict]:
         """Fetch existing voiceprint by speaker_name or email."""
-        conn = self._get_conn()
-        row = conn.execute(
-            "SELECT speaker_name, email, sample_job_id, sample_start, sample_end "
-            "FROM voiceprints WHERE speaker_name = ? OR email = ? LIMIT 1",
-            (name_or_email, name_or_email),
-        ).fetchone()
-        if not row:
-            return None
-        return {
-            "name": row[0], "email": row[1],
-            "sample_job_id": row[2],
-            "sample_start": row[3], "sample_end": row[4],
-        }
+        def _run():
+            conn = self._get_conn()
+            row = conn.execute(
+                "SELECT speaker_name, email, sample_job_id, sample_start, sample_end "
+                "FROM voiceprints WHERE speaker_name = ? OR email = ? LIMIT 1",
+                (name_or_email, name_or_email),
+            ).fetchone()
+            if not row:
+                return None
+            return {
+                "name": row[0], "email": row[1],
+                "sample_job_id": row[2],
+                "sample_start": row[3], "sample_end": row[4],
+            }
+        return self._retry_on_io_error(_run)
 
     def delete_voiceprint(self, email: str):
-        conn = self._get_conn()
-        cursor = conn.execute("DELETE FROM voiceprints WHERE email = ?", (email,))
-        conn.commit()
-        print(f"[voiceprint] 🗑️  delete_voiceprint: '{email}' — "
-              f"{cursor.rowcount} row(s) deleted")
+        def _run():
+            conn = self._get_conn()
+            cursor = conn.execute("DELETE FROM voiceprints WHERE email = ?", (email,))
+            conn.commit()
+            print(f"[voiceprint] 🗑️  delete_voiceprint: '{email}' — "
+                  f"{cursor.rowcount} row(s) deleted")
+        self._retry_on_io_error(_run)
 
     def delete_voiceprint_by_name(self, name: str) -> int:
         """Delete a voiceprint row by speaker_name. Returns rowcount deleted.
@@ -651,23 +761,25 @@ class VoiceprintManager:
         Used when re-labeling cleans up an old voiceprint that is being
         replaced by a new name for the same voice.
         """
-        conn = self._get_conn()
-        # DIAGNOSTIC: check what exists before delete
-        _before = conn.execute(
-            "SELECT id, speaker_name, email, sample_job_id FROM voiceprints WHERE speaker_name=?",
-            (name,)
-        ).fetchall()
-        cursor = conn.execute("DELETE FROM voiceprints WHERE speaker_name = ?", (name,))
-        conn.commit()
-        if cursor.rowcount > 0:
-            print(f"[voiceprint] 🗑️  delete_voiceprint_by_name: '{name}' — "
-                  f"{cursor.rowcount} row(s) deleted. "
-                  f"Pre-delete: {[dict(id=r[0], name=r[1], email=r[2], job=r[3][:8]) for r in _before]}")
-        else:
-            print(f"[voiceprint] 🗑️  delete_voiceprint_by_name: '{name}' — "
-                  f"0 rows deleted (name not found or already deleted). "
-                  f"Searched for: {[dict(id=r[0], name=r[1], email=r[2]) for r in _before]}")
-        return cursor.rowcount
+        def _run():
+            conn = self._get_conn()
+            # DIAGNOSTIC: check what exists before delete
+            _before = conn.execute(
+                "SELECT id, speaker_name, email, sample_job_id FROM voiceprints WHERE speaker_name=?",
+                (name,)
+            ).fetchall()
+            cursor = conn.execute("DELETE FROM voiceprints WHERE speaker_name = ?", (name,))
+            conn.commit()
+            if cursor.rowcount > 0:
+                print(f"[voiceprint] 🗑️  delete_voiceprint_by_name: '{name}' — "
+                      f"{cursor.rowcount} row(s) deleted. "
+                      f"Pre-delete: {[dict(id=r[0], name=r[1], email=r[2], job=r[3][:8]) for r in _before]}")
+            else:
+                print(f"[voiceprint] 🗑️  delete_voiceprint_by_name: '{name}' — "
+                      f"0 rows deleted (name not found or already deleted). "
+                      f"Searched for: {[dict(id=r[0], name=r[1], email=r[2]) for r in _before]}")
+            return cursor.rowcount
+        return self._retry_on_io_error(_run)
 
     @staticmethod
     def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
@@ -682,17 +794,19 @@ class VoiceprintManager:
 
     def get_embedding(self, email: str) -> Optional[np.ndarray]:
         """Fetch raw embedding vector by email. Returns None if not found."""
-        conn = self._get_conn()
-        row = conn.execute(
-            "SELECT embedding FROM voiceprints WHERE email = ?",
-            (email,),
-        ).fetchone()
-        if not row or row[0] is None:
-            return None
-        try:
-            return pickle.loads(row[0])
-        except Exception:
-            return None
+        def _run():
+            conn = self._get_conn()
+            row = conn.execute(
+                "SELECT embedding FROM voiceprints WHERE email = ?",
+                (email,),
+            ).fetchone()
+            if not row or row[0] is None:
+                return None
+            try:
+                return pickle.loads(row[0])
+            except Exception:
+                return None
+        return self._retry_on_io_error(_run)
 
     def find_matching_voiceprints(
         self, embedding: np.ndarray, threshold: float = None
@@ -712,40 +826,42 @@ class VoiceprintManager:
             from config import config as _cfg
             threshold = _cfg.VOICEPRINT_THRESHOLD
 
-        conn = self._get_conn()
-        rows = conn.execute(
-            "SELECT speaker_name, email, embedding, sample_job_id "
-            "FROM voiceprints WHERE embedding IS NOT NULL"
-        ).fetchall()
+        def _run():
+            conn = self._get_conn()
+            rows = conn.execute(
+                "SELECT speaker_name, email, embedding, sample_job_id "
+                "FROM voiceprints WHERE embedding IS NOT NULL"
+            ).fetchall()
 
-        matches = []
-        for name, email, blob, sample_job_id in rows:
-            try:
-                stored = pickle.loads(blob)
-            except Exception:
-                continue
-            if stored is None:
-                continue
-            sim = self._cosine_similarity(embedding, stored)
-            if sim >= threshold:
-                matches.append({
-                    "name": name,
-                    "email": email,
-                    "similarity": round(sim, 4),
-                    "sample_job_id": sample_job_id,
-                })
+            matches = []
+            for name, email, blob, sample_job_id in rows:
+                try:
+                    stored = pickle.loads(blob)
+                except Exception:
+                    continue
+                if stored is None:
+                    continue
+                sim = self._cosine_similarity(embedding, stored)
+                if sim >= threshold:
+                    matches.append({
+                        "name": name,
+                        "email": email,
+                        "similarity": round(sim, 4),
+                        "sample_job_id": sample_job_id,
+                    })
 
-        matches.sort(key=lambda m: m["similarity"], reverse=True)
+            matches.sort(key=lambda m: m["similarity"], reverse=True)
 
-        if matches:
-            match_details = ", ".join(
-                f"{m['name']}={m['similarity']:.4f}" for m in matches
-            )
-            print(f"[voiceprint] 🔍 find_matching_voiceprints: {len(matches)} match(es) "
-                  f"above {threshold:.2f} threshold: {match_details}")
-        else:
-            total_checked = len(rows)
-            print(f"[voiceprint] 🔍 find_matching_voiceprints: 0 matches above "
-                  f"{threshold:.2f} threshold (checked {total_checked} voiceprint(s))")
+            if matches:
+                match_details = ", ".join(
+                    f"{m['name']}={m['similarity']:.4f}" for m in matches
+                )
+                print(f"[voiceprint] 🔍 find_matching_voiceprints: {len(matches)} match(es) "
+                      f"above {threshold:.2f} threshold: {match_details}")
+            else:
+                total_checked = len(rows)
+                print(f"[voiceprint] 🔍 find_matching_voiceprints: 0 matches above "
+                      f"{threshold:.2f} threshold (checked {total_checked} voiceprint(s))")
 
-        return matches
+            return matches
+        return self._retry_on_io_error(_run)

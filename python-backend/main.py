@@ -3552,7 +3552,7 @@ async def clear_ephemeral_data():
                 if fname == "ephemeral_memory.db" and ephemeral_memory:
                     ephemeral_memory.close_all()
                 if fname == "voiceprints.db" and vp_manager:
-                    vp_manager.close()
+                    vp_manager.close_all()
                 os.remove(fpath)
                 # Also clean up stale SQLite WAL/shared-memory companion files
                 # that can cause "disk I/O error" on re-created databases
@@ -4553,8 +4553,14 @@ def _update_metadata_with_reconciliation(
         if e and "@voiceprint.local" not in e:
             existing_recipients.add(e.lower())
     for us in reconciliation.get("unregistered_speakers", []):
-        # Skip if this voiceprint no longer exists (was overwritten)
-        existing_vp = vp_manager.get_voiceprint(us["name"])
+        # Skip if this voiceprint no longer exists (was overwritten).
+        # Defensive: an unrecoverable voiceprint-DB read should not fail the
+        # whole job — log and skip the lookup (retry lives in get_voiceprint).
+        try:
+            existing_vp = vp_manager.get_voiceprint(us["name"])
+        except Exception as e:
+            print(f"[pipeline] ⚠️  get_voiceprint('{us.get('name', '?')}') failed: {e} — skipping")
+            continue
         if existing_vp is None:
             continue
         e = _resolve_attendee_email(us["name"], us.get("email", ""))
