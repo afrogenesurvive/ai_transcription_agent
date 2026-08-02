@@ -471,6 +471,7 @@ def _build_config_snapshot(metadata: dict) -> dict:
         "keep_models_warm": config.KEEP_MODELS_WARM,
         "gate_raw_review_enabled": config.GATE_RAW_REVIEW_ENABLED,
         "gate_delivery_review_enabled": config.GATE_DELIVERY_REVIEW_ENABLED,
+        "custom_delivery_per_meeting": config.CUSTOM_DELIVERY_PER_MEETING,
 
         # ── Per-job metadata ──
         "title": metadata.get("title", ""),
@@ -1367,6 +1368,7 @@ async def agent_deliver(req: Deliverable):
     title = req.title
     attendees = req.attendees
     job_emails = req.email_recipients or []
+    recipient_source = "llm + metadata"
     try:
         meta_path = os.path.join(config.STORAGE_PATH, req.job_id, "metadata.json")
         if os.path.exists(meta_path):
@@ -1381,6 +1383,26 @@ async def agent_deliver(req: Deliverable):
                 job_emails = list(set(list(job_emails) + stored_emails))
     except Exception:
         pass
+
+    # ── Custom delivery per meeting ──
+    # When CUSTOM_DELIVERY_PER_MEETING is enabled, the user selected which attendees
+    # receive the email at the delivery review (Gate 2). That selection is persisted
+    # to recipient-selection.json and takes precedence over the LLM-chosen recipients
+    # and the upload-time attendee emails. Config default recipients
+    # (DELIVERY_RECIPIENT_EMAILS) are ALWAYS appended regardless of the selection.
+    if config.CUSTOM_DELIVERY_PER_MEETING:
+        selection_path = os.path.join(config.STORAGE_PATH, req.job_id, "recipient-selection.json")
+        if os.path.exists(selection_path):
+            try:
+                with open(selection_path) as f:
+                    selection = json.load(f)
+                selected = selection.get("recipients", []) or []
+                if isinstance(selected, list):
+                    job_emails = [str(e).strip() for e in selected if str(e).strip()]
+                    recipient_source = "recipient-selection.json (Gate 2)"
+            except Exception as e:
+                print(f"[api] ⚠️  Could not read recipient-selection.json: {e} — falling back to all attendees")
+    print(f"[api] POST /agent/deliver recipient_source={recipient_source}")
 
     # Deduplicate while preserving order
     seen = set()
@@ -2683,6 +2705,32 @@ async def approve_gate2(job_id: str, body: dict = Body(...)):
                     "fields_changed": list(edited_analysis.keys()),
                 })
                 edits_made.append("analysis")
+
+            # ── Custom delivery per meeting: persist the user's recipient selection ──
+            # When CUSTOM_DELIVERY_PER_MEETING is enabled, the frontend sends the chosen
+            # attendee emails via delivery_options.recipients. Persist them to
+            # recipient-selection.json so POST /agent/deliver (prepare_delivery) uses them
+            # as the authoritative job recipient list. Config default recipients are always
+            # appended separately. An empty list is valid (deliver to no attendees).
+            delivery_options = body.get("delivery_options") or body.get("deliveryOptions") or {}
+            selected_recipients = delivery_options.get("recipients")
+            if selected_recipients is not None:
+                if not isinstance(selected_recipients, list):
+                    selected_recipients = []
+                selection = {
+                    "recipients": [str(e).strip() for e in selected_recipients if str(e).strip()],
+                    "destinations": delivery_options.get("destinations") or [],
+                    "custom": bool(config.CUSTOM_DELIVERY_PER_MEETING),
+                    "saved_at": datetime.utcnow().isoformat(),
+                }
+                sel_path = os.path.join(config.STORAGE_PATH, job_id, "recipient-selection.json")
+                try:
+                    with open(sel_path, "w") as f:
+                        json.dump(selection, f, indent=2)
+                    edits_made.append("recipients")
+                    print(f"[api]   ✅ Gate 2: persisted recipient selection ({len(selection['recipients'])} recipients)")
+                except Exception as e:
+                    print(f"[api]   ⚠️  Gate 2: could not persist recipient selection: {e}")
 
             uploader.save_edit_action(job_id, "gate2_approve", {
                 "action": action,

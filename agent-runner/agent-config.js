@@ -467,7 +467,7 @@ const FALLBACK_PIPELINE = {
       "Summary retrieved (read-only). If you haven't called transcribe_summarize yet, call it to generate a new summary. Otherwise continue with the pipeline.",
     transcribe_summarize: "Next: Call transcribe_analyze to store analysis of topics, sentiment, entities, and follow-ups...",
     transcribe_analyze:
-      "Next: If delivery review is enabled, call transcribe_approve_delivery to pause for user approval. Otherwise call transcribe_save_context.",
+      "Next: If delivery review is enabled, call transcribe_approve_delivery to pause for user approval (this is required when custom delivery per meeting is enabled — the user selects which attendees receive the email). Otherwise call transcribe_save_context.",
     transcribe_approve_delivery: "Next: After user approves, call transcribe_save_context to persist the meeting...",
     transcribe_save_context: "Next: Call transcribe_prepare_delivery to package results for delivery.",
     transcribe_prepare_delivery: "Next: Deliver results using send_delivery_email.",

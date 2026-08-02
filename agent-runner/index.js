@@ -578,6 +578,15 @@ async function processEvent(event) {
   /** Track whether a delivery tool has already handled job completion/failure inline. */
   let deliveryHandled = false;
 
+  /**
+   * Track whether the Gate 2 (delivery review) pause has fired for this run.
+   * Used to enforce the per-meeting recipient picker: when custom delivery is
+   * enabled, the pipeline must pause for recipient selection before any
+   * memory-save or delivery tool runs. Set true after the pause fires, or when
+   * the pipeline resumes from a delivery_approved event.
+   */
+  let gate2Passed = false;
+
   /** Record a delivery tool result for later persistence. */
   function recordDeliveryResult(toolName, success, resultData, errorMsg) {
     deliveryResults.push({
@@ -618,6 +627,9 @@ async function processEvent(event) {
   // The user approved Gate 2 (delivery review). Restore saved pipeline state
   // and continue from where we left off (save_context → prepare_delivery → deliver).
   if (event.type === "delivery_approved") {
+    // The user approved Gate 2 — recipient selection (if any) is complete, so
+    // the enforced pause must not fire again on resume.
+    gate2Passed = true;
     console.log(`\n${"═".repeat(40)}`);
     console.log(`  ✅ GATE 2 COMPLETE — Pipeline Resuming (job=${tag})`);
     console.log(`${"═".repeat(40)}\n`);
@@ -700,6 +712,77 @@ async function processEvent(event) {
   let totalPromptTokens = existingSteps.reduce((sum, s) => sum + (s.prompt_tokens || 0), 0);
   let totalCompletionTokens = existingSteps.reduce((sum, s) => sum + (s.completion_tokens || 0), 0);
   let totalTokens = existingSteps.reduce((sum, s) => sum + (s.total_tokens || 0), 0);
+
+  // ── Gate 2 pause helper (delivery review) ──
+  // Saves full pipeline state to delivery-review-state.json, sets the
+  // pending_delivery_review status so the frontend opens the review modal, and
+  // exits the loop. Enriched with attendees + customDeliveryEnabled so the
+  // frontend can render the per-meeting recipient picker when custom delivery
+  // is enabled. Called both when the LLM calls transcribe_approve_delivery and
+  // when custom-delivery enforcement forces the pause before memory/delivery.
+  const pauseForDeliveryReview = async (pausedAtStep) => {
+    const gate2Tag = (jobData.jobId || eventId)?.slice(0, 8) || "???";
+    console.log(`\n${"═".repeat(40)}`);
+    console.log(`  ⏸️  GATE 2 TRIGGERED — Delivery Review (job=${gate2Tag})`);
+    console.log(`${"═".repeat(40)}`);
+    console.log(`⏸️  [RUNNER] Gate 2: pausing for delivery review — saving pipeline state`);
+
+    try {
+      // Build the attendee list (name → email) for the recipient picker UI.
+      const attendeeEmailsMap = jobData.attendeeEmails || {};
+      const attendeeNames = Array.isArray(jobData.attendees) ? jobData.attendees : [];
+      const attendees = attendeeNames.map((name) => ({
+        name,
+        email: (attendeeEmailsMap[name] || "").trim(),
+      }));
+      const customDeliveryEnabled = process.env.CUSTOM_DELIVERY_PER_MEETING === "true";
+
+      // 1. Save full pipeline state for resumption
+      const reviewState = {
+        jobId: jobData.jobId || eventId,
+        title: safeTitle,
+        context: context,
+        tokenUsage: [...existingSteps, ...tokenUsage],
+        pausedAtStep,
+        savedAt: new Date().toISOString(),
+        attendees,
+        customDeliveryEnabled,
+      };
+      const storageDir = path.join(STORAGE_BASE, jobData.jobId || eventId);
+      fs.mkdirSync(storageDir, { recursive: true });
+      fs.writeFileSync(path.join(storageDir, "delivery-review-state.json"), JSON.stringify(reviewState, null, 2), "utf8");
+
+      // 2. Update job status on the backend (ephemeral DB + status.json)
+      await executeToolCall("transcribe_upsert_job", {
+        jobId: jobData.jobId || eventId,
+        result: "pending",
+      });
+      // Also write pending_delivery_review to status.json so the frontend
+      // polling (transcribe_status) can detect it and show the Gate 2 panel.
+      await executeToolCall("transcribe_update_status", {
+        jobId: jobData.jobId || eventId,
+        updates: { status: "pending_delivery_review", progress: 0.96 },
+      });
+
+      console.log(`✅ [RUNNER] Delivery review state saved (${JSON.stringify(reviewState).length} chars)`);
+      logStepMessage(jobData.jobId || eventId, "⏸️ Paused — waiting for delivery review");
+      logAction({
+        eventId,
+        jobId: jobData.jobId || eventId,
+        eventType: event.type,
+        action: "paused",
+        detail: "Gate 2: paused for delivery review",
+        toolName: "transcribe_approve_delivery",
+      });
+    } catch (saveErr) {
+      console.log(`⚠️  [RUNNER] Failed to save delivery review state: ${saveErr.message}`);
+    }
+
+    // 3. Exit the pipeline loop — don't mark as complete/failed
+    gate2Passed = true;
+    pipelineComplete = true;
+    deliveryHandled = true; // prevents post-loop complete/fail
+  };
 
   for (let step = 1; step <= MAX_PIPELINE_STEPS && !pipelineComplete; step++) {
     console.log(`🤖 [RUNNER] Asking LLM (step ${step}) — context: ${context.length} chars, ${availableTools.length} tools available`);
@@ -919,29 +1002,74 @@ async function processEvent(event) {
       }
     }
 
-    // ── Enforce ALL delivery recipients ──
-    // The LLM sometimes emails only the first recipient it sees. The Python
-    // backend's transcribe_prepare_delivery writes the complete email_recipients
-    // list to delivery.json — override the LLM's `to` with that authoritative
-    // list so every configured recipient gets the email. Only applies to
-    // send_delivery_email; falls back to the LLM args if delivery.json is absent.
+    // ── Enforce ALL delivery recipients (deterministic) ──
+    // The LLM sometimes emails only the first recipient it sees, or invents
+    // recipients. The authoritative list ALWAYS comes from delivery.json
+    // (written by transcribe_prepare_delivery / POST /agent/deliver, which
+    // merges config defaults + job recipients). If delivery.json is missing
+    // (e.g. the LLM skipped prepare_delivery), fall back to a deterministic
+    // list built from config default recipients + the job's upload recipients
+    // (attendee emails) — never the LLM's `to`. This makes the final recipient
+    // set deterministic regardless of LLM behavior.
     if (decision.name === "send_delivery_email" && decision.arguments) {
+      let authoritativeRecipients = null;
+      let deliveryJsonFound = false;
       try {
         const deliveryPath = path.join(storageDir, "delivery.json");
         if (fs.existsSync(deliveryPath)) {
+          deliveryJsonFound = true;
           const deliveryPkg = JSON.parse(fs.readFileSync(deliveryPath, "utf8"));
-          const recipients = (deliveryPkg.email_recipients || []).filter((e) => typeof e === "string" && e.trim());
-          if (recipients.length > 0) {
-            // Set both forms the executor understands (comma-separated `to` and
-            // array `recipients`) so the authoritative list wins regardless of
-            // which tool schema the LLM was given.
-            decision.arguments.to = recipients.join(", ");
-            decision.arguments.recipients = recipients;
-            console.log(`📬 [RUNNER] Enforced ${recipients.length} delivery recipient(s) from delivery.json: ${recipients.join(", ")}`);
-          }
+          authoritativeRecipients = (deliveryPkg.email_recipients || []).filter((e) => typeof e === "string" && e.trim());
         }
       } catch (err) {
-        console.log(`⚠️  [RUNNER] Could not enforce delivery recipients from delivery.json: ${err.message}`);
+        console.log(`⚠️  [RUNNER] Could not read delivery.json: ${err.message}`);
+      }
+
+      // Only fall back when delivery.json is absent — if it exists (even with
+      // zero recipients, e.g. custom delivery with nothing selected), respect it
+      // as authoritative instead of re-adding all attendee emails.
+      if (!deliveryJsonFound) {
+        const configRecipients = (process.env.DELIVERY_RECIPIENT_EMAILS || "")
+          .split(",")
+          .map((e) => e.trim())
+          .filter(Boolean);
+        const jobRecipients = (jobData.emailRecipients || []).filter((e) => typeof e === "string" && e.trim());
+        const seen = new Set();
+        authoritativeRecipients = [];
+        for (const email of [...configRecipients, ...jobRecipients]) {
+          const key = email.toLowerCase();
+          if (!seen.has(key)) {
+            seen.add(key);
+            authoritativeRecipients.push(email);
+          }
+        }
+        console.log(`📬 [RUNNER] delivery.json missing — using deterministic fallback recipients (${authoritativeRecipients.length})`);
+      }
+
+      // Always override the LLM's `to`/`recipients` with the authoritative list
+      // (even when empty, so the executor deterministically refuses to email).
+      decision.arguments.to = authoritativeRecipients.join(", ");
+      decision.arguments.recipients = authoritativeRecipients;
+      console.log(`📬 [RUNNER] Enforced ${authoritativeRecipients.length} delivery recipient(s): ${authoritativeRecipients.join(", ")}`);
+    }
+
+    // ── Custom delivery per meeting: enforce the Gate 2 recipient picker ──
+    // When CUSTOM_DELIVERY_PER_MEETING is enabled, the user must choose which
+    // attendees receive the email at the delivery review. Pause the pipeline
+    // BEFORE any memory-save or delivery tool can run if the gate hasn't fired
+    // yet, so the recipient selection can never be skipped by the LLM.
+    if (process.env.CUSTOM_DELIVERY_PER_MEETING === "true" && !gate2Passed) {
+      const gateProtectedTools = new Set([
+        "transcribe_save_context",
+        "transcribe_prepare_delivery",
+        "send_delivery_email",
+        "save_to_drive",
+        "create_trello_action_items",
+      ]);
+      if (gateProtectedTools.has(decision.name)) {
+        console.log(`⏸️  [RUNNER] Custom delivery enabled — forcing delivery review before ${decision.name}`);
+        await pauseForDeliveryReview(step);
+        break;
       }
     }
 
@@ -1036,57 +1164,21 @@ async function processEvent(event) {
     }
 
     // ── Approve Delivery (Gate 2) — save state and pause for user review ──
+    // Only pauses when the delivery review gate is actually enabled. When both
+    // GATE_DELIVERY_REVIEW_ENABLED and CUSTOM_DELIVERY_PER_MEETING are off, the
+    // LLM's approve_delivery call must NOT park the job at a review gate the
+    // user disabled — steer it straight to delivery instead.
     if (decision.name === "transcribe_approve_delivery") {
-      const gate2Tag = (jobData.jobId || eventId)?.slice(0, 8) || "???";
-      console.log(`\n${"═".repeat(40)}`);
-      console.log(`  ⏸️  GATE 2 TRIGGERED — Delivery Review (job=${gate2Tag})`);
-      console.log(`${"═".repeat(40)}`);
-      console.log(`⏸️  [RUNNER] Gate 2: pausing for delivery review — saving pipeline state`);
-
-      try {
-        // 1. Save full pipeline state for resumption
-        const reviewState = {
-          jobId: jobData.jobId || eventId,
-          title: safeTitle,
-          context: context,
-          tokenUsage: [...existingSteps, ...tokenUsage],
-          pausedAtStep: step,
-          savedAt: new Date().toISOString(),
-        };
-        const storageDir = path.join(STORAGE_BASE, jobData.jobId || eventId);
-        fs.mkdirSync(storageDir, { recursive: true });
-        fs.writeFileSync(path.join(storageDir, "delivery-review-state.json"), JSON.stringify(reviewState, null, 2), "utf8");
-
-        // 2. Update job status on the backend (ephemeral DB + status.json)
-        await executeToolCall("transcribe_upsert_job", {
-          jobId: jobData.jobId || eventId,
-          result: "pending",
-        });
-        // Also write pending_delivery_review to status.json so the frontend
-        // polling (transcribe_status) can detect it and show the Gate 2 panel.
-        await executeToolCall("transcribe_update_status", {
-          jobId: jobData.jobId || eventId,
-          updates: { status: "pending_delivery_review", progress: 0.96 },
-        });
-
-        console.log(`✅ [RUNNER] Delivery review state saved (${JSON.stringify(reviewState).length} chars)`);
-        logStepMessage(jobData.jobId || eventId, "⏸️ Paused — waiting for delivery review");
-        logAction({
-          eventId,
-          jobId: jobData.jobId || eventId,
-          eventType: event.type,
-          action: "paused",
-          detail: "Gate 2: paused for delivery review",
-          toolName: "transcribe_approve_delivery",
-        });
-      } catch (saveErr) {
-        console.log(`⚠️  [RUNNER] Failed to save delivery review state: ${saveErr.message}`);
+      const deliveryReviewEnabled = process.env.GATE_DELIVERY_REVIEW_ENABLED === "true";
+      const customDeliveryEnabled = process.env.CUSTOM_DELIVERY_PER_MEETING === "true";
+      if (deliveryReviewEnabled || customDeliveryEnabled) {
+        await pauseForDeliveryReview(step);
+        break;
       }
-
-      // 3. Exit the pipeline loop — don't mark as complete/failed
-      pipelineComplete = true;
-      deliveryHandled = true; // prevents post-loop complete/fail
-      break;
+      console.log(`⏭️  [RUNNER] Delivery review is disabled — skipping pause, continuing to delivery`);
+      context +=
+        "\n\n[Delivery review is disabled. Do NOT call transcribe_approve_delivery again. Proceed with transcribe_save_context, then transcribe_prepare_delivery, then deliver.]";
+      continue;
     }
 
     // ── One-shot tool removal ──

@@ -58,6 +58,8 @@ export interface AppConfig {
   LOG_LLM_DATA: string;
   /** Collapse consecutive log lines with identical source/subsource/level in Results Viewer */
   LOG_COLLAPSE_REPEATED_PREFIXES: string;
+  /** Route Chromium (Electron) renderer/GPU/console logs to stderr (--enable-logging). Debug aid. */
+  LOG_CHROMIUM: string;
   /** LLM temperature (0.0–2.0). Lower = more deterministic, higher = more creative. Default 0.1 */
   LLM_TEMPERATURE: string;
   /** Fetch memory context — controlled via pipeline step _fetch_memory_context in pipeline.json */
@@ -90,6 +92,8 @@ export interface AppConfig {
   GATE_RAW_REVIEW_ENABLED: string;
   /** Gate 2: Pause after LLM analysis for transcript/summary/analysis review before memory save + delivery */
   GATE_DELIVERY_REVIEW_ENABLED: string;
+  /** Custom delivery per meeting: when enabled, delivery review always pauses so the user picks which attendees receive the email */
+  CUSTOM_DELIVERY_PER_MEETING: string;
   /** Keep ML models loaded between transcription jobs (faster startup, higher memory) */
   KEEP_MODELS_WARM: string;
   /** Instance identifier sent with each usage record (defaults to hostname) */
@@ -141,6 +145,7 @@ const DEFAULTS: AppConfig = {
   WHISPER_INITIAL_PROMPT: "",
   LOG_LLM_DATA: "false",
   LOG_COLLAPSE_REPEATED_PREFIXES: "true",
+  LOG_CHROMIUM: "false",
   LLM_TEMPERATURE: "0.1",
   APPEARANCE_THEME: "dark",
   APPEARANCE_ACCENT_COLOR: "#58a6ff",
@@ -157,6 +162,7 @@ const DEFAULTS: AppConfig = {
   PIPELINE_TIMEOUT_MINUTES: "15",
   GATE_RAW_REVIEW_ENABLED: "false",
   GATE_DELIVERY_REVIEW_ENABLED: "false",
+  CUSTOM_DELIVERY_PER_MEETING: "false",
   KEEP_MODELS_WARM: "false",
   DSMON_INSTANCE_ID: "",
   DSMON_PUSH_INTERVAL: "300000",
@@ -463,6 +469,7 @@ export function getChildEnv(): NodeJS.ProcessEnv {
     DELIVERY_DRIVE_FOLDER: userVals.DELIVERY_DRIVE_FOLDER || process.env.DELIVERY_DRIVE_FOLDER || "Meeting Transcripts",
     GATE_RAW_REVIEW_ENABLED: userVals.GATE_RAW_REVIEW_ENABLED || process.env.GATE_RAW_REVIEW_ENABLED || "false",
     GATE_DELIVERY_REVIEW_ENABLED: userVals.GATE_DELIVERY_REVIEW_ENABLED || process.env.GATE_DELIVERY_REVIEW_ENABLED || "false",
+    CUSTOM_DELIVERY_PER_MEETING: userVals.CUSTOM_DELIVERY_PER_MEETING || process.env.CUSTOM_DELIVERY_PER_MEETING || "false",
     KEEP_MODELS_WARM: userVals.KEEP_MODELS_WARM || process.env.KEEP_MODELS_WARM || "false",
     DSMON_INSTANCE_ID: userVals.DSMON_INSTANCE_ID || process.env.DSMON_INSTANCE_ID || "",
     DSMON_PUSH_INTERVAL: userVals.DSMON_PUSH_INTERVAL || process.env.DSMON_PUSH_INTERVAL || "300000",

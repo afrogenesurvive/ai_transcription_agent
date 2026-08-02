@@ -117,6 +117,10 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
   const [showGate2RejectConfirm, setShowGate2RejectConfirm] = useState(false);
   const [gate2RejectAction, setGate2RejectAction] = useState<"cancel" | "retry">("cancel");
   const [gate2Feedback, setGate2Feedback] = useState("");
+  // ── Gate 2 custom-delivery recipient picker state ──
+  const [gate2Attendees, setGate2Attendees] = useState<{ name: string; email: string }[]>([]);
+  const [gate2CustomDelivery, setGate2CustomDelivery] = useState(false);
+  const [selectedRecipients, setSelectedRecipients] = useState<Set<string>>(new Set());
 
   // ── Dynamic overlay message based on current phase ──
   const submitMessage =
@@ -206,6 +210,9 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
       setGate2AnalysisDraft({});
       setGate2TranscriptDraft([]);
       setGate2EditMode(false);
+      setGate2Attendees([]);
+      setGate2CustomDelivery(false);
+      setSelectedRecipients(new Set());
     }
     wasVisibleRef.current = visible;
   }, [visible]);
@@ -316,6 +323,7 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
           setGate2Analysis(aData || null);
           setGate2Transcript(tData?.transcript || null);
         }
+
       } catch (err: any) {
         if (!cancelled) {
           if (err.name === "AbortError") {
@@ -334,6 +342,38 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
       cancelled = true;
     };
   }, [visible, isGate2, jobId, gate2Summary]);
+
+  // ── Gate 2 custom-delivery recipient picker data (separate, non-blocking) ──
+  // Fetched independently of the main deliverable load so a slow/unavailable
+  // review state can never delay or block the "Loading deliverable data…"
+  // indicator. When custom delivery is enabled, seeds the attendee checkboxes.
+  useEffect(() => {
+    if (!visible || !isGate2 || !jobId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const reviewRes = await fetch(`http://127.0.0.1:5010/tools/call`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tool: "transcribe_get_delivery_review_state", args: { jobId } }),
+        });
+        const reviewData = await reviewRes.json().catch(() => null);
+        if (cancelled || !reviewData || !reviewData.customDeliveryEnabled) return;
+        const attendees: { name: string; email: string }[] = Array.isArray(reviewData.attendees)
+          ? (reviewData.attendees as any[]).map((a) => ({ name: a.name || "", email: a.email || "" }))
+          : [];
+        setGate2Attendees(attendees);
+        setGate2CustomDelivery(true);
+        // Default: every attendee with an email is checked.
+        setSelectedRecipients(new Set(attendees.map((a) => a.email).filter(Boolean)));
+      } catch {
+        /* review state unavailable — recipient picker hidden */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, isGate2, jobId]);
 
   if (!visible) return null;
 
@@ -794,6 +834,50 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
                         <Icon name="checklist" size="12" /> Trello
                       </span>
                     </div>
+
+                    {/* ── Custom delivery per meeting: recipient picker ── */}
+                    {gate2CustomDelivery && (
+                      <div className="pp-gate-recipients">
+                        <div className="pp-gate-recipients-title">Which attendees receive the email?</div>
+                        {gate2Attendees.length === 0 ? (
+                          <div className="pp-gate-muted">No attendee data available.</div>
+                        ) : (
+                          gate2Attendees.map((a) => {
+                            const checked = a.email ? selectedRecipients.has(a.email) : false;
+                            return (
+                              <label
+                                key={a.name || a.email}
+                                className={`pp-gate-recipient ${!a.email ? "pp-gate-recipient--disabled" : ""}`}
+                                title={!a.email ? "No email on file — cannot be selected" : undefined}>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  disabled={!a.email}
+                                  onChange={() => {
+                                    if (!a.email) return;
+                                    setSelectedRecipients((prev) => {
+                                      const next = new Set(prev);
+                                      if (next.has(a.email)) next.delete(a.email);
+                                      else next.add(a.email);
+                                      return next;
+                                    });
+                                  }}
+                                />
+                                <span style={{ fontSize: 13 }}>{a.name}</span>
+                                <span className="pp-gate-muted" style={{ marginLeft: "auto" }}>
+                                  {a.email || "no email"}
+                                </span>
+                              </label>
+                            );
+                          })
+                        )}
+                        <div className="pp-gate-muted" style={{ marginTop: 6, fontStyle: "normal" }}>
+                          {selectedRecipients.size === 0
+                            ? "No attendees will receive the email — config default recipients still will."
+                            : `Email will be sent to ${selectedRecipients.size} attendee(s) + config default recipients.`}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Edit mode extras */}
@@ -878,6 +962,10 @@ export default function GateReviewModal({ visible, gate, jobId, onApproveGate1, 
                               editedTranscript,
                               editedSummary,
                               editedAnalysis,
+                              // Custom delivery per meeting: send the user's recipient
+                              // selection so the backend persists it to
+                              // recipient-selection.json (config defaults are always added).
+                              deliveryOptions: gate2CustomDelivery ? { recipients: [...selectedRecipients] } : undefined,
                             });
                             // Success — keep overlay visible until parent
                             // detects the status change.

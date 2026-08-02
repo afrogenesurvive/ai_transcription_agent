@@ -108,6 +108,29 @@ import {
   restoreUserConfigDefaults,
   saveAgentConfigToDisk,
 } from "./config";
+
+// ── Enable Electron/Chromium logging (debug aid) ──
+// When LOG_CHROMIUM is enabled (ConfigPanel > Logging, or LOG_CHROMIUM=1 via .env),
+// route Chromium's renderer/GPU/console logging to stderr. This surfaces low-level
+// errors (e.g. GPU/compositor failures) that would otherwise be invisible — such as
+// the blank-window symptom when running under Wine/CrossOver. Must run before app is
+// ready: Chromium reads these switches during its own initialization.
+(function enableChromiumLogging(): void {
+  let enabled = process.env.LOG_CHROMIUM === "1" || process.env.LOG_CHROMIUM?.toLowerCase() === "true";
+  try {
+    const v = getConfig().LOG_CHROMIUM; // getConfig() already folds in .env/host env
+    enabled = enabled || v === "true" || v === "1";
+  } catch {
+    // Non-fatal — fall back to env-only detection above
+  }
+  if (enabled) {
+    app.commandLine.appendSwitch("enable-logging");
+    app.commandLine.appendSwitch("v", "1");
+    // Inherited by renderer/GPU/utility child processes
+    process.env.ELECTRON_ENABLE_LOGGING = "1";
+    addLog("main", "info", "[chromium] Electron/Chromium logging enabled (enable-logging, v=1)");
+  }
+})();
 import { startAutoUpdater, stopAutoUpdater, registerAutoUpdateIpc, getUpdateState, checkAndUpdate } from "./auto-updater";
 import { uninstall } from "./cleanup";
 

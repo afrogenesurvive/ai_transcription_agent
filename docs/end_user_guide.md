@@ -260,6 +260,8 @@ The pipeline pauses here for you to review the deliverables before saving to mem
 - **Approve** — the deliverable is saved to memory and delivery proceeds to the configured destinations
 - **Reject** — temporarily disabled (buttons are greyed out in the modal). The pipeline must be approved to continue.
 
+> **Custom delivery per meeting:** If **Settings → Config → Delivery Config → Custom Delivery per Meeting** is enabled, the modal also shows a **"Which attendees receive the email?"** checkbox list (pre-filled with every attendee that has an email on file). Uncheck anyone who shouldn't get the summary — or uncheck everyone to email only the config default recipients. Config default recipients are always included regardless of the selection.
+
 You can disable this gate in **Settings → Config → Pipeline** by toggling the **Review & Approve Delivery** step off.
 
 ### 9b. 📬 Delivery

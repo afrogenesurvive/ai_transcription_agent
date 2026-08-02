@@ -883,6 +883,36 @@
   color: var(--text);
 }
 
+/* ── Recipient picker (custom delivery per meeting) ── */
+
+.pp-gate-recipients {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  margin-top: 10px;
+}
+
+.pp-gate-recipients-title {
+  font-size: var(--fs-12);
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.pp-gate-recipient {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.pp-gate-recipient input[type="checkbox"] {
+  accent-color: var(--accent, #58a6ff);
+}
+
+.pp-gate-recipient--disabled {
+  opacity: 0.5;
+}
+
 /* ── Action buttons ── */
 
 .pp-gate-actions {

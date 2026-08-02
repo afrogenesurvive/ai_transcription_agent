@@ -57,6 +57,7 @@ interface ConfigValues {
   WHISPER_INITIAL_PROMPT: string;
   LOG_LLM_DATA: string;
   LOG_COLLAPSE_REPEATED_PREFIXES: string;
+  LOG_CHROMIUM: string;
   LLM_TEMPERATURE: string;
   PIPELINE_TIMEOUT_MINUTES: string;
   // ── Diarization tuning (ASV phantom speaker suppression) ──
@@ -67,6 +68,7 @@ interface ConfigValues {
   DIARIZATION_MAX_SPEAKERS: string;
   GATE_RAW_REVIEW_ENABLED: string;
   GATE_DELIVERY_REVIEW_ENABLED: string;
+  CUSTOM_DELIVERY_PER_MEETING: string;
   KEEP_MODELS_WARM: string;
   DELIVERY_RECIPIENT_EMAILS: string;
   DELIVERY_EMAIL_SUBJECT: string;
@@ -126,6 +128,7 @@ const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secre
   { key: "DELIVERY_EMAIL_SUBJECT", label: "Email Subject Template", required: false, secret: false, section: "Delivery Config" },
   { key: "DELIVERY_EMAIL_ADDITIONAL_CONTENT", label: "Additional Email Content", required: false, secret: false, section: "Delivery Config" },
   { key: "DELIVERY_DRIVE_FOLDER", label: "Drive Destination Folder", required: false, secret: false, section: "Delivery Config" },
+  { key: "CUSTOM_DELIVERY_PER_MEETING", label: "Custom Delivery per Meeting", required: false, secret: false, section: "Delivery Config" },
   { key: "GATE_RAW_REVIEW_ENABLED", label: "Raw Transcript Review (Gate 1)", required: false, secret: false, section: "Pipeline" },
   { key: "GATE_DELIVERY_REVIEW_ENABLED", label: "Delivery Review (Gate 2)", required: false, secret: false, section: "Pipeline" },
   { key: "KEEP_MODELS_WARM", label: "Keep Models Warm", required: false, secret: false, section: "Pipeline" },
@@ -170,6 +173,7 @@ function loadConfigValues(cfg: Record<string, { value: string; source: string }>
     USAGE_TRACKING_ENABLED: cfg.USAGE_TRACKING_ENABLED?.value || "false",
     LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
     LOG_COLLAPSE_REPEATED_PREFIXES: cfg.LOG_COLLAPSE_REPEATED_PREFIXES?.value || "true",
+    LOG_CHROMIUM: cfg.LOG_CHROMIUM?.value || "false",
     LLM_TEMPERATURE: cfg.LLM_TEMPERATURE?.value || "0.1",
     PERF_METRICS_POLL_INTERVAL: cfg.PERF_METRICS_POLL_INTERVAL?.value || "10000",
     CREDIT_POLL_INTERVAL: cfg.CREDIT_POLL_INTERVAL?.value || "60000",
@@ -186,6 +190,7 @@ function loadConfigValues(cfg: Record<string, { value: string; source: string }>
     DELIVERY_EMAIL_SUBJECT: cfg.DELIVERY_EMAIL_SUBJECT?.value || "Meeting Summary: {title}",
     DELIVERY_EMAIL_ADDITIONAL_CONTENT: cfg.DELIVERY_EMAIL_ADDITIONAL_CONTENT?.value || "",
     DELIVERY_DRIVE_FOLDER: cfg.DELIVERY_DRIVE_FOLDER?.value || "Meeting Transcripts",
+    CUSTOM_DELIVERY_PER_MEETING: cfg.CUSTOM_DELIVERY_PER_MEETING?.value || "false",
     APPEARANCE_THEME: cfg.APPEARANCE_THEME?.value || "dark",
     APPEARANCE_ACCENT_COLOR: cfg.APPEARANCE_ACCENT_COLOR?.value || "#58a6ff",
     APPEARANCE_FONT_SIZE: cfg.APPEARANCE_FONT_SIZE?.value || "medium",
@@ -2357,7 +2362,31 @@ The system provides existing memory context at the start of each pipeline run. U
                       </details>
                     </div>
                   ) : sectionName === "Delivery Config" ? (
-                    <div className="delivery-config-accordion">
+                    <>
+                      {/* ── Custom Delivery per Meeting toggle ── */}
+                      <div className="config-field">
+                        <label className="config-label">Custom Delivery per Meeting</label>
+                        <label className="config-toggle">
+                          <input
+                            type="checkbox"
+                            checked={values.CUSTOM_DELIVERY_PER_MEETING === "true"}
+                            onChange={(e) => handleChange("CUSTOM_DELIVERY_PER_MEETING", e.target.checked ? "true" : "false")}
+                            disabled={activeJobs.length > 0}
+                          />
+                          <span className="config-toggle-slider" />
+                          <span className="config-toggle-label">
+                            {values.CUSTOM_DELIVERY_PER_MEETING === "true"
+                              ? "Choose recipients for each meeting at delivery review"
+                              : "Deliver to all attendees"}
+                          </span>
+                        </label>
+                        <p className="config-field-hint" style={{ marginTop: 4 }}>
+                          When enabled, every meeting pauses at the delivery review (Gate 2) so you can choose which attendees receive the email.
+                          Config default recipients are always included. When disabled, delivery goes to all attendees.
+                        </p>
+                      </div>
+
+                      <div className="delivery-config-accordion">
                       {/* ── Gmail accordion section ── */}
                       <details className="delivery-config-details" open>
                         <summary className="delivery-config-summary">
@@ -2437,7 +2466,8 @@ The system provides existing memory context at the start of each pipeline run. U
                             ))}
                         </div>
                       </details>
-                    </div>
+                      </div>
+                    </>
                   ) : sectionName === "Auto-Update" ? (
                     <>
                       {/* Compact update status card */}
@@ -3010,6 +3040,32 @@ The system provides existing memory context at the start of each pipeline run. U
                   <span className="config-toggle-slider" />
                   <span className="config-toggle-label">
                     <strong>Log LLM input/output data</strong>
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            {/* ── Electron / Chromium Logging ── */}
+            <div className="config-section" style={{ marginTop: 16 }}>
+              <h3 className="config-section-title">
+                <Icon name="terminal" size="16" color="accent" /> Electron / Chromium Logging
+              </h3>
+              <p className="config-field-hint">
+                When enabled, Chromium&apos;s renderer, GPU, and console messages are routed to the app console / log output. This surfaces
+                low-level errors (e.g. GPU or compositor failures) that are otherwise invisible — useful when diagnosing blank or unrendered
+                windows under Wine/CrossOver. Requires an app restart to take effect.
+              </p>
+              <div className="config-field">
+                <label className="config-toggle">
+                  <input
+                    type="checkbox"
+                    checked={values.LOG_CHROMIUM === "true"}
+                    disabled={activeJobs.length > 0}
+                    onChange={() => handleChange("LOG_CHROMIUM", values.LOG_CHROMIUM === "true" ? "false" : "true")}
+                  />
+                  <span className="config-toggle-slider" />
+                  <span className="config-toggle-label">
+                    <strong>Enable Electron/Chromium logging</strong>
                   </span>
                 </label>
               </div>
