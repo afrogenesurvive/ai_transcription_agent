@@ -303,10 +303,26 @@ export interface ConfigValueSource {
   source: "user_config" | "env_file" | "environment" | "default";
 }
 
-/** Merge config from: user file > defaults. */
+/**
+ * Non-empty process.env overrides for known config keys.
+ *
+ * Only non-empty values participate so an empty-string env var can't shadow
+ * the hardcoded defaults (mirrors the `else if (process.env[key])` check in
+ * getConfigWithSources()).
+ */
+function getEnvOverrides(): Partial<AppConfig> {
+  const result: Partial<AppConfig> = {};
+  for (const key of Object.keys(DEFAULTS) as (keyof AppConfig)[]) {
+    const v = process.env[key];
+    if (v) result[key] = v;
+  }
+  return result;
+}
+
+/** Merge config from: user file > env > defaults. */
 export function getConfig(): AppConfig {
   if (cachedConfig) return cachedConfig;
-  cachedConfig = { ...DEFAULTS, ...parseUserConfig() };
+  cachedConfig = { ...DEFAULTS, ...getEnvOverrides(), ...parseUserConfig() };
   return cachedConfig;
 }
 
@@ -376,9 +392,12 @@ export function checkConfig(): { ok: boolean; missing: string[] } {
   const config = getConfig();
   const missing: string[] = [];
 
-  // If using Ollama, DEEPSEEK_API_KEY is not required
+  // If using Ollama, DEEPSEEK_API_KEY is not required, but a model name is.
+  // Checked here so the UI surfaces it early instead of the runner failing at
+  // the first LLM call.
   if (config.LLM_PROVIDER === "ollama") {
-    // No required keys for Ollama — model check is handled elsewhere
+    const model = config.OLLAMA_MODEL || process.env.OLLAMA_MODEL || "";
+    if (!model) missing.push("OLLAMA_MODEL");
   } else {
     for (const key of REQUIRED_CONFIG_KEYS) {
       // Check config.json first, then process.env as fallback (for .env values)

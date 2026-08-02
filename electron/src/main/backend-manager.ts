@@ -19,7 +19,13 @@ import { getChildEnv } from "./config";
 /** Cross-platform synchronous sleep using execSync. Falls back gracefully on all platforms. */
 function syncSleep(seconds: number): void {
   if (process.platform === "win32") {
-    execSync(`timeout /t ${seconds} /nobreak >nul`, { stdio: "pipe", timeout: (seconds + 2) * 1000 });
+    // PowerShell Start-Sleep has no console/stdin dependency, unlike `timeout`,
+    // which fails with "Input redirection is not supported" when spawned from a
+    // GUI process (no TTY attached).
+    execSync(`powershell -NoProfile -NonInteractive -Command "Start-Sleep -Seconds ${seconds}"`, {
+      stdio: "pipe",
+      timeout: (seconds + 2) * 1000,
+    });
   } else {
     execSync(`sleep ${seconds}`, { stdio: "pipe", timeout: (seconds + 2) * 1000 });
   }
@@ -88,18 +94,40 @@ function resolveNodeBin(): string {
   return IS_WIN ? "node.exe" : "node";
 }
 
+/** Path to the child-PID file the Windows NSIS uninstaller reads so it can stop
+ *  backend processes that outlived the Electron shell (crash, silent uninstall). */
+function childPidsFilePath(): string {
+  return path.join(app.getPath("userData"), "child-pids.txt");
+}
+
+/** Persist the current python/bridge/agent PIDs (comma-separated) so the Windows
+ *  uninstaller can taskkill exactly our processes — `node.exe`/`main.exe` are too
+ *  generic to kill by image name. Best-effort; non-fatal if it fails. */
+function persistChildPids(): void {
+  try {
+    const pids = [pythonProcess?.pid, bridgeProcess?.pid, agentProcess?.pid].filter((p): p is number => typeof p === "number" && p > 0);
+    fs.writeFileSync(childPidsFilePath(), pids.join(","), "utf8");
+  } catch {
+    // non-critical
+  }
+}
+
 /** Kill any process listening on the given TCP port (cross-platform). */
 export async function killProcessOnPort(port: number): Promise<void> {
   if (IS_WIN) {
-    // Use netstat to find PIDs listening on the target port, then taskkill each
+    // Use netstat to find PIDs listening EXACTLY on the target port, then
+    // taskkill each. Match the Local Address column precisely (0.0.0.0:5001 /
+    // [::]:5001) — a substring match like `findstr :5001` would also hit
+    // :50010/:50012 and kill unrelated processes.
     try {
-      const result = execSync(`netstat -ano | findstr :${port}`, { encoding: "utf8", timeout: 3000 });
-      const lines = result
-        .trim()
-        .split("\n")
-        .filter((l) => l.includes("LISTENING"));
+      const result = execSync("netstat -ano -p tcp", { encoding: "utf8", timeout: 3000 });
+      const lines = result.trim().split(/\r?\n/);
       for (const line of lines) {
         const parts = line.trim().split(/\s+/);
+        if (parts.length < 5) continue;
+        if (!parts[3].toUpperCase().includes("LISTENING")) continue;
+        const localAddr = parts[1];
+        if (!localAddr.endsWith(`:${port}`)) continue;
         const pid = parts[parts.length - 1];
         if (pid && /^\d+$/.test(pid)) {
           try {
@@ -512,6 +540,7 @@ export async function startPythonBackend(port = 5001): Promise<void> {
   pythonProcess.on("exit", (code) => {
     console.log(`[backend] Python process exited with code ${code}`);
     pythonProcess = null;
+    persistChildPids();
   });
 
   await waitForServer(
@@ -520,6 +549,7 @@ export async function startPythonBackend(port = 5001): Promise<void> {
     () => pythonProcess !== null && pythonProcess.exitCode === null,
   );
   console.log(`[backend] Python backend is ready on :${port}`);
+  persistChildPids();
 }
 
 export async function stopPythonBackend(): Promise<void> {
@@ -606,10 +636,12 @@ export async function startBridgeServer(bridgePort = 5010, pythonPort = 5001): P
   bridgeProcess.on("exit", (code) => {
     console.log(`[bridge] Bridge process exited with code ${code}`);
     bridgeProcess = null;
+    persistChildPids();
   });
 
   await waitForServer(`http://127.0.0.1:${bridgePort}/health`);
   console.log(`[bridge] Bridge server is ready on :${bridgePort}`);
+  persistChildPids();
 }
 
 export async function stopBridgeServer(): Promise<void> {
@@ -904,6 +936,15 @@ export async function ensureOllamaRunning(force = false): Promise<boolean> {
     }
   }
 
+  // ── 2b. Re-check after install ──
+  // On Windows, OllamaSetup.exe /S usually auto-starts the server, so spawning
+  // `ollama serve` again would fail on the port. Re-check before launching.
+  if (checkOllamaServer()) {
+    addLog("main", "info", "[ollama] Ollama is already running (started during install)");
+    _ollamaStartedByUs = false;
+    return true;
+  }
+
   // ── 3. Launch ──
   addLog("main", "info", "[ollama] Launching Ollama...");
   launchOllama();
@@ -1097,11 +1138,24 @@ async function installFfmpeg(): Promise<void> {
     const extractDir = path.join(tmpDir, "ffmpeg_extract");
     fs.mkdirSync(extractDir, { recursive: true });
 
-    // Use PowerShell to expand the zip (escaped for paths with spaces)
-    execSync(
-      `powershell -Command \"Expand-Archive -LiteralPath '${zipPath.replace(/'/g, "''")}' -DestinationPath '${extractDir.replace(/'/g, "''")}' -Force\"`,
-      { stdio: "pipe", timeout: 60_000 },
-    );
+    // Prefer the built-in bsdtar (ships with Win10 1803+/Server 2019+) — the
+    // PowerShell 5.1 Expand-Archive cmdlet has a known "Length cannot be less
+    // than zero" bug on large archives. Fall back to the .NET ZipFile API.
+    let zipExtracted = false;
+    try {
+      execSync(`tar -xf "${zipPath}" -C "${extractDir}"`, { stdio: "pipe", timeout: 60_000 });
+      zipExtracted = true;
+    } catch (err: any) {
+      addLog("main", "warn", `[ffmpeg] tar.exe extraction failed (${err.message}) — falling back to .NET ZipFile`);
+    }
+    if (!zipExtracted) {
+      const psQuotedZip = `'${zipPath.replace(/'/g, "''")}'`;
+      const psQuotedDir = `'${extractDir.replace(/'/g, "''")}'`;
+      execSync(
+        `powershell -NoProfile -NonInteractive -Command "Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::ExtractToDirectory(${psQuotedZip}, ${psQuotedDir})"`,
+        { stdio: "pipe", timeout: 60_000 },
+      );
+    }
 
     // Find ffmpeg.exe anywhere in the extracted tree
     const result = execSync(`where /r \"${extractDir}\" ffmpeg.exe 2>nul || dir /s /b \"${extractDir}\"\\ffmpeg.exe 2>nul`, {
@@ -1283,6 +1337,7 @@ export async function startAgentRunner(): Promise<void> {
   agentProcess.on("exit", (code) => {
     console.log(`[agent] Agent process exited with code ${code}`);
     agentProcess = null;
+    persistChildPids();
   });
 
   // Agent runner doesn't have an HTTP health endpoint — it
@@ -1291,6 +1346,7 @@ export async function startAgentRunner(): Promise<void> {
   await new Promise((r) => setTimeout(r, 1000));
   if (agentProcess) {
     console.log(`[agent] Agent runner started (PID: ${agentProcess.pid})`);
+    persistChildPids();
   } else {
     throw new Error("Agent runner exited immediately after starting — check agent-runner/index.js for errors");
   }

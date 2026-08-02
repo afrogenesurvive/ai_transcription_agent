@@ -1,13 +1,39 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "description": "JSON Schema validating agent-config/tools.json and agent-config/pipeline.json for UI editing",
+  "description": "JSON Schema validating agent-config/tools.json (array of tool defs) and agent-config/pipeline.json (pipeline constants/steps/hints) for UI editing",
+  "oneOf": [
+    { "$ref": "#/definitions/tools_file" },
+    { "$ref": "#/definitions/pipeline_file" }
+  ],
   "definitions": {
+    "tools_file": {
+      "type": "array",
+      "description": "tools.json — array of tool definitions in OpenAI function-calling format",
+      "items": { "$ref": "#/definitions/tool" }
+    },
+    "pipeline_file": {
+      "type": "object",
+      "description": "pipeline.json — pipeline constants, ordered steps, hints, and event templates",
+      "properties": {
+        "max_pipeline_steps": { "type": "integer", "minimum": 1 },
+        "max_retries": { "type": "integer", "minimum": 0 },
+        "retry_base_delay_ms": { "type": "integer", "minimum": 0 },
+        "ollama_max_retries": { "type": "integer", "minimum": 0 },
+        "ollama_retry_base_delay_ms": { "type": "integer", "minimum": 0 },
+        "llm_context_window": { "type": "integer", "minimum": 0 },
+        "terminal_tools": { "type": "array", "items": { "type": "string", "pattern": "^[a-z_]+$" } },
+        "pipeline_steps": { "$ref": "#/definitions/pipeline_steps" },
+        "pipeline_hints": { "$ref": "#/definitions/pipeline_hints" },
+        "event_templates": { "$ref": "#/definitions/event_templates" }
+      },
+      "additionalProperties": true
+    },
     "tool": {
       "type": "object",
       "required": ["name", "description", "terminal", "handler", "inputSchema"],
       "properties": {
         "name": { "type": "string", "pattern": "^[a-z_]+$", "description": "Unique tool identifier, lowercase with underscores" },
-        "description": { "type": "string", "maxLength": 500, "description": "Short description shown to the LLM" },
+        "description": { "type": "string", "maxLength": 1000, "description": "Short description shown to the LLM" },
         "terminal": { "type": "boolean", "description": "If true, calling this tool ends the pipeline" },
         "handler": {
           "type": "string",

@@ -59,31 +59,43 @@ function resolveConfigDir() {
 
 const CONFIG_DIR = resolveConfigDir();
 
+// Shipped-defaults snapshot directory. The Electron main seeds this in userData
+// via initAgentConfigDir() (and refreshes it on app upgrades), so it's a reliable
+// fallback when a live file is missing or corrupt.
+const DEFAULTS_DIR = path.join(CONFIG_DIR, ".defaults");
+
 // ── Helpers ──
 
 function readJson(filename) {
-  const filePath = path.resolve(CONFIG_DIR, filename);
-  try {
-    if (!fs.existsSync(filePath)) {
-      console.warn(`   ⚠️  [agent-config] ${filename} not found at ${filePath}`);
-      return null;
+  // Live file first; fall back to the shipped .defaults/ snapshot. This covers
+  // both a missing live file AND a corrupt one (bad JSON from a failed edit),
+  // so the runner still loads a sane config instead of the hard-coded fallback.
+  const candidates = [path.resolve(CONFIG_DIR, filename), path.resolve(DEFAULTS_DIR, filename)];
+  for (const filePath of candidates) {
+    try {
+      if (fs.existsSync(filePath)) {
+        return JSON.parse(fs.readFileSync(filePath, "utf8"));
+      }
+    } catch (err) {
+      console.warn(`   ⚠️  [agent-config] Failed to load ${filename} at ${filePath}: ${err.message}`);
     }
-    const raw = fs.readFileSync(filePath, "utf8");
-    return JSON.parse(raw);
-  } catch (err) {
-    console.warn(`   ⚠️  [agent-config] Failed to load ${filename}: ${err.message}`);
-    return null;
   }
+  console.warn(`   ⚠️  [agent-config] ${filename} not found at ${CONFIG_DIR} or ${DEFAULTS_DIR} — using hard-coded fallback`);
+  return null;
 }
 
 function readMarkdown(filename) {
-  const filePath = path.resolve(CONFIG_DIR, filename);
-  try {
-    if (!fs.existsSync(filePath)) return null;
-    return fs.readFileSync(filePath, "utf8");
-  } catch {
-    return null;
+  const candidates = [path.resolve(CONFIG_DIR, filename), path.resolve(DEFAULTS_DIR, filename)];
+  for (const filePath of candidates) {
+    try {
+      if (fs.existsSync(filePath)) {
+        return fs.readFileSync(filePath, "utf8");
+      }
+    } catch (err) {
+      console.warn(`   ⚠️  [agent-config] Failed to load ${filename} at ${filePath}: ${err.message}`);
+    }
   }
+  return null;
 }
 
 // ── Default fallbacks (hard-coded, same as original inline values) ──
@@ -102,6 +114,180 @@ const FALLBACK_TOOLS = [
     },
   },
 
+  {
+    name: "transcribe_get_transcript",
+    description: "Get the current speaker-labeled transcript.",
+    terminal: false,
+    handler: "bridge",
+    inputSchema: {
+      type: "object",
+      properties: {
+        jobId: { type: "string" },
+        format: { type: "string", enum: ["json", "text"], default: "json" },
+      },
+      required: ["jobId"],
+    },
+  },
+  {
+    name: "transcribe_get_summary",
+    description:
+      "READ-ONLY: Retrieve a previously stored summary. Only use AFTER transcribe_summarize has been called successfully. Do NOT use this to create or generate a summary.",
+    terminal: false,
+    handler: "bridge",
+    inputSchema: { type: "object", properties: { jobId: { type: "string" } }, required: ["jobId"] },
+  },
+  {
+    name: "transcribe_summarize",
+    description:
+      "GENERATE and STORE a structured meeting summary from the transcript you have read. Pass the summary object with executive_summary, key_decisions, discussion_points, and action_items. This is the tool to call after reading the transcript — do NOT use transcribe_get_summary instead.",
+    terminal: false,
+    handler: "bridge",
+    inputSchema: {
+      type: "object",
+      properties: {
+        jobId: { type: "string" },
+        summary: {
+          type: "object",
+          properties: {
+            executive_summary: { type: "string" },
+            key_decisions: { type: "array", items: { type: "string" } },
+            discussion_points: { type: "array", items: { type: "string" } },
+            action_items: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: { description: { type: "string" }, assignee: { type: "string" }, deadline: { type: "string" } },
+              },
+            },
+          },
+        },
+      },
+      required: ["jobId", "summary"],
+    },
+  },
+  {
+    name: "transcribe_analyze",
+    description:
+      "Store LLM-generated analysis of the transcript: topics discussed, sentiment, key entities (names, dates, amounts), meeting effectiveness, and follow-up items.",
+    terminal: false,
+    handler: "bridge",
+    inputSchema: {
+      type: "object",
+      properties: {
+        jobId: { type: "string" },
+        analysis: {
+          type: "object",
+          properties: {
+            topics: { type: "array", items: { type: "string" }, description: "List of topics discussed" },
+            sentiment: { type: "string", description: "Overall sentiment or per-speaker sentiment summary" },
+            key_entities: { type: "array", items: { type: "string" }, description: "Names, dates, amounts, project names mentioned" },
+            effectiveness: { type: "string", description: "Meeting effectiveness score/notes" },
+            follow_ups: { type: "array", items: { type: "string" }, description: "Questions or items needing future discussion" },
+          },
+        },
+      },
+      required: ["jobId"],
+    },
+  },
+  {
+    name: "transcribe_approve_delivery",
+    description:
+      "Signal the pipeline to pause for user approval before saving to memory and delivering. Call this after analysis is complete — the transcript, summary, analysis, and delivery options are presented to the user for review. They can edit, approve, or reject. On approval, the pipeline resumes with save_context then prepare_delivery.",
+    terminal: false,
+    handler: "bridge",
+    inputSchema: { type: "object", properties: { jobId: { type: "string", description: "Job UUID" } }, required: ["jobId"] },
+  },
+  {
+    name: "transcribe_save_context",
+    description: "Save full meeting context to both semantic and ephemeral memory at once. Call this after summarization to make the meeting searchable.",
+    terminal: false,
+    handler: "bridge",
+    inputSchema: {
+      type: "object",
+      properties: {
+        jobId: { type: "string" },
+        title: { type: "string" },
+        attendees: { type: "array", items: { type: "string" } },
+        transcriptText: { type: "string", description: "Full transcript as plain text" },
+        summary: { type: "object", description: "Summary object with executive_summary, key_decisions, discussion_points" },
+        actionItems: { type: "array", items: { type: "object" }, description: "List of {description, assignee, deadline, priority}" },
+        budgets: { type: "array", items: { type: "object" }, description: "List of {description, amount, currency, category}" },
+        decisions: { type: "array", items: { type: "object" }, description: "List of {description, rationale, made_by}" },
+      },
+      required: ["jobId", "title"],
+    },
+  },
+  {
+    name: "transcribe_prepare_delivery",
+    description: "Prepare deliverable package with meeting summary, analysis, and attendee data.",
+    terminal: false,
+    handler: "bridge",
+    inputSchema: {
+      type: "object",
+      properties: {
+        jobId: { type: "string" },
+        destinations: { type: "array", items: { type: "string", enum: ["email", "drive", "trello"] } },
+        emailRecipients: { type: "array", items: { type: "string" } },
+      },
+      required: ["jobId", "destinations"],
+    },
+  },
+  {
+    name: "transcribe_search_memory",
+    description: "Semantic search across past meeting transcripts and summaries using natural language. Returns matching meetings with relevance scores.",
+    terminal: false,
+    handler: "bridge",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Natural language search query, e.g. 'budget discussion Q4'" },
+        nResults: { type: "number", default: 5 },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "send_delivery_email",
+    description: "Send email with meeting summary, analysis, and attendee data via Gmail.",
+    terminal: true,
+    handler: "direct",
+    inputSchema: {
+      type: "object",
+      properties: { to: { type: "string" }, subject: { type: "string" }, body: { type: "string" } },
+      required: ["to", "subject", "body"],
+    },
+  },
+  {
+    name: "save_to_drive",
+    description: "Save meeting summary and analysis to Google Drive.",
+    terminal: true,
+    handler: "direct",
+    inputSchema: {
+      type: "object",
+      properties: { folderName: { type: "string" }, title: { type: "string" }, summary: { type: "string" } },
+      required: ["title"],
+    },
+  },
+  {
+    name: "create_trello_action_items",
+    description: "Create Trello cards for action items.",
+    terminal: true,
+    handler: "direct",
+    inputSchema: {
+      type: "object",
+      properties: {
+        listId: { type: "string" },
+        actionItems: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { description: { type: "string" }, assignee: { type: "string" }, deadline: { type: "string" } },
+          },
+        },
+      },
+      required: ["listId", "actionItems"],
+    },
+  },
   {
     name: "transcribe_list_attendees",
     description: "List all registered attendees across all meetings, newest first.",
@@ -151,12 +337,13 @@ const FALLBACK_TOOLS = [
 ];
 
 const FALLBACK_PIPELINE = {
-  max_pipeline_steps: 25,
-  max_retries: 3,
-  retry_base_delay_ms: 2000,
+  max_pipeline_steps: 40,
+  max_retries: 6,
+  retry_base_delay_ms: 4000,
   ollama_max_retries: 5,
   ollama_retry_base_delay_ms: 5000,
-  terminal_tools: ["send_delivery_email", "save_to_drive", "create_trello_action_items"],
+  llm_context_window: 0,
+  terminal_tools: ["send_delivery_email"],
   pipeline_steps: [
     {
       id: "step-0",
@@ -215,7 +402,7 @@ const FALLBACK_PIPELINE = {
       description: "Pause pipeline for user to review transcript, summary, analysis and confirm or change delivery options",
       systemPromptTemplate: "",
       hintTemplate: "",
-      enabled: false,
+      enabled: true,
       isTerminal: false,
     },
     {
@@ -255,7 +442,7 @@ const FALLBACK_PIPELINE = {
       description: "Save results to Google Drive",
       systemPromptTemplate: "",
       hintTemplate: "",
-      enabled: true,
+      enabled: false,
       isTerminal: true,
     },
     {
@@ -265,7 +452,7 @@ const FALLBACK_PIPELINE = {
       description: "Create action items as Trello cards",
       systemPromptTemplate: "",
       hintTemplate: "",
-      enabled: true,
+      enabled: false,
       isTerminal: true,
     },
   ],

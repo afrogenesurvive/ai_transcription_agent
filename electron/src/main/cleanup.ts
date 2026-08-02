@@ -146,9 +146,9 @@ function removeOllamaModels(): boolean {
  */
 function removeOllama(): boolean {
   if (!isOllamaAutoInstalled()) {
-    addLog("main", "info", "[cleanup] Ollama was not auto-installed by this app — skipping");
-    // Still remove models even if not auto-installed (user opted for uninstall)
-    removeOllamaModels();
+    addLog("main", "info", "[cleanup] Ollama was not auto-installed by this app — skipping (leaving ~/.ollama models untouched)");
+    // A user's own Ollama install/models must NOT be deleted — this app only
+    // has permission to remove Ollama it installed itself (sentinel-gated).
     return false;
   }
 
@@ -254,10 +254,10 @@ export async function uninstall(): Promise<UninstallResult> {
   // 2. Remove user data
   result.userDataRemoved = removeUserData();
 
-  // 3. Remove Ollama if auto-installed (also removes models)
+  // 3. Remove Ollama if auto-installed (also removes models). A user's own
+  //    Ollama / models (~/.ollama) are left untouched — see removeOllama().
   result.ollamaRemoved = removeOllama();
-  // Track whether models were removed separately (removeOllamaModels is called
-  // inside removeOllama regardless of auto-install status)
+  // Track whether models were removed (only happens when we auto-installed Ollama)
   result.ollamaModelsRemoved = !fs.existsSync(path.join(require("os").homedir(), ".ollama"));
 
   // 4. Remove ffmpeg if auto-installed

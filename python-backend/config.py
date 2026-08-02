@@ -2,14 +2,48 @@
 Configuration — loaded from environment variables
 """
 
+import logging
 import os
 from pathlib import Path
+
+
+def _env_int(name, default):
+    """Read an integer env var safely.
+
+    Falls back to `default` and logs a warning if the value is missing or not a
+    valid integer, so a bad config value (e.g. a typo in the ConfigPanel) never
+    crashes the backend at import time.
+    """
+    raw = os.getenv(name, "")
+    if raw == "":
+        return default
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        logging.getLogger("config").warning(
+            "Invalid integer for %s=%r — using default %r", name, raw, default
+        )
+        return default
+
+
+def _env_float(name, default):
+    """Read a float env var safely (same guard as _env_int)."""
+    raw = os.getenv(name, "")
+    if raw == "":
+        return default
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        logging.getLogger("config").warning(
+            "Invalid number for %s=%r — using default %r", name, raw, default
+        )
+        return default
 
 
 class Config:
     # Server
     HOST = os.getenv("TRANSCRIPTION_HOST", "127.0.0.1")
-    PORT = int(os.getenv("TRANSCRIPTION_PORT", "5001"))
+    PORT = _env_int("TRANSCRIPTION_PORT", 5001)
 
     # Storage paths (relative to this file's directory)
     _BASE = Path(__file__).resolve().parent.parent
@@ -43,34 +77,22 @@ class Config:
     DEVICE = os.getenv("DEVICE", "auto")  # auto, cpu, cuda, mps
 
     # Voiceprint matching threshold
-    VOICEPRINT_THRESHOLD = float(os.getenv("VOICEPRINT_THRESHOLD", "0.75"))
+    VOICEPRINT_THRESHOLD = _env_float("VOICEPRINT_THRESHOLD", 0.75)
 
     # ── Diarization tuning (ASV phantom speaker suppression) ──
     # Post-processing: discard speakers below these thresholds
-    DIARIZATION_MIN_SPEAKER_DURATION = float(
-        os.getenv("DIARIZATION_MIN_SPEAKER_DURATION", "3.0")
-    )
-    DIARIZATION_MIN_SPEAKER_SEGMENTS = int(
-        os.getenv("DIARIZATION_MIN_SPEAKER_SEGMENTS", "3")
-    )
+    DIARIZATION_MIN_SPEAKER_DURATION = _env_float("DIARIZATION_MIN_SPEAKER_DURATION", 3.0)
+    DIARIZATION_MIN_SPEAKER_SEGMENTS = _env_int("DIARIZATION_MIN_SPEAKER_SEGMENTS", 3)
     # Post-processing: merge adjacent same-speaker segments with gap <= this
-    DIARIZATION_MERGING_GAP = float(
-        os.getenv("DIARIZATION_MERGING_GAP", "0.5")
-    )
+    DIARIZATION_MERGING_GAP = _env_float("DIARIZATION_MERGING_GAP", 0.5)
     # Clustering override: 0.0 = use pyannote model default
-    DIARIZATION_CLUSTERING_THRESHOLD = float(
-        os.getenv("DIARIZATION_CLUSTERING_THRESHOLD", "0.0")
-    )
+    DIARIZATION_CLUSTERING_THRESHOLD = _env_float("DIARIZATION_CLUSTERING_THRESHOLD", 0.0)
     # Hard upper bound on speaker count; 0 = no limit
-    DIARIZATION_MAX_SPEAKERS = int(
-        os.getenv("DIARIZATION_MAX_SPEAKERS", "0")
-    )
+    DIARIZATION_MAX_SPEAKERS = _env_int("DIARIZATION_MAX_SPEAKERS", 0)
 
     # Allowed upload formats
     ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".webm"}
-    MAX_FILE_SIZE = int(
-        os.getenv("TRANSCRIPTION_MAX_FILE_SIZE", str(500 * 1024 * 1024))
-    )
+    MAX_FILE_SIZE = _env_int("TRANSCRIPTION_MAX_FILE_SIZE", 500 * 1024 * 1024)
 
     # FFmpeg
     FFMPEG_PATH = os.getenv("FFMPEG_PATH", "ffmpeg")
@@ -91,10 +113,10 @@ class Config:
     ]
 
     # Maximum concurrent ML pipeline jobs
-    MAX_CONCURRENT_PIPELINES = int(os.getenv("MAX_CONCURRENT_PIPELINES", "2"))
+    MAX_CONCURRENT_PIPELINES = _env_int("MAX_CONCURRENT_PIPELINES", 2)
 
     # Pipeline timeout (minutes) before a hung job fails itself
-    PIPELINE_TIMEOUT_MINUTES = int(os.getenv("PIPELINE_TIMEOUT_MINUTES", "15"))
+    PIPELINE_TIMEOUT_MINUTES = _env_int("PIPELINE_TIMEOUT_MINUTES", 15)
     PIPELINE_TIMEOUT_SECONDS = PIPELINE_TIMEOUT_MINUTES * 60
 
     # Delivery configuration (set via ConfigPanel → config.json → env vars)

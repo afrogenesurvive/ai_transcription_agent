@@ -18,6 +18,8 @@ import Icon from "./Icon";
 import Tooltip from "./Tooltip";
 import LoadingModal from "./LoadingModal";
 import { loadAndApplyAppearance } from "../appearance";
+import { Validator } from "@cfworker/json-schema";
+import { agentConfigSchema } from "../utils/agentConfigSchema";
 import type { PipelineStep, ConfigValueSource } from "../types";
 
 interface Props {
@@ -216,6 +218,52 @@ function validateEmailList(value: string): { valid: string[]; invalid: string[] 
   return { valid, invalid };
 }
 
+// ── Numeric / enum config validation ──
+
+/**
+ * Validate numeric/enum config values. Returns a map of config key → error
+ * message. Empty values are allowed (they mean "use the default").
+ *
+ * A bad value here (e.g. a non-numeric DIARIZATION_MIN_SPEAKER_DURATION) would
+ * be forwarded to the Python backend via getChildEnv() and crash it at import
+ * time, so we block saving before that can happen.
+ */
+function validateNumericConfig(values: ConfigValues): Record<string, string> {
+  const errors: Record<string, string> = {};
+
+  const requireNumber = (key: keyof ConfigValues, label: string, min?: number, max?: number) => {
+    const raw = values[key];
+    if (raw === undefined || raw.trim() === "") return; // empty = use default
+    const n = Number(raw);
+    if (!Number.isFinite(n)) {
+      errors[key] = `${label} must be a number`;
+      return;
+    }
+    if (min !== undefined && n < min) errors[key] = `${label} must be at least ${min}`;
+    else if (max !== undefined && n > max) errors[key] = `${label} must be at most ${max}`;
+  };
+
+  // OLLAMA_NUM_CTX only allows the documented values
+  const ctx = (values.OLLAMA_NUM_CTX || "").trim();
+  if (ctx && !["32768", "65536", "131072"].includes(ctx)) {
+    errors.OLLAMA_NUM_CTX = "Ollama Context Window must be 32768, 65536, or 131072";
+  }
+
+  requireNumber("LLM_TEMPERATURE", "LLM Temperature", 0, 2);
+  requireNumber("PIPELINE_TIMEOUT_MINUTES", "Pipeline Timeout (minutes)", 1);
+  requireNumber("DIARIZATION_MIN_SPEAKER_DURATION", "Min Speaker Duration", 0);
+  requireNumber("DIARIZATION_MIN_SPEAKER_SEGMENTS", "Min Speaker Segments", 1);
+  requireNumber("DIARIZATION_MERGING_GAP", "Merging Gap", 0);
+  requireNumber("DIARIZATION_CLUSTERING_THRESHOLD", "Clustering Threshold", 0, 1);
+  requireNumber("DIARIZATION_MAX_SPEAKERS", "Max Speakers", 0);
+  requireNumber("PERF_METRICS_POLL_INTERVAL", "Perf Metrics Poll Interval (ms)", 1000);
+  requireNumber("CREDIT_POLL_INTERVAL", "Credit Poll Interval (ms)", 1000);
+  requireNumber("DSMON_PUSH_INTERVAL", "DS-mon Push Interval (ms)", 1000);
+  requireNumber("DSMON_GIST_POLL_INTERVAL", "DS-mon Gist Poll Interval (ms)", 1000);
+
+  return errors;
+}
+
 /**
  * Generate default pipeline steps from tools.json and pipeline hints.
  * Used when pipeline.json has no `pipeline_steps` array yet (migration).
@@ -227,6 +275,17 @@ function validateEmailList(value: string): { valid: string[]; invalid: string[] 
 const MAX_TEMPLATE_LENGTH = 500;
 const MAX_LABEL_LENGTH = 100;
 const MAX_DESC_LENGTH = 200;
+
+// ── Agent-config schema validation (mirrors agent-config/schema.json) ──
+// Validates tools.json / pipeline.json before they're written so a malformed
+// config never reaches the agent runner (which would fall back to defaults).
+//
+// @cfworker/json-schema is eval-free — ajv compiles schemas with `new Function`,
+// which the app's Content Security Policy blocks (unsafe-eval is not allowed).
+// One validator runs the root schema's oneOf, which selects tools_file (array)
+// vs pipeline_file (object) by shape and resolves the internal `$ref`s to
+// #/definitions.
+const agentConfigSchemaValidator = new Validator(agentConfigSchema, "7");
 
 /**
  * Sanitize a string for safe injection into the system prompt.
@@ -321,6 +380,8 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
   const [visibleKeys, setVisibleKeys] = useState<Set<keyof ConfigValues>>(new Set());
   // ── Email validation state ──
   const [emailValidationError, setEmailValidationError] = useState<string | null>(null);
+  /** Per-key validation errors for numeric/enum config fields (config tab). */
+  const [numericErrors, setNumericErrors] = useState<Record<string, string>>({});
 
   const toggleVisible = (key: keyof ConfigValues) => {
     setVisibleKeys((prev) => {
@@ -761,6 +822,13 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
   const handleChange = (key: keyof ConfigValues, value: string) => {
     setValues((prev) => ({ ...prev, [key]: value }));
     setSaved(false);
+    // Clear any previous validation error for this key
+    setNumericErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
     // Validate emails for the recipient field
     if (key === "DELIVERY_RECIPIENT_EMAILS") {
       if (value.trim()) {
@@ -780,6 +848,16 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
     setSaving(true);
     setError(null);
     try {
+      // Block save if any numeric/enum config value is invalid — a bad value
+      // would be forwarded to the Python backend and crash it at startup.
+      const invalid = validateNumericConfig(values);
+      if (Object.keys(invalid).length > 0) {
+        setNumericErrors(invalid);
+        setError(`Cannot save — invalid value(s): ${Object.values(invalid).join("; ")}`);
+        setSaving(false);
+        return;
+      }
+      setNumericErrors({});
       await window.electronAPI?.saveConfig(values);
       setSaved(true);
       setTimeout(() => onClose(), 1200);
@@ -999,6 +1077,35 @@ The system provides existing memory context at the start of each pipeline run. U
         // Always save the ordered step definitions so the UI can restore them
         pipeline_steps: editPipelineSteps,
       };
+
+      // Validate the pipeline against schema.json before writing — a malformed
+      // pipeline would break the agent runner at load.
+      const pipelineResult = agentConfigSchemaValidator.validate(pipeline);
+      if (!pipelineResult.valid) {
+        const msgs = (pipelineResult.errors || [])
+          .map((e) => `${e.instanceLocation || "/"} ${e.error || ""}`.trim())
+          .slice(0, 5)
+          .join("; ");
+        setError(`Pipeline is invalid per schema.json: ${msgs || "unknown validation error"}`);
+        setSaving(false);
+        return;
+      }
+      // Validate tool definitions too (defense-in-depth; the save payload only
+      // writes systemPrompt + pipeline, but a broken tools.json would still
+      // make the runner fall back to defaults).
+      if (agentConfig.tools !== undefined) {
+        const toolsResult = agentConfigSchemaValidator.validate(agentConfig.tools);
+        if (!toolsResult.valid) {
+          const msgs = (toolsResult.errors || [])
+            .map((e) => `${e.instanceLocation || "/"} ${e.error || ""}`.trim())
+            .slice(0, 5)
+            .join("; ");
+          setError(`Tool definitions are invalid per schema.json: ${msgs || "unknown validation error"}`);
+          setSaving(false);
+          return;
+        }
+      }
+
       const payload = {
         systemPrompt: finalSystemPrompt,
         pipeline,
@@ -1237,6 +1344,17 @@ The system provides existing memory context at the start of each pipeline run. U
               Enter your API keys and credentials. Required fields are marked with <span className="config-required">*</span>. Values are stored in
               your user data directory{activeJobs.length > 0 ? <strong>. Editing disabled while {activeJobs.length} job(s) running</strong> : ""}.
             </p>
+
+            {Object.keys(numericErrors).length > 0 && (
+              <div className="config-error-banner">
+                <Icon name="warning" color="orange" size="14" /> Please fix the following values before saving:
+                <ul style={{ margin: "6px 0 0 18px", padding: 0 }}>
+                  {Object.entries(numericErrors).map(([key, msg]) => (
+                    <li key={key}>{msg}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {Array.from(sections.entries())
               .filter(([name]) => name === configSection)

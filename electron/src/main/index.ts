@@ -20,6 +20,25 @@ import { registerExportHandlers } from "./exporter";
 // use this instead of the default "Electron".
 app.name = "Transcription Agent";
 
+// ── Single-instance lock ──
+// Request the lock BEFORE any startup work. Without this, a second launch on
+// Windows (Start Menu, shortcut, installer "run after finish") would spawn
+// duplicate Python/bridge/agent services that fight over ports 5001/5010 and
+// kill the first instance's backend via killProcessOnPort().
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  // Another instance is already running — exit and let it handle the request.
+  app.quit();
+}
+app.on("second-instance", () => {
+  // A second instance was launched — restore + focus our existing window.
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+});
+
 // ── Load .env into process.env ──
 // Required so that child processes (Python backend, bridge, agent runner)
 // inherit env vars like HUGGING_FACE_TOKEN that are set in the project .env file.
@@ -95,6 +114,13 @@ import { uninstall } from "./cleanup";
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let isQuitting = false;
+/** True when quit was initiated by the user (tray Quit / UI) rather than by the
+ *  OS (shutdown/logoff) or the auto-updater (quitAndInstall). Controls whether
+ *  before-quit shows the confirmation dialog. */
+let quitRequestedByUser = false;
+/** Guards the one-time cleanup in before-quit so it runs exactly once per app
+ *  lifetime across every quit path. */
+let quitCleanupDone = false;
 
 // ── Window ──
 
@@ -157,7 +183,10 @@ function createWindow() {
       // (the Python backend and other services continue to use memory)
       sendNotification({
         title: "Transcription Agent",
-        body: "Still running in the menu bar — quit from the tray menu to stop background services.",
+        body:
+          process.platform === "win32"
+            ? "Still running in the system tray — quit from the tray menu to stop background services."
+            : "Still running in the menu bar — quit from the tray menu to stop background services.",
       });
     }
   });
@@ -242,7 +271,8 @@ function createTray() {
     {
       label: "Quit",
       click: () => {
-        // Confirmation is handled in before-quit below
+        // Mark as user-initiated so before-quit shows the confirmation dialog
+        quitRequestedByUser = true;
         app.quit();
       },
     },
@@ -496,7 +526,9 @@ ipcMain.handle("app:readme", () => {
   const readmePath = (() => {
     const candidates = [path.join(__dirname, "..", "..", "..", "README.md"), path.join(app.getAppPath(), "..", "README.md")];
     if (app.isPackaged) {
+      // Bundled via extraResources → resources/README.md (keep legacy path too)
       candidates.unshift(path.join(process.resourcesPath, "..", "README.md"));
+      candidates.unshift(path.join(process.resourcesPath, "README.md"));
     }
     return candidates.find((p) => {
       try {
@@ -524,7 +556,9 @@ ipcMain.handle("app:guide", () => {
       path.join(app.getAppPath(), "..", "docs", "end_user_guide.md"),
     ];
     if (app.isPackaged) {
+      // Bundled via extraResources → resources/docs/end_user_guide.md
       candidates.unshift(path.join(process.resourcesPath, "..", "docs", "end_user_guide.md"));
+      candidates.unshift(path.join(process.resourcesPath, "docs", "end_user_guide.md"));
     }
     return candidates.find((p) => {
       try {
@@ -549,7 +583,9 @@ ipcMain.handle("app:doc", (_event, filename: string) => {
   const docPath = (() => {
     const candidates = [path.join(__dirname, "..", "..", "..", "docs", filename), path.join(app.getAppPath(), "..", "docs", filename)];
     if (app.isPackaged) {
+      // Bundled via extraResources → resources/docs/<filename>
       candidates.unshift(path.join(process.resourcesPath, "..", "docs", filename));
+      candidates.unshift(path.join(process.resourcesPath, "docs", filename));
     }
     return candidates.find((p) => {
       try {
@@ -754,26 +790,18 @@ ipcMain.handle("services:restart", async () => {
 
 ipcMain.handle("app:close", async () => {
   console.log("[ipc] Closing app via user request...");
+  // User-initiated — before-quit will show the single confirmation dialog
+  quitRequestedByUser = true;
   app.quit();
   return { success: true };
 });
 
 ipcMain.handle("app:confirmQuit", async (_event, opts: { message: string }) => {
-  const result = dialog.showMessageBoxSync({
-    type: "warning",
-    buttons: ["Cancel", "Quit"],
-    defaultId: 0,
-    cancelId: 0,
-    title: "Quit Transcription Agent",
-    message: opts.message,
-  });
-  if (result === 1) {
-    console.log("[ipc] User confirmed quit via sidebar button");
-    app.quit();
-    return { success: true };
-  }
-  console.log("[ipc] User cancelled quit");
-  return { success: false };
+  // Single confirmation is handled centrally in before-quit — this handler just
+  // marks the quit as user-initiated so the dialog appears there exactly once.
+  quitRequestedByUser = true;
+  app.quit();
+  return { success: true };
 });
 
 ipcMain.handle("app:quitApp", async () => {
@@ -2519,6 +2547,10 @@ const unsubscribeLogs = subscribe((entry) => {
 });
 
 app.whenReady().then(async () => {
+  // If this instance failed to acquire the single-instance lock, do nothing —
+  // we've already called app.quit() above.
+  if (!gotTheLock) return;
+
   // ── Notification platform setup ──
   // Windows: bind AppUserModelId so toast notifications appear correctly
   // in the Action Center with the proper app name and icon.
@@ -2667,36 +2699,50 @@ app.whenReady().then(async () => {
 });
 
 app.on("before-quit", (event) => {
-  // Prevent re-entrance — once confirmed, skip the dialog
-  if (isQuitting) return;
+  const isUpdating = getUpdateState().updateDownloaded;
 
-  // Show confirmation dialog synchronously (blocks until user responds)
-  event.preventDefault();
+  // Show the confirmation dialog ONLY for a user-initiated quit that hasn't
+  // already been confirmed in the UI (quitApp sets isQuitting=true first).
+  // OS-initiated shutdown/logoff and the auto-updater's quitAndInstall() must
+  // NOT be blocked by a modal — it can stall Windows shutdown or abort the
+  // update after the user already clicked "Restart & Install".
+  if (!isQuitting && quitRequestedByUser && !isUpdating) {
+    event.preventDefault();
+    const result = dialog.showMessageBoxSync({
+      type: "warning",
+      buttons: ["Cancel", "Quit"],
+      defaultId: 0,
+      cancelId: 0,
+      title: "Quit Transcription Agent",
+      message: "Are you sure you want to quit?",
+    });
+    if (result !== 1) return; // user clicked Cancel — stay running
+    isQuitting = true;
+  }
 
-  const result = dialog.showMessageBoxSync({
-    type: "warning",
-    buttons: ["Cancel", "Quit"],
-    defaultId: 0,
-    cancelId: 0,
-    title: "Quit Transcription Agent",
-    message: "Are you sure you want to quit?",
-  });
+  // Run cleanup exactly once for EVERY quit path (tray/UI confirmed, OS
+  // shutdown/logoff, and update installs). Previously the quitApp path skipped
+  // this entirely, leaving the Python/bridge/agent children orphaned.
+  if (!quitCleanupDone) {
+    quitCleanupDone = true;
+    isQuitting = true;
+    tray = null;
+    unsubscribeLogs();
+    stopHealthMonitoring();
+    stopAutoUpdater();
+    // Use synchronous kill — stopAll() is async and won't complete before
+    // app.exit(0) terminates the process. stopAllSync() sends SIGKILL
+    // immediately on Unix (taskkill /F on Windows) so children can't survive.
+    stopAllSync();
+  }
 
-  if (result !== 1) return; // user clicked Cancel
-
-  // User confirmed — clean up and quit
-  isQuitting = true;
-  tray = null;
-  unsubscribeLogs();
-  stopHealthMonitoring();
-  stopAutoUpdater();
-  // Use synchronous kill — stopAll() is async and won't complete before
-  // app.exit(0) terminates the process. stopAllSync() sends SIGKILL
-  // immediately on Unix (taskkill /F on Windows) so children can't survive.
-  stopAllSync();
-  // Use exit() to force termination — quit() re-fires before-quit and
-  // on macOS window-all-closed won't terminate the app.
-  app.exit(0);
+  // Only force-terminate when we preventDefault'd above (user-confirmed quit).
+  // For OS shutdown, update installs, and UI-confirmed quits, let the normal
+  // quit flow complete so the auto-updater can relaunch and Windows shutdown
+  // is not blocked.
+  if (event.defaultPrevented) {
+    app.exit(0);
+  }
 });
 
 app.on("activate", () => {

@@ -1,6 +1,6 @@
 {
   "name": "transcription-electron",
-  "version": "0.5.10",
+  "version": "0.6.1",
   "private": true,
   "license": "Apache-2.0",
   "description": "Electron desktop UI for AI Meeting Transcription Agent",
@@ -76,6 +76,17 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "../docs",
+        "to": "docs",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../README.md",
+        "to": "README.md"
       }
     ],
     "mac": {
@@ -124,7 +135,7 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": false,
-      "deleteAppDataOnUninstall": true,
+      "deleteAppDataOnUninstall": false,
       "include": "build/installer.nsh",
       "perMachine": true,
       "runAfterFinish": true,
@@ -150,6 +161,7 @@
     }
   },
   "dependencies": {
+    "@cfworker/json-schema": "^4.1.1",
     "@tiptap/extension-link": "^3.29.2",
     "@tiptap/extension-placeholder": "^3.29.2",
     "@tiptap/pm": "^3.29.2",

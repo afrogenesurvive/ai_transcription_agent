@@ -214,12 +214,119 @@ FunctionEnd
 !include "cleanup.nsh"
 
 ;;
-;; The uninstall section is included by electron-builder's generated
-;; NSIS uninstaller code. These macros handle cleanup beyond what
-;; electron-builder's deleteAppDataOnUninstall provides.
+;; ── Uninstaller wiring ──
 ;;
-;; Usage from electron-builder's default uninstall section (in this order):
-;;   1. !insertmacro removeUserData
-;;   2. !insertmacro removeOllamaIfAutoInstalled
-;;   3. !insertmacro removeInstallDir       (after all tracked files are deleted)
+;; electron-builder auto-invokes customUnInstall / customUnWelcomePage from its
+;; generated uninstaller. We use those hooks to:
+;;   1. Kill the running app + orphaned backend children (child-pids.txt)
+;;   2. Remove Ollama if it was auto-installed by this app (sentinel-gated)
+;;   3. Remove user data only if the user opted in on the uninstall welcome page
 ;;
+;; The removeUserData / removeInstallDir macros in cleanup.nsh are intentionally
+;; NOT wired here — electron-builder's own uninstall section already removes
+;; $INSTDIR, and app-data removal is controlled by the checkbox below.
+;;
+
+!ifdef BUILD_UNINSTALLER
+
+Var UnWelcomeDialog
+Var UnWelcomeText
+Var DeleteUserDataCheckbox
+Var DeleteUserDataChoice
+
+!macro customUnWelcomePage
+  Page custom unWelcomePage
+!macroend
+
+Function unWelcomePage
+  nsDialogs::Create 1018
+  Pop $UnWelcomeDialog
+
+  ${If} $UnWelcomeDialog == error
+    Abort
+  ${EndIf}
+
+  ${NSD_CreateLabel} 0 0 100% 32u "Uninstall Transcription Agent"
+  Pop $UnWelcomeText
+  CreateFont $1 "MS Shell Dlg 2" 16 700
+  SendMessage $UnWelcomeText ${WM_SETFONT} $1 1
+
+  ${NSD_CreateLabel} 0 40u 100% 70u \
+    "This will remove Transcription Agent from your computer.$\r$\n$\r$\n\
+     Removed components:$\r$\n\
+     • Application files from $INSTDIR$\r$\n\
+     • Ollama (if it was auto-installed by this app)$\r$\n$\r$\n\
+     Your transcripts, voiceprints, and settings are kept unless you choose \
+     to delete them below."
+  Pop $UnWelcomeText
+
+  ${NSD_CreateCheckbox} 0 -44u 100% 14u "Also delete my transcription data and settings (transcripts, voiceprints, config)"
+  Pop $DeleteUserDataCheckbox
+  ${NSD_Check} $DeleteUserDataCheckbox
+
+  nsDialogs::Show
+
+  ${NSD_GetState} $DeleteUserDataCheckbox $DeleteUserDataChoice
+FunctionEnd
+
+!macro customUnInstall
+  ; Use the CURRENT user's app data — per-machine installs run the uninstaller
+  ; elevated, where $APPDATA would otherwise resolve to the admin account.
+  SetShellVarContext current
+
+  ; ── 1. Stop the running app + any orphaned backend processes ──
+  ; The assisted uninstaller only checks the app exe name, and silent (/S)
+  ; uninstalls skip that check entirely. Backend children (python main.exe,
+  ; bundled node.exe) otherwise keep userData DB/WAL files locked, making the
+  ; RMDir below fail and leaving orphaned data behind.
+  nsExec::Exec 'taskkill /IM "Transcription Agent.exe" /T /F'
+  Pop $0
+
+  ; Kill any orphaned backend processes recorded in child-pids.txt (written by
+  ; the app on service start/stop). Killing by PID is precise — node.exe is too
+  ; generic to kill by image name.
+  ClearErrors
+  FileOpen $0 "$APPDATA\Transcription Agent\child-pids.txt" r
+  ${IfNot} ${Errors}
+    FileRead $0 $1
+    FileClose $0
+    StrCpy $3 ""
+    StrLen $4 $1
+    StrCpy $5 0
+    ${DoWhile} $5 < $4
+      StrCpy $2 $1 1 $5
+      ${If} $2 == ","
+        ${If} $3 != ""
+          nsExec::Exec 'taskkill /F /PID $3 /T'
+          Pop $0
+          StrCpy $3 ""
+        ${EndIf}
+      ${ElseIf} $2 == "$\r"
+      ${ElseIf} $2 == "$\n"
+        ${If} $3 != ""
+          nsExec::Exec 'taskkill /F /PID $3 /T'
+          Pop $0
+          StrCpy $3 ""
+        ${EndIf}
+      ${Else}
+        StrCpy $3 "$3$2"
+      ${EndIf}
+      IntOp $5 $5 + 1
+    ${Loop}
+  ${EndIf}
+
+  ; ── 2. Remove Ollama if it was auto-installed by this app (sentinel-gated) ──
+  !insertmacro removeOllamaIfAutoInstalled
+
+  ; ── 3. Remove user data only if the user opted in (default: checked) ──
+  ; In silent (/S) mode no page is shown, so $DeleteUserDataChoice is empty and
+  ; data is kept unless --delete-app-data is passed (electron-builder handles
+  ; that flag itself).
+  ${If} $DeleteUserDataChoice == "1"
+    RMDir /r "$APPDATA\Transcription Agent"
+  ${EndIf}
+
+  SetShellVarContext all
+!macroend
+
+!endif

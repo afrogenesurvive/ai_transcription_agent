@@ -34,36 +34,52 @@ echo "║   🐍  Building Python Backend (PyInstaller)              ║"
 echo "╚══════════════════════════════════════════════════════════╝"
 echo ""
 
-# ── 1. Activate venv ──
+# ── 1. Determine platform ──
+
+IS_WIN=false
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    IS_WIN=true
+    ;;
+esac
+
+# Windows venvs use Scripts/ + Lib/; Unix venvs use bin/ + lib/python3*/.
+# Note: --add-data uses a path separator of ';' on Windows and ':' on Unix.
+if [ "$IS_WIN" = true ]; then
+  VENV_PYTHON="venv/Scripts/python.exe"
+  VENV_SPEECHBRAIN_DIR="venv/Lib/site-packages/speechbrain"
+  ADD_DATA_SEP=";"
+  BINARY_NAME="main.exe"
+else
+  VENV_PYTHON="venv/bin/python3"
+  VENV_SPEECHBRAIN_DIR="venv/lib/python3*/site-packages/speechbrain"
+  ADD_DATA_SEP=":"
+  BINARY_NAME="main"
+fi
+
+# ── 2. Verify venv ──
 
 if [ ! -d "venv" ]; then
   echo "❌ No venv found at python-backend/venv/"
   echo "   Run 'npm run transcribe:setup' or 'python3 -m venv venv' first."
   exit 1
 fi
+if [ ! -f "$VENV_PYTHON" ]; then
+  echo "❌ Python not found at $VENV_PYTHON"
+  echo "   On Windows, create the venv with:  python -m venv venv"
+  exit 1
+fi
 
-source venv/bin/activate
-echo "   🐍 Python: $(python3 --version)"
-echo "   📍 Venv:   $VIRTUAL_ENV"
+echo "   🐍 Python: $("$VENV_PYTHON" --version)"
+echo "   📍 Venv:   $(cd "$ROOT/python-backend" && pwd)/venv"
 echo ""
 
-# ── 2. Install PyInstaller in venv ──
+# ── 3. Install PyInstaller in venv ──
 
 echo "   📦 Installing PyInstaller..."
-pip install --quiet pyinstaller 2>&1 | tail -1
-echo "   ✅ PyInstaller $(pyinstaller --version)"
+"$VENV_PYTHON" -m pip install --quiet pyinstaller 2>&1 | tail -1
+echo "   ✅ PyInstaller $("$VENV_PYTHON" -m PyInstaller --version)"
 echo ""
-
-# ── 3. Determine platform for binary name ──
-
-IS_WIN=false
-BINARY_NAME="main"
-case "$(uname -s)" in
-  MINGW*|MSYS*|CYGWIN*)
-    IS_WIN=true
-    BINARY_NAME="main.exe"
-    ;;
-esac
 
 OUTDIR="$ROOT/dist-resources/python-backend"
 mkdir -p "$OUTDIR"
@@ -80,13 +96,13 @@ mkdir -p "$OUTDIR"
 echo "   🔨 Running PyInstaller (this may take a few minutes)..."
 echo ""
 
-pyinstaller \
+"$VENV_PYTHON" -m PyInstaller \
   --onedir \
   --name "main" \
   --distpath "$OUTDIR" \
   --workpath "$ROOT/python-backend/build/pyinstaller" \
   --specpath "$ROOT/python-backend/build" \
-  --add-data "venv/lib/python3*/site-packages/speechbrain:speechbrain" \
+  --add-data "${VENV_SPEECHBRAIN_DIR}${ADD_DATA_SEP}speechbrain" \
   --hidden-import "uvicorn" \
   --hidden-import "uvicorn.logging" \
   --hidden-import "uvicorn.loops" \
@@ -161,8 +177,15 @@ echo ""
 
 # ── 6. Verify ──
 
-BINARY_PATH="$OUTDIR/$BINARY_NAME"
-if [ -f "$BINARY_PATH" ]; then
+# PyInstaller output layout varies by version: nested (main/main.exe) or flat (main.exe)
+BINARY_PATH=""
+for candidate in "$OUTDIR/$BINARY_NAME" "$OUTDIR/main/$BINARY_NAME"; do
+  if [ -f "$candidate" ]; then
+    BINARY_PATH="$candidate"
+    break
+  fi
+done
+if [ -n "$BINARY_PATH" ]; then
   echo "   ✅ Standalone Python backend built:"
   echo "      $BINARY_PATH"
   if [ "$IS_WIN" = false ]; then
@@ -170,7 +193,7 @@ if [ -f "$BINARY_PATH" ]; then
   fi
   du -sh "$OUTDIR"
 else
-  echo "   ❌ Build failed — binary not found at $BINARY_PATH"
+  echo "   ❌ Build failed — binary not found under $OUTDIR"
   exit 1
 fi
 
