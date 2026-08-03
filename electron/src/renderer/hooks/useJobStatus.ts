@@ -12,6 +12,13 @@
  * unreachable), the rolling timeout counter pauses. Polling continues
  * silently with a "backend_down" state so the cancel button remains
  * available. When the backend comes back, normal polling resumes.
+ *
+ * Transient fetch-error resilience: a fetch/network failure (bridge briefly
+ * busy, or a long silent ML step like diarization) never stops polling or
+ * marks the job failed. The hook keeps polling, sets a transient "connection
+ * issue" message, and clears it on the next successful fetch. This ensures
+ * the UI still observes the paused_for_labeling / pending_*_review gates
+ * instead of showing a false "Processing failed" banner.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -19,6 +26,11 @@ import { useState, useEffect, useCallback, useRef } from "react";
 export type PollingState = "idle" | "polling" | "complete" | "error" | "paused" | "backend_down";
 
 const FAILED_GRACE_PERIOD_MS = 2 * 60 * 1000; // 2 minutes
+
+// After this many consecutive fetch failures, log a louder warning
+// (informational only — polling keeps retrying; the 30-minute safety
+// timeout is the real cap on runaway polling).
+const MAX_CONSECUTIVE_FETCH_ERRORS = 5;
 
 export function useJobStatus(jobId: string | null, fetcher: (id: string) => Promise<any>, backendHealthy: boolean = true) {
   const [data, setData] = useState<any>(null);
@@ -28,6 +40,9 @@ export function useJobStatus(jobId: string | null, fetcher: (id: string) => Prom
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
   const firstFailedAt = useRef<number | null>(null);
+  // Counts consecutive fetch/network failures (diagnostics only — see
+  // MAX_CONSECUTIVE_FETCH_ERRORS). Reset to 0 on the next successful fetch.
+  const consecutiveFetchErrorsRef = useRef(0);
 
   // Only truly terminal statuses — "transcribed", "ready_for_agent", "refined",
   // "summarized", and "analyzed" are intermediate ML/LLM pipeline stages that
@@ -104,6 +119,13 @@ export function useJobStatus(jobId: string | null, fetcher: (id: string) => Prom
         const result = await fetcherRef.current(jobId);
         setData(result);
 
+        // Fetch succeeded — any transient connection blip is resolved.
+        // Reset the consecutive-error counter and drop the transient message.
+        if (consecutiveFetchErrorsRef.current > 0) {
+          consecutiveFetchErrorsRef.current = 0;
+          setError(null);
+        }
+
         // Safety timeout - only counts time when backend was healthy
         const elapsedActive = Date.now() - startedAt - totalBackendDownMs.current;
         if (elapsedActive > POLLING_TIMEOUT_MS) {
@@ -156,8 +178,23 @@ export function useJobStatus(jobId: string | null, fetcher: (id: string) => Prom
           stopPolling();
         }
       } catch (err: any) {
-        // Network error - if backend is down, keep polling silently
+        // A fetch/network error is NOT a terminal condition. The bridge can be
+        // momentarily busy, and long ML steps (e.g. diarization) produce no
+        // status changes — permanently stopping polling here caused the UI to
+        // miss the paused_for_labeling / pending_*_review gates and to falsely
+        // report "Processing failed". Keep polling and recover on the next
+        // successful fetch.
+        consecutiveFetchErrorsRef.current += 1;
+        console.log(`[useJobStatus] ${jobId} -> fetch error #${consecutiveFetchErrorsRef.current}: ${err?.message ?? String(err)}`);
+        if (consecutiveFetchErrorsRef.current >= MAX_CONSECUTIVE_FETCH_ERRORS) {
+          console.warn(
+            `[useJobStatus] ${jobId} -> ${consecutiveFetchErrorsRef.current} consecutive fetch errors — the bridge may be down. Still retrying.`,
+          );
+        }
+
         if (!backendHealthy) {
+          // Backend is reported down — pause the timeout counter and surface a
+          // non-fatal message, but keep polling (existing behavior).
           if (backendDownStart.current === null) {
             backendDownStart.current = Date.now();
           }
@@ -165,9 +202,13 @@ export function useJobStatus(jobId: string | null, fetcher: (id: string) => Prom
           setError("Backend is unreachable - will retry automatically when services recover.");
           return;
         }
-        setError(err.message);
-        setState("error");
-        stopPolling();
+
+        // Backend flag says healthy but this fetch failed — a transient blip.
+        // Preserve "paused" if the job is mid-gate (labeling / review); stay in
+        // "polling" otherwise. Never drop to "error" or stop polling here — the
+        // interval keeps running and the next successful fetch clears this.
+        setState((prev) => (prev === "paused" ? "paused" : "polling"));
+        setError("Connection issue detected — the job is still processing. Retrying automatically…");
       }
     };
 

@@ -41,8 +41,9 @@ export default function ServerStatusBanner() {
   const hasTriggeredCheck = useRef(false);
   const initialMount = useRef(true);
 
-  // Countdown timer: 20 → 0, then trigger auto-check
-  // Skip the countdown entirely if everything is already ready on mount
+  // Countdown timer: 25 → 0, then trigger auto-check.
+  // The interval updater must be PURE — React invokes updater functions during
+  // render, so no setState/side effects are allowed inside setCountdown(fn).
   useEffect(() => {
     if (initialMount.current) {
       initialMount.current = false;
@@ -54,25 +55,27 @@ export default function ServerStatusBanner() {
     }
     if (!countdownActive) return;
     countdownRef.current = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev <= 1) {
-          if (countdownRef.current) clearInterval(countdownRef.current);
-          countdownRef.current = null;
-          setCountdownActive(false);
-          // Trigger auto-check once
-          if (!hasTriggeredCheck.current) {
-            hasTriggeredCheck.current = true;
-            onCheckServers();
-          }
-          return 0;
-        }
-        return prev - 1;
-      });
+      setCountdown((prev) => Math.max(0, prev - 1)); // pure — just decrement
     }, 1000);
     return () => {
       if (countdownRef.current) clearInterval(countdownRef.current);
     };
-  }, [countdownActive, onCheckServers]);
+  }, [countdownActive, allReady, onCheckServers]);
+
+  // When the countdown reaches 0, stop the timer and auto-check servers once.
+  // Side effects live here (in an effect), never inside a state updater.
+  useEffect(() => {
+    if (countdown !== 0 || !countdownActive) return;
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current);
+      countdownRef.current = null;
+    }
+    setCountdownActive(false);
+    if (!hasTriggeredCheck.current) {
+      hasTriggeredCheck.current = true;
+      onCheckServers();
+    }
+  }, [countdown, countdownActive, onCheckServers]);
 
   // When servers become all ready, close the popover immediately
   // regardless of whether the countdown is still active
