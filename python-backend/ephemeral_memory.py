@@ -276,7 +276,8 @@ class EphemeralMemory:
                 source TEXT NOT NULL DEFAULT 'new_job_form',
                 job_id TEXT DEFAULT NULL REFERENCES jobs(id) ON DELETE SET NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                is_non_speaking INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS action_items (
@@ -377,6 +378,12 @@ class EphemeralMemory:
                 print(f"[ephemeral] Migration: added `last_job_id` column to attendees table")
             except Exception as e:
                 print(f"[ephemeral] ⚠️  Migration failed to add last_job_id: {e}")
+        if "is_non_speaking" not in existing_cols:
+            try:
+                conn.execute("ALTER TABLE attendees ADD COLUMN is_non_speaking INTEGER NOT NULL DEFAULT 0")
+                print(f"[ephemeral] Migration: added `is_non_speaking` column to attendees table")
+            except Exception as e:
+                print(f"[ephemeral] ⚠️  Migration failed to add is_non_speaking: {e}")
 
         # Check for config_snapshot column on jobs table
         jobs_cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()}
@@ -505,12 +512,18 @@ class EphemeralMemory:
 
     def register_attendee(self, name: str, email: str = "",
                           source: str = "new_job_form",
-                          job_id: Optional[str] = None):
+                          job_id: Optional[str] = None,
+                          is_non_speaking: bool = False):
         """Insert or update an attendee record.
 
         *source* indicates how the attendee was entered:
           - ``"new_job_form"``   — from the UploadPanel at job creation
           - ``"manual_labeling"`` — from the SpeakerLabelModal mid-pipeline
+
+        *is_non_speaking* marks the attendee as present-but-silent for the
+        most recent meeting this record was touched by (``True``) or as a
+        speaking attendee (``False``). See the per-meeting caveat in
+        ``register_attendees``.
 
         Dedup strategy:
           - Always dedup on ``(name, resolved_email)`` where resolved_email is
@@ -541,14 +554,14 @@ class EphemeralMemory:
             if existing:
                 conn.execute(
                     "UPDATE attendees SET email=?, source=?, job_id=?, "
-                    "last_job_id=?, last_seen=CURRENT_TIMESTAMP WHERE id=?",
-                    (resolved_email, source, job_id, job_id, existing[0]),
+                    "last_job_id=?, is_non_speaking=?, last_seen=CURRENT_TIMESTAMP WHERE id=?",
+                    (resolved_email, source, job_id, job_id, int(is_non_speaking), existing[0]),
                 )
             else:
                 conn.execute(
-                    "INSERT INTO attendees (name, email, source, job_id, last_job_id, created_at, last_seen) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (name, resolved_email, source, job_id, job_id, now, now),
+                    "INSERT INTO attendees (name, email, source, job_id, last_job_id, created_at, last_seen, is_non_speaking) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (name, resolved_email, source, job_id, job_id, now, now, int(is_non_speaking)),
                 )
             conn.commit()
 
@@ -561,19 +574,30 @@ class EphemeralMemory:
 
     def register_attendees(self, names: List[str], emails: List[str] = None,
                            source: str = "new_job_form",
-                           job_id: Optional[str] = None):
+                           job_id: Optional[str] = None,
+                           non_speaking: Optional[set] = None):
         """Bulk-register multiple attendees at once.
+
+        *non_speaking* is an optional set of attendee names (case-insensitive)
+        that were present but did not speak in the meeting. They are flagged
+        ``is_non_speaking=1``; everyone else gets ``0``. Because attendees dedup
+        on ``(name, email)`` keeping the most recent row, this column reflects
+        the *latest* meeting this attendee was registered for — per-meeting
+        speaking status lives in the job's ``metadata.json``
+        (``non_speaking_attendees``).
 
         Performs a single commit for the whole batch (instead of one per
         attendee), then runs a passive WAL checkpoint to keep the WAL file
         trimmed. Retries on transient disk I/O errors.
         """
         emails = emails or []
+        non_speaking_lower = {n.strip().lower() for n in (non_speaking or set())}
 
         def _do_batch():
             conn = self._get_conn()
             for i, name in enumerate(names):
                 email = emails[i] if i < len(emails) else ""
+                is_ns = int(name.strip().lower() in non_speaking_lower)
                 if email and email.strip():
                     existing = conn.execute(
                         "SELECT id FROM attendees WHERE name=? AND email=?",
@@ -589,15 +613,15 @@ class EphemeralMemory:
                 if existing:
                     conn.execute(
                         "UPDATE attendees SET email=?, source=?, job_id=?, "
-                        "last_job_id=?, last_seen=CURRENT_TIMESTAMP WHERE id=?",
-                        (email, source, job_id, job_id, existing[0]),
+                        "last_job_id=?, is_non_speaking=?, last_seen=CURRENT_TIMESTAMP WHERE id=?",
+                        (email, source, job_id, job_id, is_ns, existing[0]),
                     )
                 else:
                     conn.execute(
                         "INSERT INTO attendees (name, email, source, job_id, "
-                        "last_job_id, created_at, last_seen) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        (name, email, source, job_id, job_id, now, now),
+                        "last_job_id, created_at, last_seen, is_non_speaking) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        (name, email, source, job_id, job_id, now, now, is_ns),
                     )
             conn.commit()
             # Trim WAL after batch write to prevent unbounded growth

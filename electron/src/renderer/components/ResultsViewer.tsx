@@ -2161,6 +2161,7 @@ interface JobAttendee {
   sample_job_id: string | null;
   sample_start: number | null;
   sample_end: number | null;
+  is_non_speaking: boolean;
 }
 
 function AttendeesTab({ jobId, exportNamePrefix }: { jobId: string; exportNamePrefix: string }) {
@@ -2312,7 +2313,9 @@ function AttendeesTab({ jobId, exportNamePrefix }: { jobId: string; exportNamePr
       .map((a) => {
         const vpBadge = a.has_voiceprint
           ? '<span class="badge badge--vp">Voiceprint enrolled</span>'
-          : '<span class="badge badge--no-vp">Registered only</span>';
+          : a.is_non_speaking
+            ? '<span class="badge badge--no-vp">Present · Non-speaking</span>'
+            : '<span class="badge badge--no-vp">Registered only</span>';
         const receivedDelivery =
           hasDeliveryData && a.email && deliveryEmails.has(a.email.toLowerCase())
             ? '<span class="badge badge--delivered">Yes</span>'
@@ -2372,6 +2375,12 @@ function AttendeesTab({ jobId, exportNamePrefix }: { jobId: string; exportNamePr
                   {att.email && <span className="rv-attendee-email">{att.email}</span>}
                   <span className="rv-attendee-meta">
                     <Icon name="badge" size="10" color="green" /> Voiceprint enrolled
+                    {att.is_non_speaking && (
+                      <>
+                        <span className="rv-attendee-meta-sep">·</span>
+                        <Icon name="visibility_off" size="10" color="muted" /> Non-speaking this meeting
+                      </>
+                    )}
                     {att.has_sample && (
                       <>
                         <span className="rv-attendee-meta-sep">·</span>
@@ -2421,7 +2430,15 @@ function AttendeesTab({ jobId, exportNamePrefix }: { jobId: string; exportNamePr
                   <span className="rv-attendee-name">{att.name}</span>
                   {att.email && <span className="rv-attendee-email">{att.email}</span>}
                   <span className="rv-attendee-meta">
-                    <Icon name="person" size="10" color="muted" /> Registered
+                    {att.is_non_speaking ? (
+                      <>
+                        <Icon name="visibility_off" size="10" color="muted" /> Present · Non-speaking
+                      </>
+                    ) : (
+                      <>
+                        <Icon name="person" size="10" color="muted" /> Registered
+                      </>
+                    )}
                   </span>
                 </div>
               </div>

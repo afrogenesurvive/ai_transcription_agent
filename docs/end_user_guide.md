@@ -375,6 +375,7 @@ Shows per-job attendee information with voiceprint enrollment status, playable v
   - **Play button** — click to hear the attendee's voiceprint sample from a previous meeting. Only one sample plays at a time.
   - **Linked job** — which previous job the voiceprint was captured from
 - **Registered-only attendees** (no voiceprint) — listed below with muted styling
+- **Non-speaking attendees** — attendees who were present but did not speak show a **"Present · Non-speaking"** badge (registered-only cards) or **"Non-speaking this meeting"** (voiceprint-matched cards) in the Attendees tab
 - **Delivery cross-reference** — shows whether each attendee received delivery results
 - **Export** — PDF/Word export of the attendee table with voiceprint and delivery status
 

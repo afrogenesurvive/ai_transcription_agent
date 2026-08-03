@@ -781,6 +781,10 @@ async def get_job_attendees(job_id: str):
     if isinstance(attendee_emails, dict):
         attendee_emails = [attendee_emails.get(name, "") for name in registered]
 
+    # Non-speaking attendees (present but silent) — annotated from the persisted
+    # reconciliation so the results UI can show who actually spoke.
+    non_speaking_set = {n.strip().lower() for n in (meta.get("non_speaking_attendees", []) or [])}
+
     # Fetch all enrolled voiceprints
     vps = vp_manager.list_voiceprints()
     vp_by_email = {vp["email"].lower(): vp for vp in vps}
@@ -805,6 +809,7 @@ async def get_job_attendees(job_id: str):
             "sample_job_id": vp.get("sample_job_id") if vp else None,
             "sample_start": vp.get("sample_start") if vp else None,
             "sample_end": vp.get("sample_end") if vp else None,
+            "is_non_speaking": name.strip().lower() in non_speaking_set,
         })
         if key:
             seen.add(key)
@@ -822,6 +827,7 @@ async def get_job_attendees(job_id: str):
                     "sample_job_id": vp.get("sample_job_id"),
                     "sample_start": vp.get("sample_start"),
                     "sample_end": vp.get("sample_end"),
+                    "is_non_speaking": False,
                 })
                 seen.add(key)
 
@@ -1871,6 +1877,25 @@ async def get_speaker_clips(job_id: str):
     # Include non-speaking attendees from reconciliation data (if available)
     reconciliation = s.get("reconciliation", {})
     non_speaking = reconciliation.get("non_speaking_attendees", [])
+
+    # ── Pre-ASR fallback: reconciliation hasn't run yet ──
+    # The pipeline pauses for labeling right after diarization, BEFORE voiceprint
+    # matching/reconciliation is computed. In that state the saved reconciliation
+    # is empty, so derive non-speaking candidates from the form entries that were
+    # NOT consumed by any detected speaker in Pass 2/3 above. This is a positional
+    # heuristic (voiceprint identity isn't known until matching runs) — the modal's
+    # keep/remove X buttons let the user correct it. When reconciliation IS saved
+    # (post-ASR pause), that identity-based list wins and this fallback is skipped.
+    if not non_speaking and attendee_names:
+        leftover_indices = free_indices[fi_next:]
+        non_speaking = [
+            {
+                "name": attendee_names[i],
+                "email": attendee_emails_list[i] if i < len(attendee_emails_list) else "",
+            }
+            for i in leftover_indices
+        ]
+
     attendee_emails = metadata.get("attendeeEmails", [])
 
     # Build full non-speaking attendee info with emails
@@ -2276,6 +2301,10 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
     # Note: save_voiceprint() internally calls conn.commit() for each save,
     # so SQLite savepoints are NOT used here — they'd be immediately
     # committed away. Each save is atomic on its own.
+    #
+    # Voiceprint enrollment is EXCLUSIVELY for labeled speakers (pending_voiceprints
+    # is built only from the `labels` payload). Non-speaking attendees are never
+    # passed to save_voiceprint, so they cannot end up in the voiceprint DB.
     print(f"[drift] 💾 Batch-saving {len(pending_voiceprints)} voiceprint(s)...")
     _dump_all_voiceprints("BEFORE batch save")
     for pvp in pending_voiceprints:
@@ -2448,6 +2477,7 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
             ephemeral_memory.register_attendees(
                 all_attendee_names, all_attendee_emails,
                 source="manual_labeling", job_id=job_id,
+                non_speaking={ns["name"] for ns in non_speaking},
             )
             print(f"[label_and_resume] Registered {len(all_attendee_names)} attendee(s) "
                   f"({len(matched_speakers)} spoke, {len(non_speaking)} non-speaking) "
@@ -2465,6 +2495,10 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
         # attendees. The result: they never get an email delivery.
         metadata["attendees"] = all_attendee_names
         metadata["attendeeEmails"] = dict(zip(all_attendee_names, all_attendee_emails))
+        # Persist kept non-speaking attendees (present but silent) so results and
+        # delivery selection can annotate them. Excluded ones were already dropped
+        # from `non_speaking` above.
+        metadata["non_speaking_attendees"] = [ns["name"] for ns in non_speaking]
         # Merge new real emails into email_recipients (skip @voiceprint.local
         # placeholders — those are voiceprint-only keys, not delivery addresses)
         # Only add emails from matched speakers and unregistered speakers, NOT
@@ -4622,6 +4656,10 @@ def _update_metadata_with_reconciliation(
 
     metadata["attendees"] = all_attendee_names
     metadata["attendeeEmails"] = dict(zip(all_attendee_names, all_attendee_emails))
+    # Persist kept non-speaking attendees (present but silent) so results and
+    # delivery selection can annotate them. Excluded ones were already stripped
+    # from `kept_ns` above.
+    metadata["non_speaking_attendees"] = [ns["name"] for ns in kept_ns]
     # Only add emails from matched speakers and unregistered speakers, NOT
     # from non-speaking attendees — they were present but shouldn't auto-receive
     # delivery unless they were already in the original email_recipients.
@@ -4782,10 +4820,16 @@ def _register_attendees_after_reconciliation(
         return
 
     # ── No conflicts — safe to persist now ──
+    # Flag kept non-speaking attendees (present but silent) so the attendee
+    # registry records who actually spoke in this meeting. Excluded names were
+    # already stripped from reconciliation by the caller, so they are neither
+    # registered here nor flagged.
+    non_speaking_names = {ns["name"] for ns in reconciliation.get("non_speaking_attendees", [])}
     try:
         ephemeral_memory.register_attendees(
             all_attendees, all_emails,
             source=source, job_id=job_id,
+            non_speaking=non_speaking_names,
         )
         print(f"[reconciliation] Registered {len(all_attendees)} attendee(s) "
               f"({len(reconciliation.get('matched_speakers', []))} spoke, "
@@ -4891,7 +4935,10 @@ def _ensure_job_attendees_registered(job_id: str, source: str = "manual_labeling
     emails = [_resolve_attendee_email(n, e) for n, e in zip(names, emails)]
 
     try:
-        ephemeral_memory.register_attendees(names, emails, source=source, job_id=job_id)
+        ephemeral_memory.register_attendees(
+            names, emails, source=source, job_id=job_id,
+            non_speaking=set(meta.get("non_speaking_attendees", []) or []),
+        )
         _dedup_attendees(job_id)
         return True
     except Exception as e:
@@ -5621,6 +5668,10 @@ def _run_pipeline_sync(job_id: str):
             )
             return  # Exit pipeline — resume via POST /transcribe/label_and_resume
         else:
+            # Persist reconciled attendee list (incl. non-speaking annotation)
+            # back to metadata.json so results/delivery read the full list.
+            _update_metadata_with_reconciliation(job_id, metadata, reconciliation, jlog)
+
             # Register attendees in ephemeral DB AFTER full reconciliation
             _register_attendees_after_reconciliation(
                 job_id, metadata, reconciliation, source="new_job_form"
