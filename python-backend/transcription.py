@@ -28,9 +28,11 @@ This module does two independent ML tasks and then merges them:
      transcript ready for refinement and summarization.
 """
 
+import builtins
 import os
 import math
 import queue
+import re
 import threading
 import time
 import warnings
@@ -78,6 +80,59 @@ def _audio_duration_seconds(path: str) -> float:
         return 0.0
 
 
+# Matches Whisper's verbose segment line, e.g. "[38:41.160 --> 38:48.720] transcribed text"
+_SEGMENT_LINE_RE = re.compile(
+    r"^\[(\d{1,2}:\d{2}\.\d{3})\s*-->\s*(\d{1,2}:\d{2}\.\d{3})\]\s*(.*)$"
+)
+
+
+def _ts_to_seconds(ts: str) -> float:
+    """Convert 'MM:SS.mmm' or 'H:MM:SS.mmm' to seconds."""
+    parts = ts.split(":")
+    if len(parts) == 3:
+        h, m, s = parts
+    else:
+        h, m, s = "0", parts[0], parts[1]
+    return int(h) * 3600 + int(m) * 60 + float(s)
+
+
+class _StreamingSegmentPrinter:
+    """Context manager that intercepts builtins.print while Whisper transcribes with
+    verbose=True.
+
+    Whisper streams each segment line to stdout as it decodes it:
+        [38:41.160 --> 38:48.720] transcribed text
+    We forward that line unchanged, then immediately emit the ASV progress line
+    (segment end / total duration, with a percentage) right after it, so the terminal
+    and every log view see both lines stream in piece by piece.
+    """
+
+    def __init__(self, total_dur: float):
+        self._total_dur = total_dur
+        self._orig_print = builtins.print
+
+    def __enter__(self):
+        def interceptor(*args, **kwargs):
+            self._orig_print(*args, **kwargs)
+            text = " ".join(str(a) for a in args).strip()
+            m = _SEGMENT_LINE_RE.match(text)
+            if m and self._total_dur > 0:
+                end_ts = m.group(2)
+                end_sec = _ts_to_seconds(end_ts)
+                pct = min(100.0, end_sec / self._total_dur * 100.0)
+                self._orig_print(
+                    f"[transcription] ASV progress: {end_ts}/{_format_ts(self._total_dur)} ({pct:.1f}%)"
+                )
+
+        self._interceptor = interceptor
+        builtins.print = interceptor
+        return self
+
+    def __exit__(self, *exc):
+        builtins.print = self._orig_print
+        return False
+
+
 def _log_transcription_segments(segments: list, total_dur: float) -> None:
     """Print Whisper-style segment lines, each followed by an ASV progress line.
 
@@ -90,7 +145,8 @@ def _log_transcription_segments(segments: list, total_dur: float) -> None:
         text = str(seg.get("text") or "").strip() if isinstance(seg, dict) else str(getattr(seg, "text", "") or "").strip()
         print(f"[transcription] [{_format_ts(start)} --> {_format_ts(end)}] {text}")
         if total_dur > 0:
-            print(f"[transcription] ASV progress: {_format_ts(end)}/{_format_ts(total_dur)}")
+            pct = min(100.0, end / total_dur * 100.0)
+            print(f"[transcription] ASV progress: {_format_ts(end)}/{_format_ts(total_dur)} ({pct:.1f}%)")
 
 
 def detect_platform() -> str:
@@ -679,14 +735,15 @@ class TranscriptionEngine:
         print(f"[transcription]   ⏳ Transcribing (openai-whisper)...")
         transcribe_kwargs = {
             "word_timestamps": True,
-            "verbose": False,
+            "verbose": True,  # stream each segment line as it's decoded
         }
         if self._initial_prompt_enabled and self._initial_prompt:
             transcribe_kwargs["initial_prompt"] = self._initial_prompt
             print(f"[transcription]   🧠 Using initial_prompt ({len(self._initial_prompt)} chars)")
         _raise_if_cancelled(cancel_check)
         try:
-            result = self._whisper.transcribe(audio_path, **transcribe_kwargs)
+            with _StreamingSegmentPrinter(_audio_duration_seconds(audio_path)):
+                result = self._whisper.transcribe(audio_path, **transcribe_kwargs)
         except Exception as _infer_err:
             err_lower = str(_infer_err).lower()
             if "mps" in err_lower or "out of memory" in err_lower or "metal" in err_lower:
@@ -697,10 +754,8 @@ class TranscriptionEngine:
             raise
         print(f"[transcription]   ⏱️  Inference done in {time.time()-t_infer:.1f}s")
         _raise_if_cancelled(cancel_check)
-        # Print per-segment transcript lines + ASV progress (preserves the
-        # verbose=True output format and adds a section-end/total fraction).
-        _log_transcription_segments(result.get("segments", []), _audio_duration_seconds(audio_path))
-        _raise_if_cancelled(cancel_check)
+        # Segments are streamed live via verbose=True + _StreamingSegmentPrinter
+        # above (each segment line + ASV progress line as it's decoded).
         return self._extract_words(result)
 
     def _transcribe_mac(self, audio_path: str, cancel_check: Optional[Callable] = None) -> dict:
@@ -711,20 +766,19 @@ class TranscriptionEngine:
         transcribe_kwargs = {
             "path_or_hf_repo": f"mlx-community/whisper-{self.model_size}",
             "word_timestamps": True,
-            "verbose": False,
+            "verbose": True,  # stream each segment line as it's decoded
         }
         if self._initial_prompt_enabled and self._initial_prompt:
             transcribe_kwargs["initial_prompt"] = self._initial_prompt
             print(f"[transcription]   🧠 Using initial_prompt ({len(self._initial_prompt)} chars)")
         _raise_if_cancelled(cancel_check)
-        result = mlx_whisper.transcribe(audio_path, **transcribe_kwargs)
+        with _StreamingSegmentPrinter(_audio_duration_seconds(audio_path)):
+            result = mlx_whisper.transcribe(audio_path, **transcribe_kwargs)
         _raise_if_cancelled(cancel_check)
         elapsed = time.time() - t_infer
         print(f"[transcription]   ⏱️  mlx-whisper done in {elapsed:.1f}s")
-        # Print per-segment transcript lines + ASV progress (preserves the
-        # verbose=True output format and adds a section-end/total fraction).
-        _log_transcription_segments(result.get("segments", []), _audio_duration_seconds(audio_path))
-        _raise_if_cancelled(cancel_check)
+        # Segments are streamed live via verbose=True + _StreamingSegmentPrinter
+        # above (each segment line + ASV progress line as it's decoded).
         return self._extract_words(result)
 
     def _transcribe_windows(self, audio_path: str, cancel_check: Optional[Callable] = None) -> dict:

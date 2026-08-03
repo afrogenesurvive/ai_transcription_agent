@@ -250,9 +250,7 @@ const STATUS_PROGRESS_LABELS: Record<string, string> = {
  */
 function deriveProgressLog(source: LogEntry["source"], message: string): string | null {
   if (source !== "python") return null;
-  const m = message.match(
-    /^(?:\[api\]\s*)?GET \/transcribe\/status\/([a-f0-9-]+)\s*→\s*([a-z_]+)\s*\(progress=(\S+)\)/,
-  );
+  const m = message.match(/^(?:\[api\]\s*)?GET \/transcribe\/status\/([a-f0-9-]+)\s*→\s*([a-z_]+)\s*\(progress=(\S+)\)/);
   if (!m) return null;
   const label = STATUS_PROGRESS_LABELS[m[2]];
   if (!label) return null;
@@ -313,6 +311,9 @@ export function addLog(
   let derivedEntry: LogEntry | null = null;
   const derivedMsg = deriveProgressLog(source, message);
   if (derivedMsg) {
+    // Surface the derived progress line in the main-process terminal, matching
+    // the format backend-manager prints for python stdout lines.
+    console.log(`[python] [transcription] ${derivedMsg}`);
     derivedEntry = {
       timestamp: Date.now(),
       source: "python",
