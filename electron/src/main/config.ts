@@ -120,6 +120,8 @@ export interface AppConfig {
   DIARIZATION_CLUSTERING_THRESHOLD: string;
   /** Hard upper bound on speaker count; 0 = no limit */
   DIARIZATION_MAX_SPEAKERS: string;
+  /** Diarization subprocess timeout floor (minutes); auto-scaled to audio length */
+  DIARIZATION_TIMEOUT_MINUTES: string;
 }
 
 const DEFAULTS: AppConfig = {
@@ -178,6 +180,7 @@ const DEFAULTS: AppConfig = {
   DIARIZATION_MERGING_GAP: "0.5",
   DIARIZATION_CLUSTERING_THRESHOLD: "0.0",
   DIARIZATION_MAX_SPEAKERS: "0",
+  DIARIZATION_TIMEOUT_MINUTES: "30",
 };
 
 /** Keys the UI considers "required" before the pipeline can run. */
@@ -483,6 +486,7 @@ export function getChildEnv(): NodeJS.ProcessEnv {
     DIARIZATION_MERGING_GAP: userVals.DIARIZATION_MERGING_GAP || process.env.DIARIZATION_MERGING_GAP || "0.5",
     DIARIZATION_CLUSTERING_THRESHOLD: userVals.DIARIZATION_CLUSTERING_THRESHOLD || process.env.DIARIZATION_CLUSTERING_THRESHOLD || "0.0",
     DIARIZATION_MAX_SPEAKERS: userVals.DIARIZATION_MAX_SPEAKERS || process.env.DIARIZATION_MAX_SPEAKERS || "0",
+    DIARIZATION_TIMEOUT_MINUTES: userVals.DIARIZATION_TIMEOUT_MINUTES || process.env.DIARIZATION_TIMEOUT_MINUTES || "30",
     // Storage paths — only override in packaged (prod) mode so DBs land in a
     // writable location. In dev the Python backend defaults to the project-
     // relative storage/ dir, which is already writable.

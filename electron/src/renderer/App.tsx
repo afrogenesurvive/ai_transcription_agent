@@ -82,7 +82,13 @@ export default function App() {
   const [cancellingForeign, setCancellingForeign] = useState(false);
   const [diarizationAvailable, setDiarizationAvailable] = useState<boolean | null>(null);
   const [historyJobId, setHistoryJobId] = useState<string | null>(null);
-  const [historyJobStatus, setHistoryJobStatus] = useState<{ status: string; progress: number; error?: string | null } | null>(null);
+  const [historyJobStatus, setHistoryJobStatus] = useState<{
+    status: string;
+    progress: number;
+    error?: string | null;
+    started_at?: number;
+    finished_at?: number;
+  } | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [storageRefreshTrigger, setStorageRefreshTrigger] = useState(0);
   const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState(0);
@@ -772,12 +778,16 @@ export default function App() {
     }
   };
 
-  // Cancel a running job
+  // Cancel a running job — the "Stop Processing" button in the current view.
+  // Target the job actually being displayed (historyJobId wins when the user
+  // opened a running job from the history view), so the current view is always
+  // a valid, reliable first point of cancellation.
   const handleCancel = useCallback(async () => {
-    if (!jobId) return;
+    const targetJobId = historyJobId || jobId;
+    if (!targetJobId) return;
     setCancelling(true);
     try {
-      await api.cancelJob(jobId);
+      await api.cancelJob(targetJobId);
       statusHook.stopPolling();
       setView("results");
       // Immediately update statusData so the UI reflects cancellation instead
@@ -790,14 +800,14 @@ export default function App() {
         body: `"${cancelTitle}" — processing was cancelled`,
         type: "error",
         subtitle: cancelTitle,
-        clickPayload: { action: "view_results", jobId },
+        clickPayload: { action: "view_results", jobId: targetJobId },
       });
     } catch (err: any) {
       notify(`Cancel failed: ${err.message}`);
     } finally {
       setCancelling(false);
     }
-  }, [jobId, api, statusHook, jobMetadata]);
+  }, [jobId, historyJobId, api, statusHook, jobMetadata]);
 
   // Cancel all foreign (bot-created) jobs
   const handleCancelForeign = useCallback(async () => {
@@ -843,7 +853,17 @@ export default function App() {
             setJobMetadata(meta);
           }
           // Store status info for the Pipeline tab
-          setHistoryJobStatus(statusData ? { status: statusData.status, progress: statusData.progress, error: statusData.error } : null);
+          setHistoryJobStatus(
+            statusData
+              ? {
+                  status: statusData.status,
+                  progress: statusData.progress,
+                  error: statusData.error,
+                  started_at: statusData.started_at,
+                  finished_at: statusData.finished_at,
+                }
+              : null,
+          );
           setView("results");
         } else {
           notify("Transcript data unavailable for this job");
@@ -1324,6 +1344,8 @@ export default function App() {
                                       setSidebarView("current");
                                     }}
                                     jobId={historyJobId || jobId || undefined}
+                                    startedAtMs={statusData?.started_at}
+                                    finishedAtMs={statusData?.finished_at}
                                     onApproveGate1={handleGate1Approve}
                                     onRejectGate1={handleGate1Reject}
                                     onApproveGate2={handleGate2Approve}
@@ -1392,6 +1414,8 @@ export default function App() {
                               jobStatus={historyJobStatus?.status}
                               jobProgress={historyJobStatus?.progress}
                               jobError={historyJobStatus?.error}
+                              startedAtMs={historyJobStatus?.started_at}
+                              finishedAtMs={historyJobStatus?.finished_at}
                               onSummaryUpdate={(updated) => setHistoryTranscript((prev: any) => (prev ? { ...prev, summary: updated } : prev))}
                             />
                           )}
@@ -1416,6 +1440,8 @@ export default function App() {
                               jobStatus={statusData?.status}
                               jobProgress={statusData?.progress}
                               jobError={statusData?.error}
+                              startedAtMs={statusData?.started_at}
+                              finishedAtMs={statusData?.finished_at}
                               onSummaryUpdate={(updated) => setTranscript((prev: any) => (prev ? { ...prev, summary: updated } : prev))}
                             />
                           )}

@@ -328,6 +328,39 @@
   flex-shrink: 0;
 }
 
+/* ── Elapsed / total time step (cosmetic — disconnected from pipeline stages) ── */
+
+.pp-step--time {
+  padding-bottom: 2px;
+}
+
+.pp-step--time .pp-step-dot {
+  background: var(--accent);
+  opacity: 0.85;
+}
+
+.pp-step--time .pp-step-dot--time-live {
+  animation: pp-pulse 2s ease-in-out infinite;
+}
+
+.pp-time-value {
+  font-family: "SF Mono", "Fira Code", "Roboto Mono", monospace;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.pp-time-divider {
+  height: 1px;
+  margin: 0 0 12px;
+  border-bottom: 1px dashed var(--border);
+  opacity: 0.8;
+}
+
 /* Error box */
 
 .pp-error-box {

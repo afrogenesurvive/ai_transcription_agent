@@ -89,6 +89,14 @@ class Config:
     DIARIZATION_CLUSTERING_THRESHOLD = _env_float("DIARIZATION_CLUSTERING_THRESHOLD", 0.0)
     # Hard upper bound on speaker count; 0 = no limit
     DIARIZATION_MAX_SPEAKERS = _env_int("DIARIZATION_MAX_SPEAKERS", 0)
+    # Diarization subprocess timeout (minutes) — floor. The effective timeout is
+    # auto-scaled to audio length via DIARIZATION_TIMEOUT_SCALE
+    # (effective = max(floor, ceil(duration_s * scale))). Long files (30-60+ min)
+    # need a much larger budget than the historical fixed 15-min cap.
+    DIARIZATION_TIMEOUT_MINUTES = _env_int("DIARIZATION_TIMEOUT_MINUTES", 30)
+    # Seconds of diarization budget per second of audio (default 2.0 → a 39-min
+    # file gets ~78 min of budget). Advanced, env-only.
+    DIARIZATION_TIMEOUT_SCALE = _env_float("DIARIZATION_TIMEOUT_SCALE", 2.0)
 
     # Allowed upload formats
     ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".webm"}

@@ -445,6 +445,12 @@ export async function startPythonBackend(port = 5001): Promise<void> {
       ...getChildEnv(),
       ...ffmpegEnv,
       PYTHONUNBUFFERED: "1",
+      // Force UTF-8 so the backend (which prints emoji during startup, e.g.
+      // patches.py's "✅") doesn't crash with UnicodeEncodeError under the
+      // Windows ANSI code page (cp1252) when stdout is piped. Also propagates
+      // UTF-8 mode to backend subprocesses (whisper/diarization).
+      PYTHONUTF8: "1",
+      PYTHONIOENCODING: "utf-8",
       TRANSCRIPTION_PORT: String(port),
       TRANSCRIPTION_STORAGE: path.join(app.getPath("userData"), "storage"),
       TRANSCRIPTION_QUEUE_DIR: path.join(app.getPath("userData"), "queue"),

@@ -8,12 +8,14 @@ Endpoints:
 """
 
 import os
+import sys
 import json
 import time
 import asyncio
 import platform as _sys_platform
 import numpy as np
 from datetime import datetime
+from typing import Any, cast
 
 # ── Load .env file (if present) for standalone Python runs ──
 # override=True ensures .env values take precedence over env vars inherited
@@ -32,6 +34,19 @@ load_dotenv(override=True)
 # os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.0")
 os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.7")
 
+# ── Windows/CrossOver stdout encoding guard ──
+# The packaged Windows backend runs under the ANSI code page (cp1252 on en-US)
+# when stdout is piped by the Electron shell. cp1252 cannot encode the emoji
+# used throughout startup prints (patches.py's "✅" first), which raised
+# UnicodeEncodeError at import and crashed the backend before it became ready.
+# Force UTF-8 mode for this process and for any subprocess we spawn.
+os.environ.setdefault("PYTHONUTF8", "1")
+for _stream in (sys.stdout, sys.stderr):
+    if _stream is not None:
+        # reconfigure() is a runtime io.TextIOWrapper method that isn't in the
+        # TextIO type stub — cast so type checkers accept it.
+        cast(Any, _stream).reconfigure(encoding="utf-8", errors="replace")
+
 # ── Apply third-party compatibility patches FIRST (before any pyannote imports) ──
 import patches  # noqa: F401  (monkey-patches speechbrain + torchaudio + pyannote)
 
@@ -44,7 +59,7 @@ from utils import is_network_error
 
 from upload import AudioUploader
 from voiceprint import VoiceprintManager
-from transcription import TranscriptionEngine, detect_device
+from transcription import TranscriptionEngine, detect_device, PipelineCancelled
 from models import (
     RefineRequest, SummarizeRequest, LabelRequest, AnalysisRequest, Deliverable,
     MemorySearchRequest,
@@ -2863,6 +2878,11 @@ async def _run_resumed_pipeline_async(job_id: str, label_map: dict, excluded_non
             print(f"\n{'='*60}")
             print(f"   ✅ [PIPELINE] Resumed pipeline complete for job {job_id}")
             print(f"{'='*60}\n")
+        except PipelineCancelled:
+            _pipeline_cancel.add(job_id)
+            print(f"\n   🛑 [pipeline] Job {job_id} cancelled by user.")
+            _active_jobs.pop(job_id, None)
+            # Swallow: the finally block cleans up tracking.
         except asyncio.CancelledError:
             _pipeline_cancel.add(job_id)
             print(f"\n   🛑 [pipeline] Job {job_id} task cancelled.")
@@ -2973,7 +2993,7 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict, excluded_non_speaki
         _update_active(job_id, "processing_transcription", 0.5)
         _check_pipeline_timeout(job_id, _pipeline_start, jlog)
         t_asr = time.time()
-        transcription = engine.run_transcription(audio_path)
+        transcription = engine.run_transcription(audio_path, cancel_check=lambda: job_id in _pipeline_cancel)
         asr_elapsed = time.time() - t_asr
 
         # ── Step 4: Alignment ──
@@ -3595,9 +3615,15 @@ async def clear_all_jobs():
             errors += 1
             print(f"[api] DELETE /storage/jobs → failed to remove {name}: {e}")
 
-    # Also clear cancelled/active job tracking
+    # Mark any in-flight jobs as cancelled so the running pipeline threads stop
+    # re-registering the deleted jobs (the _update_active guard checks this set).
+    # We must NOT clear _pipeline_cancel: clearing it would let an orphaned
+    # pipeline thread resurrect a deleted job (write status.json, re-enter
+    # _active_jobs) — the exact bug that made jobs look "still running" after
+    # Clear All Data.
+    for _jid in list(_active_jobs.keys()):
+        _pipeline_cancel.add(_jid)
     _pipeline_tasks.clear()
-    _pipeline_cancel.clear()
     _active_jobs.clear()
 
     # Also clear from uploader's status cache
@@ -5076,6 +5102,12 @@ async def _run_pipeline_async(job_id: str):
             print(f"\n{'='*60}")
             print(f"   ✅ [PIPELINE] Pipeline complete for job {job_id}")
             print(f"{'='*60}\n")
+        except PipelineCancelled:
+            _pipeline_cancel.add(job_id)
+            print(f"\n   🛑 [pipeline] Job {job_id} cancelled by user.")
+            _active_jobs.pop(job_id, None)
+            # Swallow: the finally block cleans up tracking; do not mark failed
+            # or print "Pipeline complete".
         except asyncio.CancelledError:
             _pipeline_cancel.add(job_id)
             print(f"\n   🛑 [pipeline] Job {job_id} task cancelled.")
@@ -5238,6 +5270,13 @@ def _run_pipeline_sync(job_id: str):
         # ── Compute max_speakers hint from attendee count ──
         attendee_count = len(metadata.get("attendees", []))
         max_speakers = max(2, attendee_count + 1) if attendee_count > 0 else 0
+        # Optional hard cap from config (DIARIZATION_MAX_SPEAKERS). When > 0 it
+        # constrains the attendee-derived hint (and applies even with no attendees).
+        if config.DIARIZATION_MAX_SPEAKERS > 0:
+            max_speakers = (
+                min(max_speakers, config.DIARIZATION_MAX_SPEAKERS) if max_speakers > 0
+                else config.DIARIZATION_MAX_SPEAKERS
+            )
         if max_speakers > 0:
             jlog.log(f"[pipeline] Using max_speakers={max_speakers} from {attendee_count} attendee(s)")
 
@@ -5250,8 +5289,23 @@ def _run_pipeline_sync(job_id: str):
         _update_active(job_id, "processing_diarization", 0.2)
         _check_pipeline_timeout(job_id, _pipeline_start, jlog)
         t_diar = time.time()
+        # Live progress: pyannote step progress maps onto the 0.2 → 0.3 band so
+        # the UI moves instead of sitting at 20% for long files.
+        def _diar_progress(frac):
+            _update_active(job_id, "processing_diarization", 0.2 + 0.1 * max(0.0, min(1.0, frac)))
+
+        # Cancellation check shared by every long ML call in this pipeline thread.
+        def _is_cancelled():
+            return job_id in _pipeline_cancel
+
         try:
-            diarization = engine.run_diarization(audio_path, max_speakers=max_speakers)
+            diarization = engine.run_diarization(
+                audio_path, max_speakers=max_speakers, progress_cb=_diar_progress,
+                cancel_check=_is_cancelled,
+            )
+        except PipelineCancelled:
+            jlog.log(f"[pipeline] 🛑 Diarization cancelled — stopping pipeline")
+            raise
         except (RuntimeError, TimeoutError) as _diar_err:
             err_str = str(_diar_err).lower()
             if "subprocess" in err_str or "timed out" in err_str or "mps" in err_str or "out of memory" in err_str:
@@ -5260,7 +5314,10 @@ def _run_pipeline_sync(job_id: str):
                 _mps_oom_occurred = True
                 engine = TranscriptionEngine(device="cpu")
                 t_diar_cpu = time.time()
-                diarization = engine.run_diarization(audio_path, max_speakers=max_speakers)
+                diarization = engine.run_diarization(
+                    audio_path, max_speakers=max_speakers, progress_cb=_diar_progress,
+                    cancel_check=_is_cancelled,
+                )
                 diar_elapsed = time.time() - t_diar_cpu
                 jlog.log(f"   ✅ [pipeline] CPU diarization: {len(diarization)} segments in {diar_elapsed:.1f}s")
                 _mps_oom_occurred = False
@@ -5271,6 +5328,9 @@ def _run_pipeline_sync(job_id: str):
         speakers_found = set(s["speaker"] for s in diarization)
         jlog.log(f"   ✅ [pipeline] Diarization: {len(diarization)} segments, {len(speakers_found)} speakers "
               f"({', '.join(sorted(speakers_found))}) in {diar_elapsed:.1f}s")
+        if not speakers_found:
+            jlog.log(f"[pipeline] ⚠️  Diarization returned 0 speakers — transcript will be "
+                  f"unlabeled and all attendees will be marked non-speaking")
 
         # Group by speaker (use dicts consistently — no SimpleNamespace)
         speaker_segments = {}
@@ -5497,7 +5557,7 @@ def _run_pipeline_sync(job_id: str):
         _update_active(job_id, "processing_transcription", 0.5)
         _check_pipeline_timeout(job_id, _pipeline_start, jlog)
         t_asr = time.time()
-        transcription = engine.run_transcription(audio_path)
+        transcription = engine.run_transcription(audio_path, cancel_check=_is_cancelled)
         asr_elapsed = time.time() - t_asr
         jlog.log(f"   ✅ [pipeline] ASR: {len(transcription.get('words', []))} words, "
               f"{len(transcription.get('segments', []))} segments in {asr_elapsed:.1f}s")
@@ -5510,7 +5570,7 @@ def _run_pipeline_sync(job_id: str):
             jlog.log(f"[pipeline] ⚠️  MPS OOM during ASR — retrying transcription on CPU...")
             engine = TranscriptionEngine(device="cpu")
             t_asr_cpu = time.time()
-            transcription = engine.run_transcription(audio_path)
+            transcription = engine.run_transcription(audio_path, cancel_check=_is_cancelled)
             asr_elapsed = time.time() - t_asr_cpu
             jlog.log(f"   ✅ [pipeline] CPU ASR retry: {len(transcription.get('words', []))} words in {asr_elapsed:.1f}s")
             _mps_oom_occurred = False

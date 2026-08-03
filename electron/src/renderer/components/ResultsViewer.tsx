@@ -16,6 +16,7 @@ import Tooltip from "./Tooltip";
 import LoadingModal from "./LoadingModal";
 import ExportButton from "./ExportButton";
 import { PIPELINE, getStageState, getSubStepState, useMaxReachedStage, WAITING_LABEL } from "./pipelineStages";
+import { formatElapsedHMS } from "../utils/timeFormat";
 import type { TranscriptionSegment, AnalysisData } from "../types";
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
@@ -87,6 +88,10 @@ interface Props {
   jobStatus?: string;
   jobProgress?: number;
   jobError?: string | null;
+  /** Job start time (epoch ms) — powers the cosmetic total-time step. */
+  startedAtMs?: number;
+  /** Job end time (epoch ms) — present when the job reached a terminal state. */
+  finishedAtMs?: number;
 }
 
 /* ── Helpers ── */
@@ -1834,7 +1839,19 @@ const COMPLETE_STATUSES = new Set(["delivered", "complete", "complete_with_warni
 
 /* ── Tab: Pipeline ── */
 
-function PipelineTab({ status, progress, error }: { status: string; progress: number; error?: string | null }) {
+function PipelineTab({
+  status,
+  progress,
+  error,
+  startedAtMs,
+  finishedAtMs,
+}: {
+  status: string;
+  progress: number;
+  error?: string | null;
+  startedAtMs?: number;
+  finishedAtMs?: number;
+}) {
   const isFailed = status === "failed";
   const isComplete = COMPLETE_STATUSES.has(status);
   const maxReached = useMaxReachedStage(status, isFailed);
@@ -1864,6 +1881,29 @@ function PipelineTab({ status, progress, error }: { status: string; progress: nu
 
       {/* Pipeline stepper */}
       <div className="pp-stepper">
+        {typeof startedAtMs === "number" &&
+          Number.isFinite(startedAtMs) &&
+          typeof finishedAtMs === "number" &&
+          Number.isFinite(finishedAtMs) && (
+            <>
+              <div className="pp-step pp-step--time">
+                <div className="pp-step-dot pp-step-dot--time">
+                  <Icon name="schedule" size="12" />
+                </div>
+                <div className="pp-step-content">
+                  <span className="pp-step-icon">
+                    <Icon name="schedule" size="14" />
+                  </span>
+                  <div className="pp-step-text">
+                    <span className="pp-step-label">Total Time</span>
+                    <span className="pp-step-desc">This job finished</span>
+                  </div>
+                  <span className="pp-time-value">{formatElapsedHMS(finishedAtMs - startedAtMs)}</span>
+                </div>
+              </div>
+              <div className="pp-time-divider" />
+            </>
+          )}
         {PIPELINE.map((stage) => {
           const state = getStageState(stage, status, isFailed, isComplete, maxReached);
           const waiting = state === "active" && WAITING_LABEL[status] != null;
@@ -3050,7 +3090,18 @@ function ConfigTab({ jobId }: { jobId: string }) {
 
 /* ── Main ResultsViewer ── */
 
-export default function ResultsViewer({ jobId, segments, summary, metadata, jobStatus, jobProgress, jobError, onSummaryUpdate }: Props) {
+export default function ResultsViewer({
+  jobId,
+  segments,
+  summary,
+  metadata,
+  jobStatus,
+  jobProgress,
+  jobError,
+  startedAtMs,
+  finishedAtMs,
+  onSummaryUpdate,
+}: Props) {
   const [activeTab, setActiveTab] = useState<TabId>("pipeline");
   const [activeDevSubTab, setActiveDevSubTab] = useState<TabId>("tokens");
 
@@ -3218,7 +3269,7 @@ export default function ResultsViewer({ jobId, segments, summary, metadata, jobS
 
       {/* Tab content */}
       <div className="rv-body">
-        {activeTab === "pipeline" && <PipelineTab status={jobStatus || "unknown"} progress={jobProgress ?? 0} error={jobError} />}
+        {activeTab === "pipeline" && <PipelineTab status={jobStatus || "unknown"} progress={jobProgress ?? 0} error={jobError} startedAtMs={startedAtMs} finishedAtMs={finishedAtMs} />}
         {activeTab === "audio" && <AudioTab jobId={jobId} metadata={metadata} />}
         {activeTab === "transcript" && <TranscriptTab segments={segments} />}
         {activeTab === "summary" && (

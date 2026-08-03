@@ -202,6 +202,63 @@ function _writeToJobLog(jobId: string, formattedLine: string): void {
   }
 }
 
+/**
+ * Write an entry to a job's pipeline.log, handling pipeline-end detection
+ * (write final line, close the stream, clear the current job id).
+ */
+function writeEntryToJobLog(entry: LogEntry, logJobId: string): void {
+  if (_detectPipelineEnd(entry.message)) {
+    // Write the final entry before closing
+    const stream = _getOrCreateJobStream(logJobId);
+    if (stream) {
+      const timeStr = new Date(entry.timestamp).toISOString();
+      const subTag = entry.subSource ? `[${entry.subSource}]` : "";
+      _writeToJobLog(logJobId, `[${timeStr}] [${entry.source}]${subTag} [${entry.level}] ${entry.message}`);
+    }
+    closeJobLog(logJobId);
+    _currentJobId = null;
+  } else {
+    // Normal entry — write to job log
+    const stream = _getOrCreateJobStream(logJobId);
+    if (stream) {
+      const timeStr = new Date(entry.timestamp).toISOString();
+      const subTag = entry.subSource ? `[${entry.subSource}]` : "";
+      _writeToJobLog(logJobId, `[${timeStr}] [${entry.source}]${subTag} [${entry.level}] ${entry.message}`);
+    }
+    // Track this as the current active job if we don't already have one
+    // (ensures subsequent logs without explicit jobId still go to this job)
+    if (!_currentJobId) {
+      _currentJobId = logJobId;
+    }
+  }
+}
+
+/** python status → friendly stage label for derived progress logs. Extend to log more stages. */
+const STATUS_PROGRESS_LABELS: Record<string, string> = {
+  processing_diarization: "Diarization Processing",
+};
+
+/**
+ * Derive a [transcription] progress log line from a python status-poll entry.
+ * Returns the derived message, or null when the line isn't a status poll for a
+ * tracked stage.
+ *
+ * Input (from python-backend/main.py):
+ *   "GET /transcribe/status/<uuid> → processing_diarization (progress=0.2283)"
+ * Output:
+ *   "Job <uuid> Diarization Processing progress = 0.2283"
+ */
+function deriveProgressLog(source: LogEntry["source"], message: string): string | null {
+  if (source !== "python") return null;
+  const m = message.match(
+    /^(?:\[api\]\s*)?GET \/transcribe\/status\/([a-f0-9-]+)\s*→\s*([a-z_]+)\s*\(progress=(\S+)\)/,
+  );
+  if (!m) return null;
+  const label = STATUS_PROGRESS_LABELS[m[2]];
+  if (!label) return null;
+  return `Job ${m[1]} ${label} progress = ${m[3]}`;
+}
+
 export function addLog(
   source: LogEntry["source"],
   level: LogEntry["level"],
@@ -246,37 +303,34 @@ export function addLog(
   // ── Write to per-job pipeline.log ──
   // Priority: explicit jobId > _currentJobId (set via setCurrentJobId)
   const logJobId = jobId || _currentJobId;
+  if (logJobId) writeEntryToJobLog(entry, logJobId);
 
-  if (logJobId) {
-    // Check if this message signals pipeline end — close the log if so
-    if (_detectPipelineEnd(message)) {
-      // Write the final entry before closing
-      const stream = _getOrCreateJobStream(logJobId);
-      if (stream) {
-        const timeStr = new Date(timestamp).toISOString();
-        const subTag = subSource ? `[${subSource}]` : "";
-        _writeToJobLog(logJobId, `[${timeStr}] [${source}]${subTag} [${level}] ${message}`);
-      }
-      closeJobLog(logJobId);
-      _currentJobId = null;
-    } else {
-      // Normal entry — write to job log
-      const stream = _getOrCreateJobStream(logJobId);
-      if (stream) {
-        const timeStr = new Date(timestamp).toISOString();
-        const subTag = subSource ? `[${subSource}]` : "";
-        _writeToJobLog(logJobId, `[${timeStr}] [${source}]${subTag} [${level}] ${message}`);
-      }
-      // Track this as the current active job if we don't already have one
-      // (ensures subsequent logs without explicit jobId still go to this job)
-      if (!_currentJobId) {
-        _currentJobId = logJobId;
-      }
-    }
+  // ── Derive a [transcription] progress log from python status polls ──
+  // e.g. "GET /transcribe/status/<uuid> → processing_diarization (progress=0.22)"
+  //   →  "Job <uuid> Diarization Processing progress = 0.22"  (subSource "transcription")
+  // Emitted so stage progress appears in every log view (DevPanel live feed +
+  // the per-job pipeline.log) and is filterable by the "transcription" sub-source.
+  let derivedEntry: LogEntry | null = null;
+  const derivedMsg = deriveProgressLog(source, message);
+  if (derivedMsg) {
+    derivedEntry = {
+      timestamp: Date.now(),
+      source: "python",
+      subSource: "transcription",
+      level: "info",
+      message: derivedMsg,
+    };
+    buffer.push(derivedEntry);
+    if (buffer.length > MAX_ENTRIES) buffer.shift();
+    if (logJobId) writeEntryToJobLog(derivedEntry, logJobId);
   }
 
-  // Notify subscribers synchronously (for the in-memory live log in DevPanel)
-  for (const fn of subscribers) fn(entry);
+  // Notify subscribers synchronously (for the in-memory live log in DevPanel).
+  // Original entry first, then any derived entry, so ordering matches the buffer.
+  for (const fn of subscribers) {
+    fn(entry);
+    if (derivedEntry) fn(derivedEntry);
+  }
 }
 
 export function getLogs(limit = 200): LogEntry[] {

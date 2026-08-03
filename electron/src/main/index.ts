@@ -15,6 +15,7 @@ import { app, BrowserWindow, Tray, Menu, nativeImage, Notification, ipcMain, dia
 import path from "path";
 import pidusage from "pidusage";
 import { registerExportHandlers } from "./exporter";
+import { playAlertSound } from "./alert-sound";
 
 // Set app name before anything else — macOS menu bar and Windows taskbar
 // use this instead of the default "Electron".
@@ -60,9 +61,16 @@ app.on("second-instance", () => {
       if (eqIdx === -1) continue;
       const key = trimmed.slice(0, eqIdx).trim();
       const value = trimmed.slice(eqIdx + 1).trim();
+      // Strip inline comments: a "#" at the start of the value or preceded by
+      // whitespace begins a comment. (Full-line comments were skipped above.)
+      // Without this, "KEY=32768          # comment" would load the whole string
+      // including the comment, breaking strict config validation (e.g. the
+      // OLLAMA_NUM_CTX enum check) and producing broken URLs (OLLAMA_BASE_URL).
+      const commentIdx = value.search(/(?:^|\s)#/);
+      const cleanValue = commentIdx === -1 ? value : value.slice(0, commentIdx).trim();
       // Only set if not already defined (process.env takes priority)
       if (!process.env[key]) {
-        process.env[key] = value;
+        process.env[key] = cleanValue;
       }
     }
   } catch {
@@ -126,11 +134,79 @@ import {
   if (enabled) {
     app.commandLine.appendSwitch("enable-logging");
     app.commandLine.appendSwitch("v", "1");
+    // Also write Chromium's log to a file so we can tail it into the per-job
+    // pipeline.log stream (tagged [chromium]) — otherwise it only goes to
+    // stderr, which is invisible in the packaged app.
+    const logsDir = path.join(app.getPath("userData"), "logs");
+    const chromiumLogPath = path.join(logsDir, "chromium.log");
+    try {
+      fs.mkdirSync(logsDir, { recursive: true });
+      app.commandLine.appendSwitch("log-file", chromiumLogPath);
+    } catch {
+      // Non-fatal — fall back to stderr-only logging
+    }
     // Inherited by renderer/GPU/utility child processes
     process.env.ELECTRON_ENABLE_LOGGING = "1";
-    addLog("main", "info", "[chromium] Electron/Chromium logging enabled (enable-logging, v=1)");
+    addLog("main", "info", `[chromium] Electron/Chromium logging enabled (enable-logging, v=1, file=${chromiumLogPath})`);
+    startChromiumLogTailer(chromiumLogPath);
   }
 })();
+
+/**
+ * Tail the Chromium log file written by `--enable-logging --log-file=...` and
+ * forward each line into the unified logger with a "chromium" subSource.
+ *
+ * Because addLog() routes entries to the current job (setCurrentJobId), Chromium
+ * lines emitted while a job is running land in that job's per-job pipeline.log
+ * (formatted `[<time>] [main][chromium] [info] <line>`). Lines outside any job
+ * still reach the in-memory live log / DevPanel.
+ *
+ * Uses polling rather than fs.watch, which is unreliable on some platforms for
+ * append-only log files.
+ */
+function startChromiumLogTailer(logPath: string): void {
+  let offset = 0;
+  let stopped = false;
+  const POLL_MS = 1500;
+  const MAX_BYTES = 100 * 1024 * 1024; // stop tailing past 100MB to avoid unbounded reads
+
+  const readNew = (): void => {
+    if (stopped) return;
+    try {
+      const stat = fs.statSync(logPath);
+      if (stat.size < offset) offset = 0; // file was truncated/rotated
+      if (stat.size > MAX_BYTES) {
+        addLog("main", "warn", "[chromium] Chromium log exceeded 100MB — tailing disabled", "chromium");
+        stopped = true;
+        return;
+      }
+      if (stat.size <= offset) return;
+      let buf: Buffer;
+      const fd = fs.openSync(logPath, "r");
+      try {
+        buf = Buffer.alloc(stat.size - offset);
+        fs.readSync(fd, buf, 0, buf.length, offset);
+      } finally {
+        fs.closeSync(fd);
+      }
+      offset = stat.size;
+      for (const raw of buf.toString("utf8").split("\n")) {
+        const line = raw.trim();
+        if (line) addLog("main", "info", line, "chromium");
+      }
+    } catch {
+      // File may not exist yet (Chromium hasn't opened it) — ignore.
+    }
+  };
+
+  // Start after a short delay so Chromium has had time to create/open the file.
+  const timer = setTimeout(() => {
+    readNew();
+    const interval = setInterval(readNew, POLL_MS);
+    interval.unref();
+  }, 3000);
+  timer.unref();
+}
 import { startAutoUpdater, stopAutoUpdater, registerAutoUpdateIpc, getUpdateState, checkAndUpdate } from "./auto-updater";
 import { uninstall } from "./cleanup";
 
@@ -337,6 +413,8 @@ interface SendNotificationOptions {
   silent?: boolean;
   subtitle?: string;
   actions?: Electron.NotificationAction[];
+  /** Force (or suppress) the alert sound; defaults to job-alert types (error/success/paused). */
+  playSound?: boolean;
 }
 
 /** Draw a small programmatic icon for notification types — no asset files needed */
@@ -437,6 +515,14 @@ function sendNotification(opts: SendNotificationOptions) {
     });
   }
   notif.show();
+
+  // Play an explicit alert sound regardless of window focus. macOS suppresses
+  // the native notification sound when the app is frontmost, and Windows has
+  // no guaranteed sound either — so we play it ourselves from the main process.
+  // Defaults to job-alert types (failed / cancelled / paused / complete);
+  // callers can force on/off via playSound.
+  const shouldSound = opts.playSound ?? ["error", "success", "paused"].includes(type);
+  if (shouldSound) playAlertSound();
 
   // macOS: when the app is frontmost, the OS suppresses the notification
   // because it assumes the user is already looking at the app. Bounce the
@@ -897,6 +983,7 @@ const PYTHON_CONFIG_KEYS = new Set<string>([
   "DIARIZATION_MERGING_GAP",
   "DIARIZATION_CLUSTERING_THRESHOLD",
   "DIARIZATION_MAX_SPEAKERS",
+  "DIARIZATION_TIMEOUT_MINUTES",
 ]);
 
 ipcMain.handle("config:get", () => {

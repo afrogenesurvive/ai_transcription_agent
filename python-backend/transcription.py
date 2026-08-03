@@ -29,14 +29,68 @@ This module does two independent ML tasks and then merges them:
 """
 
 import os
+import math
+import queue
+import threading
 import time
 import warnings
 import platform as sys_platform
 import multiprocessing as mp
-from typing import Optional
+from typing import Optional, Callable
 from patches import *  # noqa: F401  (monkey-patches speechbrain + torchaudio + pyannote)
 from config import config
 from utils import is_network_error
+
+
+class PipelineCancelled(Exception):
+    """Raised when a transcription job is cancelled by the user mid-pipeline.
+
+    Distinct from TimeoutError/RuntimeError so callers can tell a user-initiated
+    cancellation apart from a technical failure (and must NOT retry on CPU).
+    """
+
+
+def _raise_if_cancelled(cancel_check) -> None:
+    """Raise PipelineCancelled if the supplied cancel_check returns True."""
+    if cancel_check is not None and cancel_check():
+        raise PipelineCancelled("Job cancelled by user")
+
+
+def _format_ts(seconds: float) -> str:
+    """Format seconds as MM:SS.mmm (or H:MM:SS.mmm if >= 1h) — matches Whisper's verbose timestamps."""
+    total_ms = max(0, int(round(seconds * 1000)))
+    ms = total_ms % 1000
+    total_s = total_ms // 1000
+    s = total_s % 60
+    m = (total_s // 60) % 60
+    h = total_s // 3600
+    if h > 0:
+        return f"{h}:{m:02d}:{s:02d}.{ms:03d}"
+    return f"{m:02d}:{s:02d}.{ms:03d}"
+
+
+def _audio_duration_seconds(path: str) -> float:
+    """Total audio length in seconds, read from the actual audio file. 0.0 on failure."""
+    try:
+        import soundfile as _sf
+        return float(_sf.info(path).duration)
+    except Exception:
+        return 0.0
+
+
+def _log_transcription_segments(segments: list, total_dur: float) -> None:
+    """Print Whisper-style segment lines, each followed by an ASV progress line.
+
+    Handles both dict segments (openai-whisper / mlx-whisper) and object
+    segments (faster-whisper). Purely additive logging — never alters results.
+    """
+    for seg in segments:
+        start = seg.get("start", 0.0) if isinstance(seg, dict) else getattr(seg, "start", 0.0)
+        end = seg.get("end", 0.0) if isinstance(seg, dict) else getattr(seg, "end", 0.0)
+        text = str(seg.get("text") or "").strip() if isinstance(seg, dict) else str(getattr(seg, "text", "") or "").strip()
+        print(f"[transcription] [{_format_ts(start)} --> {_format_ts(end)}] {text}")
+        if total_dur > 0:
+            print(f"[transcription] ASV progress: {_format_ts(end)}/{_format_ts(total_dur)}")
 
 
 def detect_platform() -> str:
@@ -72,7 +126,73 @@ def detect_device() -> str:
 
 # ── Diarization subprocess (crash isolation) ──
 
-DIARIZATION_TIMEOUT = 900  # 15 minutes — matches PIPELINE_TIMEOUT_SECONDS
+
+def compute_diarization_timeout(duration_s: float) -> int:
+    """Compute the diarization subprocess timeout (seconds) for an audio length.
+
+    Effective timeout is the larger of:
+      - the configured floor: DIARIZATION_TIMEOUT_MINUTES (default 30)
+      - the duration-scaled budget: ceil(duration_s * DIARIZATION_TIMEOUT_SCALE)
+
+    Pyannote's embedding stage scales roughly linearly with audio duration, so
+    long files (30-60+ min) need a much larger budget than the historical fixed
+    15-min cap. DIARIZATION_TIMEOUT_SCALE is seconds-of-budget per second-of-
+    audio (default 2.0 → a 39-min file gets ~78 min of budget).
+    """
+    floor_s = int(config.DIARIZATION_TIMEOUT_MINUTES) * 60
+    scale = float(config.DIARIZATION_TIMEOUT_SCALE)
+    scaled_s = int(math.ceil(max(0.0, duration_s) * scale))
+    return max(floor_s, scaled_s)
+
+
+def _make_diarization_progress_hook(result_queue: mp.Queue, t0: float):
+    """Return a pyannote pipeline hook that forwards progress to the parent.
+
+    pyannote's apply() calls ``hook(step_name, step_artefact, file=...,
+    completed=..., total=...)`` for time-consuming steps (segmentation,
+    embeddings). We forward them as typed progress messages on the shared
+    queue; the parent's polling loop turns them into UI progress + log lines.
+    """
+    def _hook(step_name, step_artefact, file=None, completed=None, total=None, **kwargs):
+        try:
+            if total:
+                result_queue.put_nowait({
+                    "type": "progress",
+                    "step": str(step_name),
+                    "fraction": float(completed) / float(total),
+                    "elapsed": time.time() - t0,
+                })
+            else:
+                result_queue.put_nowait({
+                    "type": "progress",
+                    "step": str(step_name),
+                    "fraction": None,
+                    "elapsed": time.time() - t0,
+                })
+        except Exception:
+            pass
+    return _hook
+
+
+def _diarization_heartbeat(result_queue: mp.Queue, t0: float, interval_s: float = 30.0):
+    """Start a daemon thread that periodically pushes a 'still alive' message.
+
+    Ensures the parent can tell this subprocess is making progress even when
+    pyannote's hook doesn't fire (e.g. model loading, clustering).
+    """
+    def _run():
+        while True:
+            try:
+                time.sleep(interval_s)
+                result_queue.put_nowait({
+                    "type": "progress",
+                    "step": "heartbeat",
+                    "fraction": None,
+                    "elapsed": time.time() - t0,
+                })
+            except Exception:
+                return
+    threading.Thread(target=_run, daemon=True).start()
 
 
 def _run_diarization_subprocess(
@@ -108,7 +228,7 @@ def _run_diarization_subprocess(
     # ── Check HF token ──
     if not hf_token:
         print("[transcription] ⚠️  No HUGGING_FACE_TOKEN set. Diarization unavailable.")
-        result_queue.put([])
+        result_queue.put({"type": "result", "segments": []})
         return
 
     # ── Audio info ──
@@ -159,12 +279,12 @@ def _run_diarization_subprocess(
             except Exception as cpu_err:
                 print(f"[transcription] ❌ CPU fallback also failed: {cpu_err}")
                 traceback.print_exc()
-                result_queue.put([])
+                result_queue.put({"type": "result", "segments": []})
                 return
         else:
             print(f"[transcription] ❌ Failed to load diarization model: {e}")
             traceback.print_exc()
-            result_queue.put([])
+            result_queue.put({"type": "result", "segments": []})
             return
 
     # ── Run inference ──
@@ -174,17 +294,23 @@ def _run_diarization_subprocess(
         for sub in line.rstrip().split("\n"):
             print(f"[transcription]     | {sub}")
 
+    # Start a heartbeat thread so the parent can tell this subprocess is still
+    # alive even if pyannote's hook doesn't fire (e.g. during model load).
+    _diarization_heartbeat(result_queue, t0)
+
     try:
         pipeline_kwargs = {}
         if max_speakers > 0:
             pipeline_kwargs["max_speakers"] = max_speakers
             pipeline_kwargs["min_speakers"] = 2
             print(f"[transcription]   🎯 Using max_speakers={max_speakers} as clustering hint")
+        # Forward pyannote step progress to the parent via the shared queue.
+        pipeline_kwargs["hook"] = _make_diarization_progress_hook(result_queue, t0)
         diarization = pipeline(audio_path, **pipeline_kwargs)
     except Exception as e:
         print(f"[transcription] ❌ Diarization inference failed: {e}")
         traceback.print_exc()
-        result_queue.put([])
+        result_queue.put({"type": "result", "segments": []})
         return
 
     infer_elapsed = time.time() - t0
@@ -262,7 +388,7 @@ def _run_diarization_subprocess(
     except Exception:
         pass
 
-    result_queue.put(segments)
+    result_queue.put({"type": "result", "segments": segments})
 
 
 class TranscriptionEngine:
@@ -295,7 +421,9 @@ class TranscriptionEngine:
 
     # ── Step 1: Diarization (who spoke when) ──
 
-    def run_diarization(self, audio_path: str, max_speakers: int = 0) -> list:
+    def run_diarization(self, audio_path: str, max_speakers: int = 0,
+                        progress_cb: Optional[Callable] = None,
+                        cancel_check: Optional[Callable] = None) -> list:
         """Run speaker diarization using pyannote in a crash-isolated subprocess.
 
         Delegates the actual pyannote inference to a ``multiprocessing.Process``
@@ -306,11 +434,32 @@ class TranscriptionEngine:
         Args:
             audio_path: Path to 16kHz mono WAV audio file.
             max_speakers: Hard upper bound on speaker clusters (0 = no limit).
+            progress_cb: Optional callable invoked with a 0.0-1.0 fraction as
+                pyannote reports segmentation/embedding progress. Called from
+                the parent process polling loop.
+            cancel_check: Optional callable returning True when the job has been
+                cancelled; polled every ~0.5s in the parent, terminating the
+                child subprocess and raising PipelineCancelled.
 
         Returns a list of dicts: {speaker, start, end, duration}.
         """
+        # Compute a duration-scaled timeout so long files aren't killed by the
+        # historical fixed 15-min cap (see compute_diarization_timeout).
+        import soundfile as _sf_dur
+        try:
+            _info = _sf_dur.info(audio_path)
+            _audio_s = _info.frames / _info.samplerate
+        except Exception:
+            _audio_s = 0.0
+        timeout_s = compute_diarization_timeout(_audio_s)
+        if config.PIPELINE_TIMEOUT_SECONDS > 0 and timeout_s > config.PIPELINE_TIMEOUT_SECONDS:
+            print(f"[transcription] ⚠️  Effective diarization timeout ({timeout_s // 60}min) exceeds "
+                  f"pipeline timeout ({config.PIPELINE_TIMEOUT_SECONDS // 60}min) — "
+                  f"raise PIPELINE_TIMEOUT_MINUTES so the job isn't pre-empted")
+
         print(f"[transcription] 🚀 Starting diarization subprocess for {audio_path} "
-              f"(device={self.device}, timeout={DIARIZATION_TIMEOUT // 60}min)...")
+              f"(device={self.device}, audio={_audio_s:.0f}s, "
+              f"timeout={timeout_s // 60}min)...")
 
         hf_token = config.HUGGING_FACE_TOKEN
         if not hf_token:
@@ -333,13 +482,69 @@ class TranscriptionEngine:
         segments: list = []
         try:
             proc.start()
-            proc.join(timeout=DIARIZATION_TIMEOUT + 30)  # +30s grace for model loading
+            deadline = time.time() + timeout_s + 30  # +30s grace for model loading
+            last_log = time.time()
+            last_frac = -1.0
+            # The final result may arrive while the child is still shutting down
+            # (before proc.is_alive() flips False). Capture it here so the live
+            # poll loop below doesn't consume-and-discard it.
+            live_result = None
+
+            # Poll the queue while the subprocess runs, turning pyannote progress
+            # messages into UI progress + periodic log lines. This replaces the
+            # previous blocking join() so long files show live progress.
+            while proc.is_alive() and time.time() < deadline:
+                # Respond to user cancellation promptly: terminate the child and
+                # abort (never treated as a timeout/retry).
+                if cancel_check is not None:
+                    try:
+                        if cancel_check():
+                            print("[transcription] 🛑 Diarization cancelled by user — "
+                                  "terminating subprocess")
+                            proc.terminate()
+                            proc.join()
+                            raise PipelineCancelled("Diarization cancelled by user")
+                    except PipelineCancelled:
+                        raise
+                    except Exception:
+                        pass
+                while True:
+                    try:
+                        msg = result_queue.get(timeout=0.2)
+                    except queue.Empty:
+                        break
+                    if isinstance(msg, dict) and msg.get("type") == "progress":
+                        frac = msg.get("fraction")
+                        if isinstance(frac, (int, float)):
+                            frac = max(0.0, min(1.0, float(frac)))
+                            try:
+                                if progress_cb is not None:
+                                    progress_cb(frac)
+                            except Exception:
+                                pass
+                            if frac - last_frac >= 0.05 or time.time() - last_log >= 60:
+                                step = msg.get("step", "?")
+                                print(f"[transcription]   📈 [{msg.get('elapsed', 0):>6.0f}s] "
+                                      f"Diarization {step}: {frac * 100:.0f}%")
+                                last_frac = frac
+                                last_log = time.time()
+                        elif time.time() - last_log >= 60:
+                            print(f"[transcription]   💓 [{msg.get('elapsed', 0):>6.0f}s] "
+                                  f"Diarization still running ({msg.get('step', '...')})...")
+                            last_log = time.time()
+                    elif isinstance(msg, dict) and msg.get("type") == "result":
+                        # Capture (not drop) the final result if it arrives while
+                        # the child is still alive — the post-exit get() is only a
+                        # fallback for the normal child-exit ordering.
+                        live_result = msg
+                time.sleep(0.5)
 
             if proc.is_alive():
                 proc.terminate()
                 proc.join()
                 raise TimeoutError(
-                    f"Diarization subprocess timed out after {DIARIZATION_TIMEOUT // 60} min"
+                    f"Diarization subprocess timed out after {timeout_s // 60} min "
+                    f"(audio={_audio_s:.0f}s)"
                 )
 
             if proc.exitcode != 0:
@@ -349,12 +554,37 @@ class TranscriptionEngine:
                     f"likely MPS OOM. Parent process unaffected."
                 )
 
-            try:
-                segments = result_queue.get(timeout=10)
-            except Exception:
-                print(f"[transcription] ⚠️  Subprocess exited 0 but queue was empty — "
-                      f"returning empty diarization")
-                segments = []
+            # Collect the final result. Prefer the one captured during the live
+            # poll (covers the race where it arrived before the child exited);
+            # otherwise wait briefly for the child's feeder flush on normal exit.
+            result_msg = live_result
+            if result_msg is None:
+                try:
+                    result_msg = result_queue.get(timeout=10)
+                except queue.Empty:
+                    result_msg = None
+                # Drain any trailing progress/result messages that arrived with it.
+                while True:
+                    try:
+                        msg = result_queue.get(timeout=0.2)
+                    except queue.Empty:
+                        break
+                    if isinstance(msg, dict) and msg.get("type") == "result":
+                        result_msg = msg
+            if isinstance(result_msg, dict) and result_msg.get("type") == "result":
+                segments = result_msg.get("segments") or []
+            else:
+                # Child exited 0 but never delivered a result message. A legitimate
+                # empty result is sent as {"type":"result","segments":[]}, so this
+                # means the result was genuinely lost (the old queue-drain race, or
+                # a child that failed before its final put). Surface it loudly and
+                # raise so the pipeline's existing "subprocess" retry path re-runs it.
+                print(f"[transcription] ❌ Subprocess exited 0 but produced NO result message "
+                      f"(audio={_audio_s:.0f}s) — diarization result lost. Raising for retry.")
+                raise RuntimeError(
+                    f"Diarization subprocess exited 0 but produced no result message "
+                    f"(audio={_audio_s:.0f}s) — subprocess result lost"
+                )
         finally:
             # Explicitly close the queue to unlink its POSIX named semaphore.
             # On macOS, mp.Queue.__del__ does not reliably call sem_unlink(),
@@ -371,7 +601,8 @@ class TranscriptionEngine:
 
     # ── Step 2: ASR (what was said) ──
 
-    def run_transcription(self, audio_path: str) -> dict:
+    def run_transcription(self, audio_path: str,
+                          cancel_check: Optional[Callable] = None) -> dict:
         """Run Automatic Speech Recognition using the best backend for this platform.
 
         Returns dict with:
@@ -383,8 +614,14 @@ class TranscriptionEngine:
           macOS  → mlx_whisper (Metal GPU acceleration on Apple Silicon)
           Windows → faster_whisper (CTranslate2 w/ INT8 or FP16)
           Linux   → openai-whisper (PyTorch baseline)
+
+        Args:
+            cancel_check: Optional callable returning True when the job has been
+                cancelled; checked at step boundaries and (where the backend
+                allows) between segments.
         """
         t0 = time.time()
+        _raise_if_cancelled(cancel_check)
         # Log audio info upfront
         import soundfile as _sf
         try:
@@ -404,11 +641,12 @@ class TranscriptionEngine:
             print(f"[transcription]   🧠 Initial prompt DISABLED — no context passed to Whisper")
 
         if self.platform == "mac":
-            result = self._transcribe_mac(audio_path)
+            result = self._transcribe_mac(audio_path, cancel_check)
         elif self.platform == "windows":
-            result = self._transcribe_windows(audio_path)
+            result = self._transcribe_windows(audio_path, cancel_check)
         else:
-            result = self._transcribe_standard(audio_path)
+            result = self._transcribe_standard(audio_path, cancel_check)
+        _raise_if_cancelled(cancel_check)
 
         total_elapsed = time.time() - t0
         words = result.get("words", [])
@@ -418,7 +656,7 @@ class TranscriptionEngine:
               f"(RT={rt_factor:.2f}x) — {len(words)} words, {len(segments)} segments")
         return result
 
-    def _transcribe_standard(self, audio_path: str) -> dict:
+    def _transcribe_standard(self, audio_path: str, cancel_check: Optional[Callable] = None) -> dict:
         """Transcribe using openai-whisper (PyTorch). Works on any platform."""
         import whisper
         if self._whisper is None:
@@ -438,14 +676,15 @@ class TranscriptionEngine:
                     raise
             print(f"[transcription]   ✅ Model loaded in {time.time()-t_load:.1f}s")
         t_infer = time.time()
-        print(f"[transcription]   ⏳ Transcribing (openai-whisper, verbose)...")
+        print(f"[transcription]   ⏳ Transcribing (openai-whisper)...")
         transcribe_kwargs = {
             "word_timestamps": True,
-            "verbose": True,
+            "verbose": False,
         }
         if self._initial_prompt_enabled and self._initial_prompt:
             transcribe_kwargs["initial_prompt"] = self._initial_prompt
             print(f"[transcription]   🧠 Using initial_prompt ({len(self._initial_prompt)} chars)")
+        _raise_if_cancelled(cancel_check)
         try:
             result = self._whisper.transcribe(audio_path, **transcribe_kwargs)
         except Exception as _infer_err:
@@ -457,9 +696,14 @@ class TranscriptionEngine:
                 return {"text": "", "segments": [], "words": []}
             raise
         print(f"[transcription]   ⏱️  Inference done in {time.time()-t_infer:.1f}s")
+        _raise_if_cancelled(cancel_check)
+        # Print per-segment transcript lines + ASV progress (preserves the
+        # verbose=True output format and adds a section-end/total fraction).
+        _log_transcription_segments(result.get("segments", []), _audio_duration_seconds(audio_path))
+        _raise_if_cancelled(cancel_check)
         return self._extract_words(result)
 
-    def _transcribe_mac(self, audio_path: str) -> dict:
+    def _transcribe_mac(self, audio_path: str, cancel_check: Optional[Callable] = None) -> dict:
         """Transcribe using mlx-whisper — optimized for Apple Silicon (MPS)."""
         t_infer = time.time()
         print(f"[transcription]   📦 Using mlx-whisper (Apple Silicon) model 'mlx-community/whisper-{self.model_size}'...")
@@ -467,17 +711,23 @@ class TranscriptionEngine:
         transcribe_kwargs = {
             "path_or_hf_repo": f"mlx-community/whisper-{self.model_size}",
             "word_timestamps": True,
-            "verbose": True,
+            "verbose": False,
         }
         if self._initial_prompt_enabled and self._initial_prompt:
             transcribe_kwargs["initial_prompt"] = self._initial_prompt
             print(f"[transcription]   🧠 Using initial_prompt ({len(self._initial_prompt)} chars)")
+        _raise_if_cancelled(cancel_check)
         result = mlx_whisper.transcribe(audio_path, **transcribe_kwargs)
+        _raise_if_cancelled(cancel_check)
         elapsed = time.time() - t_infer
         print(f"[transcription]   ⏱️  mlx-whisper done in {elapsed:.1f}s")
+        # Print per-segment transcript lines + ASV progress (preserves the
+        # verbose=True output format and adds a section-end/total fraction).
+        _log_transcription_segments(result.get("segments", []), _audio_duration_seconds(audio_path))
+        _raise_if_cancelled(cancel_check)
         return self._extract_words(result)
 
-    def _transcribe_windows(self, audio_path: str) -> dict:
+    def _transcribe_windows(self, audio_path: str, cancel_check: Optional[Callable] = None) -> dict:
         """Transcribe using faster-whisper — CTranslate2 backend with INT8/FP16."""
         from faster_whisper import WhisperModel
         ct = "float16" if self.device == "cuda" else "int8"
@@ -505,7 +755,11 @@ class TranscriptionEngine:
         seg_count = 0
         last_log_time = time.time()
         for s in segs:
+            # Responsive cancellation: abort between segments.
+            _raise_if_cancelled(cancel_check)
             seg_count += 1
+            # Per-segment transcript line + ASV progress (same as macOS/Linux backends).
+            _log_transcription_segments([s], info.duration)
             for w in s.words:
                 words.append({"text": w.word, "start": w.start, "end": w.end})
             # Log progress every ~5 seconds of wall-clock time
@@ -516,6 +770,7 @@ class TranscriptionEngine:
                       f"{len(words)} words ({pct:.0f}% through audio)")
                 last_log_time = now
 
+        _raise_if_cancelled(cancel_check)
         print(f"[transcription]   ⏱️  faster-whisper done in {elapsed:.1f}s — "
               f"lang={info.language} ({info.language_probability*100:.0f}%), "
               f"audio_dur={info.duration:.1f}s, {seg_count} segments, {len(words)} words")

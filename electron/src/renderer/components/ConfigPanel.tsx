@@ -98,7 +98,7 @@ const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secre
   { key: "OLLAMA_MODEL", label: "Ollama Model", required: false, secret: false, section: "LLM Provider" },
   { key: "OLLAMA_NUM_CTX", label: "Ollama Context Window", required: false, secret: false, section: "LLM Provider" },
   { key: "LLM_TEMPERATURE", label: "LLM Temperature (0.0–2.0)", required: false, secret: false, section: "LLM Provider" },
-  { key: "PIPELINE_TIMEOUT_MINUTES", label: "Pipeline Timeout (minutes)", required: false, secret: false, section: "LLM Provider" },
+  { key: "PIPELINE_TIMEOUT_MINUTES", label: "Pipeline Timeout (minutes)", required: false, secret: false, section: "Pipeline" },
   { key: "HUGGING_FACE_TOKEN", label: "Hugging Face Token", required: false, secret: true, section: "LLM Provider" },
   { key: "GITHUB_TOKEN", label: "GitHub PAT (for private repo auto-updates)", required: false, secret: true, section: "Auto-Update" },
   { key: "EMBEDDING_PROVIDER", label: "Speaker Embedding Model", required: false, secret: false, section: "LLM Provider" },
@@ -124,6 +124,7 @@ const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secre
   { key: "DIARIZATION_MERGING_GAP", label: "Merging Gap (s)", required: false, secret: false, section: "Diarization" },
   { key: "DIARIZATION_CLUSTERING_THRESHOLD", label: "Clustering Threshold (0 = default)", required: false, secret: false, section: "Diarization" },
   { key: "DIARIZATION_MAX_SPEAKERS", label: "Max Speakers (0 = auto)", required: false, secret: false, section: "Diarization" },
+  { key: "DIARIZATION_TIMEOUT_MINUTES", label: "Diarization Timeout (minutes)", required: false, secret: false, section: "Diarization" },
   { key: "DELIVERY_RECIPIENT_EMAILS", label: "Default Recipient Emails", required: false, secret: false, section: "Delivery Config" },
   { key: "DELIVERY_EMAIL_SUBJECT", label: "Email Subject Template", required: false, secret: false, section: "Delivery Config" },
   { key: "DELIVERY_EMAIL_ADDITIONAL_CONTENT", label: "Additional Email Content", required: false, secret: false, section: "Delivery Config" },
@@ -186,6 +187,7 @@ function loadConfigValues(cfg: Record<string, { value: string; source: string }>
     DIARIZATION_MERGING_GAP: cfg.DIARIZATION_MERGING_GAP?.value || "0.5",
     DIARIZATION_CLUSTERING_THRESHOLD: cfg.DIARIZATION_CLUSTERING_THRESHOLD?.value || "0.0",
     DIARIZATION_MAX_SPEAKERS: cfg.DIARIZATION_MAX_SPEAKERS?.value || "0",
+    DIARIZATION_TIMEOUT_MINUTES: cfg.DIARIZATION_TIMEOUT_MINUTES?.value || "30",
     DELIVERY_RECIPIENT_EMAILS: cfg.DELIVERY_RECIPIENT_EMAILS?.value || "",
     DELIVERY_EMAIL_SUBJECT: cfg.DELIVERY_EMAIL_SUBJECT?.value || "Meeting Summary: {title}",
     DELIVERY_EMAIL_ADDITIONAL_CONTENT: cfg.DELIVERY_EMAIL_ADDITIONAL_CONTENT?.value || "",
@@ -261,6 +263,7 @@ function validateNumericConfig(values: ConfigValues): Record<string, string> {
   requireNumber("DIARIZATION_MERGING_GAP", "Merging Gap", 0);
   requireNumber("DIARIZATION_CLUSTERING_THRESHOLD", "Clustering Threshold", 0, 1);
   requireNumber("DIARIZATION_MAX_SPEAKERS", "Max Speakers", 0);
+  requireNumber("DIARIZATION_TIMEOUT_MINUTES", "Diarization Timeout (minutes)", 1);
   requireNumber("PERF_METRICS_POLL_INTERVAL", "Perf Metrics Poll Interval (ms)", 1000);
   requireNumber("CREDIT_POLL_INTERVAL", "Credit Poll Interval (ms)", 1000);
   requireNumber("DSMON_PUSH_INTERVAL", "DS-mon Push Interval (ms)", 1000);
@@ -1777,6 +1780,26 @@ The system provides existing memory context at the start of each pipeline run. U
 
                   {sectionName === "Pipeline" && (
                     <>
+                      {/* Pipeline Timeout — number input */}
+                      <div className="config-field">
+                        <label className="config-label">Pipeline Timeout (minutes)</label>
+                        <input
+                          className="config-input config-input--number"
+                          type="number"
+                          min="1"
+                          max="600"
+                          step="5"
+                          value={values.PIPELINE_TIMEOUT_MINUTES || "15"}
+                          onChange={(e) => handleChange("PIPELINE_TIMEOUT_MINUTES", e.target.value)}
+                          disabled={activeJobs.length > 0}
+                        />
+                        <p className="config-field-hint">
+                          Total wall-clock budget for the whole pipeline run (diarization + voiceprint matching + ASR + alignment + enqueue),
+                          checked between steps. Long audio or a slow/throttled machine needs this well above the diarization timeout — e.g.{" "}
+                          <strong>60–90</strong> for hour-long meetings. Default: <strong>15</strong>.
+                        </p>
+                      </div>
+
                       {/* Gate 1: Raw Transcript Review — toggle */}
                       <div className="config-field">
                         <label className="config-label">Raw Transcript Review (Gate 1)</label>
@@ -1946,6 +1969,25 @@ The system provides existing memory context at the start of each pipeline run. U
                           Hard upper bound on the number of speaker clusters pyannote will create. When set to a positive value (e.g., attendee count
                           + 1), it prevents phantom speakers by constraining the clustering algorithm. <strong>0</strong> = no limit (model decides).
                           Recommended: set to your expected participants + 1.
+                        </p>
+                      </div>
+
+                      {/* Diarization Timeout — number input */}
+                      <div className="config-field">
+                        <label className="config-label">Diarization Timeout (minutes)</label>
+                        <input
+                          className="config-input config-input--number"
+                          type="number"
+                          min="1"
+                          max="600"
+                          step="5"
+                          value={values.DIARIZATION_TIMEOUT_MINUTES || "30"}
+                          onChange={(e) => handleChange("DIARIZATION_TIMEOUT_MINUTES", e.target.value)}
+                          disabled={activeJobs.length > 0}
+                        />
+                        <p className="config-field-hint">
+                          Floor for the diarization subprocess timeout. The effective budget auto-scales with audio length (default ~2× duration), so
+                          this acts as a <strong>minimum</strong>. Raise it (e.g. 45–60) if long meetings time out at 30 min. Default: <strong>30</strong>.
                         </p>
                       </div>
                     </>
@@ -3101,12 +3143,8 @@ The system provides existing memory context at the start of each pipeline run. U
         )}
       </div>
 
-      {/* ── Operation overlays ── */}
+      {/* ── Saving overlay ── */}
       <LoadingModal visible={saving} message="Saving configuration…" />
-      <LoadingModal visible={importing} message="Importing configuration…" />
-      <LoadingModal visible={clearingConfig} message="Clearing configuration…" />
-      <LoadingModal visible={restoringUserDefaults} message="Restoring user defaults…" />
-      <LoadingModal visible={restoringDefaults} message="Restoring agent defaults…" />
 
       <div className="config-footer">
         {exportResult && <span className="config-success">{exportResult}</span>}

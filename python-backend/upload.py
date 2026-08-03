@@ -87,9 +87,21 @@ class AudioUploader:
                 "progress": 0.0,
             }
 
+    # Statuses that end the job — used to stamp a final `finished_at` timestamp.
+    _TERMINAL_STATUSES = ("complete", "delivered", "complete_with_warning", "failed")
+
     def update_status(self, job_id: str, updates: dict):
         status = self.get_status(job_id)
         status.update(updates)
+        # Stamp timing fields (purely additive — no effect on pipeline logic):
+        # - started_at is stamped on the first status write (see _write_status)
+        # - finished_at is stamped once the job reaches a terminal state; it's
+        #   cleared if the job resumes (e.g. a failed job that is retried) so
+        #   the final value always reflects the actual end time.
+        if status.get("status") in self._TERMINAL_STATUSES:
+            status.setdefault("finished_at", int(time.time() * 1000))
+        else:
+            status.pop("finished_at", None)
         self._write_status(job_id, status)
 
     def get_metadata(self, job_id: str) -> dict:
@@ -142,6 +154,9 @@ class AudioUploader:
             json.dump(analysis, f, indent=2)
 
     def _write_status(self, job_id: str, status: dict):
+        # Stamp the job start time on the first status write (additive only).
+        if "started_at" not in status:
+            status["started_at"] = int(time.time() * 1000)
         d = os.path.join(self.storage_path, job_id)
         os.makedirs(d, exist_ok=True)
         dest = os.path.join(d, "status.json")

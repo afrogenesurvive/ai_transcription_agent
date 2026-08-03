@@ -112,9 +112,37 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger, onDevA
     fetchUsage();
   }, [fetchUsage, refreshTrigger]);
 
+  // Active jobs guard — destructive clears are blocked while jobs run (Fix B).
+  // Poll so the guard stays fresh while the panel is open.
+  const [activeJobs, setActiveJobs] = useState<any[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const jobs = await window.electronAPI?.getActiveJobs();
+        if (!cancelled) setActiveJobs(jobs || []);
+      } catch {
+        // ignore — backend may be unavailable
+      }
+    };
+    refresh();
+    const timer = setInterval(refresh, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
+
   const handleClearAction = useCallback(
     async (action: { type: string; label: string; description: string; bridgeTool: string; bridgeArgs?: Record<string, any> }) => {
       setConfirmAction(null);
+      // Guard: destructive clears are blocked while pipeline jobs run.
+      if (activeJobs.length > 0 && ["jobs", "all", "ephemeral", "semantic"].includes(action.type)) {
+        setActionResult(`Blocked: ${activeJobs.length} job(s) still running — stop or wait for them first.`);
+        onNotify?.(`${action.label} blocked — jobs still running`);
+        setProcessingAction(null);
+        return;
+      }
       setProcessingAction(action.type);
       setActionResult(null);
       // Show a full-screen loading overlay for the whole clear + post-clear
@@ -143,7 +171,7 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger, onDevA
         setProcessingAction(null);
       }
     },
-    [fetchUsage, onNotify],
+    [fetchUsage, onNotify, activeJobs],
   );
 
   // Compute bar widths as percentage of total
@@ -345,6 +373,20 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger, onDevA
           <div className="storage-dev-content">
             <p className="storage-dev-description">Destructive actions to clear stored data. These operations are irreversible.</p>
 
+            {activeJobs.length > 0 && (
+              <div className="storage-log-action" style={{ borderColor: "var(--danger, #f85149)", marginBottom: 12 }}>
+                <div className="storage-log-action-info">
+                  <strong>
+                    <Icon name="warning" size="14" color="red" /> {activeJobs.length} job{activeJobs.length > 1 ? "s" : ""} still running
+                  </strong>
+                  <p>
+                    Destructive clear actions are disabled while transcription jobs are running. Use <em>Stop Processing</em> on the current job or
+                    wait for jobs to finish, then clear data.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Clear all logs */}
             <div className="storage-log-action">
               <div className="storage-log-action-info">
@@ -389,7 +431,8 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger, onDevA
                     bridgeTool: "storage_clear_jobs",
                   })
                 }
-                disabled={!!processingAction}>
+                disabled={!!processingAction || activeJobs.length > 0}
+                title={activeJobs.length > 0 ? "Disabled while transcription jobs are running" : undefined}>
                 {processingAction === "jobs" ? "Clearing…" : "Clear All Jobs"}
               </button>
             </div>
@@ -413,7 +456,8 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger, onDevA
                     bridgeTool: "storage_clear_semantic",
                   })
                 }
-                disabled={!!processingAction}>
+                disabled={!!processingAction || activeJobs.length > 0}
+                title={activeJobs.length > 0 ? "Disabled while transcription jobs are running" : undefined}>
                 {processingAction === "semantic" ? "Clearing…" : "Clear Semantic DB"}
               </button>
             </div>
@@ -439,7 +483,8 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger, onDevA
                     bridgeTool: "storage_clear_ephemeral",
                   })
                 }
-                disabled={!!processingAction}>
+                disabled={!!processingAction || activeJobs.length > 0}
+                title={activeJobs.length > 0 ? "Disabled while transcription jobs are running" : undefined}>
                 {processingAction === "ephemeral" ? "Clearing…" : "Clear Ephemeral / Voiceprint"}
               </button>
             </div>
@@ -468,7 +513,8 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger, onDevA
                     bridgeArgs: { logType: "all_including_errors" },
                   })
                 }
-                disabled={!!processingAction}>
+                disabled={!!processingAction || activeJobs.length > 0}
+                title={activeJobs.length > 0 ? "Disabled while transcription jobs are running" : undefined}>
                 {processingAction === "all" ? "Clearing…" : "Clear All Data"}
               </button>
             </div>

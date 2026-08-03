@@ -8,11 +8,12 @@
  *   close Failed stage (red with error message)
  */
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Icon from "./Icon";
 import Tooltip from "./Tooltip";
 import GateReviewModal from "./GateReviewModal";
 import MiniLiveLog from "./MiniLiveLog";
+import { formatElapsedHMS } from "../utils/timeFormat";
 import {
   PIPELINE,
   findActiveStage,
@@ -43,6 +44,10 @@ interface Props {
   jobId?: string;
   /** When true, shows a "Bot / Test Job" badge in the header */
   isForeignJob?: boolean;
+  /** Job start time (epoch ms) — powers the cosmetic elapsed-time step. */
+  startedAtMs?: number;
+  /** Job end time (epoch ms) — present when the job reached a terminal state. */
+  finishedAtMs?: number;
   /** Gate 1 (Raw Transcript Review) handlers */
   onApproveGate1?: (body: { action: string; editedTranscript?: any[] }) => Promise<void>;
   onRejectGate1?: (action: "cancel" | "retry") => Promise<void>;
@@ -74,6 +79,8 @@ export default function PipelineProgress({
   onApproveGate2,
   onRejectGate2,
   isForeignJob,
+  startedAtMs,
+  finishedAtMs,
 }: Props) {
   const [showConfirmCancel, setShowConfirmCancel] = useState(false);
   const pct = Math.round(progress * 100);
@@ -82,6 +89,18 @@ export default function PipelineProgress({
   const isProcessing = !isFailed && !isComplete;
 
   const maxReached = useMaxReachedStage(status, isFailed, jobId);
+
+  // ── Elapsed-time step (purely cosmetic — never affects status/progress) ──
+  const [nowTick, setNowTick] = useState<number>(() => Date.now());
+  useEffect(() => {
+    if (typeof startedAtMs !== "number" || Number.isFinite(startedAtMs) === false) return;
+    const id = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [startedAtMs]);
+  const hasTimeInfo = typeof startedAtMs === "number" && Number.isFinite(startedAtMs);
+  const timeEndMs = typeof finishedAtMs === "number" && Number.isFinite(finishedAtMs) ? finishedAtMs : nowTick;
+  const elapsedMs = hasTimeInfo ? timeEndMs - startedAtMs! : 0;
+  const timeStepLive = hasTimeInfo && !isComplete && !isFailed;
 
   const active = findActiveStage(status);
   const activeLabel = active?.sub?.label ?? active?.stage?.label ?? STATUS_FRIENDLY[status] ?? status;
@@ -127,6 +146,26 @@ export default function PipelineProgress({
 
         {/* ── Vertical pipeline stepper ── */}
         <div className="pp-stepper">
+          {hasTimeInfo && (
+            <>
+              <div className="pp-step pp-step--time">
+                <div className={`pp-step-dot pp-step-dot--time${timeStepLive ? " pp-step-dot--time-live" : ""}`}>
+                  <Icon name="schedule" size="12" />
+                </div>
+                <div className="pp-step-content">
+                  <span className="pp-step-icon">
+                    <Icon name="schedule" size="14" />
+                  </span>
+                  <div className="pp-step-text">
+                    <span className="pp-step-label">{timeStepLive ? "Elapsed Time" : "Total Time"}</span>
+                    <span className="pp-step-desc">{timeStepLive ? "This job is still running" : "This job finished"}</span>
+                  </div>
+                  <span className="pp-time-value">{formatElapsedHMS(elapsedMs)}</span>
+                </div>
+              </div>
+              <div className="pp-time-divider" />
+            </>
+          )}
           {PIPELINE.map((stage) => {
             const state = getStageState(stage, status, isFailed, isComplete, maxReached, skippedSteps);
             const waiting = state === "active" && WAITING_LABEL[status] != null;

@@ -87,6 +87,13 @@
       {
         "from": "../README.md",
         "to": "README.md"
+      },
+      {
+        "from": "../sounds",
+        "to": "sounds",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "mac": {
