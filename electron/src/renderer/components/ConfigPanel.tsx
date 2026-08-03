@@ -3101,8 +3101,12 @@ The system provides existing memory context at the start of each pipeline run. U
         )}
       </div>
 
-      {/* ── Saving overlay ── */}
+      {/* ── Operation overlays ── */}
       <LoadingModal visible={saving} message="Saving configuration…" />
+      <LoadingModal visible={importing} message="Importing configuration…" />
+      <LoadingModal visible={clearingConfig} message="Clearing configuration…" />
+      <LoadingModal visible={restoringUserDefaults} message="Restoring user defaults…" />
+      <LoadingModal visible={restoringDefaults} message="Restoring agent defaults…" />
 
       <div className="config-footer">
         {exportResult && <span className="config-success">{exportResult}</span>}

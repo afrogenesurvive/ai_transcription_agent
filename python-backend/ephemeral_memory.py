@@ -929,6 +929,20 @@ class EphemeralMemory:
         row = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
         return row[0] if row else 0
 
+    def table_columns(self, table: str) -> List[str]:
+        """Return the actual column names of a table in DB order.
+
+        Uses PRAGMA table_info so the DevPanel always reflects the live schema
+        (self-heals when migrations add new columns). The table name is checked
+        against a fixed allow-list before interpolation.
+        """
+        table = table.lower()
+        if table not in ("jobs", "attendees", "action_items", "contacts", "budgets", "decisions", "notes", "events"):
+            return []
+        conn = self._get_conn()
+        rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+        return [r[1] for r in rows]
+
     def close_action_item(self, item_id: int):
         conn = self._get_conn()
         conn.execute("UPDATE action_items SET status='completed', updated_at=CURRENT_TIMESTAMP WHERE id=?", (item_id,))

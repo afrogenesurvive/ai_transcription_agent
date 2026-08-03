@@ -4056,15 +4056,18 @@ async def storage_usage():
 
 # ── Database browsing (for DevPanel) ──
 
+# Table metadata for the DevPanel ephemeral DB browser. Columns are derived
+# live from the schema via ephemeral_memory.table_columns() so new columns
+# (e.g. migration-added ones) always show up — never hardcode them here.
 EPHEMERAL_TABLES = {
-    "jobs": {"label": "Jobs", "columns": ["id", "title", "result", "attendees", "total_tokens", "total_cost", "llm_provider", "llm_model", "transcript_segment_count", "transcript_char_count", "has_analysis", "audio_duration_sec", "delivery_attempted", "error_message", "created_at", "updated_at", "completed_at"]},
-    "attendees": {"label": "Attendees", "columns": ["id", "name", "email", "source", "job_id", "first_seen", "last_seen"]},
-    "action_items": {"label": "Action Items", "columns": ["id", "job_id", "description", "assignee", "deadline", "status", "priority", "source_meeting", "created_at"]},
-    "contacts": {"label": "Contacts", "columns": ["id", "name", "email", "organization", "role", "phone", "source_meeting", "first_mentioned", "last_mentioned"]},
-    "budgets": {"label": "Budgets", "columns": ["id", "job_id", "description", "amount", "currency", "category", "source_meeting", "created_at"]},
-    "decisions": {"label": "Decisions", "columns": ["id", "job_id", "description", "rationale", "made_by", "source_meeting", "created_at"]},
-    "notes": {"label": "Notes", "columns": ["id", "job_id", "topic", "content", "created_at"]},
-    "events": {"label": "Events", "columns": ["id", "source", "type", "status", "priority", "retry_count", "max_retries", "error_message", "queued_at", "claimed_at", "completed_at", "ttl_seconds"]},
+    "jobs": {"label": "Jobs"},
+    "attendees": {"label": "Attendees"},
+    "action_items": {"label": "Action Items"},
+    "contacts": {"label": "Contacts"},
+    "budgets": {"label": "Budgets"},
+    "decisions": {"label": "Decisions"},
+    "notes": {"label": "Notes"},
+    "events": {"label": "Events"},
 }
 
 
@@ -4119,7 +4122,7 @@ async def memory_ephemeral_tables():
             table_list.append({
                 "name": name,
                 "label": info["label"],
-                "columns": info["columns"],
+                "columns": ephemeral_memory.table_columns(name),
                 "row_count": count,
             })
         return {"tables": table_list}
@@ -4141,7 +4144,7 @@ async def memory_ephemeral_table(table_name: str, limit: int = 100, offset: int 
         rows = all_rows[offset:offset + limit]
         return {
             "table": table_name,
-            "columns": EPHEMERAL_TABLES[table_name]["columns"],
+            "columns": ephemeral_memory.table_columns(table_name),
             "rows": rows,
             "total": total,
             "limit": limit,
