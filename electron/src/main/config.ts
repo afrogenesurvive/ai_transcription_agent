@@ -161,7 +161,7 @@ const DEFAULTS: AppConfig = {
   PLAYWRIGHT_TITLE_TEMPLATE: "test {autoNum}",
   PLAYWRIGHT_GENERIC_NAMES:
     "Alex,Blake,Casey,Drew,Ellis,Finley,Gray,Harper,Indigo,Jade,Kai,Logan,Morgan,Nico,Oakley,Parker,Quinn,Reese,Skyler,Taylor",
-  PIPELINE_TIMEOUT_MINUTES: "15",
+  PIPELINE_TIMEOUT_MINUTES: "45",
   GATE_RAW_REVIEW_ENABLED: "false",
   GATE_DELIVERY_REVIEW_ENABLED: "false",
   CUSTOM_DELIVERY_PER_MEETING: "false",
@@ -464,7 +464,7 @@ export function getChildEnv(): NodeJS.ProcessEnv {
       userVals.PLAYWRIGHT_GENERIC_NAMES ||
       process.env.PLAYWRIGHT_GENERIC_NAMES ||
       "Alex,Blake,Casey,Drew,Ellis,Finley,Gray,Harper,Indigo,Jade,Kai,Logan,Morgan,Nico,Oakley,Parker,Quinn,Reese,Skyler,Taylor",
-    PIPELINE_TIMEOUT_MINUTES: userVals.PIPELINE_TIMEOUT_MINUTES || process.env.PIPELINE_TIMEOUT_MINUTES || "15",
+    PIPELINE_TIMEOUT_MINUTES: userVals.PIPELINE_TIMEOUT_MINUTES || process.env.PIPELINE_TIMEOUT_MINUTES || "45",
     // Delivery config — forwarded to Python backend for email + drive delivery
     DELIVERY_RECIPIENT_EMAILS: userVals.DELIVERY_RECIPIENT_EMAILS || process.env.DELIVERY_RECIPIENT_EMAILS || "",
     DELIVERY_EMAIL_SUBJECT: userVals.DELIVERY_EMAIL_SUBJECT || process.env.DELIVERY_EMAIL_SUBJECT || "Meeting Summary: {title}",

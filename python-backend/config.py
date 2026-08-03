@@ -124,7 +124,7 @@ class Config:
     MAX_CONCURRENT_PIPELINES = _env_int("MAX_CONCURRENT_PIPELINES", 2)
 
     # Pipeline timeout (minutes) before a hung job fails itself
-    PIPELINE_TIMEOUT_MINUTES = _env_int("PIPELINE_TIMEOUT_MINUTES", 15)
+    PIPELINE_TIMEOUT_MINUTES = _env_int("PIPELINE_TIMEOUT_MINUTES", 45)
     PIPELINE_TIMEOUT_SECONDS = PIPELINE_TIMEOUT_MINUTES * 60
 
     # Delivery configuration (set via ConfigPanel → config.json → env vars)

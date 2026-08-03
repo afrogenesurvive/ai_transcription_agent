@@ -178,7 +178,7 @@ function loadConfigValues(cfg: Record<string, { value: string; source: string }>
     LLM_TEMPERATURE: cfg.LLM_TEMPERATURE?.value || "0.1",
     PERF_METRICS_POLL_INTERVAL: cfg.PERF_METRICS_POLL_INTERVAL?.value || "10000",
     CREDIT_POLL_INTERVAL: cfg.CREDIT_POLL_INTERVAL?.value || "60000",
-    PIPELINE_TIMEOUT_MINUTES: cfg.PIPELINE_TIMEOUT_MINUTES?.value || "15",
+    PIPELINE_TIMEOUT_MINUTES: cfg.PIPELINE_TIMEOUT_MINUTES?.value || "45",
     GATE_RAW_REVIEW_ENABLED: cfg.GATE_RAW_REVIEW_ENABLED?.value || "false",
     GATE_DELIVERY_REVIEW_ENABLED: cfg.GATE_DELIVERY_REVIEW_ENABLED?.value || "false",
     KEEP_MODELS_WARM: cfg.KEEP_MODELS_WARM?.value || "false",
@@ -1789,7 +1789,7 @@ The system provides existing memory context at the start of each pipeline run. U
                           min="1"
                           max="600"
                           step="5"
-                          value={values.PIPELINE_TIMEOUT_MINUTES || "15"}
+                          value={values.PIPELINE_TIMEOUT_MINUTES || "45"}
                           onChange={(e) => handleChange("PIPELINE_TIMEOUT_MINUTES", e.target.value)}
                           disabled={activeJobs.length > 0}
                         />

@@ -192,7 +192,12 @@ function startChromiumLogTailer(logPath: string): void {
       offset = stat.size;
       for (const raw of buf.toString("utf8").split("\n")) {
         const line = raw.trim();
-        if (line) addLog("main", "info", line, "chromium");
+        if (line) {
+          // Mirror to the terminal (dev) so [chromium] lines are visible where
+          // the app was launched, not just in DevPanel / per-job pipeline.log.
+          console.log(`[chromium] ${line}`);
+          addLog("main", "info", line, "chromium");
+        }
       }
     } catch {
       // File may not exist yet (Chromium hasn't opened it) — ignore.
