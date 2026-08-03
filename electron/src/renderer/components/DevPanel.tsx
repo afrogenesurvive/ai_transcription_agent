@@ -41,6 +41,7 @@ const SOURCE_COLORS: Record<string, string> = {
   ollama: "#7ee787",
   startup: "#8b949e",
   voiceprint: "#bc8cff",
+  chromium: "#56d4dd",
   memory: "#f85149",
   agent_bridge: "#d29922",
   upload: "#2ea043",
@@ -233,6 +234,7 @@ function LiveLogsTab() {
               <option value="api">API</option>
               <option value="auto-update">Auto Update</option>
               <option value="bridge">Bridge</option>
+              <option value="chromium">Chromium</option>
               <option value="cleanup">Cleanup</option>
               <option value="config">Config</option>
               <option value="ephemeral">Ephemeral</option>
@@ -2827,6 +2829,7 @@ function LogFilesTab() {
                       <option value="api">API</option>
                       <option value="auto-update">Auto Update</option>
                       <option value="bridge">Bridge</option>
+                      <option value="chromium">Chromium</option>
                       <option value="cleanup">Cleanup</option>
                       <option value="config">Config</option>
                       <option value="ephemeral">Ephemeral</option>

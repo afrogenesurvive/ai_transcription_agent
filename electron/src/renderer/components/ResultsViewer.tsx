@@ -959,6 +959,7 @@ const RV_SOURCE_COLORS: Record<string, string> = {
   transcription: "#f0883e",
   usage: "#db61a2",
   ollama: "#7ee787",
+  chromium: "#56d4dd",
 };
 
 /** Try to parse a raw log line into a structured LogEntry-like object.
@@ -1450,6 +1451,7 @@ function LogsTab({ jobId }: { jobId: string }) {
                   <option value="api">API</option>
                   <option value="auto-update">Auto Update</option>
                   <option value="bridge">Bridge</option>
+                  <option value="chromium">Chromium</option>
                   <option value="cleanup">Cleanup</option>
                   <option value="config">Config</option>
                   <option value="ephemeral">Ephemeral</option>
