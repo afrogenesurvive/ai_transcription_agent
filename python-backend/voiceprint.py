@@ -808,6 +808,38 @@ class VoiceprintManager:
                 return None
         return self._retry_on_io_error(_run)
 
+    def similarity_to(self, name_or_email: str, embedding: np.ndarray) -> Optional[dict]:
+        """Compare an embedding against ONE specific enrolled voiceprint.
+
+        Resolves the enrolled record by ``speaker_name`` OR ``email`` (same
+        lookup as :meth:`get_voiceprint`), loads its stored embedding, and
+        returns ``{"similarity": float, "sample_job_id": str}`` when the
+        record exists and has an embedding; ``None`` otherwise.
+
+        This powers the own-print voice-drift check: does the current
+        meeting's voice actually match this attendee's own enrolled print?
+        """
+        def _run():
+            conn = self._get_conn()
+            row = conn.execute(
+                "SELECT embedding, sample_job_id FROM voiceprints "
+                "WHERE speaker_name = ? OR email = ? LIMIT 1",
+                (name_or_email, name_or_email),
+            ).fetchone()
+            if not row or row[0] is None:
+                return None
+            try:
+                stored = pickle.loads(row[0])
+            except Exception:
+                return None
+            if stored is None:
+                return None
+            return {
+                "similarity": round(self._cosine_similarity(embedding, stored), 4),
+                "sample_job_id": row[1],
+            }
+        return self._retry_on_io_error(_run)
+
     def find_matching_voiceprints(
         self, embedding: np.ndarray, threshold: float = None
     ) -> List[dict]:

@@ -118,6 +118,16 @@ export function useApi() {
           suggested_name: string;
         }>;
         total_speakers: number;
+        non_speaking_attendees?: Array<{ name: string; email?: string }>;
+        known_attendees?: {
+          with_voiceprint: Array<{
+            name: string;
+            email?: string;
+            sample_job_id?: string;
+            in_form?: boolean;
+          }>;
+          without_voiceprint: Array<{ name: string; email?: string; in_form?: boolean }>;
+        };
       }>;
     },
 

@@ -1003,6 +1003,7 @@ export default function App() {
             speakers={speakerClips.speakers}
             suggestedEmails={jobMetadata?.attendeeEmails || []}
             nonSpeakingAttendees={speakerClips.non_speaking_attendees || []}
+            knownAttendees={speakerClips.known_attendees}
             onConfirm={handleLabelConfirm}
             onCancel={handleLabelCancel}
             submitting={labelingSubmitting}

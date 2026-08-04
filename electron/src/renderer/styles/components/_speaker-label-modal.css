@@ -768,3 +768,94 @@
   color: var(--text);
   line-height: 1.4;
 }
+
+/* ── Assign known attendee (dropdown) ── */
+
+.speaker-attendee-picker {
+  margin-top: 8px;
+}
+
+.speaker-attendee-select {
+  width: 100%;
+  padding: 7px 10px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.speaker-attendee-select:hover {
+  border-color: var(--accent);
+}
+
+.speaker-attendee-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.2);
+}
+
+.speaker-attendee-select option {
+  color: var(--text);
+  background: var(--surface);
+}
+
+/* ── Own-print voice-drift notice ── */
+
+.speaker-drift-blocked-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background: rgba(210, 146, 34, 0.12);
+  border: 1px solid rgba(210, 146, 34, 0.35);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.speaker-drift-notice {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: rgba(210, 146, 34, 0.08);
+  border: 1px solid rgba(210, 146, 34, 0.35);
+  border-left: 3px solid var(--orange, #d29922);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.speaker-drift-notice-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.speaker-drift-notice-header strong {
+  color: var(--orange);
+}
+
+.speaker-drift-notice-desc {
+  margin: 6px 0 8px 19px; /* aligns with header text (icon width + gap) */
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.speaker-drift-notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-left: 19px;
+}
+
+.speaker-drift-btn {
+  padding: 5px 10px;
+  font-size: 12px;
+  border-radius: 5px;
+}

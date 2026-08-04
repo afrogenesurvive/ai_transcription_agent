@@ -43,9 +43,19 @@ os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.7")
 os.environ.setdefault("PYTHONUTF8", "1")
 for _stream in (sys.stdout, sys.stderr):
     if _stream is not None:
-        # reconfigure() is a runtime io.TextIOWrapper method that isn't in the
-        # TextIO type stub — cast so type checkers accept it.
-        cast(Any, _stream).reconfigure(encoding="utf-8", errors="replace")
+        try:
+            # reconfigure() is a runtime io.TextIOWrapper method that isn't in
+            # the TextIO type stub — cast so type checkers accept it.
+            # errors="replace" renders any non-ASCII char (emoji, arrows) as
+            # "?" instead of raising, so a startup print() can never crash
+            # the process with UnicodeEncodeError again.
+            cast(Any, _stream).reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            # Non-fatal: if the stream isn't reconfigurable (unusual in a
+            # frozen app), keep Python's default. The Electron spawn env
+            # (PYTHONUTF8=1 / PYTHONIOENCODING=utf-8) already forces UTF-8
+            # mode before the process starts, so this is purely defensive.
+            pass
 
 # ── Apply third-party compatibility patches FIRST (before any pyannote imports) ──
 import patches  # noqa: F401  (monkey-patches speechbrain + torchaudio + pyannote)
@@ -1100,7 +1110,10 @@ async def verify_labels(payload: dict = Body(...)):
 
     Returns:
       {
-        "verifications": [{speaker_id, assigned_name, voice_match_conflicts: [...]}],
+        "verifications": [
+          {speaker_id, assigned_name, voice_match_conflicts: [...],
+           voice_drift_conflicts: [...]}
+        ],
         "unregistered_names": [...],
         "registered_attendees": [...]
       }
@@ -1146,6 +1159,7 @@ async def verify_labels(payload: dict = Body(...)):
 
         # Extract embedding and match against ALL voiceprints
         voice_match_conflicts = []
+        voice_drift_conflicts = []
         if audio_path and diar_data and spk in diar_data.get("speaker_segments", {}):
             segs = diar_data["speaker_segments"][spk]
             MAX_ENROLL_SEGMENTS = 5
@@ -1189,15 +1203,35 @@ async def verify_labels(payload: dict = Body(...)):
                     # Only the best match — secondary matches are cross-speaker noise
                     voice_match_conflicts.append(matches[0])
 
+                # ── Own-print voice-drift detection ──
+                # If the assigned name/email already has an enrolled voiceprint but
+                # this meeting's voice does NOT match it (below threshold), flag it.
+                # Otherwise label_and_resume would silently overwrite the enrolled
+                # print on batch-save. This complements the cross-match check above:
+                # that one reports "the voice is someone ELSE", this one reports
+                # "this person's own enrolled print doesn't match the current voice".
+                own_sim = vp_manager.similarity_to(name, emb)
+                if own_sim is None and email:
+                    own_sim = vp_manager.similarity_to(email, emb)
+                if own_sim is not None and own_sim["similarity"] < config.VOICEPRINT_THRESHOLD:
+                    voice_drift_conflicts.append({
+                        "name": name,
+                        "email": email,
+                        "similarity": own_sim["similarity"],
+                        "sample_job_id": own_sim["sample_job_id"],
+                    })
+
         verifications.append({
             "speaker_id": spk,
             "assigned_name": name,
             "assigned_email": email,
             "voice_match_conflicts": voice_match_conflicts,
+            "voice_drift_conflicts": voice_drift_conflicts,
         })
 
     print(f"[api] POST /agent/verify-labels → {len(verifications)} verifications, "
           f"{sum(len(v['voice_match_conflicts']) for v in verifications)} conflict(s), "
+          f"{sum(len(v['voice_drift_conflicts']) for v in verifications)} drift(s), "
           f"{len(unregistered_names)} unregistered name(s)")
     return {
         "verifications": verifications,
@@ -1926,11 +1960,55 @@ async def get_speaker_clips(job_id: str):
                 ns_email = attendee_emails[idx]
         non_speaking_full.append({"name": ns_name, "email": ns_email})
 
+    # ── Known-attendee registry (for the modal's "assign known attendee" dropdowns) ──
+    # Two mutually-exclusive buckets:
+    #   with_voiceprint    — registered attendees that have an enrolled voiceprint
+    #   without_voiceprint — registered attendees with no enrolled voiceprint
+    # Each entry is tagged `in_form` when the attendee is in this job's form,
+    # so the modal can prefer the form email (the backend's email-mismatch
+    # correction will force it anyway) over the enrolled email key.
+    form_names_lower = {a.lower() for a in attendee_names}
+    vp_rows = vp_manager.list_voiceprints()  # [{name, email, sample_job_id, ...}]
+    vp_emails_lower = {v.get("email", "").lower() for v in vp_rows if v.get("email")}
+    vp_names_lower = {v.get("name", "").lower() for v in vp_rows if v.get("name")}
+    known_with_vp = [
+        {
+            "name": v.get("name", "").strip(),
+            "email": v.get("email", ""),
+            "sample_job_id": v.get("sample_job_id"),
+            "in_form": v.get("name", "").strip().lower() in form_names_lower,
+        }
+        for v in vp_rows
+        if v.get("name", "").strip()
+    ]
+    known_without_vp = []
+    seen_no_vp = set()
+    for att in ephemeral_memory.list_attendees(limit=500):
+        aname = att.get("name", "").strip()
+        if not aname:
+            continue
+        aemail = (att.get("email") or "").strip()
+        if aemail.lower() in vp_emails_lower or aname.lower() in vp_names_lower:
+            continue  # Already surfaced in the with_voiceprint bucket
+        key = (aname.lower(), aemail.lower())
+        if key in seen_no_vp:
+            continue
+        seen_no_vp.add(key)
+        known_without_vp.append({
+            "name": aname,
+            "email": aemail,
+            "in_form": aname.lower() in form_names_lower,
+        })
+
     return {
         "job_id": job_id,
         "speakers": speakers,
         "total_speakers": len(speakers),
         "non_speaking_attendees": non_speaking_full,
+        "known_attendees": {
+            "with_voiceprint": known_with_vp,
+            "without_voiceprint": known_without_vp,
+        },
     }
 
 

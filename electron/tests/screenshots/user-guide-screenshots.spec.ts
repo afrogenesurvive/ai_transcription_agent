@@ -17,6 +17,12 @@
  * (e.g. docs/screenshots/2026-07-14/01-main-window-empty.png) AND copied to
  * the root docs/screenshots/ directory so the user guide always sees the
  * latest run. Previous runs remain accessible in their date-stamped folders.
+ *
+ * Coverage (33 screenshots): main window, upload, appearance, about, storage,
+ * history, config (LLM & Delivery sections, Agent, Logging), pipeline progress,
+ * speaker labeling, completion notification, results (Transcript/Summary/
+ * Analysis/Attendees/Delivery/Audio/Developer), and Dev Tools (Live Logs,
+ * Database, Performance, Usage, Log Files, Updates, Testing, Guide).
  */
 
 import { test, _electron as electron } from "@playwright/test";
@@ -652,6 +658,88 @@ test("18 - results viewer delivery", async () => {
 });
 
 // ════════════════════════════════════════════════════════════════
+// SCREENSHOT 22: Results Viewer — Audio Tab
+// ════════════════════════════════════════════════════════════════
+// Shows: The Audio tab with the meeting recording player — play/
+//        pause button, seek bar, elapsed/total time, and volume.
+// Guide section: "Reviewing Results — Audio Tab"
+// Add to guide as: ![Audio Player](screenshots/22-results-audio.png)
+test("22 - results viewer audio", async () => {
+  const audioTab = window.locator(".rv-tab", { hasText: "Audio" });
+  try {
+    await audioTab.waitFor({ state: "visible", timeout: 10_000 });
+  } catch {
+    console.warn("[test] Audio tab did not appear — results viewer may not be loaded");
+    test.skip();
+    return;
+  }
+
+  await audioTab.click();
+  await window.waitForTimeout(500);
+
+  await window.screenshot({
+    path: path.join(SCREENSHOT_DIR, "22-results-audio.png"),
+  });
+});
+
+// ════════════════════════════════════════════════════════════════
+// SCREENSHOT 23: Results Viewer — Developer Tab (Tokens)
+// ════════════════════════════════════════════════════════════════
+// Shows: The Developer tab with the Tokens sub-tab active — LLM
+//        token usage breakdown per pipeline step (prompt/completion
+//        counts and costs).
+// Guide section: "Reviewing Results — Developer Tab — Tokens"
+// Add to guide as: ![Developer Tokens](screenshots/23-results-developer-tokens.png)
+test("23 - results viewer developer tokens", async () => {
+  const devTab = window.locator(".rv-tab", { hasText: "Developer" });
+  try {
+    await devTab.waitFor({ state: "visible", timeout: 10_000 });
+  } catch {
+    console.warn("[test] Developer tab did not appear — results viewer may not be loaded");
+    test.skip();
+    return;
+  }
+
+  await devTab.click();
+  await window.waitForTimeout(300);
+
+  const tokensSub = window.locator(".rv-dev-subtab", { hasText: "Tokens" });
+  if (await tokensSub.isVisible()) {
+    await tokensSub.click();
+  }
+  await window.waitForTimeout(500);
+
+  await window.screenshot({
+    path: path.join(SCREENSHOT_DIR, "23-results-developer-tokens.png"),
+  });
+});
+
+// ════════════════════════════════════════════════════════════════
+// SCREENSHOT 24: Results Viewer — Developer Tab (Performance)
+// ════════════════════════════════════════════════════════════════
+// Shows: The Developer tab with the Performance sub-tab active —
+//        per-stage timings, elapsed duration, and pipeline metrics.
+// Guide section: "Reviewing Results — Developer Tab — Performance"
+// Add to guide as: ![Developer Performance](screenshots/24-results-developer-performance.png)
+test("24 - results viewer developer performance", async () => {
+  const devTab = window.locator(".rv-tab", { hasText: "Developer" });
+  if (await devTab.isVisible()) {
+    await devTab.click();
+  }
+  await window.waitForTimeout(300);
+
+  const perfSub = window.locator(".rv-dev-subtab", { hasText: "Performance" });
+  if (await perfSub.isVisible()) {
+    await perfSub.click();
+  }
+  await window.waitForTimeout(1000);
+
+  await window.screenshot({
+    path: path.join(SCREENSHOT_DIR, "24-results-developer-performance.png"),
+  });
+});
+
+// ════════════════════════════════════════════════════════════════
 // SCREENSHOT 19: Config — Pipeline Section
 // ════════════════════════════════════════════════════════════════
 // Shows: The Pipeline section within the Config tab — Gate 1 (Raw
@@ -703,6 +791,77 @@ test("20 - config logging tab", async () => {
 });
 
 // ════════════════════════════════════════════════════════════════
+// SCREENSHOT 25: Config — Delivery Config Section
+// ════════════════════════════════════════════════════════════════
+// Shows: The Delivery Config section — default recipient emails,
+//        email subject template, additional email content, Drive
+//        destination folder, and custom-delivery-per-meeting toggle.
+// Guide section: "Settings & Configuration — Config Tab — Delivery Config Section"
+// Add to guide as: ![Delivery Config Settings](screenshots/25-config-delivery-config.png)
+test("25 - config delivery config section", async () => {
+  const configBtn = window.locator(".sidebar-btn", { hasText: "Config" });
+  await configBtn.click();
+  await window.waitForSelector(".config-panel");
+
+  const section = window.locator(".config-section-tab", { hasText: "Delivery Config" });
+  if (await section.isVisible()) {
+    await section.click();
+  }
+  await window.waitForTimeout(300);
+
+  await window.screenshot({
+    path: path.join(SCREENSHOT_DIR, "25-config-delivery-config.png"),
+  });
+});
+
+// ════════════════════════════════════════════════════════════════
+// SCREENSHOT 26: Config — Usage Tracking Section
+// ════════════════════════════════════════════════════════════════
+// Shows: The Usage Tracking section — enable toggle, DS-mon instance
+//        ID, push/poll intervals, gist URL, and push token.
+// Guide section: "Settings & Configuration — Config Tab — Usage Tracking Section"
+// Add to guide as: ![Usage Tracking Settings](screenshots/26-config-usage-tracking.png)
+test("26 - config usage tracking section", async () => {
+  const configBtn = window.locator(".sidebar-btn", { hasText: "Config" });
+  await configBtn.click();
+  await window.waitForSelector(".config-panel");
+
+  const section = window.locator(".config-section-tab", { hasText: "Usage Tracking" });
+  if (await section.isVisible()) {
+    await section.click();
+  }
+  await window.waitForTimeout(300);
+
+  await window.screenshot({
+    path: path.join(SCREENSHOT_DIR, "26-config-usage-tracking.png"),
+  });
+});
+
+// ════════════════════════════════════════════════════════════════
+// SCREENSHOT 27: Config — Diarization Section
+// ════════════════════════════════════════════════════════════════
+// Shows: The Diarization section — min speaker duration/segments,
+//        merging gap, clustering threshold, max speakers, and the
+//        diarization timeout.
+// Guide section: "Settings & Configuration — Config Tab — Diarization Section"
+// Add to guide as: ![Diarization Settings](screenshots/27-config-diarization.png)
+test("27 - config diarization section", async () => {
+  const configBtn = window.locator(".sidebar-btn", { hasText: "Config" });
+  await configBtn.click();
+  await window.waitForSelector(".config-panel");
+
+  const section = window.locator(".config-section-tab", { hasText: "Diarization" });
+  if (await section.isVisible()) {
+    await section.click();
+  }
+  await window.waitForTimeout(300);
+
+  await window.screenshot({
+    path: path.join(SCREENSHOT_DIR, "27-config-diarization.png"),
+  });
+});
+
+// ════════════════════════════════════════════════════════════════
 // SCREENSHOT 21: Dev Tools — Database Voiceprints
 // ════════════════════════════════════════════════════════════════
 // Shows: The Dev Tools Database tab with the Voiceprints sub-view
@@ -731,5 +890,157 @@ test("21 - dev database voiceprints", async () => {
 
   await window.screenshot({
     path: path.join(SCREENSHOT_DIR, "21-dev-database-voiceprints.png"),
+  });
+});
+
+// ════════════════════════════════════════════════════════════════
+// SCREENSHOT 28: Dev Tools — Performance Tab
+// ════════════════════════════════════════════════════════════════
+// Shows: The Dev Tools Performance tab — per-job stage timings,
+//        CPU/memory metrics, and elapsed pipeline durations.
+// Guide section: "Dev Tools — Performance Tab"
+// Add to guide as: ![Dev Performance](screenshots/28-dev-performance.png)
+test("28 - dev tools performance tab", async () => {
+  const devBtn = window.locator(".sidebar-btn", { hasText: "Dev" });
+  await devBtn.click();
+  await window.waitForTimeout(500);
+
+  const tab = window.locator(".dev-panel-tab", { hasText: "Performance" });
+  if (await tab.isVisible()) {
+    await tab.click();
+  }
+  await window.waitForTimeout(1000);
+
+  await window.screenshot({
+    path: path.join(SCREENSHOT_DIR, "28-dev-performance.png"),
+  });
+});
+
+// ════════════════════════════════════════════════════════════════
+// SCREENSHOT 29: Dev Tools — Usage Tab
+// ════════════════════════════════════════════════════════════════
+// Shows: The Dev Tools Usage tab — DeepSeek API credit balance and
+//        LLM token usage/cost across jobs.
+// Guide section: "Dev Tools — Usage Tab"
+// Add to guide as: ![Dev Usage](screenshots/29-dev-usage.png)
+test("29 - dev tools usage tab", async () => {
+  const devBtn = window.locator(".sidebar-btn", { hasText: "Dev" });
+  await devBtn.click();
+  await window.waitForTimeout(500);
+
+  const tab = window.locator(".dev-panel-tab", { hasText: "Usage" });
+  if (await tab.isVisible()) {
+    await tab.click();
+  }
+  await window.waitForTimeout(1000);
+
+  await window.screenshot({
+    path: path.join(SCREENSHOT_DIR, "29-dev-usage.png"),
+  });
+});
+
+// ════════════════════════════════════════════════════════════════
+// SCREENSHOT 30: Dev Tools — Log Files Tab
+// ════════════════════════════════════════════════════════════════
+// Shows: The Dev Tools Log Files tab — job list on the left and the
+//        formatted per-job pipeline log on the right (parsed source/
+//        level/sub-source columns with Pipeline/Agent/Transcript/Raw
+//        sub-tabs).
+// Guide section: "Dev Tools — Log Files Tab"
+// Add to guide as: ![Dev Log Files](screenshots/30-dev-log-files.png)
+test("30 - dev tools log files tab", async () => {
+  const devBtn = window.locator(".sidebar-btn", { hasText: "Dev" });
+  await devBtn.click();
+  await window.waitForTimeout(500);
+
+  const tab = window.locator(".dev-panel-tab", { hasText: "Log Files" });
+  if (await tab.isVisible()) {
+    await tab.click();
+  }
+  await window.waitForTimeout(500);
+
+  // Select the most recent job so the log viewer populates
+  const firstJob = window.locator(".dev-panel-file-item").first();
+  if (await firstJob.isVisible()) {
+    await firstJob.click();
+  }
+  await window.waitForTimeout(1000);
+
+  await window.screenshot({
+    path: path.join(SCREENSHOT_DIR, "30-dev-log-files.png"),
+  });
+});
+
+// ════════════════════════════════════════════════════════════════
+// SCREENSHOT 31: Dev Tools — Updates Tab
+// ════════════════════════════════════════════════════════════════
+// Shows: The Dev Tools Updates tab — current version, latest
+//        version, and check/install update controls.
+// Guide section: "Dev Tools — Updates Tab"
+// Add to guide as: ![Dev Updates](screenshots/31-dev-updates.png)
+test("31 - dev tools updates tab", async () => {
+  const devBtn = window.locator(".sidebar-btn", { hasText: "Dev" });
+  await devBtn.click();
+  await window.waitForTimeout(500);
+
+  const tab = window.locator(".dev-panel-tab", { hasText: "Updates" });
+  if (await tab.isVisible()) {
+    await tab.click();
+  }
+  await window.waitForTimeout(1000);
+
+  await window.screenshot({
+    path: path.join(SCREENSHOT_DIR, "31-dev-updates.png"),
+  });
+});
+
+// ════════════════════════════════════════════════════════════════
+// SCREENSHOT 32: Dev Tools — Testing Tab
+// ════════════════════════════════════════════════════════════════
+// Shows: The Dev Tools Testing tab — frontend (Playwright) and
+//        backend (test bot) test runners with the sub-tab bar,
+//        audio/title/names inputs, and run output.
+// Guide section: "Dev Tools — Testing Tab"
+// Add to guide as: ![Dev Testing](screenshots/32-dev-testing.png)
+test("32 - dev tools testing tab", async () => {
+  const devBtn = window.locator(".sidebar-btn", { hasText: "Dev" });
+  await devBtn.click();
+  await window.waitForTimeout(500);
+
+  const tab = window.locator(".dev-panel-tab", { hasText: "Testing" });
+  if (await tab.isVisible()) {
+    await tab.click();
+  }
+  await window.waitForTimeout(1000);
+
+  await window.screenshot({
+    path: path.join(SCREENSHOT_DIR, "32-dev-testing.png"),
+  });
+});
+
+// ════════════════════════════════════════════════════════════════
+// SCREENSHOT 33: Dev Tools — Guide Tab
+// ════════════════════════════════════════════════════════════════
+// Shows: The Dev Tools Guide tab — documentation sub-tab bar (API
+//        Endpoints, Backend Architecture, Known Bugs, etc.) and the
+//        DocViewer with sidebar TOC, search, and paged content.
+// Guide section: "Dev Tools — Guide Tab"
+// Add to guide as: ![Dev Guide](screenshots/33-dev-guide.png)
+test("33 - dev tools guide tab", async () => {
+  const devBtn = window.locator(".sidebar-btn", { hasText: "Dev" });
+  await devBtn.click();
+  await window.waitForTimeout(500);
+
+  const tab = window.locator(".dev-panel-tab", { hasText: "Guide" });
+  if (await tab.isVisible()) {
+    await tab.click();
+  }
+
+  // Wait for the DocViewer (sidebar TOC) to finish loading the docs
+  await window.waitForSelector(".guide-sidebar", { timeout: 15_000 });
+  await window.waitForTimeout(500);
+
+  await window.screenshot({
+    path: path.join(SCREENSHOT_DIR, "33-dev-guide.png"),
   });
 });

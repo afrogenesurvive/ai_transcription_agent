@@ -35,7 +35,7 @@ try:
         return _orig_lazy_getattr(self, attr)
 
     _sb_utils.LazyModule.__getattr__ = _safe_lazy_getattr
-    print("[patches] ✅ Patched speechbrain LazyModule.__getattr__ (safe __file__)")
+    print("[patches] [OK] Patched speechbrain LazyModule.__getattr__ (safe __file__)")
 except Exception:
     pass  # speechbrain may not be installed
 
@@ -47,7 +47,7 @@ except Exception:
 # IMPORTANT: Must run BEFORE any pyannote import, because
 # pyannote.audio.utils.protocol creates Audio(mono="downmix") at module level.
 _torchaudio.list_audio_backends = lambda: ["soundfile"]
-print("[patches] ✅ Patched torchaudio.list_audio_backends → soundfile")
+print("[patches] [OK] Patched torchaudio.list_audio_backends -> soundfile")
 
 
 # ── 3. pyannote.audio get_torchaudio_info patch ──
@@ -72,7 +72,7 @@ try:
         return _SafeAudioMetaData(sinfo.samplerate, sinfo.frames, sinfo.channels)
 
     _pyannote_io.get_torchaudio_info = _patched_get_torchaudio_info
-    print("[patches] ✅ Patched pyannote.audio → soundfile (avoids torchaudio deprecations)")
+    print("[patches] [OK] Patched pyannote.audio -> soundfile (avoids torchaudio deprecations)")
 except Exception:
     pass  # pyannote may not be installed
 
@@ -97,4 +97,4 @@ def _patched_torch_load(f, *args, **kwargs):
 
 
 torch.load = _patched_torch_load
-print("[patches] ✅ Patched torch.load → forces weights_only=False")
+print("[patches] [OK] Patched torch.load -> forces weights_only=False")
