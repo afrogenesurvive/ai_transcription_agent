@@ -21,6 +21,18 @@ import { playAlertSound } from "./alert-sound";
 // use this instead of the default "Electron".
 app.name = "Transcription Agent";
 
+// ── Disable GPU hardware acceleration on Windows (Wine/CrossOver blank-window fix) ──
+// When the packaged Windows build runs under Wine/CrossOver (or other emulators),
+// the Chromium D3D11 GPU process crashes with 0xC0000005 and the compositor can
+// never paint — the window stays a blank grey screen even though the renderer loads
+// fine (confirmed via --remote-debugging-port). This app is a plain UI (no WebGL/
+// video), so forcing software rendering is safe and eliminates the crash loop.
+// Gated to win32 so the native macOS build keeps hardware acceleration.
+if (process.platform === "win32") {
+  app.disableHardwareAcceleration();
+  app.commandLine.appendSwitch("disable-gpu-compositing");
+}
+
 // ── Single-instance lock ──
 // Request the lock BEFORE any startup work. Without this, a second launch on
 // Windows (Start Menu, shortcut, installer "run after finish") would spawn
