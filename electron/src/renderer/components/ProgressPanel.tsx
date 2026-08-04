@@ -38,6 +38,8 @@ interface Props {
   diarizationAvailable?: boolean | null;
   /** Set of stage keys (e.g. "agent", "delivery") to show as skipped */
   skippedSteps?: Set<string>;
+  /** Live per-stage % (diarization / transcription) from the logger — shown on the active step. */
+  stageProgress?: { diarization?: number; transcription?: number };
   /** Called when the user clicks "New Job" after a failure */
   onNewJob?: () => void;
   /** Job ID — needed for gate panels to fetch transcript/summary/analysis data */
@@ -72,6 +74,7 @@ export default function PipelineProgress({
   cancelling,
   diarizationAvailable,
   skippedSteps,
+  stageProgress,
   onNewJob,
   jobId,
   onApproveGate1,
@@ -169,6 +172,13 @@ export default function PipelineProgress({
           {PIPELINE.map((stage) => {
             const state = getStageState(stage, status, isFailed, isComplete, maxReached, skippedSteps);
             const waiting = state === "active" && WAITING_LABEL[status] != null;
+            // Live per-stage % (diarization / transcription) from the logger, if any.
+            const stagePct =
+              stage.key === "diarization"
+                ? stageProgress?.diarization
+                : stage.key === "transcription"
+                  ? stageProgress?.transcription
+                  : undefined;
             return (
               <div key={stage.key} className={`pp-step pp-step--${state}${waiting ? " pp-step--waiting" : ""}`}>
                 {/* Connector line */}
@@ -206,8 +216,11 @@ export default function PipelineProgress({
                     <span className="pp-step-desc">{stage.description}</span>
                   </div>
                   {state === "active" && (
-                    <span className={`pp-step-active-badge${waiting ? " pp-step-active-badge--waiting" : ""}`}>
-                      {WAITING_LABEL[status] ?? "In progress"}
+                    <span
+                      className={`pp-step-active-badge${waiting ? " pp-step-active-badge--waiting" : ""}${
+                        stagePct != null && !waiting ? " pp-step-active-badge--pct" : ""
+                      }`}>
+                      {stagePct != null && !waiting ? `${Math.round(stagePct)}%` : WAITING_LABEL[status] ?? "In progress"}
                     </span>
                   )}
                   {state === "done" && <span className="pp-step-done-badge">Done</span>}

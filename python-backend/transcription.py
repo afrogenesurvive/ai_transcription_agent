@@ -105,14 +105,24 @@ class _StreamingSegmentPrinter:
     We forward that line unchanged, then immediately emit the ASV progress line
     (segment end / total duration, with a percentage) right after it, so the terminal
     and every log view see both lines stream in piece by piece.
+
+    Also checks ``cancel_check`` at each printed segment and raises PipelineCancelled
+    when the job has been cancelled, so a user cancel aborts the decode at the next
+    segment boundary instead of letting Whisper transcribe the entire file.
     """
 
-    def __init__(self, total_dur: float):
+    def __init__(self, total_dur: float, cancel_check: Optional[Callable] = None):
         self._total_dur = total_dur
+        self._cancel_check = cancel_check
         self._orig_print = builtins.print
 
     def __enter__(self):
         def interceptor(*args, **kwargs):
+            # Abort the decode at the next segment boundary once the job is
+            # cancelled — otherwise a user cancel would let Whisper decode the
+            # entire file before the pipeline's step-boundary check notices.
+            if self._cancel_check is not None and self._cancel_check():
+                raise PipelineCancelled("Transcription cancelled by user")
             self._orig_print(*args, **kwargs)
             text = " ".join(str(a) for a in args).strip()
             m = _SEGMENT_LINE_RE.match(text)
@@ -742,7 +752,7 @@ class TranscriptionEngine:
             print(f"[transcription]   🧠 Using initial_prompt ({len(self._initial_prompt)} chars)")
         _raise_if_cancelled(cancel_check)
         try:
-            with _StreamingSegmentPrinter(_audio_duration_seconds(audio_path)):
+            with _StreamingSegmentPrinter(_audio_duration_seconds(audio_path), cancel_check=cancel_check):
                 result = self._whisper.transcribe(audio_path, **transcribe_kwargs)
         except Exception as _infer_err:
             err_lower = str(_infer_err).lower()
@@ -772,7 +782,7 @@ class TranscriptionEngine:
             transcribe_kwargs["initial_prompt"] = self._initial_prompt
             print(f"[transcription]   🧠 Using initial_prompt ({len(self._initial_prompt)} chars)")
         _raise_if_cancelled(cancel_check)
-        with _StreamingSegmentPrinter(_audio_duration_seconds(audio_path)):
+        with _StreamingSegmentPrinter(_audio_duration_seconds(audio_path), cancel_check=cancel_check):
             result = mlx_whisper.transcribe(audio_path, **transcribe_kwargs)
         _raise_if_cancelled(cancel_check)
         elapsed = time.time() - t_infer

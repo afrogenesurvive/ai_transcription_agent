@@ -83,6 +83,9 @@ export default function App() {
   const [cancellingForeign, setCancellingForeign] = useState(false);
   const [diarizationAvailable, setDiarizationAvailable] = useState<boolean | null>(null);
   const [historyJobId, setHistoryJobId] = useState<string | null>(null);
+  // Live per-stage progress (diarization / transcription %) pushed from the main
+  // process logger via IPC — displayed on the pipeline stepper's active step.
+  const [stageProgress, setStageProgress] = useState<{ diarization?: number; transcription?: number }>({});
   const [historyJobStatus, setHistoryJobStatus] = useState<{
     status: string;
     progress: number;
@@ -311,6 +314,20 @@ export default function App() {
     return () => cleanup?.();
   }, [notify]);
 
+  // Live per-stage progress (Diarization / ASR %) from the logger — feeds the
+  // pipeline stepper. Only applied when it belongs to the job currently shown.
+  React.useEffect(() => {
+    const cleanup = window.electronAPI?.onJobProgress((payload) => {
+      const activeJobId = historyJobId || jobId;
+      if (!activeJobId) return;
+      if (payload.jobId && payload.jobId !== activeJobId) return;
+      if (payload.stage !== "diarization" && payload.stage !== "transcription") return;
+      if (typeof payload.percent !== "number" || !Number.isFinite(payload.percent)) return;
+      setStageProgress((prev) => ({ ...prev, [payload.stage]: payload.percent }));
+    });
+    return () => cleanup?.();
+  }, [jobId, historyJobId]);
+
   // Cleanup notification timer on unmount
   React.useEffect(() => {
     return () => {
@@ -380,6 +397,7 @@ export default function App() {
       setTranscript(null);
       setJobMetadata(null);
       setStatusData(null);
+      setStageProgress({});
       setView("upload");
       statusHook.stopPolling();
     }
@@ -806,6 +824,7 @@ export default function App() {
       // Immediately update statusData so the UI reflects cancellation instead
       // of showing the stale pre-cancel status (e.g. "processing_diarization").
       setStatusData({ status: "failed", error: "Cancelled by user", progress: 0.0 });
+      setStageProgress({});
       notify("Processing cancelled");
       const cancelTitle = jobMetadata?.title || "Untitled Meeting";
       window.electronAPI?.showNotification({
@@ -899,6 +918,7 @@ export default function App() {
     setTranscript(null);
     setJobMetadata(null);
     setStatusData(null);
+    setStageProgress({});
     setHistoryJobId(null);
     setHistoryTranscript(null);
     statusHook.stopPolling();
@@ -913,6 +933,7 @@ export default function App() {
     setTranscript(null);
     setJobMetadata(null);
     setStatusData(null);
+    setStageProgress({});
     setHistoryJobId(null);
     setHistoryTranscript(null);
     setHistoryJobStatus(null);
@@ -1339,6 +1360,25 @@ export default function App() {
                                   setHistoryTranscript(null);
                                   setHistoryJobStatus(null);
                                 }
+                                // If the deleted job is the one the Current view is showing,
+                                // reset to a neutral state so no stale cancelled/failed panel
+                                // lingers (and stop polling the now-gone job).
+                                if (deletedJobId === jobId) {
+                                  setView("upload");
+                                  setJobId(null);
+                                  setTranscript(null);
+                                  setJobMetadata(null);
+                                  setStatusData(null);
+                                  setHistoryJobId(null);
+                                  setHistoryTranscript(null);
+                                  setHistoryJobStatus(null);
+                                  setStageProgress({});
+                                  statusHook.stopPolling();
+                                  notify("Current job was deleted");
+                                }
+                                // Re-sync the History list from disk so a late write from
+                                // an orphaned thread can't make the job reappear.
+                                setHistoryRefreshTrigger((n) => n + 1);
                               }}
                             />
                           ) : (
@@ -1363,6 +1403,7 @@ export default function App() {
                                     jobId={historyJobId || jobId || undefined}
                                     startedAtMs={statusData?.started_at}
                                     finishedAtMs={statusData?.finished_at}
+                                    stageProgress={stageProgress}
                                     onApproveGate1={handleGate1Approve}
                                     onRejectGate1={handleGate1Reject}
                                     onApproveGate2={handleGate2Approve}

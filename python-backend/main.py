@@ -3167,8 +3167,13 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict, excluded_non_speaki
         jlog.log(f"\n   ❌ [pipeline] ERROR in resumed job {job_id}: {e}")
         import traceback
         traceback.print_exc()
-        uploader.update_status(job_id, {"status": "failed", "error": str(e)})
-        agent_bridge.enqueue_failed(job_id, str(e), {})
+        # Skip status writes if the job was deleted while the thread was running —
+        # writing would recreate the deleted job directory (see _write_status).
+        if _job_dir_exists(job_id):
+            uploader.update_status(job_id, {"status": "failed", "error": str(e)})
+            agent_bridge.enqueue_failed(job_id, str(e), {})
+        else:
+            print(f"[pipeline] Job {job_id} was deleted — skipping failure status write")
     finally:
         jlog.close()
         _pipeline_cancel.discard(job_id)
@@ -5039,6 +5044,19 @@ def _check_cancelled(job_id: str) -> bool:
     return False
 
 
+def _job_dir_exists(job_id: str) -> bool:
+    """True if the job's storage directory still exists (i.e. wasn't deleted).
+
+    Guards against an orphaned pipeline thread resurrecting a job the user
+    deleted from History: upload._write_status() does ``os.makedirs(exist_ok=True)``,
+    so a late failure write would recreate the deleted job folder + status.json.
+    """
+    try:
+        return os.path.isdir(os.path.join(config.STORAGE_PATH, job_id))
+    except Exception:
+        return False
+
+
 def _check_pipeline_timeout(job_id: str, start_time: float, jlog=None) -> bool:
     """Check if the pipeline has exceeded the wall-clock timeout.
 
@@ -5117,15 +5135,21 @@ async def _run_pipeline_async(job_id: str):
             print(f"\n   ❌ [pipeline] ERROR in job {job_id}: {e}")
             import traceback
             traceback.print_exc()
-            # If it was an MPS OOM, surface that clearly in the error message
-            err_str = str(e).lower()
-            if "mps" in err_str or "out of memory" in err_str:
-                enhanced = f"MPS out of memory — device='{detect_device()}', try setting DEVICE=cpu in .env: {e}"
-                uploader.update_status(job_id, {"status": "failed", "error": enhanced})
-                agent_bridge.enqueue_failed(job_id, enhanced, {})
+            # If the job's storage directory was deleted (user deleted the job from
+            # History), do NOT write a failed status back — upload._write_status()
+            # would recreate the dir and "resurrect" a deleted job.
+            if not _job_dir_exists(job_id):
+                print(f"[pipeline] Job {job_id} was deleted — skipping failure status write")
             else:
-                uploader.update_status(job_id, {"status": "failed", "error": str(e)})
-                agent_bridge.enqueue_failed(job_id, str(e), {})
+                # If it was an MPS OOM, surface that clearly in the error message
+                err_str = str(e).lower()
+                if "mps" in err_str or "out of memory" in err_str:
+                    enhanced = f"MPS out of memory — device='{detect_device()}', try setting DEVICE=cpu in .env: {e}"
+                    uploader.update_status(job_id, {"status": "failed", "error": enhanced})
+                    agent_bridge.enqueue_failed(job_id, enhanced, {})
+                else:
+                    uploader.update_status(job_id, {"status": "failed", "error": str(e)})
+                    agent_bridge.enqueue_failed(job_id, str(e), {})
         finally:
             _pipeline_tasks.pop(job_id, None)
             _pipeline_cancel.discard(job_id)

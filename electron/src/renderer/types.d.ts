@@ -65,6 +65,7 @@ export interface LogEntry {
   subSource?: string;
   level: "debug" | "info" | "warn" | "error";
   message: string;
+  stageProgress?: { jobId?: string; stage: "diarization" | "transcription"; percent: number };
 }
 
 /** A group of consecutive log entries sharing the same source/subsource/level */
@@ -143,6 +144,7 @@ export interface ElectronAPI {
   getLogs: () => Promise<LogEntry[]>;
   clearLogs: () => Promise<{ success: boolean }>;
   onLog: (cb: (entry: LogEntry) => void) => () => void;
+  onJobProgress: (cb: (payload: { jobId?: string; stage: "diarization" | "transcription"; percent: number; timestamp?: number }) => void) => () => void;
   getConfig: () => Promise<Record<string, string>>;
   saveConfig: (values: Record<string, string>) => Promise<Record<string, string>>;
   checkConfig: () => Promise<{ ok: boolean; missing: string[] }>;

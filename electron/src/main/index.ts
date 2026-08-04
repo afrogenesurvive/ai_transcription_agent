@@ -2658,6 +2658,16 @@ registerExportHandlers(() => mainWindow);
 const unsubscribeLogs = subscribe((entry) => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send("log", entry);
+    // Forward parsed per-stage progress (diarization / ASR %) to the renderer
+    // pipeline stepper as a lightweight structured event.
+    if (entry.stageProgress) {
+      mainWindow.webContents.send("job-progress", {
+        jobId: entry.stageProgress.jobId,
+        stage: entry.stageProgress.stage,
+        percent: entry.stageProgress.percent,
+        timestamp: entry.timestamp,
+      });
+    }
   }
 });
 

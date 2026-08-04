@@ -73,6 +73,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("log", (_event, entry) => callback(entry));
     return () => ipcRenderer.removeAllListeners("log");
   },
+  onJobProgress: (callback: (payload: { jobId?: string; stage: "diarization" | "transcription"; percent: number; timestamp?: number }) => void) => {
+    ipcRenderer.on("job-progress", (_event, payload) => callback(payload));
+    return () => ipcRenderer.removeAllListeners("job-progress");
+  },
 
   // ── Tray / Menu Bar ──
   toggleTray: (): Promise<{ visible: boolean }> => ipcRenderer.invoke("tray:toggle"),

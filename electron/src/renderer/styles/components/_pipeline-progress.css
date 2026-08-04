@@ -296,6 +296,13 @@
   animation: pp-pulse 1.5s ease-in-out infinite;
 }
 
+/* Numeric per-stage % readout (diarization / transcription) — no pulse so it reads like a gauge. */
+.pp-step-active-badge--pct {
+  animation: none;
+  background: rgba(88, 166, 255, 0.18);
+  font-variant-numeric: tabular-nums;
+}
+
 @keyframes pp-pulse {
   0%,
   100% {

@@ -16,6 +16,15 @@
 import fs from "fs";
 import path from "path";
 
+export type StageKey = "diarization" | "transcription";
+
+export interface StageProgress {
+  /** Job ID the progress belongs to (best-effort; the log's jobId or the current job). */
+  jobId?: string;
+  stage: StageKey;
+  percent: number;
+}
+
 export interface LogEntry {
   timestamp: number;
   source: "python" | "bridge" | "agent" | "main";
@@ -23,6 +32,8 @@ export interface LogEntry {
   subSource?: string;
   level: "debug" | "info" | "warn" | "error";
   message: string;
+  /** Structured per-stage progress parsed from python log lines (for the pipeline stepper). */
+  stageProgress?: StageProgress;
 }
 
 export interface LogFileInfo {
@@ -259,6 +270,34 @@ function deriveProgressLog(source: LogEntry["source"], message: string): string 
   return `Job ${m[1]} ${label} progress = ${m[3]}${pct}`;
 }
 
+/**
+ * Parse a per-stage progress percentage from a python log line.
+ *
+ * The three formats we recognise (all emitted by the Python backend):
+ *   - Whisper ASR:  "ASV progress: <end>/<total> (NN.N%)"          → transcription
+ *   - Diarization:  "Diarization progress: X/Y segments (NN%)"     → diarization
+ *   - Diarization:  "Diarization <step>: NN%"                      → diarization
+ *
+ * Messages have already had emoji stripped and any leading [tag] prefix removed
+ * by backend-manager, but may carry a leading "[  12.3s]" elapsed-time bracket,
+ * so the patterns are searched rather than anchored.
+ */
+function deriveStageProgress(message: string): { stage: StageKey; percent: number } | null {
+  // Whisper ASR progress, e.g. "ASV progress: 00:12.345/01:23.456 (14.8%)"
+  const asv = message.match(/ASV progress:\s*\S+\/\S+\s*\(([\d.]+)%\)/);
+  if (asv) return { stage: "transcription", percent: parseFloat(asv[1]) };
+
+  // Diarization segment-count progress, e.g. "Diarization progress: 45/100 segments (45%)"
+  const diarSeg = message.match(/Diarization progress:\s*\d+\/\d+\s+segments\s*\((\d+)%\)/);
+  if (diarSeg) return { stage: "diarization", percent: parseFloat(diarSeg[1]) };
+
+  // Diarization step progress, e.g. "Diarization Segmentation: 45%"
+  const diarStep = message.match(/Diarization\s+[A-Za-z]+:\s*(\d+)%/);
+  if (diarStep) return { stage: "diarization", percent: parseFloat(diarStep[1]) };
+
+  return null;
+}
+
 export function addLog(
   source: LogEntry["source"],
   level: LogEntry["level"],
@@ -297,6 +336,12 @@ export function addLog(
   message = message.replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{200D}\u{FE0F}]/gu, "").trim();
 
   const entry: LogEntry = { timestamp, source, subSource, level, message };
+  // Parse live per-stage progress (diarization / ASR) so subscribers (index.ts)
+  // can forward it to the renderer pipeline stepper.
+  const stageProg = deriveStageProgress(message);
+  if (stageProg) {
+    entry.stageProgress = { ...stageProg, jobId: jobId || _currentJobId || undefined };
+  }
   buffer.push(entry);
   if (buffer.length > MAX_ENTRIES) buffer.shift();
 
