@@ -148,16 +148,14 @@ export default function SpeakerLabelModal({
   // section. They are excluded from the persisted attendee list + delivery.
   const [removedNonSpeaking, setRemovedNonSpeaking] = useState<Set<string>>(new Set());
 
-  // ── Own-print voice-drift notices ──
+  // ── Own-print voice-drift notices (advisory) ──
   // Keyed by speaker_id. When the assigned name has an enrolled voiceprint but
   // the current meeting's voice doesn't match it, verifyLabels returns a
-  // voice_drift_conflicts entry and we show a blocking inline notice. The user
-  // must either explicitly overwrite (adds to perSpeakerOverwrite) or clear the
-  // assignment — otherwise the backend would silently replace the voiceprint.
+  // voice_drift_conflicts entry and we show an inline notice. It is advisory,
+  // not a gate: the user can explicitly overwrite (adds to perSpeakerOverwrite),
+  // dismiss it (accepting the overwrite on save), or edit the name (which clears
+  // it). The user has full visibility into what exists and where the mismatch is.
   const [driftNotices, setDriftNotices] = useState<Record<string, VoiceDriftConflict>>({});
-  // True while a drift notice is unresolved and the user tried to Confirm —
-  // shows a hint banner pointing at the inline notices.
-  const [driftBlocked, setDriftBlocked] = useState(false);
 
   // A registered attendee already assigned to a speaker slot is disabled in
   // every dropdown (the app rejects duplicate speaker names anyway).
@@ -529,19 +527,6 @@ export default function SpeakerLabelModal({
       setVerificationDone(true);
     }
 
-    // ── Gate: unresolved own-print drift notices must be resolved inline ──
-    // If any speaker's assigned name has an enrolled voiceprint that this
-    // meeting's voice doesn't match, the user must explicitly choose to
-    // overwrite (or clear the assignment) before we submit — otherwise the
-    // backend would silently replace the enrolled voiceprint.
-    const unresolvedDrift = Object.keys(driftNotices).filter((sid) => driftNotices[sid]);
-    if (unresolvedDrift.length > 0) {
-      setCheckingConflicts(false);
-      setDriftBlocked(true);
-      return;
-    }
-    setDriftBlocked(false);
-
     setCheckingConflicts(false);
     // Pass perSpeakerOverwrite names as overwrite_names so the drift audit
     // skips them (user already chose to keep their typed name inline).
@@ -813,7 +798,6 @@ export default function SpeakerLabelModal({
         next.delete(speakerId);
         return next;
       });
-      setDriftBlocked(false);
       onClearError?.();
       void verifySingleSpeaker(speakerId, attendee.name, email);
     },
@@ -828,34 +812,17 @@ export default function SpeakerLabelModal({
       delete next[speakerId];
       return next;
     });
-    setDriftBlocked(false);
   };
 
-  /** Decline the overwrite — clear the assignment so nothing is silently replaced. */
-  const handleDriftCancel = (speakerId: string) => {
+  /** Dismiss the drift notice — keeps the assignment as-is (the overwrite will
+   *  happen on save; the user was informed of the mismatch and can edit the name
+   *  to change their mind). Advisory, not a gate. */
+  const handleDriftDismiss = (speakerId: string) => {
     setDriftNotices((prev) => {
       const next = { ...prev };
       delete next[speakerId];
       return next;
     });
-    setLabels((prev) => ({ ...prev, [speakerId]: "" }));
-    setEmails((prev) => ({ ...prev, [speakerId]: "" }));
-    setEmailErrors((prev) => {
-      const next = { ...prev };
-      delete next[speakerId];
-      return next;
-    });
-    setPerSpeakerConflicts((prev) => {
-      const next = { ...prev };
-      delete next[speakerId];
-      return next;
-    });
-    setPerSpeakerOverwrite((prev) => {
-      const next = new Set(prev);
-      next.delete(speakerId);
-      return next;
-    });
-    setDriftBlocked(false);
   };
 
   /** Handle A/B conflict choice: fill the speaker's name/email and track the decision. */
@@ -899,13 +866,12 @@ export default function SpeakerLabelModal({
         return next;
       });
       // An explicit A/B choice resolves the assignment — clear any stale drift
-      // notice for this speaker so the submit gate doesn't block on it.
+      // notice for this speaker.
       setDriftNotices((prev) => {
         const next = { ...prev };
         delete next[speakerId];
         return next;
       });
-      setDriftBlocked(false);
     },
     [speakers],
   );
@@ -932,13 +898,6 @@ export default function SpeakerLabelModal({
             {speakers.length} speaker{speakers.length !== 1 ? "s" : ""} detected. Listen to each clip and enter a name for every speaker. All must be
             labeled before continuing.
           </p>
-
-          {driftBlocked && (
-            <div className="speaker-drift-blocked-banner">
-              <Icon name="warning" size="14" color="orange" />
-              <span>Resolve the voiceprint mismatch notice(s) below before continuing.</span>
-            </div>
-          )}
         </div>
 
         {/* ── Post-submit conflict banner ── */}
@@ -1205,8 +1164,8 @@ export default function SpeakerLabelModal({
                       <button className="btn-primary speaker-drift-btn" onClick={() => handleDriftOverwrite(spk.speaker_id)}>
                         Use “{drift.name}” &amp; overwrite voiceprint
                       </button>
-                      <button className="btn-secondary speaker-drift-btn" onClick={() => handleDriftCancel(spk.speaker_id)}>
-                        Cancel
+                      <button className="btn-secondary speaker-drift-btn" onClick={() => handleDriftDismiss(spk.speaker_id)}>
+                        Dismiss
                       </button>
                     </div>
                   </div>

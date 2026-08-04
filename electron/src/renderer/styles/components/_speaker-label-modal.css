@@ -802,21 +802,7 @@
   background: var(--surface);
 }
 
-/* ── Own-print voice-drift notice ── */
-
-.speaker-drift-blocked-banner {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  margin-bottom: 16px;
-  background: rgba(210, 146, 34, 0.12);
-  border: 1px solid rgba(210, 146, 34, 0.35);
-  border-radius: 8px;
-  font-size: 13px;
-  color: var(--text);
-  line-height: 1.4;
-}
+/* ── Own-print voice-drift notice (advisory) ── */
 
 .speaker-drift-notice {
   margin-top: 8px;
