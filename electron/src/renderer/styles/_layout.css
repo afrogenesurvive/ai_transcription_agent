@@ -122,6 +122,22 @@
   white-space: nowrap;
 }
 
+.app-header-job-indicator-pct {
+  color: var(--accent);
+  font-weight: 700;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.app-header-job-indicator-time {
+  font-family: var(--font-mono, "SF Mono", "Fira Code", monospace);
+  font-size: var(--fs-10);
+  letter-spacing: 0.4px;
+  color: var(--green, #3fb950);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .app-header-job-indicator-sep {
   opacity: 0.5;
   margin: 0 2px;

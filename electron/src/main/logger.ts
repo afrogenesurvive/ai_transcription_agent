@@ -238,23 +238,25 @@ const STATUS_PROGRESS_LABELS: Record<string, string> = {
   processing_diarization: "Diarization Processing",
 };
 
-/**
- * Derive a [transcription] progress log line from a python status-poll entry.
- * Returns the derived message, or null when the line isn't a status poll for a
- * tracked stage.
- *
- * Input (from python-backend/main.py):
- *   "GET /transcribe/status/<uuid> → processing_diarization (progress=0.2283)"
- * Output:
- *   "Job <uuid> Diarization Processing progress = 0.2283"
- */
+function formatProgressPercent(status: string, raw: number): string {
+  if (!Number.isFinite(raw)) return "";
+  let frac = raw;
+  if (status === "processing_diarization") {
+    // Diarization band: overall pipeline progress runs 0.2 → 0.3.
+    frac = (raw - 0.2) / 0.1;
+  }
+  const pct = Math.max(0, Math.min(100, frac * 100));
+  return ` (${pct.toFixed(1)}%)`;
+}
+
 function deriveProgressLog(source: LogEntry["source"], message: string): string | null {
   if (source !== "python") return null;
   const m = message.match(/^(?:\[api\]\s*)?GET \/transcribe\/status\/([a-f0-9-]+)\s*→\s*([a-z_]+)\s*\(progress=(\S+)\)/);
   if (!m) return null;
   const label = STATUS_PROGRESS_LABELS[m[2]];
   if (!label) return null;
-  return `Job ${m[1]} ${label} progress = ${m[3]}`;
+  const pct = formatProgressPercent(m[2], parseFloat(m[3]));
+  return `Job ${m[1]} ${label} progress = ${m[3]}${pct}`;
 }
 
 export function addLog(
@@ -304,8 +306,8 @@ export function addLog(
   if (logJobId) writeEntryToJobLog(entry, logJobId);
 
   // ── Derive a [transcription] progress log from python status polls ──
-  // e.g. "GET /transcribe/status/<uuid> → processing_diarization (progress=0.22)"
-  //   →  "Job <uuid> Diarization Processing progress = 0.22"  (subSource "transcription")
+  // e.g. "GET /transcribe/status/<uuid> → processing_diarization (progress=0.2037)"
+  //   →  "Job <uuid> Diarization Processing progress = 0.2037 (3.7%)"  (subSource "transcription")
   // Emitted so stage progress appears in every log view (DevPanel live feed +
   // the per-job pipeline.log) and is filterable by the "transcription" sub-source.
   let derivedEntry: LogEntry | null = null;

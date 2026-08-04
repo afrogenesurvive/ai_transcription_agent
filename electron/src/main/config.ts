@@ -161,7 +161,7 @@ const DEFAULTS: AppConfig = {
   PLAYWRIGHT_TITLE_TEMPLATE: "test {autoNum}",
   PLAYWRIGHT_GENERIC_NAMES:
     "Alex,Blake,Casey,Drew,Ellis,Finley,Gray,Harper,Indigo,Jade,Kai,Logan,Morgan,Nico,Oakley,Parker,Quinn,Reese,Skyler,Taylor",
-  PIPELINE_TIMEOUT_MINUTES: "45",
+  PIPELINE_TIMEOUT_MINUTES: "60",
   GATE_RAW_REVIEW_ENABLED: "true",
   GATE_DELIVERY_REVIEW_ENABLED: "true",
   CUSTOM_DELIVERY_PER_MEETING: "true",
@@ -180,7 +180,7 @@ const DEFAULTS: AppConfig = {
   DIARIZATION_MERGING_GAP: "0.5",
   DIARIZATION_CLUSTERING_THRESHOLD: "0.0",
   DIARIZATION_MAX_SPEAKERS: "0",
-  DIARIZATION_TIMEOUT_MINUTES: "30",
+  DIARIZATION_TIMEOUT_MINUTES: "60",
 };
 
 /** Keys the UI considers "required" before the pipeline can run. */
@@ -464,7 +464,7 @@ export function getChildEnv(): NodeJS.ProcessEnv {
       userVals.PLAYWRIGHT_GENERIC_NAMES ||
       process.env.PLAYWRIGHT_GENERIC_NAMES ||
       "Alex,Blake,Casey,Drew,Ellis,Finley,Gray,Harper,Indigo,Jade,Kai,Logan,Morgan,Nico,Oakley,Parker,Quinn,Reese,Skyler,Taylor",
-    PIPELINE_TIMEOUT_MINUTES: userVals.PIPELINE_TIMEOUT_MINUTES || process.env.PIPELINE_TIMEOUT_MINUTES || "45",
+    PIPELINE_TIMEOUT_MINUTES: userVals.PIPELINE_TIMEOUT_MINUTES || process.env.PIPELINE_TIMEOUT_MINUTES || "60",
     // Delivery config — forwarded to Python backend for email + drive delivery
     DELIVERY_RECIPIENT_EMAILS: userVals.DELIVERY_RECIPIENT_EMAILS || process.env.DELIVERY_RECIPIENT_EMAILS || "",
     DELIVERY_EMAIL_SUBJECT: userVals.DELIVERY_EMAIL_SUBJECT || process.env.DELIVERY_EMAIL_SUBJECT || "Meeting Summary: {title}",
@@ -486,7 +486,7 @@ export function getChildEnv(): NodeJS.ProcessEnv {
     DIARIZATION_MERGING_GAP: userVals.DIARIZATION_MERGING_GAP || process.env.DIARIZATION_MERGING_GAP || "0.5",
     DIARIZATION_CLUSTERING_THRESHOLD: userVals.DIARIZATION_CLUSTERING_THRESHOLD || process.env.DIARIZATION_CLUSTERING_THRESHOLD || "0.0",
     DIARIZATION_MAX_SPEAKERS: userVals.DIARIZATION_MAX_SPEAKERS || process.env.DIARIZATION_MAX_SPEAKERS || "0",
-    DIARIZATION_TIMEOUT_MINUTES: userVals.DIARIZATION_TIMEOUT_MINUTES || process.env.DIARIZATION_TIMEOUT_MINUTES || "30",
+    DIARIZATION_TIMEOUT_MINUTES: userVals.DIARIZATION_TIMEOUT_MINUTES || process.env.DIARIZATION_TIMEOUT_MINUTES || "60",
     // Storage paths — only override in packaged (prod) mode so DBs land in a
     // writable location. In dev the Python backend defaults to the project-
     // relative storage/ dir, which is already writable.

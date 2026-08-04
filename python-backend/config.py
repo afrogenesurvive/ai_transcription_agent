@@ -93,7 +93,7 @@ class Config:
     # auto-scaled to audio length via DIARIZATION_TIMEOUT_SCALE
     # (effective = max(floor, ceil(duration_s * scale))). Long files (30-60+ min)
     # need a much larger budget than the historical fixed 15-min cap.
-    DIARIZATION_TIMEOUT_MINUTES = _env_int("DIARIZATION_TIMEOUT_MINUTES", 30)
+    DIARIZATION_TIMEOUT_MINUTES = _env_int("DIARIZATION_TIMEOUT_MINUTES", 60)
     # Seconds of diarization budget per second of audio (default 2.0 → a 39-min
     # file gets ~78 min of budget). Advanced, env-only.
     DIARIZATION_TIMEOUT_SCALE = _env_float("DIARIZATION_TIMEOUT_SCALE", 2.0)
@@ -124,7 +124,7 @@ class Config:
     MAX_CONCURRENT_PIPELINES = _env_int("MAX_CONCURRENT_PIPELINES", 2)
 
     # Pipeline timeout (minutes) before a hung job fails itself
-    PIPELINE_TIMEOUT_MINUTES = _env_int("PIPELINE_TIMEOUT_MINUTES", 45)
+    PIPELINE_TIMEOUT_MINUTES = _env_int("PIPELINE_TIMEOUT_MINUTES", 60)
     PIPELINE_TIMEOUT_SECONDS = PIPELINE_TIMEOUT_MINUTES * 60
 
     # Delivery configuration (set via ConfigPanel → config.json → env vars)

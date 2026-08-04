@@ -178,7 +178,7 @@ function loadConfigValues(cfg: Record<string, { value: string; source: string }>
     LLM_TEMPERATURE: cfg.LLM_TEMPERATURE?.value || "0.1",
     PERF_METRICS_POLL_INTERVAL: cfg.PERF_METRICS_POLL_INTERVAL?.value || "10000",
     CREDIT_POLL_INTERVAL: cfg.CREDIT_POLL_INTERVAL?.value || "60000",
-    PIPELINE_TIMEOUT_MINUTES: cfg.PIPELINE_TIMEOUT_MINUTES?.value || "45",
+    PIPELINE_TIMEOUT_MINUTES: cfg.PIPELINE_TIMEOUT_MINUTES?.value || "60",
     GATE_RAW_REVIEW_ENABLED: cfg.GATE_RAW_REVIEW_ENABLED?.value || "true",
     GATE_DELIVERY_REVIEW_ENABLED: cfg.GATE_DELIVERY_REVIEW_ENABLED?.value || "true",
     KEEP_MODELS_WARM: cfg.KEEP_MODELS_WARM?.value || "false",
@@ -187,7 +187,7 @@ function loadConfigValues(cfg: Record<string, { value: string; source: string }>
     DIARIZATION_MERGING_GAP: cfg.DIARIZATION_MERGING_GAP?.value || "0.5",
     DIARIZATION_CLUSTERING_THRESHOLD: cfg.DIARIZATION_CLUSTERING_THRESHOLD?.value || "0.0",
     DIARIZATION_MAX_SPEAKERS: cfg.DIARIZATION_MAX_SPEAKERS?.value || "0",
-    DIARIZATION_TIMEOUT_MINUTES: cfg.DIARIZATION_TIMEOUT_MINUTES?.value || "30",
+    DIARIZATION_TIMEOUT_MINUTES: cfg.DIARIZATION_TIMEOUT_MINUTES?.value || "60",
     DELIVERY_RECIPIENT_EMAILS: cfg.DELIVERY_RECIPIENT_EMAILS?.value || "",
     DELIVERY_EMAIL_SUBJECT: cfg.DELIVERY_EMAIL_SUBJECT?.value || "Meeting Summary: {title}",
     DELIVERY_EMAIL_ADDITIONAL_CONTENT: cfg.DELIVERY_EMAIL_ADDITIONAL_CONTENT?.value || "",
@@ -1789,14 +1789,14 @@ The system provides existing memory context at the start of each pipeline run. U
                           min="1"
                           max="600"
                           step="5"
-                          value={values.PIPELINE_TIMEOUT_MINUTES || "45"}
+                          value={values.PIPELINE_TIMEOUT_MINUTES || "60"}
                           onChange={(e) => handleChange("PIPELINE_TIMEOUT_MINUTES", e.target.value)}
                           disabled={activeJobs.length > 0}
                         />
                         <p className="config-field-hint">
                           Total wall-clock budget for the whole pipeline run (diarization + voiceprint matching + ASR + alignment + enqueue),
                           checked between steps. Long audio or a slow/throttled machine needs this well above the diarization timeout — e.g.{" "}
-                          <strong>60–90</strong> for hour-long meetings. Default: <strong>15</strong>.
+                          <strong>60–90</strong> for hour-long meetings. Default: <strong>60</strong>.
                         </p>
                       </div>
 
@@ -1981,13 +1981,13 @@ The system provides existing memory context at the start of each pipeline run. U
                           min="1"
                           max="600"
                           step="5"
-                          value={values.DIARIZATION_TIMEOUT_MINUTES || "30"}
+                          value={values.DIARIZATION_TIMEOUT_MINUTES || "60"}
                           onChange={(e) => handleChange("DIARIZATION_TIMEOUT_MINUTES", e.target.value)}
                           disabled={activeJobs.length > 0}
                         />
                         <p className="config-field-hint">
                           Floor for the diarization subprocess timeout. The effective budget auto-scales with audio length (default ~2× duration), so
-                          this acts as a <strong>minimum</strong>. Raise it (e.g. 45–60) if long meetings time out at 30 min. Default: <strong>30</strong>.
+                          this acts as a <strong>minimum</strong>. Raise it (e.g. 60–90) if long meetings time out at 60 min. Default: <strong>60</strong>.
                         </p>
                       </div>
                     </>

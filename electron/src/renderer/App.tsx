@@ -37,6 +37,7 @@ import { useServerStatus } from "./hooks/useServerStatus";
 import { useForeignJobs } from "./hooks/useForeignJobs";
 import { ServiceStatusProvider } from "./hooks/serviceStatusContext";
 import { loadAndApplyAppearance } from "./appearance";
+import { formatElapsedHMS } from "./utils/timeFormat";
 import type { JobStatus } from "./types";
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
@@ -349,6 +350,18 @@ export default function App() {
       }
     }
   }, [statusHook.data]);
+
+  // ── App header job indicator: live % complete + elapsed time ──
+  const [headerNow, setHeaderNow] = useState<number>(() => Date.now());
+  useEffect(() => {
+    if (!isJobRunning || typeof statusData?.started_at !== "number" || !Number.isFinite(statusData.started_at)) return;
+    setHeaderNow(Date.now());
+    const id = setInterval(() => setHeaderNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [isJobRunning, statusData?.started_at]);
+  const headerElapsedMs =
+    typeof statusData?.started_at === "number" && Number.isFinite(statusData.started_at) ? headerNow - statusData.started_at : 0;
+  const headerPct = Math.round(Math.max(0, Math.min(1, statusData?.progress ?? 0)) * 100);
 
   // ── Clear stale job view when new foreign jobs appear after a completed job ──
   // Without this, the "Current" view keeps showing the old job's results while a
@@ -931,6 +944,10 @@ export default function App() {
                 <span className="app-header-job-indicator-dot" />
                 <span className="app-header-job-indicator-text">
                   Job Running
+                  <span className="app-header-job-indicator-sep">·</span>
+                  <span className="app-header-job-indicator-pct">{headerPct}%</span>
+                  <span className="app-header-job-indicator-sep">·</span>
+                  <span className="app-header-job-indicator-time">{formatElapsedHMS(headerElapsedMs)}</span>
                   <span className="app-header-job-indicator-sep">·</span>
                   <span className="app-header-job-indicator-title">{jobMetadata?.title || "Untitled Meeting"}</span>
                   <span className="app-header-job-indicator-sep">·</span>
