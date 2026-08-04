@@ -28,6 +28,11 @@ export default function DocViewer({ markdown, emptyMessage, initialIndex, onInde
   // Keep the latest onIndexChange without re-binding effects that depend on it.
   const onIndexChangeRef = useRef(onIndexChange);
   onIndexChangeRef.current = onIndexChange;
+  // The document we last normalized the TOC position for ("" before first load).
+  const lastDocRef = useRef<string>("");
+  // Becomes true once the user navigates (TOC/prev/next/search) — after that the
+  // persisted index is never re-applied to the current document.
+  const userNavigatedRef = useRef(false);
 
   const pages = useMemo(() => splitIntoPages(markdown), [markdown]);
   const toc = useMemo(() => pages.map((p) => ({ id: p.id, title: p.title })), [pages]);
@@ -41,7 +46,10 @@ export default function DocViewer({ markdown, emptyMessage, initialIndex, onInde
   useEffect(() => {
     if (searchQuery.trim() && filteredToc.length > 0) {
       const idx = toc.findIndex((t) => t.id === filteredToc[0].id);
-      if (idx >= 0) setCurrentIndex(idx);
+      if (idx >= 0) {
+        userNavigatedRef.current = true;
+        setCurrentIndex(idx);
+      }
     }
   }, [searchQuery]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -57,6 +65,7 @@ export default function DocViewer({ markdown, emptyMessage, initialIndex, onInde
   }, [pages, currentIndex, searchQuery]);
 
   const goTo = useCallback((idx: number) => {
+    userNavigatedRef.current = true;
     setCurrentIndex(idx);
     onIndexChangeRef.current?.(idx);
     contentRef.current?.scrollTo({ top: 0, behavior: "smooth" });
@@ -79,20 +88,31 @@ export default function DocViewer({ markdown, emptyMessage, initialIndex, onInde
     return () => window.removeEventListener("keydown", handler);
   }, [goPrev, goNext]);
 
-  // Reset to first page when markdown changes — but honor the restored index on
-  // the FIRST content load so a persisted TOC position survives an app restart.
+  // Normalize the TOC position ONLY when the document changes. `initialIndex` is
+  // the parent's persisted value, which the parent echoes back after every
+  // onIndexChange — so an `initialIndex` change must NOT reset the page (that was
+  // making TOC/prev/next clicks snap back to page 0). A new document restores the
+  // persisted index on the first content load, otherwise resets to page 0.
   useEffect(() => {
     if (pages.length === 0) return;
-    if (!appliedInitialRef.current) {
-      const idx = Math.min(Math.max(initialIndex ?? 0, 0), pages.length - 1);
-      setCurrentIndex(idx);
-      onIndexChangeRef.current?.(idx);
-      appliedInitialRef.current = true;
-    } else {
-      setCurrentIndex(0);
-      setSearchQuery("");
-      onIndexChangeRef.current?.(0);
+    if (markdown === lastDocRef.current) {
+      // Same document: re-seek to the persisted index only until the user has
+      // interacted (covers the persisted value arriving after the markdown loads).
+      if (!userNavigatedRef.current) {
+        const idx = Math.min(Math.max(initialIndex ?? 0, 0), pages.length - 1);
+        setCurrentIndex(idx);
+        onIndexChangeRef.current?.(idx);
+      }
+      return;
     }
+    // New document loaded — reset tracking, then restore/clear.
+    lastDocRef.current = markdown;
+    userNavigatedRef.current = false;
+    const idx = appliedInitialRef.current ? 0 : Math.min(Math.max(initialIndex ?? 0, 0), pages.length - 1);
+    appliedInitialRef.current = true;
+    setCurrentIndex(idx);
+    setSearchQuery("");
+    onIndexChangeRef.current?.(idx);
   }, [markdown, pages.length, initialIndex]);
 
   if (pages.length === 0) {

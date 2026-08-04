@@ -14,7 +14,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { useUiStateValue } from "../hooks/useUiState";
+import { useUiState, useUiStateValue } from "../hooks/useUiState";
 import Icon from "./Icon";
 import Tooltip from "./Tooltip";
 import LoadingModal from "./LoadingModal";
@@ -28,7 +28,7 @@ interface Props {
   configOk?: boolean;
 }
 
-type ConfigTab = "config" | "agent" | "logging";
+type ConfigTab = "config" | "agent" | "logging" | "ui";
 
 interface ConfigValues {
   [key: string]: string;
@@ -732,6 +732,25 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
     }
   }, []);
 
+  // ── UI state (persisted view state) — Clear all ──
+  const [showClearUiStateConfirm, setShowClearUiStateConfirm] = useState(false);
+  const [clearingUiState, setClearingUiState] = useState(false);
+  const [uiStateResult, setUiStateResult] = useState<string | null>(null);
+  const { reset: resetUiState, set: setUiState } = useUiState();
+
+  const handleClearUiState = useCallback(() => {
+    setShowClearUiStateConfirm(false);
+    setClearingUiState(true);
+    setUiStateResult(null);
+    try {
+      resetUiState(); // wipes every scope (including config.tab → "config")
+      setUiState("config.tab", "ui"); // keep the user on the UI tab so the result is visible
+      setUiStateResult("UI state cleared — all panels reset to defaults.");
+    } finally {
+      setClearingUiState(false);
+    }
+  }, [resetUiState, setUiState]);
+
   const handleRestoreUserDefaults = useCallback(async () => {
     setShowRestoreUserDefaultsConfirm(false);
     setRestoringUserDefaults(true);
@@ -1283,6 +1302,14 @@ The system provides existing memory context at the start of each pipeline run. U
             onClick={() => setActiveTab("logging")}
             title="Configure log sources, levels, file size, and rotation">
             <Icon name="edit_note" size="14" /> Logging
+          </button>
+        </Tooltip>
+        <Tooltip content="View and reset the app's saved UI state (tabs, filters, selections)">
+          <button
+            className={`config-tab ${activeTab === "ui" ? "config-tab--active" : ""}`}
+            onClick={() => setActiveTab("ui")}
+            title="View and reset the app's saved UI state (tabs, filters, selections)">
+            <Icon name="tune" size="14" /> UI
           </button>
         </Tooltip>
       </div>
@@ -3152,6 +3179,30 @@ The system provides existing memory context at the start of each pipeline run. U
             </div>
           </>
         )}
+
+        {/* ── TAB 4: UI State ── */}
+        {activeTab === "ui" && (
+          <div className="config-section">
+            <h3 className="config-section-title">
+              <Icon name="tune" size="16" color="accent" /> UI State
+            </h3>
+            <p className="config-field-hint">
+              The app remembers your view state — panel tabs, filters, selections, and the New-form draft — in{" "}
+              <code>userData/ui-state.json</code>. This is separate from your configuration: it does not affect API keys, providers, delivery
+              settings, or any saved data. Clearing it resets every panel to its defaults immediately (no restart needed).
+            </p>
+            <div className="config-field" style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 10 }}>
+              <button
+                className="config-io-btn config-io-btn--danger"
+                onClick={() => setShowClearUiStateConfirm(true)}
+                disabled={clearingUiState}
+                title="Clear all saved UI state (tabs, filters, selections, New-form draft)">
+                {clearingUiState ? <Icon name="sync" size="14" /> : <Icon name="delete_sweep" size="14" />} Clear all UI state
+              </button>
+              {uiStateResult && <span className="config-success">{uiStateResult}</span>}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Saving overlay ── */}
@@ -3322,6 +3373,29 @@ The system provides existing memory context at the start of each pipeline run. U
               </button>
               <button className="btn-danger" onClick={handleClearConfig} disabled={clearingConfig}>
                 {clearingConfig ? "Clearing..." : "Clear All"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Clear UI State confirmation dialog ── */}
+      {showClearUiStateConfirm && (
+        <div className="confirm-overlay" onClick={() => setShowClearUiStateConfirm(false)}>
+          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3 className="confirm-dialog-title">
+              <Icon name="warning" size="16" color="orange" /> Clear All UI State
+            </h3>
+            <p className="confirm-dialog-text">
+              This resets every panel to its defaults — tabs, filters, selections, and the New-form draft. It does{" "}
+              <strong>not</strong> affect your configuration, API keys, or saved jobs. This cannot be undone.
+            </p>
+            <div className="confirm-dialog-actions">
+              <button className="btn-secondary" onClick={() => setShowClearUiStateConfirm(false)}>
+                Cancel
+              </button>
+              <button className="btn-danger" onClick={handleClearUiState} disabled={clearingUiState}>
+                {clearingUiState ? "Clearing..." : "Clear UI State"}
               </button>
             </div>
           </div>

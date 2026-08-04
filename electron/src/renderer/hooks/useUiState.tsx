@@ -28,6 +28,8 @@ interface UiStateContextValue {
   set: (path: string, value: any) => void;
   /** Delete a top-level scope (e.g. "current") and schedule a save. */
   clearScope: (scope: string) => void;
+  /** Clear ALL ui-state (every scope) and persist an empty object immediately. */
+  reset: () => void;
 }
 
 const UiStateContext = createContext<UiStateContextValue | null>(null);
@@ -171,6 +173,16 @@ export function UiStateProvider({ children }: { children: React.ReactNode }) {
     [scheduleSave],
   );
 
+  // Wipe every scope and persist an empty object immediately. Clearing the
+  // pending debounce timer first prevents a stale scheduled save from
+  // re-persisting old state right after the reset.
+  const reset = useCallback(() => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    stateRef.current = {};
+    setState({});
+    window.electronAPI?.saveUiState({});
+  }, []);
+
   const value = useMemo<UiStateContextValue>(
     () => ({
       state,
@@ -181,8 +193,9 @@ export function UiStateProvider({ children }: { children: React.ReactNode }) {
       },
       set,
       clearScope,
+      reset,
     }),
-    [state, ready, set, clearScope],
+    [state, ready, set, clearScope, reset],
   );
 
   return <UiStateContext.Provider value={value}>{children}</UiStateContext.Provider>;
