@@ -990,7 +990,9 @@ export default function App() {
     [api],
   );
 
-  // Start a new upload (reset everything)
+  // Start a new upload (reset everything about the CURRENT job only).
+  // The History panel UI state (selected job + loaded data) is intentionally
+  // preserved across a new-job switch — it is separate from the current job.
   const handleNew = () => {
     setView("upload");
     setJobId(null);
@@ -998,8 +1000,7 @@ export default function App() {
     setJobMetadata(null);
     setStatusData(null);
     setStageProgress({});
-    setHistoryJobId(null);
-    setHistoryTranscript(null);
+    setShowHistory(false); // New form is its own mode — don't leave History "open"/highlighted
     statusHook.stopPolling();
   };
 
@@ -1272,7 +1273,8 @@ export default function App() {
                   setSidebarView("current");
                   setShowNewForm(false);
                   setShowHistory(false);
-                  setHistoryJobId(null);
+                  // Keep historyJobId — the selected history job persists across
+                  // panel switches (rule 3b); it only renders while History is open.
                 }}
                 title="View active or most recent job — pipeline progress, transcript, and results">
                 <span className="sidebar-btn-icon">
@@ -1286,9 +1288,8 @@ export default function App() {
               <button
                 className={`sidebar-btn ${showHistory && sidebarView === "current" ? "sidebar-btn--active" : ""}`}
                 onClick={() => {
-                  if (showHistory) {
-                    setHistoryJobId(null);
-                  }
+                  // Toggling History closed keeps the selection (rule 3b) — it
+                  // only renders while History is open.
                   setSidebarView("current");
                   setShowNewForm(false);
                   setShowHistory((v) => !v);
@@ -1565,7 +1566,7 @@ export default function App() {
                             />
                           )}
                           {/* Processing placeholder — hidden when viewing history */}
-                          {!historyJobId && view === "processing" && (
+                          {!showHistory && view === "processing" && (
                             <div className="panel transcript-panel">
                               <h2>Transcript</h2>
                               <p className="placeholder">
@@ -1575,7 +1576,7 @@ export default function App() {
                             </div>
                           )}
                           {/* Live results from current upload — hidden when viewing history */}
-                          {!historyJobId && view === "results" && jobId && (
+                          {!showHistory && view === "results" && jobId && (
                             <ResultsViewer
                               stateScope="live"
                               key={"live-" + jobId}

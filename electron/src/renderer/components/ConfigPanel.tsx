@@ -1032,7 +1032,8 @@ The system provides existing memory context at the start of each pipeline run. U
 
   // ── Agent sub-tab state (must be declared before handleSaveAgentConfig which uses it) ──
   type AgentSubTab = "pipeline-steps" | "system-prompt" | "pipeline-hints" | "pipeline-constants" | "defaults";
-  const [agentSubTab, setAgentSubTab] = useState<AgentSubTab>("pipeline-steps");
+  // Persisted so the agent-instructions sub-tab survives panel close/restart (rule 6)
+  const [agentSubTab, setAgentSubTab] = useUiStateValue<AgentSubTab>("config.agentSubTab", "pipeline-steps");
 
   // ── Defaults viewer state (after agentSubTab to avoid hoisting issues) ──
   const [defaultAgentConfig, setDefaultAgentConfig] = useState<{ tools?: any; pipeline?: any; systemPrompt?: string } | null>(null);
