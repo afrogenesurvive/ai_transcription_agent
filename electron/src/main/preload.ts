@@ -5,7 +5,7 @@
  * system tray, app info) while all API calls go directly to the bridge server.
  */
 
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { LogEntry, LogFileInfo } from "./logger";
 
 contextBridge.exposeInMainWorld("electronAPI", {
@@ -116,6 +116,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
   }> => ipcRenderer.invoke("config:import"),
   getDefaultUserConfig: (): Promise<{ success: boolean; defaults: Record<string, string>; error?: string }> => ipcRenderer.invoke("config:defaults"),
   restoreDefaultUserConfig: (): Promise<{ success: boolean; error?: string; blocked?: boolean }> => ipcRenderer.invoke("config:restore-defaults"),
+
+  // ── UI State (userData/ui-state.json — renderer is the single writer) ──
+  getUiState: (): Promise<Record<string, any>> => ipcRenderer.invoke("ui-state:get"),
+  saveUiState: (state: Record<string, any>): Promise<boolean> => ipcRenderer.invoke("ui-state:save", state),
+
+  // ── File path (for persisting the New-form's selected audio file) ──
+  // webUtils.getPathForFile() is synchronous and returns the absolute filesystem
+  // path of a renderer File object (only meaningful for files from <input type=file>).
+  getPathForFile: (file: File): string => webUtils.getPathForFile(file),
 
   // ── Agent Instructions Configuration ──
   getAgentConfig: (): Promise<{ tools?: any; pipeline?: any; systemPrompt?: string; error?: string }> => ipcRenderer.invoke("agent-config:get"),

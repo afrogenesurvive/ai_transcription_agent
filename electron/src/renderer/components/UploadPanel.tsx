@@ -10,6 +10,7 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import Icon from "./Icon";
 import Tooltip from "./Tooltip";
+import { useUiStateValue } from "../hooks/useUiState";
 
 interface AttendeeEntry {
   name: string;
@@ -28,6 +29,15 @@ const SKIPPABLE_STEPS: Record<string, { label: string; hint: string }> = {
 
 interface Props {
   onUpload: (file: File, title: string, attendees: string[], emailRecipients: string[], skipSteps: string[], attendeeEmails?: string[]) => void;
+  /** Upload by a persisted file path (remembered file, no re-pick) — uses /transcribe/upload_by_path. */
+  onUploadByPath?: (params: {
+    filePath: string;
+    title: string;
+    attendees: string[];
+    emailRecipients?: string[];
+    skipSteps?: string[];
+    attendeeEmails?: string[];
+  }) => void;
   uploading: boolean;
   disabled?: boolean;
   /** Initial set of tool names to skip, derived from disabled pipeline steps in agent config. */
@@ -83,11 +93,13 @@ const DEFAULT_SKIP_STEPS = [
   "create_trello_action_items",
 ];
 
-export default function UploadPanel({ onUpload, uploading, disabled, initialSkipSteps }: Props) {
+export default function UploadPanel({ onUpload, onUploadByPath, uploading, disabled, initialSkipSteps }: Props) {
   const [dragOver, setDragOver] = useState(false);
   const [file, setFile] = useState<File | null>(null);
-  const [title, setTitle] = useState("");
-  const [attendeeList, setAttendeeList] = useState<AttendeeEntry[]>([]);
+  // ── Persisted New-form draft (rule 8a) — restored across restarts, cleared on job start ──
+  const [title, setTitle] = useUiStateValue<string>("newForm.title", "");
+  const [attendeeList, setAttendeeList] = useUiStateValue<AttendeeEntry[]>("newForm.attendees", []);
+  const [rememberedFile, setRememberedFile] = useUiStateValue<{ path: string; name: string } | null>("newForm.file", null);
   const [attendeeName, setAttendeeName] = useState("");
   const [attendeeEmail, setAttendeeEmail] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
@@ -243,13 +255,37 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
   const handleFile = useCallback(
     (f: File) => {
       setFile(f);
+      // Persist the file path so the New form can restore it after a restart (rule 8a)
+      const filePath = window.electronAPI?.getPathForFile(f);
+      if (filePath) {
+        setRememberedFile({ path: filePath, name: f.name });
+      }
       if (!title) {
         // Derive title from filename
         setTitle(f.name.replace(/\.[^.]+$/, "").replace(/[_-]/g, " "));
       }
     },
-    [title],
+    [title, setTitle, setRememberedFile],
   );
+
+  // Drop a persisted file path that no longer exists on disk (rule 8a verify-on-launch)
+  useEffect(() => {
+    if (!rememberedFile?.path) return;
+    let cancelled = false;
+    window.electronAPI
+      ?.fileExists(rememberedFile.path)
+      .then((exists) => {
+        if (!cancelled && !exists) {
+          setRememberedFile(null);
+        }
+      })
+      .catch(() => {
+        /* keep it on error — don't drop a valid path because of a transient fs error */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [rememberedFile?.path, setRememberedFile]);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -452,8 +488,8 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
   }, [playbackError]);
 
   const handleSubmit = () => {
-    if (!file) return;
     if (attendeeList.length === 0) return; // attendees is required
+    if (!file && !rememberedFile) return;
     const nameList = attendeeList.map((a) => a.name);
     const attendeeEmails = attendeeList.map((a) => a.email); // keep alignment with names (all now have validated emails)
     const deliveryRecipients = attendeeEmails.filter(Boolean);
@@ -466,7 +502,29 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
     }
     setSavedAttendees(updated);
     saveAttendees(updated);
-    onUpload(file, title || file.name, nameList, deliveryRecipients, skipSteps, attendeeEmails);
+    if (file) {
+      onUpload(file, title || file.name, nameList, deliveryRecipients, skipSteps, attendeeEmails);
+    } else if (rememberedFile) {
+      // No re-picked File this session — upload the remembered file from disk (rule 8a)
+      onUploadByPath?.({
+        filePath: rememberedFile.path,
+        title: title || rememberedFile.name,
+        attendees: nameList,
+        emailRecipients: deliveryRecipients,
+        skipSteps,
+        attendeeEmails,
+      });
+    }
+  };
+
+  /** Clear the whole form (file, title, attendees) and the persisted draft. */
+  const clearForm = () => {
+    setFile(null);
+    setRememberedFile(null);
+    setTitle("");
+    setAttendeeList([]);
+    setFormError(null);
+    setAttendeeConflict(null);
   };
 
   const formatSize = (bytes: number) => {
@@ -496,7 +554,7 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
           onDrop={disabled ? undefined : handleDrop}
           onClick={disabled ? undefined : () => fileInputRef.current?.click()}
           style={disabled ? { pointerEvents: "none", opacity: 0.5 } : undefined}
-          title={file ? "Click to change file" : "Click to browse or drag and drop an audio file"}>
+          title={file || rememberedFile ? "Click to change file" : "Click to browse or drag and drop an audio file"}>
           {file ? (
             <div className="file-info">
               <span className="file-icon">
@@ -509,6 +567,23 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
                 onClick={(e) => {
                   e.stopPropagation();
                   setFile(null);
+                  setRememberedFile(null);
+                }}>
+                Remove
+              </button>
+            </div>
+          ) : rememberedFile ? (
+            <div className="file-info file-info--remembered">
+              <span className="file-icon">
+                <Icon name="history" size="32" color="accent" />
+              </span>
+              <span className="file-name">{rememberedFile.name}</span>
+              <span className="file-size">Last file — will be re-uploaded from disk</span>
+              <button
+                className="btn-text"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setRememberedFile(null);
                 }}>
                 Remove
               </button>
@@ -765,22 +840,34 @@ export default function UploadPanel({ onUpload, uploading, disabled, initialSkip
         ))}
       </div> */}
 
-      <Tooltip
-        content={
-          uploading
-            ? "Uploading audio file to the server…"
-            : disabled
-              ? "Wait for the current job to finish before starting a new one"
-              : "Upload audio and start the transcription pipeline"
-        }>
-        <button
-          className="btn-primary"
-          disabled={!file || attendeeList.length === 0 || uploading || disabled}
-          onClick={handleSubmit}
-          title={uploading ? "Upload in progress" : disabled ? "A job is already running" : "Submit audio and begin transcription"}>
-          {uploading ? "Uploading..." : disabled ? "Job Running — Form Disabled" : "Start Transcription"}
-        </button>
-      </Tooltip>
+      {/* ── Divider between form fields and the submit actions ── */}
+      <div className="upload-form-divider" />
+
+      <div className="upload-form-actions">
+        {(file || rememberedFile || title.trim() || attendeeList.length > 0) && (
+          <Tooltip content="Clear the file, title, and attendee list">
+            <button className="btn-text upload-clear-btn" onClick={clearForm} title="Clear form" disabled={disabled}>
+              <Icon name="delete_sweep" size="14" /> Clear Form
+            </button>
+          </Tooltip>
+        )}
+        <Tooltip
+          content={
+            uploading
+              ? "Uploading audio file to the server…"
+              : disabled
+                ? "Wait for the current job to finish before starting a new one"
+                : "Upload audio and start the transcription pipeline"
+          }>
+          <button
+            className="btn-primary"
+            disabled={(!file && !rememberedFile) || attendeeList.length === 0 || uploading || disabled}
+            onClick={handleSubmit}
+            title={uploading ? "Upload in progress" : disabled ? "A job is already running" : "Submit audio and begin transcription"}>
+            {uploading ? "Uploading..." : disabled ? "Job Running — Form Disabled" : "Start Transcription"}
+          </button>
+        </Tooltip>
+      </div>
     </div>
   );
 }

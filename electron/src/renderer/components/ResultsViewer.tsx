@@ -15,6 +15,7 @@ import Icon from "./Icon";
 import Tooltip from "./Tooltip";
 import LoadingModal from "./LoadingModal";
 import ExportButton from "./ExportButton";
+import { useUiStateValue } from "../hooks/useUiState";
 import { PIPELINE, getStageState, getSubStepState, useMaxReachedStage, WAITING_LABEL } from "./pipelineStages";
 import { formatElapsedHMS } from "../utils/timeFormat";
 import type { TranscriptionSegment, AnalysisData } from "../types";
@@ -92,6 +93,12 @@ interface Props {
   startedAtMs?: number;
   /** Job end time (epoch ms) — present when the job reached a terminal state. */
   finishedAtMs?: number;
+  /**
+   * Which persisted ui-state scope the tabs bind to: "live" (current job) or
+   * "history" (selected history job). Each scope has its own resultsTab +
+   * resultsDevSubTab, so switching jobs keeps the last tab (rule 2b / 3c).
+   */
+  stateScope?: "live" | "history";
 }
 
 /* ── Helpers ── */
@@ -3103,15 +3110,17 @@ export default function ResultsViewer({
   startedAtMs,
   finishedAtMs,
   onSummaryUpdate,
+  stateScope = "live",
 }: Props) {
-  const [activeTab, setActiveTab] = useState<TabId>("pipeline");
-  const [activeDevSubTab, setActiveDevSubTab] = useState<TabId>("tokens");
+  // Persisted tab state — bound to the scope's ui-state paths. The component is
+  // remounted per job (via `key` in App), so on remount it re-reads the stored
+  // tab, giving "keep last tab across selected jobs" (rules 2b / 3c). There is
+  // deliberately NO reset on jobId change; App clears the "current" scope when
+  // there is no current job (rule 2b) and validates history on launch (rule 3d).
+  const tabPrefix = stateScope === "history" ? "history" : "current";
+  const [activeTab, setActiveTab] = useUiStateValue<TabId>(`${tabPrefix}.resultsTab`, "pipeline");
+  const [activeDevSubTab, setActiveDevSubTab] = useUiStateValue<TabId>(`${tabPrefix}.resultsDevSubTab`, "tokens");
 
-  // Reset to first tab when switching to a different job
-  useEffect(() => {
-    setActiveTab("pipeline");
-    setActiveDevSubTab("tokens");
-  }, [jobId]);
   const [analysis, setAnalysis] = useState<AnalysisData | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(true);
 

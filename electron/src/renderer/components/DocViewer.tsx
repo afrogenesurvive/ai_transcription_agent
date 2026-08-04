@@ -14,12 +14,20 @@ interface Props {
   markdown: string;
   /** Placeholder text when markdown is empty. */
   emptyMessage?: string;
+  /** TOC page index to restore on first content load (persisted ui-state). */
+  initialIndex?: number;
+  /** Called whenever the active TOC page changes (for ui-state persistence). */
+  onIndexChange?: (index: number) => void;
 }
 
-export default function DocViewer({ markdown, emptyMessage }: Props) {
+export default function DocViewer({ markdown, emptyMessage, initialIndex, onIndexChange }: Props) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
   const contentRef = useRef<HTMLDivElement>(null);
+  const appliedInitialRef = useRef(false);
+  // Keep the latest onIndexChange without re-binding effects that depend on it.
+  const onIndexChangeRef = useRef(onIndexChange);
+  onIndexChangeRef.current = onIndexChange;
 
   const pages = useMemo(() => splitIntoPages(markdown), [markdown]);
   const toc = useMemo(() => pages.map((p) => ({ id: p.id, title: p.title })), [pages]);
@@ -50,6 +58,7 @@ export default function DocViewer({ markdown, emptyMessage }: Props) {
 
   const goTo = useCallback((idx: number) => {
     setCurrentIndex(idx);
+    onIndexChangeRef.current?.(idx);
     contentRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
@@ -70,11 +79,21 @@ export default function DocViewer({ markdown, emptyMessage }: Props) {
     return () => window.removeEventListener("keydown", handler);
   }, [goPrev, goNext]);
 
-  // Reset to first page when markdown changes
+  // Reset to first page when markdown changes — but honor the restored index on
+  // the FIRST content load so a persisted TOC position survives an app restart.
   useEffect(() => {
-    setCurrentIndex(0);
-    setSearchQuery("");
-  }, [markdown]);
+    if (pages.length === 0) return;
+    if (!appliedInitialRef.current) {
+      const idx = Math.min(Math.max(initialIndex ?? 0, 0), pages.length - 1);
+      setCurrentIndex(idx);
+      onIndexChangeRef.current?.(idx);
+      appliedInitialRef.current = true;
+    } else {
+      setCurrentIndex(0);
+      setSearchQuery("");
+      onIndexChangeRef.current?.(0);
+    }
+  }, [markdown, pages.length, initialIndex]);
 
   if (pages.length === 0) {
     return <p className="about-md-content about-md-content--empty">{emptyMessage || "No content available."}</p>;

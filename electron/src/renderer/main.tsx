@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { UiStateProvider } from "./hooks/useUiState";
 /* ── Foundation & shared styles ── */
 import "./styles/_reset.css";
 import "./styles/_layout.css";
@@ -30,6 +31,8 @@ import "./styles/components/_rich-text-editor.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <App />
+    <UiStateProvider>
+      <App />
+    </UiStateProvider>
   </React.StrictMode>,
 );

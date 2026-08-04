@@ -16,6 +16,7 @@ import Tooltip from "./Tooltip";
 import LoadingModal from "./LoadingModal";
 import DocViewer from "./DocViewer";
 import GuideErrorBoundary from "./GuideErrorBoundary";
+import { useUiStateValue } from "../hooks/useUiState";
 import type { LogEntry } from "../types";
 
 interface Props {
@@ -55,28 +56,6 @@ const LEVEL_PREFIX: Record<string, string> = {
   debug: "",
 };
 
-/* ── LocalStorage keys for persisting log settings ── */
-
-const LS_KEY_SOURCE = "devpanel:sourceFilter";
-const LS_KEY_LEVEL = "devpanel:levelFilter";
-const LS_KEY_SCROLL = "devpanel:autoScroll";
-
-function loadPersisted(key: string, fallback: string): string {
-  try {
-    return localStorage.getItem(key) ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function savePersisted(key: string, value: string): void {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    /* localStorage unavailable */
-  }
-}
-
 /* ── Live Logs Tab ── */
 
 /** Extract a [tag] prefix from the start of a log message, e.g. "[transcription] hello" → "transcription" */
@@ -87,11 +66,12 @@ function extractMessageTag(message: string): string | null {
 
 function LiveLogsTab() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [sourceFilter, setSourceFilter] = useState<SourceFilter>(loadPersisted(LS_KEY_SOURCE, "all") as SourceFilter);
-  const [levelFilter, setLevelFilter] = useState<LevelFilter>(loadPersisted(LS_KEY_LEVEL, "all") as LevelFilter);
+  // Filters persist via ui-state (rule 5b) — migrated from legacy devpanel:* keys
+  const [sourceFilter, setSourceFilter] = useUiStateValue<SourceFilter>("dev.liveLog.sourceFilter", "all");
+  const [levelFilter, setLevelFilter] = useUiStateValue<LevelFilter>("dev.liveLog.levelFilter", "all");
   const [subSourceFilter, setSubSourceFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [autoScroll, setAutoScroll] = useState(loadPersisted(LS_KEY_SCROLL, "true") === "true");
+  const [autoScroll, setAutoScroll] = useUiStateValue<boolean>("dev.liveLog.autoScroll", true);
   const listRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
 
@@ -100,18 +80,15 @@ function LiveLogsTab() {
   const handleAutoScrollChange = useCallback((checked: boolean) => {
     setAutoScroll(checked);
     autoScrollRef.current = checked;
-    savePersisted(LS_KEY_SCROLL, String(checked));
   }, []);
 
-  // Persist filter changes
+  // Persist filter changes (useUiStateValue writes to ui-state.json)
   const handleSourceFilterChange = useCallback((value: SourceFilter) => {
     setSourceFilter(value);
-    savePersisted(LS_KEY_SOURCE, value);
   }, []);
 
   const handleLevelFilterChange = useCallback((value: LevelFilter) => {
     setLevelFilter(value);
-    savePersisted(LS_KEY_LEVEL, value);
   }, []);
 
   // Sync autoScrollRef on mount and whenever autoScroll changes
@@ -383,14 +360,15 @@ async function callBridge(tool: string, args: any = {}): Promise<any> {
 
 function DatabaseTab() {
   const [tables, setTables] = useState<TableInfo[]>([]);
-  const [selectedTable, setSelectedTable] = useState<string | null>(null);
+  // Persisted database selection (rule 5c)
+  const [selectedTable, setSelectedTable] = useUiStateValue<string | null>("dev.database.table", null);
   const [tableRows, setTableRows] = useState<any[]>([]);
   const [tableColumns, setTableColumns] = useState<string[]>([]);
   const [tableTotal, setTableTotal] = useState(0);
   const [meetings, setMeetings] = useState<MeetingInfo[]>([]);
   const [semanticStats, setSemanticStats] = useState<SemanticStats | null>(null);
   const [semanticOverlap, setSemanticOverlap] = useState<SemanticOverlap | null>(null);
-  const [activeView, setActiveView] = useState<"ephemeral" | "semantic" | "voiceprints">("ephemeral");
+  const [activeView, setActiveView] = useUiStateValue<"ephemeral" | "semantic" | "voiceprints">("dev.database.view", "ephemeral");
   const [loading, setLoading] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -542,6 +520,14 @@ function DatabaseTab() {
     loadMeetings();
     loadVoiceprints();
   }, [loadTables, loadMeetings, loadVoiceprints]);
+
+  // Restore the persisted table selection once tables load (rule 5c)
+  useEffect(() => {
+    if (selectedTable && tables.some((t) => t.name === selectedTable) && tableColumns.length === 0) {
+      handleSelectTable(selectedTable);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTable, tables]);
 
   // Cleanup audio on unmount
   useEffect(() => {
@@ -2403,17 +2389,18 @@ function parseLogSubSource(line: string): string | undefined {
 
 function LogFilesTab() {
   const [jobs, setJobs] = useState<any[]>([]);
-  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  // Persisted log-files state (rule 5d): selected job, view sub-tab, filters
+  const [selectedJobId, setSelectedJobId] = useUiStateValue<string | null>("dev.logfiles.jobId", null);
   const [logLines, setLogLines] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [sidebarSearch, setSidebarSearch] = useState("");
-  const [logSourceFilter, setLogSourceFilter] = useState<string>("all");
-  const [logLevelFilter, setLogLevelFilter] = useState<string>("all");
-  const [logSubSourceFilter, setLogSubSourceFilter] = useState<string>("all");
+  const [logSourceFilter, setLogSourceFilter] = useUiStateValue<string>("dev.logfiles.sourceFilter", "all");
+  const [logLevelFilter, setLogLevelFilter] = useUiStateValue<string>("dev.logfiles.levelFilter", "all");
+  const [logSubSourceFilter, setLogSubSourceFilter] = useUiStateValue<string>("dev.logfiles.subSourceFilter", "all");
   const [sidebarWidth, setSidebarWidth] = useState(280);
-  const [logSubTab, setLogSubTab] = useState<"pipeline" | "agent" | "transcript" | "raw">("pipeline");
+  const [logSubTab, setLogSubTab] = useUiStateValue<"pipeline" | "agent" | "transcript" | "raw">("dev.logfiles.subTab", "pipeline");
   const [collapseRepeated, setCollapseRepeated] = useState(true);
   const [prettifiedBlock, setPrettifiedBlock] = useState<string | null>(null);
   const resizingRef = useRef(false);
@@ -3926,6 +3913,7 @@ const DOC_FILES = [
   { id: "electron_architecture", label: "Electron Architecture", file: "electron_architecture.md" },
   { id: "known_bugs", label: "Known Bugs", file: "known_bugs.md" },
   { id: "system_overview", label: "System Overview", file: "system_overview.md" },
+  { id: "ui_state_persistence", label: "UI State Persistence", file: "ui_state_persistence.md" },
   { id: "testing_checklist", label: "Testing Checklist", file: "testing_checklist.md" },
   { id: "usage_tracking_plan", label: "Usage Tracking", file: "usage-tracking-plan.md" },
   { id: "windows_aws_testing", label: "Windows AWS Testing", file: "windows_aws_testing.md" },
@@ -3934,9 +3922,13 @@ const DOC_FILES = [
 ];
 
 function DevGuideTab() {
-  const [activeDoc, setActiveDoc] = useState(DOC_FILES[0].id);
+  // Persisted guide doc + TOC page selection (rule 5f)
+  const [activeDoc, setActiveDoc] = useUiStateValue<string>("dev.guide.doc", DOC_FILES[0].id);
+  const [tocIndex, setTocIndex] = useUiStateValue<number>("dev.guide.tocIndex", 0);
   const [docContents, setDocContents] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+  // Guard against a stale persisted doc id (e.g. a doc removed in a newer build)
+  const effectiveDoc = DOC_FILES.some((d) => d.id === activeDoc) ? activeDoc : DOC_FILES[0].id;
 
   const loadAllDocs = useCallback(async () => {
     setLoading(true);
@@ -3969,7 +3961,7 @@ function DevGuideTab() {
         {DOC_FILES.map((doc) => (
           <button
             key={doc.id}
-            className={`config-section-tab ${activeDoc === doc.id ? "config-section-tab--active" : ""}`}
+            className={`config-section-tab ${effectiveDoc === doc.id ? "config-section-tab--active" : ""}`}
             onClick={() => setActiveDoc(doc.id)}
             title={doc.label}>
             {doc.label}
@@ -3985,7 +3977,7 @@ function DevGuideTab() {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, padding: "12px 16px", overflow: "auto" }}>
           <GuideErrorBoundary>
-            <DocViewer markdown={docContents[activeDoc] || ""} />
+            <DocViewer markdown={docContents[effectiveDoc] || ""} initialIndex={tocIndex} onIndexChange={setTocIndex} />
           </GuideErrorBoundary>
         </div>
       )}
@@ -4030,8 +4022,9 @@ function SubTabPill({ label, icon, active, onClick }: SubTabPillProps) {
 /* ── DevPanel ── */
 
 export default function DevPanel({ onClose }: Props) {
-  const [activeTab, setActiveTab] = useState<Tab>("live");
-  const [testingSubTab, setTestingSubTab] = useState<"frontend" | "backend" | "logs">("backend");
+  // Persisted Dev panel tab + testing subtab selection (rules 5a / 5e)
+  const [activeTab, setActiveTab] = useUiStateValue<Tab>("dev.tab", "live");
+  const [testingSubTab, setTestingSubTab] = useUiStateValue<"frontend" | "backend" | "logs">("dev.testing.subTab", "backend");
 
   return (
     <div className="dev-panel dev-panel--full">

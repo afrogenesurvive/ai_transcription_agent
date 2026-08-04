@@ -33,6 +33,31 @@ if (process.platform === "win32") {
   app.commandLine.appendSwitch("disable-gpu-compositing");
 }
 
+// ── Detect Wine/CrossOver so renderer-compat workarounds only apply there ──
+// CrossOver presents itself as Windows to the app, so `process.platform ===
+// "win32"` can't tell it apart from native Windows. Wine/CrossOver set these env
+// vars in the bottle environment; native Windows does not. Chromium's Windows
+// sandbox relies on Win32 security primitives (job objects, integrity levels)
+// that Wine doesn't implement, so under CrossOver the renderer process can fail
+// to launch silently — main process + Python backend run fine, but the window
+// stays blank and the chromium.log shows only browser-process lines (no
+// renderer/GPU PIDs). Disabling the sandbox is gated to Wine so native Windows
+// keeps its sandbox.
+const isWine = Boolean(
+  process.env.WINEPREFIX ||
+  process.env.WINELOADERNOEXEC ||
+  process.env.WINEDEBUG ||
+  process.env.WINEDLLOVERRIDES ||
+  process.env.WINEARCH
+);
+
+// ── Disable the Chromium sandbox under Wine/CrossOver (blank-window fix) ──
+// The renderer never starts under the sandbox in Wine/CrossOver → blank window
+// with a healthy backend. Only applies under Wine so native Windows is untouched.
+if (process.platform === "win32" && isWine) {
+  app.commandLine.appendSwitch("no-sandbox");
+}
+
 // ── Single-instance lock ──
 // Request the lock BEFORE any startup work. Without this, a second launch on
 // Windows (Start Menu, shortcut, installer "run after finish") would spawn
@@ -128,6 +153,7 @@ import {
   restoreUserConfigDefaults,
   saveAgentConfigToDisk,
 } from "./config";
+import { getUiState, saveUiState } from "./ui-state";
 
 // ── Enable Electron/Chromium logging (debug aid) ──
 // When LOG_CHROMIUM is enabled (ConfigPanel > Logging, or LOG_CHROMIUM=1 via .env),
@@ -1007,6 +1033,25 @@ ipcMain.handle("config:get", () => {
   const cfg = getConfig();
   addLog("main", "info", "[config] retrieved");
   return cfg;
+});
+
+// ── UI state persistence (userData/ui-state.json) ──
+// Renderer is the single writer: it loads the whole object via ui-state:get,
+// mutates in memory, and writes it back via ui-state:save (debounced). No
+// merge/clear on the main side so a stale renderer copy can't resurrect a
+// cleared scope.
+ipcMain.handle("ui-state:get", () => {
+  return getUiState();
+});
+
+ipcMain.handle("ui-state:save", (_event, state: Record<string, unknown>) => {
+  if (!state || typeof state !== "object" || Array.isArray(state)) {
+    addLog("main", "warn", "[ui-state] save ignored — payload is not an object");
+    return false;
+  }
+  saveUiState(state);
+  addLog("main", "info", `[ui-state] saved ${Object.keys(state).length} scope(s)`);
+  return true;
 });
 
 ipcMain.handle("config:save", async (_event, values: Record<string, string>) => {

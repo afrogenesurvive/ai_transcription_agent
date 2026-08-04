@@ -79,6 +79,43 @@ export function useApi() {
       return res.json() as Promise<{ job_id: string; status: string }>;
     },
 
+    /** Upload an audio file by local filesystem path (used for the persisted New-form file). */
+    uploadAudioByPath: async (params: {
+      filePath: string;
+      title: string;
+      attendees: string[];
+      emailRecipients?: string[];
+      skipSteps?: string[];
+      attendeeEmails?: string[];
+    }) => {
+      const res = await fetch(`${BRIDGE_URL}/transcribe/upload_by_path`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          file_path: params.filePath,
+          title: params.title,
+          attendees: params.attendees,
+          attendee_emails: params.attendeeEmails || [],
+          email_recipients: params.emailRecipients || [],
+          event_type: "internal",
+          skip_steps: params.skipSteps || [],
+        }),
+      });
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => "");
+        let cleanMsg = errBody;
+        try {
+          const parsed = JSON.parse(errBody);
+          if (parsed.detail) cleanMsg = typeof parsed.detail === "string" ? parsed.detail : JSON.stringify(parsed.detail);
+          else if (parsed.error) cleanMsg = parsed.error;
+        } catch {
+          /* not JSON — use raw text */
+        }
+        throw new Error(cleanMsg);
+      }
+      return res.json() as Promise<{ job_id: string; status: string; file_path?: string }>;
+    },
+
     /** Poll job status */
     getStatus: async (jobId: string) => {
       return bridgeCall("transcribe_status", { jobId }) as Promise<any>;

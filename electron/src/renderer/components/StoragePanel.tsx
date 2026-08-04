@@ -10,6 +10,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import Icon from "./Icon";
 import Tooltip from "./Tooltip";
 import LoadingModal from "./LoadingModal";
+import { useUiStateValue } from "../hooks/useUiState";
 import type { StorageUsage } from "../types";
 
 interface Props {
@@ -67,7 +68,7 @@ export default function StoragePanel({ onClose, onNotify, refreshTrigger, onDevA
   const [data, setData] = useState<StorageUsage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [storageTab, setStorageTab] = useState<"usage" | "developer">("usage");
+  const [storageTab, setStorageTab] = useUiStateValue<"usage" | "developer">("storage.tab", "usage");
 
   // Developer section — generic clear actions
   const [confirmAction, setConfirmAction] = useState<{

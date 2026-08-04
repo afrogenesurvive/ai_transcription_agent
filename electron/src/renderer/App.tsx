@@ -36,6 +36,7 @@ import type { PollingState } from "./hooks/useJobStatus";
 import { useServerStatus } from "./hooks/useServerStatus";
 import { useForeignJobs } from "./hooks/useForeignJobs";
 import { ServiceStatusProvider } from "./hooks/serviceStatusContext";
+import { useUiState, useUiStateValue } from "./hooks/useUiState";
 import { loadAndApplyAppearance } from "./appearance";
 import { formatElapsedHMS } from "./utils/timeFormat";
 import type { JobStatus } from "./types";
@@ -82,7 +83,9 @@ export default function App() {
   const [cancelling, setCancelling] = useState(false);
   const [cancellingForeign, setCancellingForeign] = useState(false);
   const [diarizationAvailable, setDiarizationAvailable] = useState<boolean | null>(null);
-  const [historyJobId, setHistoryJobId] = useState<string | null>(null);
+  // Persisted history selection (userData/ui-state.json) — restored on launch and
+  // validated against the job list (see the history-selection validation effect).
+  const [historyJobId, setHistoryJobId] = useUiStateValue<string | null>("history.selectedJobId", null);
   // Live per-stage progress (diarization / transcription %) pushed from the main
   // process logger via IPC — displayed on the pipeline stepper's active step.
   const [stageProgress, setStageProgress] = useState<{ diarization?: number; transcription?: number }>({});
@@ -100,8 +103,12 @@ export default function App() {
   const [newJobCooldown, setNewJobCooldown] = useState(false);
   const [showNewForm, setShowNewForm] = useState(false);
   // Left-column collapse state for history view — collapsed hides the job list so
-  // the results viewer gets the full width.
-  const [leftColCollapsed, setLeftColCollapsed] = useState(() => localStorage.getItem("historyLeftColCollapsed") === "true");
+  // the results viewer gets the full width. Persisted in userData/ui-state.json
+  // (legacy localStorage key "historyLeftColCollapsed" is migrated by the provider).
+  const [leftColCollapsed, setLeftColCollapsed] = useUiStateValue<boolean>("history.leftColCollapsed", false);
+
+  // Stable ui-state callbacks (destructured so effects can depend on them safely)
+  const { clearScope, set: setUiState, ready: uiStateReady } = useUiState();
   // Isolated state for history job data — prevents overwriting when the current job's
   // polling updates the shared transcript/metadata state.
   const [historyTranscript, setHistoryTranscript] = useState<any>(null);
@@ -182,10 +189,39 @@ export default function App() {
     loadAndApplyAppearance();
   }, []);
 
-  // Persist left-column collapse state across sessions
+  // ── Reset rules for persisted UI state (userData/ui-state.json) ──
+  // Rule (2b): no current job → reset the Current panel's persisted state so a
+  // stale results tab / live-log collapse doesn't survive into the next session.
+  // Gated on uiStateReady so a stale persisted "current" scope is cleared once
+  // the store finishes loading on launch.
   useEffect(() => {
-    localStorage.setItem("historyLeftColCollapsed", String(leftColCollapsed));
-  }, [leftColCollapsed]);
+    if (uiStateReady && !jobId) clearScope("current");
+  }, [jobId, clearScope, uiStateReady]);
+
+  // Rule (3d): validate the persisted history selection — if the previously
+  // selected job no longer exists, clear the selection AND reset the history
+  // results tab/subtab so no stale job renders when History is reopened.
+  useEffect(() => {
+    if (!historyJobId) return;
+    let cancelled = false;
+    api
+      .getHistory()
+      .then((data: any) => {
+        if (cancelled) return;
+        const ids = new Set((data?.jobs || []).map((j: any) => j.job_id));
+        if (!ids.has(historyJobId)) {
+          setHistoryJobId(null);
+          setUiState("history.resultsTab", "pipeline");
+          setUiState("history.resultsDevSubTab", "tokens");
+        }
+      })
+      .catch(() => {
+        /* history unavailable — leave the selection as-is */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [historyJobId, api, setHistoryJobId, setUiState]);
 
   // ── Sidebar drag-to-resize ──
   const sidebarRef = useRef<HTMLElement>(null);
@@ -792,6 +828,7 @@ export default function App() {
       setView("processing");
       setShowNewForm(false);
       setNewJobCooldown(false);
+      clearScope("newForm"); // don't restore a draft for the next job (rule 8b)
       // Polling starts automatically via useJobStatus when jobId changes
       notify(`"${title}" — transcription started`);
       window.electronAPI?.showNotification({
@@ -799,6 +836,48 @@ export default function App() {
         body: `"${title}"`,
         type: "started",
         subtitle: title,
+        clickPayload: { action: "view_results", jobId: result.job_id },
+      });
+    } catch (err: any) {
+      notify(`Upload failed: ${err.message}`);
+    } finally {
+      setUploading(false);
+      setLoadingMessage(null);
+    }
+  };
+
+  // Upload from a persisted file path (New form "remembered file" — no re-pick)
+  const handleUploadByPath = async (params: {
+    filePath: string;
+    title: string;
+    attendees: string[];
+    emailRecipients?: string[];
+    skipSteps?: string[];
+    attendeeEmails?: string[];
+  }) => {
+    setUploading(true);
+    setLoadingMessage("Uploading audio file…");
+    try {
+      const result: any = await api.uploadAudioByPath(params);
+      const fileName = params.filePath.split(/[\\/]/).pop() || params.filePath;
+      setJobId(result.job_id);
+      setJobMetadata({
+        title: params.title,
+        originalFilename: fileName,
+        attendees: params.attendees,
+        attendeeEmails: params.attendeeEmails || [],
+      });
+      setTranscript(null);
+      setView("processing");
+      setShowNewForm(false);
+      setNewJobCooldown(false);
+      clearScope("newForm"); // don't restore a draft for the next job (rule 8b)
+      notify(`"${params.title}" — transcription started`);
+      window.electronAPI?.showNotification({
+        title: "Transcription Started",
+        body: `"${params.title}"`,
+        type: "started",
+        subtitle: params.title,
         clickPayload: { action: "view_results", jobId: result.job_id },
       });
     } catch (err: any) {
@@ -1339,7 +1418,13 @@ export default function App() {
                   <>
                     {showNewForm ? (
                       <div className="upload-panel-full">
-                        <UploadPanel onUpload={handleUpload} uploading={uploading} disabled={isJobRunning} initialSkipSteps={defaultSkipSteps} />
+                        <UploadPanel
+                          onUpload={handleUpload}
+                          onUploadByPath={handleUploadByPath}
+                          uploading={uploading}
+                          disabled={isJobRunning}
+                          initialSkipSteps={defaultSkipSteps}
+                        />
                       </div>
                     ) : (
                       <>
@@ -1463,8 +1548,9 @@ export default function App() {
 
                         <div className="right-col">
                           {/* Show results for a history job (history panel visible in left column) */}
-                          {historyJobId && (
+                          {showHistory && historyJobId && (
                             <ResultsViewer
+                              stateScope="history"
                               key={"history-" + historyJobId}
                               jobId={historyJobId}
                               segments={historyTranscript?.transcript}
@@ -1491,6 +1577,7 @@ export default function App() {
                           {/* Live results from current upload — hidden when viewing history */}
                           {!historyJobId && view === "results" && jobId && (
                             <ResultsViewer
+                              stateScope="live"
                               key={"live-" + jobId}
                               jobId={jobId}
                               segments={transcript?.transcript}

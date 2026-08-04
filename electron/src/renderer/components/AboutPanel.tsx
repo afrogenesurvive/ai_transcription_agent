@@ -10,12 +10,14 @@ import React, { useEffect, useState, useMemo } from "react";
 import Icon from "./Icon";
 import Tooltip from "./Tooltip";
 import DocViewer from "./DocViewer";
+import { useUiStateValue } from "../hooks/useUiState";
 import { renderMarkdown } from "../utils/markdown";
 
 type AboutTab = "about" | "guide";
 
 export default function AboutPanel({ onClose }: { onClose: () => void }) {
-  const [activeTab, setActiveTab] = useState<AboutTab>("about");
+  // Persisted About tab selection (rule 7a)
+  const [activeTab, setActiveTab] = useUiStateValue<AboutTab>("about.tab", "about");
   const [appName, setAppName] = useState("Transcription Agent");
   const [version, setVersion] = useState("");
   const [readme, setReadme] = useState("");
@@ -107,9 +109,13 @@ function AboutTab({ version, readme }: { version: string; readme: string }) {
    ═══════════════════════════════════════════════════════════ */
 
 function GuideTab({ markdown }: { markdown: string }) {
+  // Persisted guide TOC page selection (rule 7b)
+  const [tocIndex, setTocIndex] = useUiStateValue<number>("about.guideTocIndex", 0);
   return (
     <DocViewer
       markdown={markdown}
+      initialIndex={tocIndex}
+      onIndexChange={setTocIndex}
       emptyMessage={"The user guide is not available. Make sure <code>docs/end_user_guide.md</code> exists in the application directory."}
     />
   );

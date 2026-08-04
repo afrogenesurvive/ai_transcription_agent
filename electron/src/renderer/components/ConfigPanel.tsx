@@ -14,6 +14,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { useUiStateValue } from "../hooks/useUiState";
 import Icon from "./Icon";
 import Tooltip from "./Tooltip";
 import LoadingModal from "./LoadingModal";
@@ -378,8 +379,9 @@ function formatOllamaSize(bytes: number): string {
 }
 
 export default function ConfigPanel({ onClose, configOk }: Props) {
-  const [activeTab, setActiveTab] = useState<ConfigTab>("config");
-  const [configSection, setConfigSection] = useState<string>("LLM Provider");
+  // Persisted Config tab + section selection (rule 6)
+  const [activeTab, setActiveTab] = useUiStateValue<ConfigTab>("config.tab", "config");
+  const [configSection, setConfigSection] = useUiStateValue<string>("config.section", "LLM Provider");
   const [values, setValues] = useState<ConfigValues>({} as ConfigValues);
   const [sourceInfo, setSourceInfo] = useState<Record<string, ConfigValueSource>>({});
   const [saving, setSaving] = useState(false);
@@ -390,6 +392,14 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
   const [emailValidationError, setEmailValidationError] = useState<string | null>(null);
   /** Per-key validation errors for numeric/enum config fields (config tab). */
   const [numericErrors, setNumericErrors] = useState<Record<string, string>>({});
+
+  // Reset a stale persisted section (e.g. a section renamed/removed in a newer build)
+  useEffect(() => {
+    const valid = new Set(FIELDS.map((f) => f.section));
+    if (configSection && !valid.has(configSection)) {
+      setConfigSection("LLM Provider");
+    }
+  }, [configSection, setConfigSection]);
 
   const toggleVisible = (key: keyof ConfigValues) => {
     setVisibleKeys((prev) => {

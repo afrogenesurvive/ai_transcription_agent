@@ -9,6 +9,7 @@
  */
 
 import React, { useEffect, useRef, useState } from "react";
+import { useUiStateValue } from "../hooks/useUiState";
 
 interface Props {
   maxLines?: number;
@@ -39,7 +40,8 @@ interface LogLine {
 export default function MiniLiveLog({ maxLines = 8 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [buffer, setBuffer] = useState<LogLine[]>([]);
-  const [collapsed, setCollapsed] = useState(false);
+  // Expand/collapse state persists per app session (rule 2a) via current.liveLogExpanded
+  const [collapsed, setCollapsed] = useUiStateValue<boolean>("current.liveLogExpanded", false);
 
   // Subscribe to live log stream
   useEffect(() => {

@@ -486,3 +486,60 @@
   background: var(--border);
   border-radius: 2px;
 }
+
+/* ── Divider between form fields and submit actions ── */
+
+.upload-form-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 18px 0 14px;
+}
+
+/* ── Form action row (clear form | submit) ── */
+
+.upload-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.upload-form-actions .btn-primary {
+  margin-left: auto;
+}
+
+.upload-clear-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  text-decoration: none;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: var(--fs-12);
+  transition:
+    color 0.15s,
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.upload-clear-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+  background: var(--surface-hover);
+}
+
+.upload-clear-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Remembered-file chip (restored New-form file) ── */
+
+.file-info--remembered .file-size {
+  color: var(--accent);
+  font-style: italic;
+}
+

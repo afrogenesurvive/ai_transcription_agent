@@ -168,6 +168,14 @@ export interface ElectronAPI {
   restartAgent: () => Promise<{ success?: boolean; error?: string }>;
   getDefaultAgentConfig: () => Promise<{ tools?: any; pipeline?: any; systemPrompt?: string; error?: string }>;
   restoreDefaultAgentConfig: () => Promise<{ success?: boolean; restored?: string[]; error?: string }>;
+
+  // ── UI State (userData/ui-state.json — renderer is the single writer) ──
+  getUiState: () => Promise<Record<string, any>>;
+  saveUiState: (state: Record<string, any>) => Promise<boolean>;
+
+  // ── File path (persist the New-form's selected audio file across restarts) ──
+  getPathForFile: (file: File) => string;
+
   listJobLogFiles: () => Promise<LogFileInfo[]>;
   readJobLogFile: (jobId: string, maxLines?: number) => Promise<string[]>;
   getStorageUsage: () => Promise<StorageUsage>;
