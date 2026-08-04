@@ -2137,8 +2137,9 @@ The system provides existing memory context at the start of each pipeline run. U
                               <strong>Turn ON</strong> the Enable Sync toggle — status should show green &quot;Listening :18888&quot;
                             </li>
                             <li style={{ marginTop: 8 }}>
-                              <strong>Set a DS-mon Push Token</strong> (Settings → Services → Push Token). Remote runners must send this token
-                              as <code>Authorization: Bearer &lt;token&gt;</code> on <code>/sync/push</code> — without it the host returns 401.
+                              <strong>Set a DS-mon Push Token</strong> (Settings → Services → Push Token) — <strong>optional for now</strong>. The agent
+                              runner always sends <code>Authorization: Bearer &lt;token&gt;</code> when a token is configured. The DS-mon host will enforce
+                              it (returning 401 on missing/mismatch) once host-side push-token support ships — until then pushes are accepted without one.
                             </li>
                             <li style={{ marginTop: 8 }}>
                               Click <strong>Start Cloudflare Tunnel (port 18888)</strong> below to expose the sync server — or run{" "}

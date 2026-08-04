@@ -18,7 +18,8 @@ Welcome! This guide walks you through everything you need to know to use Transcr
 10. [Dev Tools](#dev-tools)
 11. [Notifications](#notifications)
 12. [Server Status Banner](#server-status-banner)
-13. [Troubleshooting](#troubleshooting)
+13. [Updating the App](#updating-the-app)
+14. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -863,6 +864,40 @@ If the popover is dismissed while services are still down, it will reappear on t
 
 ---
 
+## Updating the App
+
+The app keeps itself up to date automatically, so you always get the latest fixes and features without having to download anything from a website.
+
+### How you'll know an update is available
+
+- The app **checks for updates on its own** every 12 hours while it's running.
+- When a new version is ready, **Windows shows a notification** in the bottom-right corner of your screen: *"Update Available: Version X is ready to download."*
+- You can also check at any time yourself (see below).
+
+### To install an update (step by step)
+
+1. **Open Settings** — click the ⚙️ gear icon in the bottom bar.
+2. **Go to the Auto-Update section** — it's near the bottom of the Settings list. You'll see a small status card showing your current version and whether an update is available.
+3. **Click "Download Update"** — a progress bar shows the download filling up. You can keep using the app while it downloads.
+4. **When the download finishes**, the card turns green and shows **"Ready to install."**
+5. **Click "Restart & Install"** — the app closes and installs the update.
+6. **If Windows asks for permission**, click **Yes** (this is a standard Windows security prompt — it's safe).
+7. **The app reopens automatically** when the update is finished. That's it — you're on the new version.
+
+### Checking for updates yourself
+
+- In **Settings → Auto-Update**, click **Check for Updates** at any time.
+- You can also right-click the **tray icon** (the 🎙️ icon in the bottom-right corner of your screen, near the clock) and choose **Check for Updates**.
+
+### Good to know
+
+- **Keep the app open while downloading** — the download only happens while the app is running.
+- **Wait until your meeting is done before installing** — installing closes the app and stops anything in progress, so finish or pause active work first.
+- **Don't turn off your computer mid-update** — let the progress finish before shutting down.
+- If something goes wrong, the Auto-Update section shows an error message. You can simply try **Check for Updates** again — a slow internet connection is the most common reason an update check or download fails.
+
+---
+
 ## Troubleshooting
 
 ### App Won't Start
@@ -947,7 +982,7 @@ If the Dev Panel Testing tab shows an error when you click "Run Tests":
 
 If you need to manually remove Transcription Agent from a Windows machine (e.g. the standard uninstaller fails), use the instructions below.
 
-> **Note:** The standard uninstaller (via **"Add or remove programs" → "Transcription Agent" → Uninstall**) handles cleanup automatically using `deleteAppDataOnUninstall: true` and the NSIS `cleanup.nsh` script. Manual removal is only needed if the standard uninstaller does not work.
+> **Note:** The standard uninstaller (via **"Add or remove programs" → "Transcription Agent" → Uninstall**) handles cleanup automatically. A checkbox on the uninstall page (ticked by default) asks whether to also delete your transcripts, voiceprints, and settings — untick it to keep your data. Manual removal is only needed if the standard uninstaller does not work.
 
 ### Application Install
 

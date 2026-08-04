@@ -7,8 +7,9 @@
  * Usage (IPC):
  *   renderer  →  ipcMain.handle("app:uninstall", ...)  →  cleanup()
  *
- * On Windows, the NSIS uninstaller also handles this via
- * `deleteAppDataOnUninstall: true` + a custom NSIS script.
+ * On Windows, the NSIS uninstaller also handles this via a custom NSIS script;
+ * data deletion is controlled by the uninstall-page checkbox (`deleteAppDataOnUninstall`
+ * is `false` — the checkbox, not the flag, decides whether user data is removed).
  */
 
 import fs from "fs";
