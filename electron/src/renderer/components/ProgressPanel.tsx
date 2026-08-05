@@ -220,7 +220,9 @@ export default function PipelineProgress({
                       className={`pp-step-active-badge${waiting ? " pp-step-active-badge--waiting" : ""}${
                         stagePct != null && !waiting ? " pp-step-active-badge--pct" : ""
                       }`}>
-                      {stagePct != null && !waiting ? `${Math.round(stagePct)}%` : WAITING_LABEL[status] ?? "In progress"}
+                      {stagePct != null && !waiting
+                        ? `${stage.key === "diarization" && stagePct <= 1 ? stagePct.toFixed(2) : Math.round(stagePct)}%`
+                        : WAITING_LABEL[status] ?? "In progress"}
                     </span>
                   )}
                   {state === "done" && <span className="pp-step-done-badge">Done</span>}

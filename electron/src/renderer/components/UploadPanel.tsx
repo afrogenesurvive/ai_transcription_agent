@@ -29,6 +29,10 @@ const SKIPPABLE_STEPS: Record<string, { label: string; hint: string }> = {
 
 interface Props {
   onUpload: (file: File, title: string, attendees: string[], emailRecipients: string[], skipSteps: string[], attendeeEmails?: string[]) => void;
+  /** Live File selected this session — hoisted to App so it survives panel switches (a browser File can't be serialized). */
+  file: File | null;
+  /** Called when the user picks/clears a file — lifts the File up to App state. */
+  onFileChange: (file: File | null) => void;
   /** Upload by a persisted file path (remembered file, no re-pick) — uses /transcribe/upload_by_path. */
   onUploadByPath?: (params: {
     filePath: string;
@@ -93,9 +97,8 @@ const DEFAULT_SKIP_STEPS = [
   "create_trello_action_items",
 ];
 
-export default function UploadPanel({ onUpload, onUploadByPath, uploading, disabled, initialSkipSteps }: Props) {
+export default function UploadPanel({ file, onFileChange, onUpload, onUploadByPath, uploading, disabled, initialSkipSteps }: Props) {
   const [dragOver, setDragOver] = useState(false);
-  const [file, setFile] = useState<File | null>(null);
   // ── Persisted New-form draft (rule 8a) — restored across restarts, cleared on job start ──
   const [title, setTitle] = useUiStateValue<string>("newForm.title", "");
   const [attendeeList, setAttendeeList] = useUiStateValue<AttendeeEntry[]>("newForm.attendees", []);
@@ -254,7 +257,7 @@ export default function UploadPanel({ onUpload, onUploadByPath, uploading, disab
 
   const handleFile = useCallback(
     (f: File) => {
-      setFile(f);
+      onFileChange(f);
       // Persist the file path so the New form can restore it after a restart (rule 8a)
       const filePath = window.electronAPI?.getPathForFile(f);
       if (filePath) {
@@ -265,7 +268,7 @@ export default function UploadPanel({ onUpload, onUploadByPath, uploading, disab
         setTitle(f.name.replace(/\.[^.]+$/, "").replace(/[_-]/g, " "));
       }
     },
-    [title, setTitle, setRememberedFile],
+    [title, setTitle, setRememberedFile, onFileChange],
   );
 
   // Drop a persisted file path that no longer exists on disk (rule 8a verify-on-launch)
@@ -487,9 +490,21 @@ export default function UploadPanel({ onUpload, onUploadByPath, uploading, disab
     return () => clearTimeout(timer);
   }, [playbackError]);
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (attendeeList.length === 0) return; // attendees is required
     if (!file && !rememberedFile) return;
+    // The remembered file is a restart-restore path (rule 8a) — there is no live
+    // File this session (e.g. after a panel-switch remount). Validate the path
+    // still exists before hitting the backend, so a stale path surfaces as a
+    // friendly message instead of a backend 404 "File not found".
+    if (!file && rememberedFile) {
+      const exists = await window.electronAPI?.fileExists(rememberedFile.path);
+      if (!exists) {
+        setFormError("The remembered audio file no longer exists on disk — please re-select it.");
+        setRememberedFile(null);
+        return;
+      }
+    }
     const nameList = attendeeList.map((a) => a.name);
     const attendeeEmails = attendeeList.map((a) => a.email); // keep alignment with names (all now have validated emails)
     const deliveryRecipients = attendeeEmails.filter(Boolean);
@@ -505,7 +520,8 @@ export default function UploadPanel({ onUpload, onUploadByPath, uploading, disab
     if (file) {
       onUpload(file, title || file.name, nameList, deliveryRecipients, skipSteps, attendeeEmails);
     } else if (rememberedFile) {
-      // No re-picked File this session — upload the remembered file from disk (rule 8a)
+      // No live File this session — upload the remembered file from disk
+      // (restart-restore only; path existence was validated above).
       onUploadByPath?.({
         filePath: rememberedFile.path,
         title: title || rememberedFile.name,
@@ -519,7 +535,7 @@ export default function UploadPanel({ onUpload, onUploadByPath, uploading, disab
 
   /** Clear the whole form (file, title, attendees) and the persisted draft. */
   const clearForm = () => {
-    setFile(null);
+    onFileChange(null);
     setRememberedFile(null);
     setTitle("");
     setAttendeeList([]);
@@ -566,7 +582,7 @@ export default function UploadPanel({ onUpload, onUploadByPath, uploading, disab
                 className="btn-text"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setFile(null);
+                  onFileChange(null);
                   setRememberedFile(null);
                 }}>
                 Remove

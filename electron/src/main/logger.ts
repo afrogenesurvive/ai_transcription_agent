@@ -273,10 +273,10 @@ function deriveProgressLog(source: LogEntry["source"], message: string): string 
 /**
  * Parse a per-stage progress percentage from a python log line.
  *
- * The three formats we recognise (all emitted by the Python backend):
- *   - Whisper ASR:  "ASV progress: <end>/<total> (NN.N%)"          → transcription
- *   - Diarization:  "Diarization progress: X/Y segments (NN%)"     → diarization
- *   - Diarization:  "Diarization <step>: NN%"                      → diarization
+ * The formats we recognise (all emitted by the Python backend):
+ *   - Whisper ASR:  "ASV progress: <end>/<total> (NN.N%)"          → transcription (0→100)
+ *   - Diarization:  "Diarization progress: X/Y segments (NN%)"     → diarization (0→100)
+ *   - Diarization:  "Diarization <step>: NN.N%"                    → diarization (0→1 fraction)
  *
  * Messages have already had emoji stripped and any leading [tag] prefix removed
  * by backend-manager, but may carry a leading "[  12.3s]" elapsed-time bracket,
@@ -291,8 +291,10 @@ function deriveStageProgress(message: string): { stage: StageKey; percent: numbe
   const diarSeg = message.match(/Diarization progress:\s*\d+\/\d+\s+segments\s*\((\d+)%\)/);
   if (diarSeg) return { stage: "diarization", percent: parseFloat(diarSeg[1]) };
 
-  // Diarization step progress, e.g. "Diarization Segmentation: 45%"
-  const diarStep = message.match(/Diarization\s+[A-Za-z]+:\s*(\d+)%/);
+  // Diarization step progress, e.g. "Diarization Segmentation: 0.45%" (pyannote hook).
+  // The hook reports a 0→1 fraction; the backend now logs it directly (0.45), so we
+  // pass the fraction through unchanged for the stepper to display as "0.45%".
+  const diarStep = message.match(/Diarization\s+[A-Za-z]+:\s*([\d.]+)%/);
   if (diarStep) return { stage: "diarization", percent: parseFloat(diarStep[1]) };
 
   return null;

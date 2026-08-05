@@ -591,7 +591,7 @@ class TranscriptionEngine:
                             if frac - last_frac >= 0.05 or time.time() - last_log >= 60:
                                 step = msg.get("step", "?")
                                 print(f"[transcription]   📈 [{msg.get('elapsed', 0):>6.0f}s] "
-                                      f"Diarization {step}: {frac * 100:.0f}%")
+                                      f"Diarization {step}: {frac:.2f}%")
                                 last_frac = frac
                                 last_log = time.time()
                         elif time.time() - last_log >= 60:

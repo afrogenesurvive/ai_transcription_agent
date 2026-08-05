@@ -102,6 +102,10 @@ export default function App() {
   const [devAccessSignal, setDevAccessSignal] = useState(0);
   const [newJobCooldown, setNewJobCooldown] = useState(false);
   const [showNewForm, setShowNewForm] = useState(false);
+  // Live File object for the New form — hoisted to App so it survives panel
+  // switches (UploadPanel unmounts on view change; a browser File can't be
+  // serialized). Cleared on new-job and after a successful submit.
+  const [formFile, setFormFile] = useState<File | null>(null);
   // Left-column collapse state for history view — collapsed hides the job list so
   // the results viewer gets the full width. Persisted in userData/ui-state.json
   // (legacy localStorage key "historyLeftColCollapsed" is migrated by the provider).
@@ -832,6 +836,7 @@ export default function App() {
       setView("processing");
       setShowNewForm(false);
       setNewJobCooldown(false);
+      setFormFile(null); // the live File was consumed by this upload
       clearScope("newForm"); // don't restore a draft for the next job (rule 8b)
       // Polling starts automatically via useJobStatus when jobId changes
       notify(`"${title}" — transcription started`);
@@ -875,6 +880,7 @@ export default function App() {
       setView("processing");
       setShowNewForm(false);
       setNewJobCooldown(false);
+      setFormFile(null); // no live File in the by-path flow — clear defensively
       clearScope("newForm"); // don't restore a draft for the next job (rule 8b)
       notify(`"${params.title}" — transcription started`);
       window.electronAPI?.showNotification({
@@ -1004,6 +1010,7 @@ export default function App() {
     setJobMetadata(null);
     setStatusData(null);
     setStageProgress({});
+    setFormFile(null); // fresh form — drop any previously picked File
     setShowHistory(false); // New form is its own mode — don't leave History "open"/highlighted
     statusHook.stopPolling();
   };
@@ -1424,6 +1431,8 @@ export default function App() {
                     {showNewForm ? (
                       <div className="upload-panel-full">
                         <UploadPanel
+                          file={formFile}
+                          onFileChange={setFormFile}
                           onUpload={handleUpload}
                           onUploadByPath={handleUploadByPath}
                           uploading={uploading}

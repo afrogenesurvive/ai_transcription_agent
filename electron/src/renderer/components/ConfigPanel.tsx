@@ -429,7 +429,12 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
   const [restoringDefaults, setRestoringDefaults] = useState(false);
 
   // ── Tunnel state ──
-  const [tunnelStatus, setTunnelStatus] = useState<{ running: boolean; connected: boolean; url: string | null; error: string | null }>({ running: false, connected: false, url: null, error: null });
+  const [tunnelStatus, setTunnelStatus] = useState<{ running: boolean; connected: boolean; url: string | null; error: string | null }>({
+    running: false,
+    connected: false,
+    url: null,
+    error: null,
+  });
   const [tunnelStarting, setTunnelStarting] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
 
@@ -1851,8 +1856,8 @@ The system provides existing memory context at the start of each pipeline run. U
                           disabled={activeJobs.length > 0}
                         />
                         <p className="config-field-hint">
-                          Total wall-clock budget for the whole pipeline run (diarization + voiceprint matching + ASR + alignment + enqueue),
-                          checked between steps. Long audio or a slow/throttled machine needs this well above the diarization timeout — e.g.{" "}
+                          Total wall-clock budget for the whole pipeline run (diarization + voiceprint matching + ASR + alignment + enqueue), checked
+                          between steps. Long audio or a slow/throttled machine needs this well above the diarization timeout — e.g.{" "}
                           <strong>60–90</strong> for hour-long meetings. Default: <strong>60</strong>.
                         </p>
                       </div>
@@ -2044,7 +2049,8 @@ The system provides existing memory context at the start of each pipeline run. U
                         />
                         <p className="config-field-hint">
                           Floor for the diarization subprocess timeout. The effective budget auto-scales with audio length (default ~2× duration), so
-                          this acts as a <strong>minimum</strong>. Raise it (e.g. 60–90) if long meetings time out at 60 min. Default: <strong>60</strong>.
+                          this acts as a <strong>minimum</strong>. Raise it (e.g. 60–90) if long meetings time out at 60 min. Default:{" "}
+                          <strong>60</strong>.
                         </p>
                       </div>
                     </>
@@ -2098,12 +2104,12 @@ The system provides existing memory context at the start of each pipeline run. U
                                       : field.key === "DSMON_PUSH_URL"
                                         ? "https://dsmon.yourdomain.com/sync/push"
                                         : field.key === "DSMON_PUSH_TOKEN"
-                                            ? "Required — DS-mon enforces the push token"
-                                            : field.key === "DSMON_PUSH_INTERVAL"
-                                              ? "300000"
-                                              : field.key === "CLOUDFLARED_TUNNEL_TOKEN"
-                                                ? "cloudflared tunnel token <name>"
-                                                : "Optional"
+                                          ? "Required — DS-mon enforces the push token"
+                                          : field.key === "DSMON_PUSH_INTERVAL"
+                                            ? "300000"
+                                            : field.key === "CLOUDFLARED_TUNNEL_TOKEN"
+                                              ? "cloudflared tunnel token <name>"
+                                              : "Optional"
                                   }
                                   disabled={activeJobs.length > 0}
                                 />
@@ -2170,10 +2176,10 @@ The system provides existing memory context at the start of each pipeline run. U
                               <code>Authorization: Bearer &lt;token&gt;</code>. Every remote must use the same value.
                             </li>
                             <li style={{ marginTop: 8 }}>
-                              Expose the sync server with a <strong>Cloudflare tunnel</strong>. Add a <strong>public hostname</strong>{" "}
-                              (<code>dsmon.yourdomain.com</code> → <code>http://localhost:18888</code>) and paste your tunnel token (get it with{" "}
-                              <code>cloudflared tunnel token &lt;tunnel-name&gt;</code>) into the <strong>Cloudflare Tunnel Token</strong> field above — the
-                              Quick Actions <strong>Start</strong> button then runs{" "}
+                              Expose the sync server with a <strong>Cloudflare tunnel</strong>. Add a <strong>public hostname</strong> (
+                              <code>dsmon.yourdomain.com</code> → <code>http://localhost:18888</code>) and paste your tunnel token (get it with{" "}
+                              <code>cloudflared tunnel token &lt;tunnel-name&gt;</code>) into the <strong>Cloudflare Tunnel Token</strong> field above
+                              — the Quick Actions <strong>Start</strong> button then runs{" "}
                               <code>cloudflared tunnel run --token &lt;TOKEN&gt; --protocol http2</code>. Remotes then use{" "}
                               <code>https://dsmon.yourdomain.com/sync/push</code>.
                             </li>
@@ -2191,12 +2197,13 @@ The system provides existing memory context at the start of each pipeline run. U
                               <strong>Enable Usage Tracking</strong> toggle → <code>ON</code>
                             </li>
                             <li>
-                              <strong>DS-mon Push URL</strong> — paste your public URL, e.g.{" "}
-                              <code>https://dsmon.yourdomain.com/sync/push</code> (your Cloudflare tunnel's public hostname) or{" "}
-                              <code>http://&lt;host&gt;:18888/sync/push</code> (LAN). Stored in this machine's local config only — never shipped in the repo.
+                              <strong>DS-mon Push URL</strong> — paste your public URL, e.g. <code>https://dsmon.yourdomain.com/sync/push</code> (your
+                              Cloudflare tunnel's public hostname) or <code>http://&lt;host&gt;:18888/sync/push</code> (LAN). Stored in this machine's
+                              local config only — never shipped in the repo.
                             </li>
                             <li>
-                              <strong>DS-mon Push Token</strong> — <strong>required</strong>. Same token set on the DS-mon host; DS-mon returns 401 without it.
+                              <strong>DS-mon Push Token</strong> — <strong>required</strong>. Same token set on the DS-mon host; DS-mon returns 401
+                              without it.
                             </li>
                             <li>
                               <strong>DS-mon Instance ID</strong> auto-generates — override only if you want a custom label in DS-mon
@@ -2246,9 +2253,7 @@ The system provides existing memory context at the start of each pipeline run. U
                                 width: 10,
                                 height: 10,
                                 borderRadius: "50%",
-                                background: tunnelStatus.connected
-                                  ? "var(--green, #3fb950)"
-                                  : "var(--red, #f85149)",
+                                background: tunnelStatus.connected ? "var(--green, #3fb950)" : "var(--red, #f85149)",
                                 flexShrink: 0,
                               }}
                             />
@@ -2285,7 +2290,10 @@ The system provides existing memory context at the start of each pipeline run. U
                                   <Icon name="stop" size="12" /> Stop
                                 </button>
                               ) : tunnelStatus.connected ? (
-                                <button className="config-update-status-btn" onClick={forceStopTunnel} title="Stop the tunnel — sudo killall cloudflared">
+                                <button
+                                  className="config-update-status-btn"
+                                  onClick={forceStopTunnel}
+                                  title="Stop the tunnel — sudo killall cloudflared">
                                   <Icon name="stop" size="12" /> Force Stop
                                 </button>
                               ) : (
@@ -2447,85 +2455,87 @@ The system provides existing memory context at the start of each pipeline run. U
                       </div>
 
                       <div className="delivery-config-accordion">
-                      {/* ── Gmail accordion section ── */}
-                      <details className="delivery-config-details" open>
-                        <summary className="delivery-config-summary">
-                          <Icon name="email" size="14" color="accent" /> Email Delivery Config
-                        </summary>
-                        <div className="delivery-config-body">
-                          <p className="config-field-hint">
-                            Default recipients receive emails in addition to per-job attendee emails. Subject and additional content are appended to
-                            the delivery email.
-                          </p>
-                          {fields
-                            .filter((f) =>
-                              ["DELIVERY_RECIPIENT_EMAILS", "DELIVERY_EMAIL_SUBJECT", "DELIVERY_EMAIL_ADDITIONAL_CONTENT"].includes(f.key as string),
-                            )
-                            .map((field) => (
-                              <div key={field.key} className="config-field">
-                                <label className="config-label">{field.label}</label>
-                                <div className="config-input-row">
-                                  {field.key === "DELIVERY_EMAIL_ADDITIONAL_CONTENT" ? (
-                                    <textarea
-                                      className="config-textarea"
-                                      value={values[field.key] || ""}
-                                      onChange={(e) => handleChange(field.key, e.target.value)}
-                                      placeholder="Any extra text to append to delivery emails..."
-                                      rows={3}
-                                      disabled={activeJobs.length > 0}
-                                    />
-                                  ) : (
-                                    <div style={{ width: "100%" }}>
-                                      <input
-                                        className={`config-input${field.key === "DELIVERY_RECIPIENT_EMAILS" && emailValidationError ? " config-input--error" : ""}`}
-                                        type="text"
+                        {/* ── Gmail accordion section ── */}
+                        <details className="delivery-config-details" open>
+                          <summary className="delivery-config-summary">
+                            <Icon name="email" size="14" color="accent" /> Email Delivery Config
+                          </summary>
+                          <div className="delivery-config-body">
+                            <p className="config-field-hint">
+                              Default recipients receive emails in addition to per-job attendee emails. Subject and additional content are appended to
+                              the delivery email.
+                            </p>
+                            {fields
+                              .filter((f) =>
+                                ["DELIVERY_RECIPIENT_EMAILS", "DELIVERY_EMAIL_SUBJECT", "DELIVERY_EMAIL_ADDITIONAL_CONTENT"].includes(
+                                  f.key as string,
+                                ),
+                              )
+                              .map((field) => (
+                                <div key={field.key} className="config-field">
+                                  <label className="config-label">{field.label}</label>
+                                  <div className="config-input-row">
+                                    {field.key === "DELIVERY_EMAIL_ADDITIONAL_CONTENT" ? (
+                                      <textarea
+                                        className="config-textarea"
                                         value={values[field.key] || ""}
                                         onChange={(e) => handleChange(field.key, e.target.value)}
-                                        placeholder={
-                                          field.key === "DELIVERY_RECIPIENT_EMAILS"
-                                            ? "alice@example.com, bob@example.com"
-                                            : field.key === "DELIVERY_EMAIL_SUBJECT"
-                                              ? "Meeting Summary: {title}"
-                                              : ""
-                                        }
+                                        placeholder="Any extra text to append to delivery emails..."
+                                        rows={3}
                                         disabled={activeJobs.length > 0}
                                       />
-                                      {field.key === "DELIVERY_RECIPIENT_EMAILS" && emailValidationError && (
-                                        <span className="config-field-error">{emailValidationError}</span>
-                                      )}
-                                    </div>
-                                  )}
+                                    ) : (
+                                      <div style={{ width: "100%" }}>
+                                        <input
+                                          className={`config-input${field.key === "DELIVERY_RECIPIENT_EMAILS" && emailValidationError ? " config-input--error" : ""}`}
+                                          type="text"
+                                          value={values[field.key] || ""}
+                                          onChange={(e) => handleChange(field.key, e.target.value)}
+                                          placeholder={
+                                            field.key === "DELIVERY_RECIPIENT_EMAILS"
+                                              ? "alice@example.com, bob@example.com"
+                                              : field.key === "DELIVERY_EMAIL_SUBJECT"
+                                                ? "Meeting Summary: {title}"
+                                                : ""
+                                          }
+                                          disabled={activeJobs.length > 0}
+                                        />
+                                        {field.key === "DELIVERY_RECIPIENT_EMAILS" && emailValidationError && (
+                                          <span className="config-field-error">{emailValidationError}</span>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
-                              </div>
-                            ))}
-                        </div>
-                      </details>
+                              ))}
+                          </div>
+                        </details>
 
-                      {/* ── Drive accordion section ── */}
-                      <details className="delivery-config-details">
-                        <summary className="delivery-config-summary">
-                          <Icon name="cloud" size="14" color="accent" /> Google Drive Delivery Config
-                        </summary>
-                        <div className="delivery-config-body">
-                          {fields
-                            .filter((f) => (f.key as string) === "DELIVERY_DRIVE_FOLDER")
-                            .map((field) => (
-                              <div key={field.key} className="config-field">
-                                <label className="config-label">{field.label}</label>
-                                <div className="config-input-row">
-                                  <input
-                                    className="config-input"
-                                    type="text"
-                                    value={values[field.key] || ""}
-                                    onChange={(e) => handleChange(field.key, e.target.value)}
-                                    placeholder="Meeting Transcripts"
-                                    disabled={activeJobs.length > 0}
-                                  />
+                        {/* ── Drive accordion section ── */}
+                        <details className="delivery-config-details">
+                          <summary className="delivery-config-summary">
+                            <Icon name="cloud" size="14" color="accent" /> Google Drive Delivery Config
+                          </summary>
+                          <div className="delivery-config-body">
+                            {fields
+                              .filter((f) => (f.key as string) === "DELIVERY_DRIVE_FOLDER")
+                              .map((field) => (
+                                <div key={field.key} className="config-field">
+                                  <label className="config-label">{field.label}</label>
+                                  <div className="config-input-row">
+                                    <input
+                                      className="config-input"
+                                      type="text"
+                                      value={values[field.key] || ""}
+                                      onChange={(e) => handleChange(field.key, e.target.value)}
+                                      placeholder="Meeting Transcripts"
+                                      disabled={activeJobs.length > 0}
+                                    />
+                                  </div>
                                 </div>
-                              </div>
-                            ))}
-                        </div>
-                      </details>
+                              ))}
+                          </div>
+                        </details>
                       </div>
                     </>
                   ) : sectionName === "Auto-Update" ? (
@@ -3111,9 +3121,9 @@ The system provides existing memory context at the start of each pipeline run. U
                 <Icon name="terminal" size="16" color="accent" /> Electron / Chromium Logging
               </h3>
               <p className="config-field-hint">
-                When enabled, Chromium&apos;s renderer, GPU, and console messages are routed to the app console / log output. This surfaces
-                low-level errors (e.g. GPU or compositor failures) that are otherwise invisible — useful when diagnosing blank or unrendered
-                windows under Wine/CrossOver. Requires an app restart to take effect.
+                When enabled, Chromium&apos;s renderer, GPU, and console messages are routed to the app console / log output. This surfaces low-level
+                errors (e.g. GPU or compositor failures) that are otherwise invisible — useful when diagnosing blank or unrendered windows under
+                Wine/CrossOver. Requires an app restart to take effect.
               </p>
               <div className="config-field">
                 <label className="config-toggle">
@@ -3167,9 +3177,9 @@ The system provides existing memory context at the start of each pipeline run. U
               <Icon name="tune" size="16" color="accent" /> UI State
             </h3>
             <p className="config-field-hint">
-              The app remembers your view state — panel tabs, filters, selections, and the New-form draft — in{" "}
-              <code>userData/ui-state.json</code>. This is separate from your configuration: it does not affect API keys, providers, delivery
-              settings, or any saved data. Clearing it resets every panel to its defaults immediately (no restart needed).
+              The app remembers your view state — panel tabs, filters, selections, and the New-form draft — in <code>userData/ui-state.json</code>.
+              This is separate from your configuration: it does not affect API keys, providers, delivery settings, or any saved data. Clearing it
+              resets every panel to its defaults immediately (no restart needed).
             </p>
             <div className="config-field" style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 10 }}>
               <button
@@ -3208,156 +3218,157 @@ The system provides existing memory context at the start of each pipeline run. U
       <div className="config-footer">
         {/* ── Buttons row (top of footer, horizontal) ── */}
         <div className="config-footer-buttons">
-        {activeTab === "config" && (
-          <>
-            {activeJobs.length > 0 ? (
-              <span className="config-footer-hint">
-                <Icon name="block" color="red" size="14" /> Cannot save — {activeJobs.length} job{activeJobs.length > 1 ? "s" : ""} running. Wait for
-                completion.
-              </span>
-            ) : (
-              <div className="config-footer-actions">
-                <Tooltip content="Save all API keys, provider settings, and delivery config to disk">
-                  <button className="config-save-btn" onClick={handleSave} disabled={saving || saved} title="Save all configuration values to disk">
+          {activeTab === "config" && (
+            <>
+              {activeJobs.length > 0 ? (
+                <span className="config-footer-hint">
+                  <Icon name="block" color="red" size="14" /> Cannot save — {activeJobs.length} job{activeJobs.length > 1 ? "s" : ""} running. Wait
+                  for completion.
+                </span>
+              ) : (
+                <div className="config-footer-actions">
+                  <Tooltip content="Save all API keys, provider settings, and delivery config to disk">
+                    <button className="config-save-btn" onClick={handleSave} disabled={saving || saved} title="Save all configuration values to disk">
+                      {saving ? "Saving…" : saved ? "Saved ✓" : "Save Configuration"}
+                    </button>
+                  </Tooltip>
+                  <Tooltip content="Restore user configuration to the shipped defaults — all API keys and settings revert to factory values">
+                    <button
+                      className="config-restore-btn"
+                      onClick={() => setShowRestoreUserDefaultsConfirm(true)}
+                      disabled={saving || restoringUserDefaults || activeJobs.length > 0}
+                      title="Restore the factory-default user config (API keys, provider settings, delivery config)">
+                      {restoringUserDefaults ? (
+                        <span>
+                          <Icon name="sync" size="14" /> Restoring...
+                        </span>
+                      ) : (
+                        <span>
+                          <Icon name="restore" size="14" /> Restore Defaults
+                        </span>
+                      )}
+                    </button>
+                  </Tooltip>
+                  <Tooltip content="Save the current user + agent configuration as the new defaults (overwrites the shipped snapshot)">
+                    <button
+                      className="config-restore-btn"
+                      onClick={() => setShowSaveDefaultsConfirm(true)}
+                      disabled={saving || savingDefaults || activeJobs.length > 0}
+                      title="Save the current user + agent config as the new defaults">
+                      {savingDefaults ? (
+                        <span>
+                          <Icon name="sync" size="14" /> Saving...
+                        </span>
+                      ) : (
+                        <span>
+                          <Icon name="save" size="14" /> Save as Defaults
+                        </span>
+                      )}
+                    </button>
+                  </Tooltip>
+                </div>
+              )}
+            </>
+          )}
+
+          {activeTab === "logging" && (
+            <>
+              {activeJobs.length > 0 ? (
+                <span className="config-footer-hint">
+                  <Icon name="block" color="red" size="14" /> Cannot save — {activeJobs.length} job{activeJobs.length > 1 ? "s" : ""} running. Wait
+                  for completion.
+                </span>
+              ) : (
+                <Tooltip content="Save log source filters, levels, and rotation settings">
+                  <button className="config-save-btn" onClick={handleSave} disabled={saving || saved} title="Save logging configuration">
                     {saving ? "Saving…" : saved ? "Saved ✓" : "Save Configuration"}
                   </button>
                 </Tooltip>
-                <Tooltip content="Restore user configuration to the shipped defaults — all API keys and settings revert to factory values">
-                  <button
-                    className="config-restore-btn"
-                    onClick={() => setShowRestoreUserDefaultsConfirm(true)}
-                    disabled={saving || restoringUserDefaults || activeJobs.length > 0}
-                    title="Restore the factory-default user config (API keys, provider settings, delivery config)">
-                    {restoringUserDefaults ? (
-                      <span>
-                        <Icon name="sync" size="14" /> Restoring...
-                      </span>
-                    ) : (
-                      <span>
-                        <Icon name="restore" size="14" /> Restore Defaults
-                      </span>
-                    )}
-                  </button>
-                </Tooltip>
-                <Tooltip content="Save the current user + agent configuration as the new defaults (overwrites the shipped snapshot)">
-                  <button
-                    className="config-restore-btn"
-                    onClick={() => setShowSaveDefaultsConfirm(true)}
-                    disabled={saving || savingDefaults || activeJobs.length > 0}
-                    title="Save the current user + agent config as the new defaults">
-                    {savingDefaults ? (
-                      <span>
-                        <Icon name="sync" size="14" /> Saving...
-                      </span>
-                    ) : (
-                      <span>
-                        <Icon name="save" size="14" /> Save as Defaults
-                      </span>
-                    )}
-                  </button>
-                </Tooltip>
-              </div>
-            )}
-          </>
-        )}
+              )}
+            </>
+          )}
 
-        {activeTab === "logging" && (
-          <>
-            {activeJobs.length > 0 ? (
-              <span className="config-footer-hint">
-                <Icon name="block" color="red" size="14" /> Cannot save — {activeJobs.length} job{activeJobs.length > 1 ? "s" : ""} running. Wait for
-                completion.
-              </span>
-            ) : (
-              <Tooltip content="Save log source filters, levels, and rotation settings">
-                <button className="config-save-btn" onClick={handleSave} disabled={saving || saved} title="Save logging configuration">
-                  {saving ? "Saving…" : saved ? "Saved ✓" : "Save Configuration"}
-                </button>
-              </Tooltip>
-            )}
-          </>
-        )}
-
-        {activeTab === "agent" && (
-          <div className="config-footer-actions">
-            {activeJobs.length > 0 ? (
-              <span className="config-footer-hint">
-                <Icon name="block" color="red" size="14" /> Cannot save — {activeJobs.length} job{activeJobs.length > 1 ? "s" : ""} running. Wait for
-                completion.
-              </span>
-            ) : (
-              <>
-                <span className="config-footer-note">
-                  {agentSubTab === "pipeline-steps" && (
-                    <>
-                      <Icon name="lightbulb" size="12" color="orange" /> Saves: regenerated system prompt + hints from step order
-                    </>
-                  )}
-                  {agentSubTab === "system-prompt" && (
-                    <>
-                      <Icon name="lightbulb" size="12" color="orange" /> Saves: your edited system prompt (hints regenerated from steps)
-                    </>
-                  )}
-                  {agentSubTab === "pipeline-hints" && (
-                    <>
-                      <Icon name="lightbulb" size="12" color="orange" /> Saves: your edited hints (system prompt regenerated from steps)
-                    </>
-                  )}
-                  {agentSubTab === "pipeline-constants" && (
-                    <>
-                      <Icon name="lightbulb" size="12" color="orange" /> Saves: constants only (prompt + hints unchanged)
-                    </>
-                  )}
+          {activeTab === "agent" && (
+            <div className="config-footer-actions">
+              {activeJobs.length > 0 ? (
+                <span className="config-footer-hint">
+                  <Icon name="block" color="red" size="14" /> Cannot save — {activeJobs.length} job{activeJobs.length > 1 ? "s" : ""} running. Wait
+                  for completion.
                 </span>
-                <button
-                  className="config-save-btn"
-                  onClick={handleSaveAgentConfig}
-                  disabled={saving || saved}
-                  title={
-                    agentSubTab === "pipeline-steps"
-                      ? "Regenerate system prompt and hints from step order"
-                      : agentSubTab === "system-prompt"
-                        ? "Save system prompt (preserves your edits)"
-                        : agentSubTab === "pipeline-hints"
-                          ? "Save pipeline hints (preserves your edits)"
-                          : "Save pipeline constants"
-                  }>
-                  {saving ? "Saving..." : saved && !restartNeeded ? "Saved" : "Save"}
-                </button>
-                <Tooltip content="Reset agent configuration to factory defaults — tools, pipeline steps, and system prompt">
-                  <button
-                    className="config-restore-btn"
-                    onClick={() => setShowRestoreDefaultsConfirm(true)}
-                    disabled={saving || restoringDefaults || activeJobs.length > 0}
-                    title="Restore the original shipped agent configs (tools, pipeline, system prompt)">
-                    {restoringDefaults ? (
-                      <span>
-                        <Icon name="sync" size="14" /> Restoring...
-                      </span>
-                    ) : (
-                      <span>
-                        <Icon name="restore" size="14" /> Restore Defaults
-                      </span>
+              ) : (
+                <>
+                  <span className="config-footer-note">
+                    {agentSubTab === "pipeline-steps" && (
+                      <>
+                        <Icon name="lightbulb" size="12" color="orange" /> Saves: regenerated system prompt + hints from step order
+                      </>
                     )}
+                    {agentSubTab === "system-prompt" && (
+                      <>
+                        <Icon name="lightbulb" size="12" color="orange" /> Saves: your edited system prompt (hints regenerated from steps)
+                      </>
+                    )}
+                    {agentSubTab === "pipeline-hints" && (
+                      <>
+                        <Icon name="lightbulb" size="12" color="orange" /> Saves: your edited hints (system prompt regenerated from steps)
+                      </>
+                    )}
+                    {agentSubTab === "pipeline-constants" && (
+                      <>
+                        <Icon name="lightbulb" size="12" color="orange" /> Saves: constants only (prompt + hints unchanged)
+                      </>
+                    )}
+                  </span>
+                  <button
+                    className="config-save-btn"
+                    onClick={handleSaveAgentConfig}
+                    disabled={saving || saved}
+                    title={
+                      agentSubTab === "pipeline-steps"
+                        ? "Regenerate system prompt and hints from step order"
+                        : agentSubTab === "system-prompt"
+                          ? "Save system prompt (preserves your edits)"
+                          : agentSubTab === "pipeline-hints"
+                            ? "Save pipeline hints (preserves your edits)"
+                            : "Save pipeline constants"
+                    }>
+                    {saving ? "Saving..." : saved && !restartNeeded ? "Saved" : "Save"}
                   </button>
-                </Tooltip>
-                {restartNeeded && (
-                  <Tooltip content="Restart the agent runner service to apply the updated configuration">
-                    <button className="config-restart-btn" onClick={handleRestartAgent} title="Restart the agent runner to apply new configuration">
-                      <Icon name="restart_alt" size="14" /> Restart Agent Runner Now
+                  <Tooltip content="Reset agent configuration to factory defaults — tools, pipeline steps, and system prompt">
+                    <button
+                      className="config-restore-btn"
+                      onClick={() => setShowRestoreDefaultsConfirm(true)}
+                      disabled={saving || restoringDefaults || activeJobs.length > 0}
+                      title="Restore the original shipped agent configs (tools, pipeline, system prompt)">
+                      {restoringDefaults ? (
+                        <span>
+                          <Icon name="sync" size="14" /> Restoring...
+                        </span>
+                      ) : (
+                        <span>
+                          <Icon name="restore" size="14" /> Restore Defaults
+                        </span>
+                      )}
                     </button>
                   </Tooltip>
-                )}
-              </>
-            )}
-          </div>
-        )}
+                  {restartNeeded && (
+                    <Tooltip content="Restart the agent runner service to apply the updated configuration">
+                      <button className="config-restart-btn" onClick={handleRestartAgent} title="Restart the agent runner to apply new configuration">
+                        <Icon name="restart_alt" size="14" /> Restart Agent Runner Now
+                      </button>
+                    </Tooltip>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {/* ── Feedback log (scrollable, under the buttons) ── */}
         <div className="config-footer-feedback" ref={feedbackRef}>
           {exportResult && (
-            <span className={`config-footer-result ${exportResult.startsWith("Exported") ? "config-footer-result--ok" : "config-footer-result--err"}`}>
+            <span
+              className={`config-footer-result ${exportResult.startsWith("Exported") ? "config-footer-result--ok" : "config-footer-result--err"}`}>
               {exportResult}
             </span>
           )}
@@ -3425,8 +3436,8 @@ The system provides existing memory context at the start of each pipeline run. U
               <Icon name="warning" size="16" color="orange" /> Clear All UI State
             </h3>
             <p className="confirm-dialog-text">
-              This resets every panel to its defaults — tabs, filters, selections, and the New-form draft. It does{" "}
-              <strong>not</strong> affect your configuration, API keys, or saved jobs. This cannot be undone.
+              This resets every panel to its defaults — tabs, filters, selections, and the New-form draft. It does <strong>not</strong> affect your
+              configuration, API keys, or saved jobs. This cannot be undone.
             </p>
             <div className="confirm-dialog-actions">
               <button className="btn-secondary" onClick={() => setShowClearUiStateConfirm(false)}>
@@ -3494,9 +3505,9 @@ The system provides existing memory context at the start of each pipeline run. U
               <Icon name="save" size="16" color="accent" /> Save Current as Defaults
             </h3>
             <p className="confirm-dialog-text">
-              This overwrites the shipped defaults with your <strong>current</strong> configuration — user config (API keys, provider, delivery,
-              usage tracking) <strong>and</strong> agent instructions (tools, pipeline, system prompt). A later &quot;Restore Defaults&quot; will
-              restore this saved state. This applies until the next app version update. This cannot be undone.
+              This overwrites the shipped defaults with your <strong>current</strong> configuration — user config (API keys, provider, delivery, usage
+              tracking) <strong>and</strong> agent instructions (tools, pipeline, system prompt). A later &quot;Restore Defaults&quot; will restore
+              this saved state. This applies until the next app version update. This cannot be undone.
             </p>
             <div className="confirm-dialog-actions">
               <button className="btn-secondary" onClick={() => setShowSaveDefaultsConfirm(false)}>
