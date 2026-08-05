@@ -22,6 +22,7 @@
 
 import "dotenv/config";
 import fs from "fs";
+import os from "os";
 import path from "path";
 import readline from "readline";
 import { fileURLToPath } from "url";
@@ -48,7 +49,12 @@ import {
 } from "./agent-config.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PID_FILE = path.resolve(__dirname, ".runner.pid");
+// W-1 fix: never write the PID file into __dirname. In packaged mode __dirname
+// is <Program Files>\...\resources\agent-runner (or .app/Contents/Resources),
+// which standard users can't write to -> EPERM -> uncaught -> the runner crashes
+// at startup. os.tmpdir() is always writable and exists on every platform
+// (packaged, dev, standalone). The PID file is diagnostic-only (no consumer).
+const PID_FILE = path.join(os.tmpdir(), "agent-runner.pid");
 const QUEUE_DIR = process.env.TRANSCRIPTION_QUEUE_DIR || path.resolve(__dirname, "..", "queue");
 const TRIGGER_FILE = path.join(QUEUE_DIR, ".transcription-trigger");
 const TASK_CHECK_INTERVAL = parseInt(process.env.TASK_CHECK_INTERVAL || "60000", 10);
@@ -1703,7 +1709,23 @@ console.log(`   🔄 fs.watch on .transcription-trigger (push-based)`);
 console.log(`   🛠️  ${TOOLS.length} tools`);
 console.log(`${"─".repeat(50)}\n`);
 
-fs.writeFileSync(PID_FILE, String(process.pid));
+// Write the runner PID (best-effort — never fatal). The PID file lives in the
+// OS temp dir, which is writable for all users in packaged + dev modes.
+try {
+  fs.writeFileSync(PID_FILE, String(process.pid));
+} catch (err) {
+  console.warn(`⚠️ [RUNNER] Could not write PID file ${PID_FILE} (non-fatal): ${err?.message || err}`);
+}
+
+// Best-effort cleanup on graceful shutdown. Note: won't run on forced kills
+// (taskkill /F, SIGKILL) — the file is diagnostic-only, so a stale copy is fine.
+process.on("exit", () => {
+  try {
+    fs.unlinkSync(PID_FILE);
+  } catch {
+    /* ignore */
+  }
+});
 
 // ── Ensure trigger file exists ──
 // The Python backend (agent_bridge.py) touches this file via os.utime()

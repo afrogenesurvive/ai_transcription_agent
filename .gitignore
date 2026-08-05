@@ -43,7 +43,6 @@ transcription-agent/
 # ── Runner ──
 mcp/agent-runner/README.md
 mcp/agent-runner/system-prompt.md
-mcp/agent-runner/.runner.pid
 
 # ── Generated version file (branch name) ──
 version.json
@@ -55,7 +54,6 @@ electron/docs/
 # ── Transcription Agent Runtime ──
 storage/
 queue/transcription.jsonl
-agent-runner/.runner.pid
 
 # ── Copilot chat history (local session logs, not committed) ──
 chat.json
