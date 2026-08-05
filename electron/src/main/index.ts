@@ -146,11 +146,13 @@ import {
   getConfig,
   getChildEnv,
   saveConfig,
+  replaceConfig,
   checkConfig,
   getConfigWithSources,
   clearConfig,
   readUserConfigDefaults,
   restoreUserConfigDefaults,
+  setUserConfigDefaults,
   saveAgentConfigToDisk,
 } from "./config";
 import { getUiState, saveUiState } from "./ui-state";
@@ -1406,8 +1408,8 @@ ipcMain.handle("config:import", async () => {
         coercedUserConfig[key] = String(value);
       }
     }
-    const updatedConfig = saveConfig(coercedUserConfig);
-    addLog("main", "info", "User config imported successfully");
+    const updatedConfig = replaceConfig(coercedUserConfig);
+    addLog("main", "info", "User config imported successfully (replaced config.json)");
 
     // Check config completeness
     const cfgCheck = checkConfig();
@@ -1430,21 +1432,6 @@ ipcMain.handle("config:import", async () => {
     } else if (ollamaStartedByUs()) {
       addLog("main", "info", "[ollama] Provider switched away from Ollama — stopping server");
       stopOllamaServer();
-    }
-
-    // Reset all services so they pick up the new config
-    try {
-      await restartAll();
-      addLog("main", "info", "All services restarted after config import");
-    } catch (err: any) {
-      addLog("main", "error", `Failed to restart all services: ${err.message}`);
-      // Fall back to starting services individually
-      try {
-        await startAll();
-        addLog("main", "info", "Services started after config import (fallback)");
-      } catch (err2: any) {
-        addLog("main", "error", `Failed to start services: ${err2.message}`);
-      }
     }
 
     // Import agent config if present (agent-specific instructions like prompts & pipeline hints)
@@ -1495,12 +1482,17 @@ ipcMain.handle("config:import", async () => {
     let userDefaultsImported = false;
     if (importData.userDefaultsConfig) {
       try {
-        // Only keep known config keys (strip stale/unknown keys) but preserve
-        // the internal __version stamp so restore fidelity is kept.
+        // Keep only known config keys (strip stale/unknown keys) and re-stamp
+        // __version to the current app version (see below).
         const defaultsPath = path.join(app.getPath("userData"), "config.defaults.json");
-        const clean: Record<string, any> = {};
+        // Re-stamp __version to the CURRENT app version. If we preserved the
+        // imported (older) stamp, ensureUserConfigDefaults() would see a
+        // version mismatch on next launch and regenerate the snapshot from
+        // current DEFAULTS, silently discarding the imported defaults.
+        const clean: Record<string, any> = { __version: app.getVersion() };
         for (const key of Object.keys(importData.userDefaultsConfig)) {
-          if (key === "__version" || (CONFIG_KEYS as string[]).includes(key)) {
+          if (key === "__version") continue;
+          if ((CONFIG_KEYS as string[]).includes(key)) {
             clean[key] = importData.userDefaultsConfig[key];
           }
         }
@@ -1565,6 +1557,23 @@ ipcMain.handle("config:import", async () => {
         } catch (err: any) {
           addLog("main", "error", `Defaults config direct write failed: ${err.message}`);
         }
+      }
+    }
+
+    // Reset all services so they pick up the new config. Runs AFTER the user /
+    // agent / defaults writes above so the restarted runner loads the imported
+    // agent instructions (the bridge save path doesn't touch the restart flag).
+    try {
+      await restartAll();
+      addLog("main", "info", "All services restarted after config import");
+    } catch (err: any) {
+      addLog("main", "error", `Failed to restart all services: ${err.message}`);
+      // Fall back to starting services individually
+      try {
+        await startAll();
+        addLog("main", "info", "Services started after config import (fallback)");
+      } catch (err2: any) {
+        addLog("main", "error", `Failed to start services: ${err2.message}`);
       }
     }
 
@@ -1651,6 +1660,101 @@ ipcMain.handle("config:restore-defaults", async () => {
     return { success: true };
   } catch (err: any) {
     addLog("main", "error", `User config restore failed: ${err.message}`);
+    return { success: false, error: err.message };
+  }
+});
+
+// ── Set Current Config as Defaults IPC ──
+// Snapshots the CURRENT user config AND agent config as the "defaults", so a
+// later "Restore Defaults" restores today's setup rather than the shipped one.
+
+/** Write agent defaults files directly to userData/agent-config/.defaults/ (disk fallback). */
+function writeAgentDefaultsToDisk(defaults: { systemPrompt?: string; pipeline?: any; tools?: any }): string[] {
+  const written: string[] = [];
+  try {
+    const agentConfigDir = path.join(app.getPath("userData"), "agent-config", ".defaults");
+    fs.mkdirSync(agentConfigDir, { recursive: true });
+    if (defaults.systemPrompt !== undefined) {
+      fs.writeFileSync(path.join(agentConfigDir, "system-prompt.md"), defaults.systemPrompt, "utf8");
+      written.push("system-prompt.md");
+    }
+    if (defaults.pipeline !== undefined) {
+      fs.writeFileSync(path.join(agentConfigDir, "pipeline.json"), JSON.stringify(defaults.pipeline, null, 2), "utf8");
+      written.push("pipeline.json");
+    }
+    if (defaults.tools !== undefined) {
+      fs.writeFileSync(path.join(agentConfigDir, "tools.json"), JSON.stringify(defaults.tools, null, 2), "utf8");
+      written.push("tools.json");
+    }
+  } catch (err: any) {
+    addLog("main", "error", `Agent defaults direct write failed: ${err.message}`);
+  }
+  return written;
+}
+
+ipcMain.handle("config:set-defaults", async () => {
+  addLog("main", "info", "[config] set-defaults requested");
+  const warnings: string[] = [];
+  try {
+    // 1) User config defaults — snapshot current config.json as the defaults
+    setUserConfigDefaults();
+    addLog("main", "info", "User config defaults updated to current values");
+
+    // 2) Agent config defaults — read current agent config, write to .defaults/
+    //    (dual-path: bridge first, direct disk fallback)
+    let agentDefaultsSaved = false;
+    try {
+      const curRes = await fetch("http://127.0.0.1:5010/agent/config", {
+        signal: AbortSignal.timeout(3000),
+      });
+      if (!curRes.ok) {
+        addLog("main", "warn", `Could not read current agent config (bridge returned ${curRes.status})`);
+        warnings.push(`Agent config defaults were not updated — bridge returned ${curRes.status}.`);
+      } else {
+        const current = await curRes.json();
+        const payload: any = {};
+        if (current.systemPrompt !== undefined) payload.systemPrompt = current.systemPrompt;
+        if (current.pipeline !== undefined) payload.pipeline = current.pipeline;
+        if (current.tools !== undefined) payload.tools = current.tools;
+
+        let bridgeOk = false;
+        try {
+          const res = await fetch("http://127.0.0.1:5010/agent/config/defaults", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(5000),
+          });
+          if (res.ok) {
+            bridgeOk = true;
+            agentDefaultsSaved = true;
+            addLog("main", "info", "Agent config defaults updated via bridge");
+          } else {
+            addLog("main", "warn", `Agent defaults write via bridge returned ${res.status} — falling back to direct write`);
+          }
+        } catch {
+          addLog("main", "warn", "Bridge not reachable for agent defaults write — falling back to direct write");
+        }
+
+        if (!bridgeOk) {
+          const written = writeAgentDefaultsToDisk(payload);
+          if (written.length > 0) {
+            agentDefaultsSaved = true;
+            addLog("main", "info", `Agent config defaults written directly to disk: ${written.join(", ")}`);
+          } else {
+            addLog("main", "warn", "Agent defaults write: nothing to save");
+            warnings.push("Agent config defaults were not updated — nothing to save.");
+          }
+        }
+      }
+    } catch (err: any) {
+      addLog("main", "warn", `Could not read current agent config — ${err.message}`);
+      warnings.push(`Agent config defaults were not updated — bridge unreachable: ${err.message}`);
+    }
+
+    return { success: true, agentDefaultsSaved, warnings };
+  } catch (err: any) {
+    addLog("main", "error", `Config set-defaults failed: ${err.message}`);
     return { success: false, error: err.message };
   }
 });
@@ -1818,6 +1922,7 @@ const STATUS_TO_STAGE: Record<string, string> = {
 
 const jobPerfBuffers: Map<string, PerfSample[]> = new Map();
 let perfSamplerInterval: ReturnType<typeof setInterval> | null = null;
+let restartFlagPollTimer: ReturnType<typeof setInterval> | null = null;
 
 /** Start/restart the periodic performance sampler that captures per-job data. */
 function ensurePerfSampler() {
@@ -2713,27 +2818,29 @@ app.whenReady().then(async () => {
   // When the bridge touches agent-config/.restart-flag (via POST /agent/config/restart),
   // restart the agent runner so it picks up new tool/pipeline config.
   // Watches the writable userData copy (bundled path is read-only in production).
+  //
+  // Uses polling rather than fs.watch: the flag file typically doesn't exist at
+  // startup, and fs.watch on a non-existent file fails (ENOENT) so the watcher
+  // never fires. Polling is also consistent with the chromium log tailer.
   const restartFlagPath = path.join(userDataAgentConfigDir, ".restart-flag");
+  const RESTART_FLAG_POLL_MS = 2000;
   if (fs.existsSync(userDataAgentConfigDir)) {
-    try {
-      fs.watch(restartFlagPath, (_eventType) => {
-        addLog("main", "info", "Agent restart flag detected — restarting runner");
-        // Debounce: remove the flag immediately so repeated firings don't loop
-        try {
-          fs.unlinkSync(restartFlagPath);
-        } catch {
-          /* ok */
-        }
-        restartAgentRunner().catch((err: any) => {
-          addLog("main", "error", `Agent restart failed: ${err.message}`);
-        });
+    restartFlagPollTimer = setInterval(() => {
+      if (!fs.existsSync(restartFlagPath)) return;
+      addLog("main", "info", "Agent restart flag detected — restarting runner");
+      // Debounce: remove the flag immediately so repeated firings don't loop
+      try {
+        fs.unlinkSync(restartFlagPath);
+      } catch {
+        /* ok */
+      }
+      restartAgentRunner().catch((err: any) => {
+        addLog("main", "error", `Agent restart failed: ${err.message}`);
       });
-      addLog("main", "info", `Watching restart flag: ${restartFlagPath}`);
-    } catch {
-      addLog("main", "warn", "Could not watch restart flag (non-fatal)");
-    }
+    }, RESTART_FLAG_POLL_MS);
+    addLog("main", "info", `Polling restart flag: ${restartFlagPath} (every ${RESTART_FLAG_POLL_MS}ms)`);
   } else {
-    addLog("main", "debug", `agent-config dir not found at ${userDataAgentConfigDir} (restart watcher deferred)`);
+    addLog("main", "debug", `agent-config dir not found at ${userDataAgentConfigDir} (restart flag poller deferred)`);
   }
 
   // Then start backend services (skipped in test mode — run externally)
@@ -2842,6 +2949,10 @@ app.on("before-quit", (event) => {
     unsubscribeLogs();
     stopHealthMonitoring();
     stopAutoUpdater();
+    if (restartFlagPollTimer) {
+      clearInterval(restartFlagPollTimer);
+      restartFlagPollTimer = null;
+    }
     // Use synchronous kill — stopAll() is async and won't complete before
     // app.exit(0) terminates the process. stopAllSync() sends SIGKILL
     // immediately on Unix (taskkill /F on Windows) so children can't survive.

@@ -163,6 +163,7 @@ export interface ElectronAPI {
   }>;
   getDefaultUserConfig: () => Promise<{ success: boolean; defaults: Record<string, string>; error?: string }>;
   restoreDefaultUserConfig: () => Promise<{ success: boolean; error?: string; blocked?: boolean }>;
+  setDefaultConfig: () => Promise<{ success: boolean; agentDefaultsSaved?: boolean; error?: string; warnings?: string[] }>;
   getAgentConfig: () => Promise<{ tools?: any; pipeline?: any; systemPrompt?: string; error?: string }>;
   saveAgentConfig: (config: { tools?: any; pipeline?: any; systemPrompt?: string }) => Promise<{ success?: boolean; error?: string }>;
   restartAgent: () => Promise<{ success?: boolean; error?: string }>;

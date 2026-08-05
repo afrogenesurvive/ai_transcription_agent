@@ -286,6 +286,24 @@ export function restoreUserConfigDefaults(): AppConfig {
   return getConfig();
 }
 
+/**
+ * Snapshot the CURRENT user config as the defaults.
+ *
+ * Writes DEFAULTS merged with the current user config.json values into
+ * config.defaults.json, stamped with the current app version so
+ * ensureUserConfigDefaults() won't regenerate it on the next launch. This lets
+ * a user make the current setup the "restore defaults" target. Note: on a
+ * future app-version change the snapshot is regenerated from shipped DEFAULTS
+ * again (intentional — user-set defaults apply per version).
+ */
+export function setUserConfigDefaults(): AppConfig {
+  ensureUserDataDir();
+  const userVals = parseUserConfig();
+  const snapshot = { ...DEFAULTS, ...userVals, [USER_CONFIG_DEFAULTS_VERSION_KEY]: app.getVersion() };
+  fs.writeFileSync(userConfigDefaultsPath, JSON.stringify(snapshot, null, 2), "utf8");
+  return getConfig();
+}
+
 /** Read the user config file from app.getPath("userData")/config.json. */
 function parseUserConfig(): Partial<AppConfig> {
   try {
@@ -390,6 +408,32 @@ export function saveConfig(values: Partial<AppConfig>): AppConfig {
   }
 
   fs.writeFileSync(userConfigPath, JSON.stringify(merged, null, 2), "utf8");
+  return getConfig();
+}
+
+/**
+ * Replace the entire user config with the given values.
+ *
+ * Unlike saveConfig() (which merges into the existing file), this writes
+ * exactly the provided keys: any key absent from `values` is removed from
+ * config.json, so omitted keys fall back to env/default. Used by config import
+ * so importing a file restores that file's state instead of silently merging.
+ * Unknown keys are filtered out and empty strings are dropped (they mean
+ * "use the default").
+ */
+export function replaceConfig(values: Partial<AppConfig>): AppConfig {
+  invalidateConfigCache();
+  ensureUserDataDir();
+
+  const clean: Partial<AppConfig> = {};
+  for (const key of Object.keys(values) as (keyof AppConfig)[]) {
+    if (!(key in DEFAULTS)) continue; // strip stale/unknown keys
+    const v = values[key];
+    if (v === undefined || v === null || v === "") continue;
+    clean[key] = v;
+  }
+
+  fs.writeFileSync(userConfigPath, JSON.stringify(clean, null, 2), "utf8");
   return getConfig();
 }
 

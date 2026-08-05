@@ -116,6 +116,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   }> => ipcRenderer.invoke("config:import"),
   getDefaultUserConfig: (): Promise<{ success: boolean; defaults: Record<string, string>; error?: string }> => ipcRenderer.invoke("config:defaults"),
   restoreDefaultUserConfig: (): Promise<{ success: boolean; error?: string; blocked?: boolean }> => ipcRenderer.invoke("config:restore-defaults"),
+  setDefaultConfig: (): Promise<{ success: boolean; agentDefaultsSaved?: boolean; error?: string; warnings?: string[] }> =>
+    ipcRenderer.invoke("config:set-defaults"),
 
   // ── UI State (userData/ui-state.json — renderer is the single writer) ──
   getUiState: (): Promise<Record<string, any>> => ipcRenderer.invoke("ui-state:get"),

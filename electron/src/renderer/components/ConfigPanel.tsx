@@ -382,6 +382,8 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
   const [configSection, setConfigSection] = useUiStateValue<string>("config.section", "LLM Provider");
   const [values, setValues] = useState<ConfigValues>({} as ConfigValues);
   const [sourceInfo, setSourceInfo] = useState<Record<string, ConfigValueSource>>({});
+  /** Keys the user has edited since the panel opened (or the last load/import/clear/restore). */
+  const [dirtyKeys, setDirtyKeys] = useState<Set<keyof ConfigValues>>(new Set());
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -595,6 +597,9 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
   const [showClearConfigConfirm, setShowClearConfigConfirm] = useState(false);
   const [showRestoreUserDefaultsConfirm, setShowRestoreUserDefaultsConfirm] = useState(false);
   const [showRestoreDefaultsConfirm, setShowRestoreDefaultsConfirm] = useState(false);
+  const [savingDefaults, setSavingDefaults] = useState(false);
+  const [saveDefaultsResult, setSaveDefaultsResult] = useState<string | null>(null);
+  const [showSaveDefaultsConfirm, setShowSaveDefaultsConfirm] = useState(false);
 
   const handleExport = useCallback(async () => {
     setExporting(true);
@@ -634,6 +639,7 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
         window.electronAPI?.getConfigWithSources().then((cfg) => {
           setValues(loadConfigValues(cfg));
           setSourceInfo(cfg);
+          setDirtyKeys(new Set());
         });
         // Refresh active jobs list after import (services were restarted)
         window.electronAPI
@@ -670,6 +676,7 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
         window.electronAPI?.getConfigWithSources().then((cfg) => {
           setValues(loadConfigValues(cfg));
           setSourceInfo(cfg);
+          setDirtyKeys(new Set());
         });
         setClearResult("Configuration cleared — all values reset to defaults");
       } else if (result?.blocked) {
@@ -714,6 +721,7 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
         window.electronAPI?.getConfigWithSources().then((cfg) => {
           setValues(loadConfigValues(cfg));
           setSourceInfo(cfg);
+          setDirtyKeys(new Set());
         });
         setRestoreUserDefaultsResult("User configuration restored to shipped defaults");
         // Re-apply appearance settings (theme/accent may have been restored)
@@ -727,6 +735,25 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
       setRestoreUserDefaultsResult(`Restore failed: ${err.message}`);
     } finally {
       setRestoringUserDefaults(false);
+    }
+  }, []);
+
+  const handleSaveDefaults = useCallback(async () => {
+    setShowSaveDefaultsConfirm(false);
+    setSavingDefaults(true);
+    setSaveDefaultsResult(null);
+    try {
+      const result = await window.electronAPI?.setDefaultConfig();
+      if (result?.success) {
+        const warn = result.warnings?.length ? ` (${result.warnings.join("; ")})` : "";
+        setSaveDefaultsResult(`Defaults updated — current user + agent config saved as the new defaults${warn}`);
+      } else {
+        setSaveDefaultsResult(result?.error || "Failed to save defaults");
+      }
+    } catch (err: any) {
+      setSaveDefaultsResult(`Save defaults failed: ${err.message}`);
+    } finally {
+      setSavingDefaults(false);
     }
   }, []);
 
@@ -770,6 +797,7 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
     window.electronAPI?.getConfigWithSources().then((cfg) => {
       setValues(loadConfigValues(cfg));
       setSourceInfo(cfg);
+      setDirtyKeys(new Set());
     });
   }, []);
 
@@ -811,6 +839,11 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
   const handleChange = (key: keyof ConfigValues, value: string) => {
     setValues((prev) => ({ ...prev, [key]: value }));
     setSaved(false);
+    setDirtyKeys((prev) => {
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
     // Clear any previous validation error for this key
     setNumericErrors((prev) => {
       if (!prev[key]) return prev;
@@ -847,15 +880,24 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
         return;
       }
       setNumericErrors({});
-      await window.electronAPI?.saveConfig(values);
+      // Only persist keys the user actually changed. Saving the full `values`
+      // object would write every default into config.json, freezing defaults
+      // and shadowing .env / host-env overrides for untouched keys.
+      const payload: Record<string, string> = {};
+      for (const key of dirtyKeys) payload[key] = values[key];
+      if (Object.keys(payload).length === 0) {
+        setSaving(false);
+        return;
+      }
+      await window.electronAPI?.saveConfig(payload);
+      setDirtyKeys(new Set());
       setSaved(true);
-      setTimeout(() => onClose(), 1200);
     } catch {
       setError("Failed to save configuration");
     } finally {
       setSaving(false);
     }
-  }, [values, onClose]);
+  }, [values, dirtyKeys]);
 
   /**
    * Generate the system prompt from the ordered pipeline steps.
@@ -3134,6 +3176,29 @@ The system provides existing memory context at the start of each pipeline run. U
                     )}
                   </button>
                 </Tooltip>
+                <Tooltip content="Save the current user + agent configuration as the new defaults (overwrites the shipped snapshot)">
+                  <button
+                    className="config-restore-btn"
+                    onClick={() => setShowSaveDefaultsConfirm(true)}
+                    disabled={saving || savingDefaults || activeJobs.length > 0}
+                    title="Save the current user + agent config as the new defaults">
+                    {savingDefaults ? (
+                      <span>
+                        <Icon name="sync" size="14" /> Saving...
+                      </span>
+                    ) : (
+                      <span>
+                        <Icon name="save" size="14" /> Save as Defaults
+                      </span>
+                    )}
+                  </button>
+                </Tooltip>
+                {saveDefaultsResult && (
+                  <span
+                    className={`config-footer-result ${saveDefaultsResult.includes("Defaults updated") ? "config-footer-result--ok" : "config-footer-result--err"}`}>
+                    {saveDefaultsResult}
+                  </span>
+                )}
                 {restoreUserDefaultsResult && (
                   <span
                     className={`config-footer-result ${restoreUserDefaultsResult.includes("restored") ? "config-footer-result--ok" : "config-footer-result--err"}`}>
@@ -3324,6 +3389,30 @@ The system provides existing memory context at the start of each pipeline run. U
               </button>
               <button className="btn-danger" onClick={handleRestoreDefaults} disabled={restoringDefaults}>
                 {restoringDefaults ? "Restoring..." : "Restore Defaults"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Save Current as Defaults confirmation dialog ── */}
+      {showSaveDefaultsConfirm && (
+        <div className="confirm-overlay" onClick={() => setShowSaveDefaultsConfirm(false)}>
+          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3 className="confirm-dialog-title">
+              <Icon name="save" size="16" color="accent" /> Save Current as Defaults
+            </h3>
+            <p className="confirm-dialog-text">
+              This overwrites the shipped defaults with your <strong>current</strong> configuration — user config (API keys, provider, delivery,
+              usage tracking) <strong>and</strong> agent instructions (tools, pipeline, system prompt). A later &quot;Restore Defaults&quot; will
+              restore this saved state. This applies until the next app version update. This cannot be undone.
+            </p>
+            <div className="confirm-dialog-actions">
+              <button className="btn-secondary" onClick={() => setShowSaveDefaultsConfirm(false)}>
+                Cancel
+              </button>
+              <button className="btn-danger" onClick={handleSaveDefaults} disabled={savingDefaults}>
+                {savingDefaults ? "Saving..." : "Save as Defaults"}
               </button>
             </div>
           </div>
