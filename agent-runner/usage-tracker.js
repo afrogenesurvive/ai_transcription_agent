@@ -6,15 +6,14 @@
  * endpoint for centralized per-machine usage monitoring across multiple
  * instances sharing the same API key.
  *
- * The push URL is discovered at runtime via the Gist poller — no static
- * DSMON_PUSH_URL config is needed. Offline-resilient: on push failure,
- * records are retained in the buffer file and retried on the next cycle.
+ * The push URL is set statically via DSMON_PUSH_URL (e.g. a stable named-tunnel
+ * URL). Offline-resilient: on push failure, records are retained in the buffer
+ * file and retried on the next cycle.
  *
  * Config (all env vars, optional — tracking disabled when all empty):
+ *   DSMON_PUSH_URL          — Static DS-mon push URL (e.g. https://<tunnel-id>.cfargotunnel.com/sync/push)
  *   DSMON_INSTANCE_ID       — Instance identifier (default: auto-generated)
  *   DSMON_PUSH_INTERVAL     — Flush interval in ms (default: 300000 = 5 min)
- *   DSMON_GIST_RAW_URL      — GitHub Gist raw URL to poll for live tunnel URL
- *   DSMON_GIST_POLL_INTERVAL — Gist poll interval in ms (default: 60000 = 1 min)
  *   DSMON_PUSH_TOKEN        — Shared bearer token required by the DS-mon host's /sync/push endpoint
  */
 
@@ -27,10 +26,11 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const TRACKING_ENABLED = process.env.USAGE_TRACKING_ENABLED === "true";
-let PUSH_URL = "";
+// Normalize the static URL so a bare host (e.g. https://<tunnel-id>.cfargotunnel.com)
+// gets the /sync/push path.
+let PUSH_URL = (process.env.DSMON_PUSH_URL || "").trim().replace(/\/+$/, "");
+if (PUSH_URL && !/\/sync\/push$/i.test(PUSH_URL)) PUSH_URL += "/sync/push";
 const PUSH_INTERVAL = parseInt(process.env.DSMON_PUSH_INTERVAL || "300000", 10);
-const GIST_RAW_URL = process.env.DSMON_GIST_RAW_URL || "";
-const GIST_POLL_INTERVAL = parseInt(process.env.DSMON_GIST_POLL_INTERVAL || "60000", 10);
 const PUSH_TOKEN = process.env.DSMON_PUSH_TOKEN || "";
 const STORAGE_BASE = process.env.TRANSCRIPTION_STORAGE || path.resolve(__dirname, "..", "storage");
 const BUFFER_FILE = path.join(STORAGE_BASE, "dsmon_buffer.jsonl");
@@ -80,8 +80,6 @@ function generateInstanceId() {
 const INSTANCE_ID = generateInstanceId();
 
 let flushTimer = null;
-let gistTimer = null;
-let lastGistValue = "";
 
 /**
  * Record a per-API-call usage entry to the local JSONL buffer.
@@ -170,60 +168,6 @@ export async function flushBuffer() {
 }
 
 /**
- * Poll the GitHub Gist for the current tunnel URL and update PUSH_URL if it changed.
- * This lets remote machines auto-discover a new tunnel URL without manual config changes.
- */
-async function pollGist() {
-  if (!GIST_RAW_URL) return;
-
-  try {
-    const resp = await fetch(GIST_RAW_URL, {
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!resp.ok) return;
-
-    const newUrl = (await resp.text()).trim();
-    if (!newUrl || newUrl === lastGistValue) return;
-
-    const oldUrl = PUSH_URL;
-    lastGistValue = newUrl;
-    PUSH_URL = newUrl;
-
-    console.log(`📡 [DSMON] Tunnel URL updated via Gist: ${oldUrl || "(none)"} → ${newUrl}`);
-
-    // If the flush timer was previously disabled due to no URL, start it now
-    if (!flushTimer && PUSH_URL) {
-      console.log(`📊 [DSMON] Starting flush timer (interval: ${PUSH_INTERVAL}ms, instance: ${INSTANCE_ID})`);
-      flushBuffer();
-      flushTimer = setInterval(flushBuffer, PUSH_INTERVAL);
-    }
-  } catch {
-    // Network errors are expected when offline — retry next cycle
-  }
-}
-
-/**
- * Start the periodic Gist poller.
- * Runs alongside the flush timer; the Gist poller may enable the flush timer
- * when a tunnel URL is first discovered.
- */
-export function startGistPoller() {
-  if (!TRACKING_ENABLED) return;
-  if (!GIST_RAW_URL) {
-    console.log(`📡 [DSMON] Gist poller disabled — set DSMON_GIST_RAW_URL to enable`);
-    return;
-  }
-  if (gistTimer) return;
-
-  console.log(`📡 [DSMON] Starting Gist poller (interval: ${GIST_POLL_INTERVAL}ms, gist: ${GIST_RAW_URL})`);
-
-  // Immediate poll on start
-  pollGist();
-
-  gistTimer = setInterval(pollGist, GIST_POLL_INTERVAL);
-}
-
-/**
  * Start the periodic flush timer.
  * Also performs an immediate flush on start to catch any records that
  * were buffered while the runner was previously offline.
@@ -245,17 +189,12 @@ export function startFlushTimer() {
 }
 
 /**
- * Stop the periodic flush timer and Gist poller.
+ * Stop the periodic flush timer.
  */
 export function stopFlushTimer() {
   if (flushTimer) {
     clearInterval(flushTimer);
     flushTimer = null;
     console.log(`📊 [DSMON] Flush timer stopped`);
-  }
-  if (gistTimer) {
-    clearInterval(gistTimer);
-    gistTimer = null;
-    console.log(`📡 [DSMON] Gist poller stopped`);
   }
 }

@@ -102,6 +102,7 @@ copilot-instructions.md
 
 assets/private
 *.tsbuildinfo
+.cloudflared-url
 .github/prompts
 
 safe/

@@ -2042,52 +2042,80 @@ let tunnelUrl: string | null = null;
 let tunnelError: string | null = null;
 const CLOUDFLARED_URL_FILE = path.join(app.isPackaged ? app.getPath("userData") : path.join(app.getAppPath(), ".."), ".cloudflared-url");
 
+/** Resolve the stable public URL for a named tunnel: https://<tunnel-id>.cfargotunnel.com */
+function resolveNamedTunnelUrl(name: string): string | null {
+  try {
+    const out = execSync("cloudflared tunnel list --output json", { encoding: "utf8", timeout: 15000 });
+    const list = JSON.parse(out);
+    const entry = (Array.isArray(list) ? list : []).find((t: any) => t.name === name);
+    if (entry && entry.id) return `https://${entry.id}.cfargotunnel.com`;
+  } catch {
+    // fall through to `cloudflared tunnel info`
+  }
+  try {
+    const out = execSync(`cloudflared tunnel info ${JSON.stringify(name)} --output json`, { encoding: "utf8", timeout: 15000 });
+    const info = JSON.parse(out);
+    if (info && info.id) return `https://${info.id}.cfargotunnel.com`;
+  } catch {
+    // fall through
+  }
+  return null;
+}
+
 ipcMain.handle("tunnel:start", async () => {
   if (tunnelProcess) {
     return { success: false, error: "Tunnel is already running", running: true, url: tunnelUrl };
   }
   tunnelUrl = null;
   tunnelError = null;
-  addLog("main", "info", "[tunnel] Starting cloudflared tunnel on port 18888");
+  const tunnelName = (getConfig().CLOUDFLARED_TUNNEL_NAME || "").trim();
+  addLog("main", "info", `[tunnel] Starting cloudflared tunnel on port 18888 (${tunnelName ? `named: ${tunnelName}` : "quick"})`);
   return new Promise<{ success: boolean; error?: string; url?: string }>((resolve) => {
     try {
-      const proc = spawn("cloudflared", ["tunnel", "--url", "http://localhost:18888"], {
+      // A named tunnel has a stable https://<tunnel-id>.cfargotunnel.com URL;
+      // a quick tunnel prints a throwaway trycloudflare URL once connected.
+      const namedUrl = tunnelName ? resolveNamedTunnelUrl(tunnelName) : null;
+      if (tunnelName && !namedUrl) {
+        tunnelError = `Named tunnel "${tunnelName}" not found — create it with: cloudflared tunnel create ${tunnelName}`;
+        addLog("main", "error", `[tunnel] ${tunnelError}`);
+        resolve({ success: false, error: tunnelError });
+        return;
+      }
+
+      const args = tunnelName ? ["tunnel", "run", tunnelName] : ["tunnel", "--url", "http://localhost:18888"];
+      const proc = spawn("cloudflared", args, {
         stdio: ["ignore", "pipe", "pipe"],
         env: { ...process.env },
       });
       tunnelProcess = proc;
       let resolved = false;
-      proc.stdout?.on("data", (d: Buffer) => {
+
+      const success = (url: string) => {
+        if (resolved) return;
+        resolved = true;
+        tunnelUrl = url;
+        // Write current URL to disk (.cloudflared-url) for reference
+        try {
+          fs.writeFileSync(CLOUDFLARED_URL_FILE, url + "\n", "utf8");
+        } catch {}
+        addLog("main", "info", `[tunnel] Cloudflare tunnel URL: ${url}`);
+        resolve({ success: true, url });
+      };
+
+      const onData = (d: Buffer, source: string) => {
         const text = d.toString();
-        addLog("main", "debug", `[tunnel] ${text.trim()}`);
-        // Parse the cloudflared URL from stdout: "https://xxxx.trycloudflare.com"
-        const match = text.match(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/);
-        if (match && !resolved) {
-          resolved = true;
-          tunnelUrl = match[0];
-          // Write URL to file for gist updater script
-          try {
-            fs.writeFileSync(CLOUDFLARED_URL_FILE, tunnelUrl + "\n", "utf8");
-          } catch {}
-          addLog("main", "info", `[tunnel] Cloudflare tunnel URL: ${tunnelUrl}`);
-          resolve({ success: true, url: tunnelUrl });
+        addLog("main", "debug", `[tunnel${source}] ${text.trim()}`);
+        if (tunnelName) {
+          // Named tunnels log a "Registered tunnel connection" line once live.
+          if (!resolved && /registered tunnel connection|connection established/i.test(text)) success(namedUrl!);
+        } else {
+          const match = text.match(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/);
+          if (match && !resolved) success(match[0]);
         }
-      });
-      proc.stderr?.on("data", (d: Buffer) => {
-        const text = d.toString();
-        addLog("main", "debug", `[tunnel:stderr] ${text.trim()}`);
-        // Cloudflared sometimes emits warnings to stderr — don't treat as fatal
-        const errMatch = text.match(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/);
-        if (errMatch && !resolved) {
-          resolved = true;
-          tunnelUrl = errMatch[0];
-          try {
-            fs.writeFileSync(CLOUDFLARED_URL_FILE, tunnelUrl + "\n", "utf8");
-          } catch {}
-          addLog("main", "info", `[tunnel] Cloudflare tunnel URL (from stderr): ${tunnelUrl}`);
-          resolve({ success: true, url: tunnelUrl });
-        }
-      });
+      };
+      proc.stdout?.on("data", (d: Buffer) => onData(d, ""));
+      proc.stderr?.on("data", (d: Buffer) => onData(d, ":stderr"));
+
       proc.on("close", (code) => {
         tunnelProcess = null;
         addLog("main", "info", `[tunnel] Process exited with code ${code}`);
@@ -2102,19 +2130,22 @@ ipcMain.handle("tunnel:start", async () => {
         addLog("main", "error", `[tunnel] Failed to start: ${err.message}`);
         if (!resolved) {
           resolved = true;
-          tunnelError = err.message;
-          resolve({ success: false, error: err.message });
+          tunnelError = (err as NodeJS.ErrnoException).code === "ENOENT" ? "cloudflared not found — install it with: brew install cloudflared" : err.message;
+          resolve({ success: false, error: tunnelError });
         }
       });
-      // Timeout: if cloudflared doesn't produce a URL within 30s, fail
+      // Timeout: if the tunnel doesn't come up within 45s, fail and kill the
+      // lingering process so it doesn't keep running in the background.
       setTimeout(() => {
         if (!resolved && tunnelProcess) {
           resolved = true;
-          tunnelError = "Timed out waiting for tunnel URL (30s)";
+          tunnelError = "Timed out waiting for tunnel (45s) — check your internet connection";
           addLog("main", "error", `[tunnel] ${tunnelError}`);
+          tunnelProcess.kill("SIGTERM");
+          tunnelProcess = null;
           resolve({ success: false, error: tunnelError });
         }
-      }, 30000);
+      }, 45000);
     } catch (err: any) {
       tunnelError = err.message;
       addLog("main", "error", `[tunnel] Spawn error: ${err.message}`);
@@ -2143,107 +2174,6 @@ ipcMain.handle("tunnel:status", async () => {
     url: tunnelUrl,
     error: tunnelError,
   };
-});
-
-// ── Gist Updater Process Manager ──
-
-let gistProcess: import("child_process").ChildProcess | null = null;
-let gistLastOutput: string | null = null;
-let gistLastUpdate: string | null = null;
-let gistError: string | null = null;
-
-function getProjectRoot(): string {
-  return app.isPackaged ? path.join(process.resourcesPath, "..") : path.join(app.getAppPath(), "..");
-}
-
-ipcMain.handle("gist:start", async () => {
-  if (gistProcess) {
-    return { success: false, error: "Gist updater is already running", running: true };
-  }
-  gistLastOutput = null;
-  gistLastUpdate = null;
-  gistError = null;
-  addLog("main", "info", "[gist] Starting gist updater (watch -n 30)");
-  const projectRoot = getProjectRoot();
-  const scriptPath = path.join(projectRoot, "scripts", "update-dsmon-gist.sh");
-  try {
-    const proc = spawn("watch", ["-n", "30", scriptPath], {
-      cwd: projectRoot,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env },
-    });
-    gistProcess = proc;
-    proc.stdout?.on("data", (d: Buffer) => {
-      const text = d.toString();
-      if (text.trim()) {
-        gistLastOutput = text.trim();
-        gistLastUpdate = new Date().toISOString();
-        addLog("main", "debug", `[gist] ${text.trim()}`);
-      }
-    });
-    proc.stderr?.on("data", (d: Buffer) => {
-      const text = d.toString();
-      if (text.trim()) {
-        gistError = text.trim();
-        addLog("main", "warn", `[gist:stderr] ${text.trim()}`);
-      }
-    });
-    proc.on("close", (code) => {
-      gistProcess = null;
-      addLog("main", "info", `[gist] Process exited with code ${code}`);
-    });
-    proc.on("error", (err) => {
-      gistProcess = null;
-      gistError = err.message;
-      addLog("main", "error", `[gist] Failed to start: ${err.message}`);
-    });
-    return { success: true };
-  } catch (err: any) {
-    gistError = err.message;
-    addLog("main", "error", `[gist] Spawn error: ${err.message}`);
-    return { success: false, error: err.message };
-  }
-});
-
-ipcMain.handle("gist:stop", async () => {
-  if (!gistProcess) {
-    return { success: false, error: "Gist updater is not running" };
-  }
-  addLog("main", "info", "[gist] Stopping gist updater");
-  gistProcess.kill("SIGTERM");
-  gistProcess = null;
-  return { success: true };
-});
-
-ipcMain.handle("gist:status", async () => {
-  return {
-    running: gistProcess !== null,
-    lastUpdate: gistLastUpdate,
-    lastOutput: gistLastOutput,
-    error: gistError,
-  };
-});
-
-ipcMain.handle("gist:runOnce", async () => {
-  addLog("main", "info", "[gist] Running one-shot gist update");
-  const projectRoot = getProjectRoot();
-  const scriptPath = path.join(projectRoot, "scripts", "update-dsmon-gist.sh");
-  try {
-    const result = execSync(`bash "${scriptPath}"`, {
-      cwd: projectRoot,
-      timeout: 30000,
-      env: { ...process.env },
-      encoding: "utf8",
-    });
-    addLog("main", "info", `[gist] One-shot result: ${result.trim()}`);
-    gistLastUpdate = new Date().toISOString();
-    gistLastOutput = result.trim();
-    return { success: true, output: result.trim() };
-  } catch (err: any) {
-    const msg = err.stderr?.toString() || err.message || "Unknown error";
-    addLog("main", "error", `[gist] One-shot failed: ${msg}`);
-    return { success: false, error: msg };
-  }
 });
 
 // ── Voiceprint conflict checking ──

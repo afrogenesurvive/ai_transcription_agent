@@ -96,18 +96,18 @@ export interface AppConfig {
   CUSTOM_DELIVERY_PER_MEETING: string;
   /** Keep ML models loaded between transcription jobs (faster startup, higher memory) */
   KEEP_MODELS_WARM: string;
+  /** Static DS-mon push URL (e.g. https://<tunnel-id>.cfargotunnel.com/sync/push) */
+  DSMON_PUSH_URL: string;
   /** Instance identifier sent with each usage record (defaults to hostname) */
   DSMON_INSTANCE_ID: string;
   /** DS-mon push interval in milliseconds (default 300000) */
   DSMON_PUSH_INTERVAL: string;
-  /** GitHub Gist raw URL to poll for live DS-mon tunnel URL (empty = disabled) */
-  DSMON_GIST_RAW_URL: string;
-  /** Gist poll interval in milliseconds (default 60000) */
-  DSMON_GIST_POLL_INTERVAL: string;
   /** Shared bearer token required by the DS-mon host's /sync/push endpoint (empty = no auth) */
   DSMON_PUSH_TOKEN: string;
   /** Master toggle: enable/disable DS-mon usage tracking entirely */
   USAGE_TRACKING_ENABLED: string;
+  /** Optional named Cloudflare tunnel for the Quick Action (empty = quick tunnel) */
+  CLOUDFLARED_TUNNEL_NAME: string;
 
   // ── Diarization tuning (ASV phantom speaker suppression) ──
   /** Minimum total speech duration (s) for a valid speaker; below this = phantom */
@@ -166,14 +166,12 @@ const DEFAULTS: AppConfig = {
   GATE_DELIVERY_REVIEW_ENABLED: "true",
   CUSTOM_DELIVERY_PER_MEETING: "true",
   KEEP_MODELS_WARM: "false",
+  DSMON_PUSH_URL: "",
   DSMON_INSTANCE_ID: "",
   DSMON_PUSH_INTERVAL: "300000",
-  // Gist raw URL is intentionally NOT shipped here — it's a per-machine secret
-  // configured via local config.json / .env so it never appears in the repo.
-  DSMON_GIST_RAW_URL: "",
-  DSMON_GIST_POLL_INTERVAL: "60000",
   DSMON_PUSH_TOKEN: "",
   USAGE_TRACKING_ENABLED: "false",
+  CLOUDFLARED_TUNNEL_NAME: "",
   // ── Diarization tuning defaults ──
   DIARIZATION_MIN_SPEAKER_DURATION: "3.0",
   DIARIZATION_MIN_SPEAKER_SEGMENTS: "3",
@@ -474,12 +472,12 @@ export function getChildEnv(): NodeJS.ProcessEnv {
     GATE_DELIVERY_REVIEW_ENABLED: userVals.GATE_DELIVERY_REVIEW_ENABLED || process.env.GATE_DELIVERY_REVIEW_ENABLED || "true",
     CUSTOM_DELIVERY_PER_MEETING: userVals.CUSTOM_DELIVERY_PER_MEETING || process.env.CUSTOM_DELIVERY_PER_MEETING || "true",
     KEEP_MODELS_WARM: userVals.KEEP_MODELS_WARM || process.env.KEEP_MODELS_WARM || "false",
+    DSMON_PUSH_URL: userVals.DSMON_PUSH_URL || process.env.DSMON_PUSH_URL || "",
     DSMON_INSTANCE_ID: userVals.DSMON_INSTANCE_ID || process.env.DSMON_INSTANCE_ID || "",
     DSMON_PUSH_INTERVAL: userVals.DSMON_PUSH_INTERVAL || process.env.DSMON_PUSH_INTERVAL || "300000",
-    DSMON_GIST_RAW_URL: userVals.DSMON_GIST_RAW_URL || process.env.DSMON_GIST_RAW_URL || "",
-    DSMON_GIST_POLL_INTERVAL: userVals.DSMON_GIST_POLL_INTERVAL || process.env.DSMON_GIST_POLL_INTERVAL || "60000",
     DSMON_PUSH_TOKEN: userVals.DSMON_PUSH_TOKEN || process.env.DSMON_PUSH_TOKEN || "",
     USAGE_TRACKING_ENABLED: userVals.USAGE_TRACKING_ENABLED || process.env.USAGE_TRACKING_ENABLED || "false",
+    CLOUDFLARED_TUNNEL_NAME: userVals.CLOUDFLARED_TUNNEL_NAME || process.env.CLOUDFLARED_TUNNEL_NAME || "",
     // ── Diarization tuning (passed to Python backend) ──
     DIARIZATION_MIN_SPEAKER_DURATION: userVals.DIARIZATION_MIN_SPEAKER_DURATION || process.env.DIARIZATION_MIN_SPEAKER_DURATION || "3.0",
     DIARIZATION_MIN_SPEAKER_SEGMENTS: userVals.DIARIZATION_MIN_SPEAKER_SEGMENTS || process.env.DIARIZATION_MIN_SPEAKER_SEGMENTS || "3",

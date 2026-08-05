@@ -301,12 +301,6 @@ export interface ElectronAPI {
   stopTunnel: () => Promise<{ success: boolean; error?: string }>;
   getTunnelStatus: () => Promise<{ running: boolean; url: string | null; error: string | null }>;
 
-  // ── Gist Updater ──
-  startGistUpdater: () => Promise<{ success: boolean; error?: string }>;
-  stopGistUpdater: () => Promise<{ success: boolean; error?: string }>;
-  getGistStatus: () => Promise<{ running: boolean; lastUpdate: string | null; lastOutput: string | null; error: string | null }>;
-  runGistOnce: () => Promise<{ success: boolean; output?: string; error?: string }>;
-
   platform: string;
 }
 

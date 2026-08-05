@@ -45,10 +45,10 @@ interface ConfigValues {
   TRELLO_TOKEN: string;
   DSMON_INSTANCE_ID: string;
   DSMON_PUSH_INTERVAL: string;
-  DSMON_GIST_RAW_URL: string;
-  DSMON_GIST_POLL_INTERVAL: string;
+  DSMON_PUSH_URL: string;
   DSMON_PUSH_TOKEN: string;
   USAGE_TRACKING_ENABLED: string;
+  CLOUDFLARED_TUNNEL_NAME: string;
   HUGGING_FACE_TOKEN: string;
   GITHUB_TOKEN: string;
   EMBEDDING_PROVIDER: string;
@@ -115,8 +115,7 @@ const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secre
   { key: "TRELLO_TOKEN", label: "Trello Token", required: false, secret: true, section: "Services" },
   { key: "DSMON_INSTANCE_ID", label: "DS-mon Instance ID", required: false, secret: false, section: "Usage Tracking" },
   { key: "DSMON_PUSH_INTERVAL", label: "DS-mon Push Interval (ms)", required: false, secret: false, section: "Usage Tracking" },
-  { key: "DSMON_GIST_RAW_URL", label: "DS-mon Gist Raw URL", required: false, secret: false, section: "Usage Tracking" },
-  { key: "DSMON_GIST_POLL_INTERVAL", label: "DS-mon Gist Poll Interval (ms)", required: false, secret: false, section: "Usage Tracking" },
+  { key: "DSMON_PUSH_URL", label: "DS-mon Push URL", required: false, secret: false, section: "Usage Tracking" },
   { key: "DSMON_PUSH_TOKEN", label: "DS-mon Push Token", required: false, secret: true, section: "Usage Tracking" },
   { key: "USAGE_TRACKING_ENABLED", label: "Enable Usage Tracking", required: false, secret: false, section: "Usage Tracking" },
   // ── Diarization tuning ──
@@ -169,10 +168,10 @@ function loadConfigValues(cfg: Record<string, { value: string; source: string }>
     TRELLO_TOKEN: cfg.TRELLO_TOKEN?.value || "",
     DSMON_INSTANCE_ID: cfg.DSMON_INSTANCE_ID?.value || "",
     DSMON_PUSH_INTERVAL: cfg.DSMON_PUSH_INTERVAL?.value || "300000",
-    DSMON_GIST_RAW_URL: cfg.DSMON_GIST_RAW_URL?.value || "",
-    DSMON_GIST_POLL_INTERVAL: cfg.DSMON_GIST_POLL_INTERVAL?.value || "60000",
+    DSMON_PUSH_URL: cfg.DSMON_PUSH_URL?.value || "",
     DSMON_PUSH_TOKEN: cfg.DSMON_PUSH_TOKEN?.value || "",
     USAGE_TRACKING_ENABLED: cfg.USAGE_TRACKING_ENABLED?.value || "false",
+    CLOUDFLARED_TUNNEL_NAME: cfg.CLOUDFLARED_TUNNEL_NAME?.value || "",
     LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
     LOG_COLLAPSE_REPEATED_PREFIXES: cfg.LOG_COLLAPSE_REPEATED_PREFIXES?.value || "true",
     LOG_CHROMIUM: cfg.LOG_CHROMIUM?.value || "true",
@@ -268,7 +267,6 @@ function validateNumericConfig(values: ConfigValues): Record<string, string> {
   requireNumber("PERF_METRICS_POLL_INTERVAL", "Perf Metrics Poll Interval (ms)", 1000);
   requireNumber("CREDIT_POLL_INTERVAL", "Credit Poll Interval (ms)", 1000);
   requireNumber("DSMON_PUSH_INTERVAL", "DS-mon Push Interval (ms)", 1000);
-  requireNumber("DSMON_GIST_POLL_INTERVAL", "DS-mon Gist Poll Interval (ms)", 1000);
 
   return errors;
 }
@@ -425,24 +423,18 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
   const [ollamaWasStartedByUs, setOllamaWasStartedByUs] = useState(false);
   const [restoringDefaults, setRestoringDefaults] = useState(false);
 
-  // ── Tunnel & Gist state ──
+  // ── Tunnel state ──
   const [tunnelStatus, setTunnelStatus] = useState<{ running: boolean; url: string | null; error: string | null }>({ running: false, url: null, error: null });
-  const [gistStatus, setGistStatus] = useState<{ running: boolean; lastUpdate: string | null; lastOutput: string | null; error: string | null }>({ running: false, lastUpdate: null, lastOutput: null, error: null });
   const [tunnelStarting, setTunnelStarting] = useState(false);
-  const [gistStarting, setGistStarting] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
 
-  // Poll tunnel/gist status every 5s when usage tracking is enabled
+  // Poll tunnel status every 5s when usage tracking is enabled
   useEffect(() => {
     if (values.USAGE_TRACKING_ENABLED !== "true") return;
     const poll = async () => {
       try {
         const ts = await window.electronAPI?.getTunnelStatus();
         if (ts) setTunnelStatus(ts);
-      } catch {}
-      try {
-        const gs = await window.electronAPI?.getGistStatus();
-        if (gs) setGistStatus(gs);
       } catch {}
     };
     poll();
@@ -474,46 +466,6 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
       setTunnelStatus({ running: false, url: null, error: null });
     } catch (err: any) {
       setTunnelStatus((prev) => ({ ...prev, error: err.message }));
-    }
-  }, []);
-
-  // ── Gist action handlers ──
-
-  const startGist = useCallback(async () => {
-    setGistStarting(true);
-    try {
-      const result = await window.electronAPI?.startGistUpdater();
-      if (result?.success) {
-        setGistStatus((prev) => ({ ...prev, running: true, error: null }));
-      } else {
-        setGistStatus((prev) => ({ ...prev, error: result?.error || "Failed to start" }));
-      }
-    } catch (err: any) {
-      setGistStatus((prev) => ({ ...prev, error: err.message }));
-    } finally {
-      setGistStarting(false);
-    }
-  }, []);
-
-  const stopGist = useCallback(async () => {
-    try {
-      await window.electronAPI?.stopGistUpdater();
-      setGistStatus({ running: false, lastUpdate: null, lastOutput: null, error: null });
-    } catch (err: any) {
-      setGistStatus((prev) => ({ ...prev, error: err.message }));
-    }
-  }, []);
-
-  const runGistOnce = useCallback(async () => {
-    try {
-      const result = await window.electronAPI?.runGistOnce();
-      if (result?.success) {
-        setGistStatus((prev) => ({ ...prev, lastOutput: result.output || null, lastUpdate: new Date().toISOString() }));
-      } else {
-        setGistStatus((prev) => ({ ...prev, error: result?.error || "Gist update failed" }));
-      }
-    } catch (err: any) {
-      setGistStatus((prev) => ({ ...prev, error: err.message }));
     }
   }, []);
 
@@ -2036,7 +1988,7 @@ The system provides existing memory context at the start of each pipeline run. U
                       <div className="config-section-intro">
                         <p className="config-field-hint">
                           Forward per-API-call token usage to a central <strong>DS-mon</strong> instance for per-machine comparison. Records buffer
-                          locally when offline and flush on reconnect. The push URL is discovered automatically via a GitHub Gist.
+                          locally when offline and flush on reconnect. Enter your stable DS-mon push URL below (e.g. a named Cloudflare tunnel URL).
                         </p>
                       </div>
 
@@ -2076,14 +2028,12 @@ The system provides existing memory context at the start of each pipeline run. U
                                   placeholder={
                                     field.key === "DSMON_INSTANCE_ID"
                                       ? "my-mbp (default: hostname)"
-                                      : field.key === "DSMON_GIST_RAW_URL"
-                                        ? "https://gist.githubusercontent.com/<user>/<id>/raw/<file>"
+                                      : field.key === "DSMON_PUSH_URL"
+                                        ? "https://dsmon.yourdomain.com/sync/push"
                                         : field.key === "DSMON_PUSH_TOKEN"
-                                          ? "Optional — required if the host enforces a token"
-                                          : field.key === "DSMON_PUSH_INTERVAL"
-                                            ? "300000"
-                                            : field.key === "DSMON_GIST_POLL_INTERVAL"
-                                              ? "60000"
+                                            ? "Required — DS-mon enforces the push token"
+                                            : field.key === "DSMON_PUSH_INTERVAL"
+                                              ? "300000"
                                               : "Optional"
                                   }
                                   disabled={activeJobs.length > 0}
@@ -2094,12 +2044,10 @@ The system provides existing memory context at the start of each pipeline run. U
                                   "Identifier sent with each usage record. Leave empty to auto-generate from hostname, username, and a persistent UUID."}
                                 {field.key === "DSMON_PUSH_INTERVAL" &&
                                   "How often (ms) buffered usage records are pushed to DS-mon. Default: 300000 (5 min)."}
-                                {field.key === "DSMON_GIST_RAW_URL" &&
-                                  "Raw URL of a GitHub Gist whose content is the live tunnel URL (e.g. http://host:18888/sync/push). The runner polls this URL and auto-updates. This value is stored in this machine's local config only — never shipped in the repo."}
+                                {field.key === "DSMON_PUSH_URL" &&
+                                  "Static URL of the DS-mon sync server, e.g. https://dsmon.yourdomain.com/sync/push (a public hostname on your Cloudflare tunnel) or http://<host>:18888/sync/push on a LAN."}
                                 {field.key === "DSMON_PUSH_TOKEN" &&
-                                  "Shared secret required by the DS-mon host's /sync/push endpoint. Must match the push token configured in DS-mon. Stored locally only."}
-                                {field.key === "DSMON_GIST_POLL_INTERVAL" &&
-                                  "How often (ms) the Gist is polled for URL changes. Default: 60000 (1 min)."}
+                                  "Required. Shared secret for the DS-mon host's /sync/push endpoint — DS-mon returns 401 without it. Must match the push token configured in DS-mon. Stored locally only."}
                               </p>
                             </div>
                           ))}
@@ -2137,16 +2085,15 @@ The system provides existing memory context at the start of each pipeline run. U
                               <strong>Turn ON</strong> the Enable Sync toggle — status should show green &quot;Listening :18888&quot;
                             </li>
                             <li style={{ marginTop: 8 }}>
-                              <strong>Set a DS-mon Push Token</strong> (Settings → Services → Push Token) — <strong>optional for now</strong>. The agent
-                              runner always sends <code>Authorization: Bearer &lt;token&gt;</code> when a token is configured. The DS-mon host will enforce
-                              it (returning 401 on missing/mismatch) once host-side push-token support ships — until then pushes are accepted without one.
+                              <strong>Set a DS-mon Push Token</strong> (Settings → Services → Push Token) — <strong>required</strong>. DS-mon now
+                              enforces it: <code>/sync/push</code> returns <code>401</code> unless the request sends the matching{" "}
+                              <code>Authorization: Bearer &lt;token&gt;</code>. Every remote must use the same value.
                             </li>
                             <li style={{ marginTop: 8 }}>
-                              Click <strong>Start Cloudflare Tunnel (port 18888)</strong> below to expose the sync server — or run{" "}
-                              <code>cloudflared tunnel --url http://localhost:18888</code> manually
-                            </li>
-                            <li style={{ marginTop: 8 }}>
-                              Click <strong>Start Gist Updater</strong> below to broadcast the live tunnel URL to remote machines automatically
+                              Expose the sync server with a <strong>Cloudflare tunnel</strong> (run externally — the in-app Start button is disabled).
+                              Add a <strong>public hostname</strong> (<code>dsmon.yourdomain.com</code> → <code>http://localhost:18888</code>) and run{" "}
+                              <code>cloudflared tunnel run --token &lt;TOKEN&gt;</code> or <code>sudo cloudflared service install &lt;TOKEN&gt;</code>.
+                              Remotes then use <code>https://dsmon.yourdomain.com/sync/push</code>.
                             </li>
                           </ol>
 
@@ -2154,23 +2101,20 @@ The system provides existing memory context at the start of each pipeline run. U
                             🖥️ Remote Machine Setup (each agent runner)
                           </p>
                           <p className="config-field-hint" style={{ marginBottom: 4 }}>
-                            Enable <strong>Usage Tracking</strong> above and paste your Gist raw URL (or set <code>DSMON_GIST_RAW_URL</code> via{" "}
-                            <code>.env</code>). The runner polls the Gist for tunnel URL changes and pushes buffered records to the DS-mon host.
+                            Enable <strong>Usage Tracking</strong> above and paste your stable DS-mon push URL (or set <code>DSMON_PUSH_URL</code> via{" "}
+                            <code>.env</code>). The runner pushes buffered records straight to that URL.
                           </p>
                           <ol className="config-field-hint" style={{ paddingLeft: 20, lineHeight: 1.8, marginBottom: 8 }}>
                             <li>
                               <strong>Enable Usage Tracking</strong> toggle → <code>ON</code>
                             </li>
                             <li>
-                              <strong>DS-mon Gist Raw URL</strong> — paste the raw URL of your private Gist
-                              (<code>https://gist.githubusercontent.com/&lt;user&gt;/&lt;id&gt;/raw/dsmon-tunnel-url.txt</code>). This is stored in this
-                              machine's local config only — never shipped in the repo.
+                              <strong>DS-mon Push URL</strong> — paste your public URL, e.g.{" "}
+                              <code>https://dsmon.yourdomain.com/sync/push</code> (your Cloudflare tunnel's public hostname) or{" "}
+                              <code>http://&lt;host&gt;:18888/sync/push</code> (LAN). Stored in this machine's local config only — never shipped in the repo.
                             </li>
                             <li>
-                              <strong>DS-mon Push Token</strong> — enter the same token set on the DS-mon host. Required only if the host enforces one.
-                            </li>
-                            <li>
-                              <strong>DS-mon Gist Poll Interval</strong> defaults to 60s — the runner polls for URL changes automatically
+                              <strong>DS-mon Push Token</strong> — <strong>required</strong>. Same token set on the DS-mon host; DS-mon returns 401 without it.
                             </li>
                             <li>
                               <strong>DS-mon Instance ID</strong> auto-generates — override only if you want a custom label in DS-mon
@@ -2179,7 +2123,6 @@ The system provides existing memory context at the start of each pipeline run. U
                               <strong>DS-mon Push Interval</strong> defaults to 5 min — controls how often buffered records are flushed
                             </li>
                           </ol>
-
                           <p className="config-field-hint" style={{ fontWeight: 600, marginBottom: 8, marginTop: 16 }}>
                             ✅ Verification
                           </p>
@@ -2261,9 +2204,9 @@ The system provides existing memory context at the start of each pipeline run. U
                                 <button
                                   className="config-update-status-btn"
                                   onClick={startTunnel}
-                                  disabled={tunnelStarting}
-                                  title="Start cloudflared tunnel on port 18888">
-                                  {tunnelStarting ? "Starting…" : "Start"}
+                                  disabled
+                                  title="Disabled — the tunnel is managed externally (cloudflared tunnel run / service)">
+                                  Start
                                 </button>
                               )}
                               {tunnelStatus.running && tunnelStatus.url && (
@@ -2282,68 +2225,6 @@ The system provides existing memory context at the start of each pipeline run. U
                                   <Icon name="content_copy" size="12" /> Copy URL
                                 </button>
                               )}
-                            </div>
-                          </div>
-
-                          {/* ── Gist Updater card ── */}
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 10,
-                              padding: "10px 14px",
-                              background: "var(--surface)",
-                              borderRadius: 8,
-                              border: "1px solid var(--border)",
-                            }}>
-                            {/* Status dot */}
-                            <div
-                              style={{
-                                width: 10,
-                                height: 10,
-                                borderRadius: "50%",
-                                background: gistStatus.running
-                                  ? "var(--green, #3fb950)"
-                                  : gistStatus.error
-                                    ? "var(--red, #f85149)"
-                                    : "var(--text-muted)",
-                                flexShrink: 0,
-                              }}
-                            />
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 13, fontWeight: 500 }}>
-                                <Icon name="sync" size="14" color="accent" /> Gist Updater
-                              </div>
-                              {gistStatus.running ? (
-                                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-                                  Last update: {gistStatus.lastUpdate ? new Date(gistStatus.lastUpdate).toLocaleTimeString() : "pending…"}
-                                </div>
-                              ) : gistStatus.error ? (
-                                <div style={{ fontSize: 11, color: "var(--red)", marginTop: 2 }}>Error: {gistStatus.error}</div>
-                              ) : (
-                                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>Not running</div>
-                              )}
-                            </div>
-                            <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                              {gistStatus.running ? (
-                                <button className="config-update-status-btn" onClick={stopGist} title="Stop gist updater">
-                                  <Icon name="stop" size="12" /> Stop
-                                </button>
-                              ) : (
-                                <button
-                                  className="config-update-status-btn"
-                                  onClick={startGist}
-                                  disabled={gistStarting}
-                                  title="Start gist updater (polls every 30s)">
-                                  {gistStarting ? "Starting…" : "Start"}
-                                </button>
-                              )}
-                              <button
-                                className="config-update-status-btn"
-                                onClick={runGistOnce}
-                                title="Update the Gist with the current tunnel URL now">
-                                <Icon name="refresh" size="12" /> Run Once
-                              </button>
                             </div>
                           </div>
 

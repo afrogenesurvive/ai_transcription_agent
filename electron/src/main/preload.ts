@@ -264,13 +264,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   stopTunnel: (): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke("tunnel:stop"),
   getTunnelStatus: (): Promise<{ running: boolean; url: string | null; error: string | null }> => ipcRenderer.invoke("tunnel:status"),
 
-  // ── Gist Updater ──
-  startGistUpdater: (): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke("gist:start"),
-  stopGistUpdater: (): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke("gist:stop"),
-  getGistStatus: (): Promise<{ running: boolean; lastUpdate: string | null; lastOutput: string | null; error: string | null }> =>
-    ipcRenderer.invoke("gist:status"),
-  runGistOnce: (): Promise<{ success: boolean; output?: string; error?: string }> => ipcRenderer.invoke("gist:runOnce"),
-
   // ── Platform ──
   platform: process.platform,
 });

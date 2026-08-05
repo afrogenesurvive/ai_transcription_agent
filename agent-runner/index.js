@@ -29,7 +29,7 @@ import { callModel } from "./model-client.js";
 import { executeToolCall } from "./tool-executor.js";
 import { logAction } from "./logger.js";
 import { claimPendingEvent, completeEvent, failEvent, enqueueEvent, getQueueStats } from "./poller.js";
-import { recordCall, startFlushTimer, startGistPoller } from "./usage-tracker.js";
+import { recordCall, startFlushTimer } from "./usage-tracker.js";
 import { sanitizeTranscriptSegments, sanitizeContextString } from "./sanitize.js";
 import {
   TOOLS,
@@ -1746,12 +1746,6 @@ mainLoop();
 // Starts periodic flush of per-API-call usage records to DS-mon.
 // No-op when DSMON_PUSH_URL is not set.
 startFlushTimer();
-
-// ── DS-mon Gist-based tunnel URL discovery ──
-// Polls a GitHub Gist for the live tunnel URL (DS-mon host updates
-// the Gist whenever the tunnel restarts). No-op when DSMON_GIST_RAW_URL
-// is not set.
-startGistPoller();
 
 // ── Interactive terminal ──
 
