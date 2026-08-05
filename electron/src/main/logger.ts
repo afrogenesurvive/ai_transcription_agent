@@ -249,25 +249,44 @@ const STATUS_PROGRESS_LABELS: Record<string, string> = {
   processing_diarization: "Diarization Processing",
 };
 
-function formatProgressPercent(status: string, raw: number): string {
-  if (!Number.isFinite(raw)) return "";
+/** Matches the backend's status-poll line, e.g.
+ *  "GET /transcribe/status/<uuid> → processing_diarization (progress=0.25)". */
+const STATUS_POLL_RE = /^(?:\[api\]\s*)?GET \/transcribe\/status\/([a-f0-9-]+)\s*→\s*([a-z_]+)\s*\(progress=(\S+)\)/;
+
+/** Map a status's raw pipeline progress to a 0→100 band percent.
+ *  Diarization occupies the 0.2→0.3 band of overall pipeline progress. */
+function statusBandPercent(status: string, raw: number): number | null {
+  if (!Number.isFinite(raw)) return null;
   let frac = raw;
   if (status === "processing_diarization") {
     // Diarization band: overall pipeline progress runs 0.2 → 0.3.
     frac = (raw - 0.2) / 0.1;
   }
-  const pct = Math.max(0, Math.min(100, frac * 100));
-  return ` (${pct.toFixed(1)}%)`;
+  return Math.max(0, Math.min(100, frac * 100));
 }
 
 function deriveProgressLog(source: LogEntry["source"], message: string): string | null {
   if (source !== "python") return null;
-  const m = message.match(/^(?:\[api\]\s*)?GET \/transcribe\/status\/([a-f0-9-]+)\s*→\s*([a-z_]+)\s*\(progress=(\S+)\)/);
+  const m = message.match(STATUS_POLL_RE);
   if (!m) return null;
   const label = STATUS_PROGRESS_LABELS[m[2]];
   if (!label) return null;
-  const pct = formatProgressPercent(m[2], parseFloat(m[3]));
-  return `Job ${m[1]} ${label} progress = ${m[3]}${pct}`;
+  const pct = statusBandPercent(m[2], parseFloat(m[3]));
+  if (pct == null) return null;
+  return `Job ${m[1]} ${label} progress = ${m[3]} (${pct.toFixed(1)}%)`;
+}
+
+/** Derive per-stage stepper progress from the backend status-poll line (the
+ *  diarization band). This is the 2nd source for the Identifying Speakers step,
+ *  alongside the pyannote hook fraction (see deriveStageProgress). */
+function deriveStatusStageProgress(source: LogEntry["source"], message: string): { stage: StageKey; percent: number; jobId: string } | null {
+  if (source !== "python") return null;
+  const m = message.match(STATUS_POLL_RE);
+  if (!m) return null;
+  if (!STATUS_PROGRESS_LABELS[m[2]]) return null;
+  const pct = statusBandPercent(m[2], parseFloat(m[3]));
+  if (pct == null) return null;
+  return { stage: "diarization", percent: pct, jobId: m[1] };
 }
 
 /**
@@ -275,8 +294,11 @@ function deriveProgressLog(source: LogEntry["source"], message: string): string 
  *
  * The formats we recognise (all emitted by the Python backend):
  *   - Whisper ASR:  "ASV progress: <end>/<total> (NN.N%)"          → transcription (0→100)
- *   - Diarization:  "Diarization progress: X/Y segments (NN%)"     → diarization (0→100)
  *   - Diarization:  "Diarization <step>: NN.N%"                    → diarization (0→1 fraction)
+ *
+ * Note: the subprocess's "Diarization progress: X/Y segments (NN%)" line is
+ * deliberately NOT parsed — the Identifying Speakers step's second source is
+ * the status-poll band progress (deriveStatusStageProgress), not that line.
  *
  * Messages have already had emoji stripped and any leading [tag] prefix removed
  * by backend-manager, but may carry a leading "[  12.3s]" elapsed-time bracket,
@@ -286,10 +308,6 @@ function deriveStageProgress(message: string): { stage: StageKey; percent: numbe
   // Whisper ASR progress, e.g. "ASV progress: 00:12.345/01:23.456 (14.8%)"
   const asv = message.match(/ASV progress:\s*\S+\/\S+\s*\(([\d.]+)%\)/);
   if (asv) return { stage: "transcription", percent: parseFloat(asv[1]) };
-
-  // Diarization segment-count progress, e.g. "Diarization progress: 45/100 segments (45%)"
-  const diarSeg = message.match(/Diarization progress:\s*\d+\/\d+\s+segments\s*\((\d+)%\)/);
-  if (diarSeg) return { stage: "diarization", percent: parseFloat(diarSeg[1]) };
 
   // Diarization step progress, e.g. "Diarization Segmentation: 0.45%" (pyannote hook).
   // The hook reports a 0→1 fraction; the backend now logs it directly (0.45), so we
@@ -370,6 +388,12 @@ export function addLog(
       level: "info",
       message: derivedMsg,
     };
+    // Drive the stepper's diarization % from the status-poll band progress so
+    // "Diarization Processing progress = … (NN%)" is the step's 2nd source.
+    const statusProg = deriveStatusStageProgress(source, message);
+    if (statusProg) {
+      derivedEntry.stageProgress = { ...statusProg, jobId: statusProg.jobId || logJobId || undefined };
+    }
     buffer.push(derivedEntry);
     if (buffer.length > MAX_ENTRIES) buffer.shift();
     if (logJobId) writeEntryToJobLog(derivedEntry, logJobId);

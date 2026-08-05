@@ -69,8 +69,8 @@ function LiveLogsTab() {
   // Filters persist via ui-state (rule 5b) — migrated from legacy devpanel:* keys
   const [sourceFilter, setSourceFilter] = useUiStateValue<SourceFilter>("dev.liveLog.sourceFilter", "all");
   const [levelFilter, setLevelFilter] = useUiStateValue<LevelFilter>("dev.liveLog.levelFilter", "all");
-  const [subSourceFilter, setSubSourceFilter] = useState<string>("all");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [subSourceFilter, setSubSourceFilter] = useUiStateValue<string>("dev.liveLog.subSourceFilter", "all");
+  const [searchQuery, setSearchQuery] = useUiStateValue<string>("dev.liveLog.searchQuery", "");
   const [autoScroll, setAutoScroll] = useUiStateValue<boolean>("dev.liveLog.autoScroll", true);
   const listRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
@@ -2394,7 +2394,7 @@ function LogFilesTab() {
   const [logLines, setLogLines] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useUiStateValue<string>("dev.logfiles.searchQuery", "");
   const [sidebarSearch, setSidebarSearch] = useState("");
   const [logSourceFilter, setLogSourceFilter] = useUiStateValue<string>("dev.logfiles.sourceFilter", "all");
   const [logLevelFilter, setLogLevelFilter] = useUiStateValue<string>("dev.logfiles.levelFilter", "all");

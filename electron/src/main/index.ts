@@ -44,11 +44,7 @@ if (process.platform === "win32") {
 // renderer/GPU PIDs). Disabling the sandbox is gated to Wine so native Windows
 // keeps its sandbox.
 const isWine = Boolean(
-  process.env.WINEPREFIX ||
-  process.env.WINELOADERNOEXEC ||
-  process.env.WINEDEBUG ||
-  process.env.WINEDLLOVERRIDES ||
-  process.env.WINEARCH
+  process.env.WINEPREFIX || process.env.WINELOADERNOEXEC || process.env.WINEDEBUG || process.env.WINEDLLOVERRIDES || process.env.WINEARCH,
 );
 
 // ── Disable the Chromium sandbox under Wine/CrossOver (blank-window fix) ──
@@ -1100,36 +1096,36 @@ ipcMain.handle("config:save", async (_event, values: Record<string, string>) => 
     addLog("main", "error", msg);
   }
 
-// ── Restart Python backend if any Python-consumed config changed ──
-    // python-backend/config.py reads these at import time via os.getenv().
-    // The agent runner restart above doesn't affect the Python process, so we
-    // must restart it to pick up the new values.
-    const hasPythonChanges = Object.keys(values).some((k) => PYTHON_CONFIG_KEYS.has(k));
-    if (hasPythonChanges) {
-      try {
-        const activeRes = await fetch("http://127.0.0.1:5001/transcribe/active", {
-          signal: AbortSignal.timeout(3000),
-        });
-        let hasActiveJobs = false;
-        let activeData: any = null;
-        if (activeRes.ok) {
-          activeData = await activeRes.json();
-          hasActiveJobs = (activeData.active_jobs || []).length > 0;
-        }
-        if (hasActiveJobs) {
-          addLog(
-            "main",
-            "warn",
-            `Python config changed but ${(activeData.active_jobs || []).length} job(s) running — Python backend NOT restarted. Changes apply after next restart.`,
-          );
-        } else {
-          await restartPythonBackend();
-          addLog("main", "info", "Python backend restarted after config change");
-        }
-      } catch {
-        // Backend unreachable — restart anyway to pick up env vars
+  // ── Restart Python backend if any Python-consumed config changed ──
+  // python-backend/config.py reads these at import time via os.getenv().
+  // The agent runner restart above doesn't affect the Python process, so we
+  // must restart it to pick up the new values.
+  const hasPythonChanges = Object.keys(values).some((k) => PYTHON_CONFIG_KEYS.has(k));
+  if (hasPythonChanges) {
+    try {
+      const activeRes = await fetch("http://127.0.0.1:5001/transcribe/active", {
+        signal: AbortSignal.timeout(3000),
+      });
+      let hasActiveJobs = false;
+      let activeData: any = null;
+      if (activeRes.ok) {
+        activeData = await activeRes.json();
+        hasActiveJobs = (activeData.active_jobs || []).length > 0;
+      }
+      if (hasActiveJobs) {
+        addLog(
+          "main",
+          "warn",
+          `Python config changed but ${(activeData.active_jobs || []).length} job(s) running — Python backend NOT restarted. Changes apply after next restart.`,
+        );
+      } else {
         await restartPythonBackend();
-        addLog("main", "info", "Python backend restarted after config change (backend was unreachable)");
+        addLog("main", "info", "Python backend restarted after config change");
+      }
+    } catch {
+      // Backend unreachable — restart anyway to pick up env vars
+      await restartPythonBackend();
+      addLog("main", "info", "Python backend restarted after config change (backend was unreachable)");
     }
   }
 
@@ -1388,11 +1384,7 @@ ipcMain.handle("config:import", async () => {
     // Best-effort versioning: warn on unknown/old formats but still attempt import.
     const exportVersion = typeof importData.version === "number" ? importData.version : NaN;
     if (!Number.isFinite(exportVersion) || exportVersion < 3) {
-      addLog(
-        "main",
-        "warn",
-        `Config file version ${String(importData.version)} is older than the current format (3) — importing best-effort.`,
-      );
+      addLog("main", "warn", `Config file version ${String(importData.version)} is older than the current format (3) — importing best-effort.`);
     }
 
     // Import user config — coerce values to strings and drop non-scalars so
@@ -1694,6 +1686,25 @@ function writeAgentDefaultsToDisk(defaults: { systemPrompt?: string; pipeline?: 
 
 ipcMain.handle("config:set-defaults", async () => {
   addLog("main", "info", "[config] set-defaults requested");
+  // Check for active jobs before allowing the defaults snapshot to be overwritten
+  let hasActiveJobs = false;
+  try {
+    const activeRes = await fetch("http://127.0.0.1:5001/transcribe/active", {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (activeRes.ok) {
+      const activeData = await activeRes.json();
+      hasActiveJobs = (activeData.active_jobs || []).length > 0;
+    }
+  } catch {
+    // backend unreachable
+  }
+
+  if (hasActiveJobs) {
+    addLog("main", "warn", "[config] set-defaults blocked — active jobs running");
+    return { success: false, blocked: true, error: "Cannot save defaults while jobs are running. Wait for jobs to complete." };
+  }
+
   const warnings: string[] = [];
   try {
     // 1) User config defaults — snapshot current config.json as the defaults
@@ -1827,6 +1838,25 @@ ipcMain.handle("agent-config:defaults", async () => {
 
 ipcMain.handle("agent-config:restore-defaults", async () => {
   addLog("main", "info", "Restoring default agent configs...");
+  // Check for active jobs before allowing agent defaults to be overwritten
+  let hasActiveJobs = false;
+  try {
+    const activeRes = await fetch("http://127.0.0.1:5001/transcribe/active", {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (activeRes.ok) {
+      const activeData = await activeRes.json();
+      hasActiveJobs = (activeData.active_jobs || []).length > 0;
+    }
+  } catch {
+    // backend unreachable
+  }
+
+  if (hasActiveJobs) {
+    addLog("main", "warn", "[config] agent restore-defaults blocked — active jobs running");
+    return { blocked: true, error: "Cannot restore agent defaults while jobs are running. Wait for jobs to complete." };
+  }
+
   try {
     const res = await fetch("http://127.0.0.1:5010/agent/config/restore-defaults", {
       method: "POST",
@@ -2187,12 +2217,19 @@ function tunnelHasConnections(name: string): Promise<boolean> {
       return;
     }
     let out = "";
-    proc.stdout?.on("data", (d: Buffer) => { out += d.toString(); });
+    proc.stdout?.on("data", (d: Buffer) => {
+      out += d.toString();
+    });
     const timer = setTimeout(() => {
-      try { proc?.kill("SIGKILL"); } catch {}
+      try {
+        proc?.kill("SIGKILL");
+      } catch {}
       resolve(false);
     }, 10000);
-    proc.on("error", () => { clearTimeout(timer); resolve(false); });
+    proc.on("error", () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
     proc.on("close", () => {
       clearTimeout(timer);
       try {
@@ -2332,7 +2369,8 @@ async function startTunnelInternal(): Promise<{ success: boolean; error?: string
         tunnelLog("error", `[tunnel] Failed to start: ${err.message}`);
         if (!resolved) {
           resolved = true;
-          tunnelError = (err as NodeJS.ErrnoException).code === "ENOENT" ? "cloudflared not found — install it with: brew install cloudflared" : err.message;
+          tunnelError =
+            (err as NodeJS.ErrnoException).code === "ENOENT" ? "cloudflared not found — install it with: brew install cloudflared" : err.message;
           resolve({ success: false, error: tunnelError });
         }
       });
@@ -2368,7 +2406,9 @@ ipcMain.handle("tunnel:stop", async () => {
   tunnelUrl = null;
   tunnelError = null;
   // Remove URL file
-  try { fs.unlinkSync(CLOUDFLARED_URL_FILE); } catch {}
+  try {
+    fs.unlinkSync(CLOUDFLARED_URL_FILE);
+  } catch {}
   return { success: true };
 });
 
@@ -2376,12 +2416,16 @@ ipcMain.handle("tunnel:stop", async () => {
 ipcMain.handle("tunnel:forceStop", async () => {
   // 1) Kill any process we spawned.
   if (tunnelProcess) {
-    try { tunnelProcess.kill("SIGTERM"); } catch {}
+    try {
+      tunnelProcess.kill("SIGTERM");
+    } catch {}
     tunnelProcess = null;
   }
   tunnelUrl = null;
   tunnelError = null;
-  try { fs.unlinkSync(CLOUDFLARED_URL_FILE); } catch {}
+  try {
+    fs.unlinkSync(CLOUDFLARED_URL_FILE);
+  } catch {}
 
   // 2) Kill any other cloudflared processes (external / root-owned).
   try {

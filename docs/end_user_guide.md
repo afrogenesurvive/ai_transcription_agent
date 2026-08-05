@@ -512,7 +512,7 @@ Click the **⚙️ gear icon** in the sidebar (or the status bar) to open the Co
 
 The Config panel has three tabs at the top: **Config**, **Agent**, and **Logging**. Below the tabs, a **section sub-tab bar** lets you navigate between sections within the active tab.
 
-> **Note:** When a transcription job is actively running, all configuration fields are disabled. A banner at the top shows "⛔ Cannot edit — N job(s) running." Wait for the job to complete before making changes.
+> **Note:** When a transcription job is actively running, all configuration fields are disabled and the action buttons (Export / Import / Clear, plus the Cloudflare Tunnel Start / Stop in Usage Tracking) are greyed out. A banner at the top shows "⛔ Cannot edit — N job(s) running." Wait for the job to complete before making changes.
 
 ### Config Tab
 
@@ -592,6 +592,7 @@ Default settings for delivery:
 
 - **📤 Export Config** — saves all settings (including agent instructions) to a `.json` file via the native save dialog
 - **📥 Import Config** — loads settings from a previously exported `.json` file via the native open dialog. Imports all config values plus agent instructions. Services are restarted after import. Blocked if jobs are still running.
+- **⛔ While a job is running**, Export, Import, and Clear are disabled, as are the Cloudflare Tunnel Start/Stop buttons and the Restore / Save-as-Defaults confirm actions. Wait for the job to finish.
 
 ### Agent Tab
 

@@ -787,12 +787,13 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
     }
   }, []);
 
-  // ── Check active jobs on mount (blocks editing on ALL tabs while running) ──
+  // ── Check active jobs (blocks editing on ALL tabs while running) ──
   // Checks both the ML pipeline (/transcribe/active) and bot-created jobs (test-bot-log.jsonl)
   // so config editing is disabled whenever any job is actively processing.
-  useEffect(() => {
-    setActiveJobsLoading(true);
-    Promise.all([window.electronAPI?.getActiveJobs() ?? Promise.resolve([]), window.electronAPI?.getRunningBotJobs() ?? Promise.resolve([])])
+  // Re-checked on mount and polled periodically so the gates go live if a job
+  // starts while the panel is open.
+  const refreshActiveJobs = useCallback(() => {
+    return Promise.all([window.electronAPI?.getActiveJobs() ?? Promise.resolve([]), window.electronAPI?.getRunningBotJobs() ?? Promise.resolve([])])
       .then(([pipelineJobs, botJobs]) => {
         // Merge pipeline jobs and non-terminal bot jobs
         const seen = new Set<string>();
@@ -810,13 +811,18 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
           }
         }
         setActiveJobs(merged);
-        setActiveJobsLoading(false);
       })
       .catch(() => {
         setActiveJobs([]);
-        setActiveJobsLoading(false);
       });
   }, []);
+
+  useEffect(() => {
+    setActiveJobsLoading(true);
+    refreshActiveJobs().finally(() => setActiveJobsLoading(false));
+    const id = setInterval(refreshActiveJobs, 10000);
+    return () => clearInterval(id);
+  }, [refreshActiveJobs]);
 
   // ── Load config on open ──
   useEffect(() => {
@@ -1271,7 +1277,11 @@ The system provides existing memory context at the start of each pipeline run. U
       <div className="config-header">
         <div className="config-io-buttons">
           <Tooltip content="Save current configuration to a JSON file for backup or transfer">
-            <button className="config-io-btn" onClick={handleExport} disabled={exporting} title="Export configuration to a JSON file">
+            <button
+              className="config-io-btn"
+              onClick={handleExport}
+              disabled={exporting || activeJobs.length > 0}
+              title="Export configuration to a JSON file">
               {exporting ? <Icon name="sync" size="14" /> : <Icon name="upload" size="14" />} Export
             </button>
           </Tooltip>
@@ -1279,7 +1289,7 @@ The system provides existing memory context at the start of each pipeline run. U
             <button
               className={`config-io-btn ${!configOk ? "config-io-btn--import-highlight" : ""}`}
               onClick={handleImport}
-              disabled={importing}
+              disabled={importing || activeJobs.length > 0}
               title="Import configuration from a JSON file">
               {importing ? <Icon name="sync" size="14" /> : <Icon name="download" size="14" />} Import
             </button>
@@ -1289,7 +1299,7 @@ The system provides existing memory context at the start of each pipeline run. U
             <button
               className="config-io-btn config-io-btn--danger"
               onClick={() => setShowClearConfigConfirm(true)}
-              disabled={clearingConfig}
+              disabled={clearingConfig || activeJobs.length > 0}
               title="Clear all saved configuration values">
               {clearingConfig ? <Icon name="sync" size="14" /> : <Icon name="delete" size="14" />} Clear
             </button>
@@ -2286,25 +2296,34 @@ The system provides existing memory context at the start of each pipeline run. U
                             </div>
                             <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                               {tunnelStatus.running ? (
-                                <button className="config-update-status-btn" onClick={stopTunnel} title="Stop tunnel (app-managed)">
+                                <button
+                                  className="config-update-status-btn"
+                                  onClick={stopTunnel}
+                                  disabled={activeJobs.length > 0}
+                                  title={activeJobs.length > 0 ? "Stop disabled while jobs are running" : "Stop tunnel (app-managed)"}>
                                   <Icon name="stop" size="12" /> Stop
                                 </button>
                               ) : tunnelStatus.connected ? (
                                 <button
                                   className="config-update-status-btn"
                                   onClick={forceStopTunnel}
-                                  title="Stop the tunnel — sudo killall cloudflared">
+                                  disabled={activeJobs.length > 0}
+                                  title={
+                                    activeJobs.length > 0 ? "Stop disabled while jobs are running" : "Stop the tunnel — sudo killall cloudflared"
+                                  }>
                                   <Icon name="stop" size="12" /> Force Stop
                                 </button>
                               ) : (
                                 <button
                                   className="config-update-status-btn"
                                   onClick={startTunnel}
-                                  disabled={!values.CLOUDFLARED_TUNNEL_TOKEN?.trim()}
+                                  disabled={!values.CLOUDFLARED_TUNNEL_TOKEN?.trim() || activeJobs.length > 0}
                                   title={
-                                    values.CLOUDFLARED_TUNNEL_TOKEN?.trim()
-                                      ? "Start cloudflared tunnel (token mode)"
-                                      : "Set the Cloudflare Tunnel Token above to enable Start"
+                                    activeJobs.length > 0
+                                      ? "Start disabled while jobs are running"
+                                      : values.CLOUDFLARED_TUNNEL_TOKEN?.trim()
+                                        ? "Start cloudflared tunnel (token mode)"
+                                        : "Set the Cloudflare Tunnel Token above to enable Start"
                                   }>
                                   Start
                                 </button>
@@ -3420,7 +3439,7 @@ The system provides existing memory context at the start of each pipeline run. U
               <button className="btn-secondary" onClick={() => setShowClearConfigConfirm(false)}>
                 Cancel
               </button>
-              <button className="btn-danger" onClick={handleClearConfig} disabled={clearingConfig}>
+              <button className="btn-danger" onClick={handleClearConfig} disabled={clearingConfig || activeJobs.length > 0}>
                 {clearingConfig ? "Clearing..." : "Clear All"}
               </button>
             </div>
@@ -3466,7 +3485,7 @@ The system provides existing memory context at the start of each pipeline run. U
               <button className="btn-secondary" onClick={() => setShowRestoreUserDefaultsConfirm(false)}>
                 Cancel
               </button>
-              <button className="btn-danger" onClick={handleRestoreUserDefaults} disabled={restoringUserDefaults}>
+              <button className="btn-danger" onClick={handleRestoreUserDefaults} disabled={restoringUserDefaults || activeJobs.length > 0}>
                 {restoringUserDefaults ? "Restoring..." : "Restore Defaults"}
               </button>
             </div>
@@ -3489,7 +3508,7 @@ The system provides existing memory context at the start of each pipeline run. U
               <button className="btn-secondary" onClick={() => setShowRestoreDefaultsConfirm(false)}>
                 Cancel
               </button>
-              <button className="btn-danger" onClick={handleRestoreDefaults} disabled={restoringDefaults}>
+              <button className="btn-danger" onClick={handleRestoreDefaults} disabled={restoringDefaults || activeJobs.length > 0}>
                 {restoringDefaults ? "Restoring..." : "Restore Defaults"}
               </button>
             </div>
@@ -3513,7 +3532,7 @@ The system provides existing memory context at the start of each pipeline run. U
               <button className="btn-secondary" onClick={() => setShowSaveDefaultsConfirm(false)}>
                 Cancel
               </button>
-              <button className="btn-danger" onClick={handleSaveDefaults} disabled={savingDefaults}>
+              <button className="btn-danger" onClick={handleSaveDefaults} disabled={savingDefaults || activeJobs.length > 0}>
                 {savingDefaults ? "Saving..." : "Save as Defaults"}
               </button>
             </div>
