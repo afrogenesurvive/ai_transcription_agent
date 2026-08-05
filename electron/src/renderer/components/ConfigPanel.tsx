@@ -13,7 +13,7 @@
  * and flags the agent runner for restart via the restart-flag mechanism.
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useUiState, useUiStateValue } from "../hooks/useUiState";
 import Icon from "./Icon";
 import Tooltip from "./Tooltip";
@@ -619,6 +619,12 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
   const [savingDefaults, setSavingDefaults] = useState(false);
   const [saveDefaultsResult, setSaveDefaultsResult] = useState<string | null>(null);
   const [showSaveDefaultsConfirm, setShowSaveDefaultsConfirm] = useState(false);
+
+  // ── Config action feedback — auto-scroll to the newest message ──
+  const feedbackRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    feedbackRef.current?.scrollTo({ top: feedbackRef.current.scrollHeight });
+  }, [exportResult, importResult, clearResult, restoreUserDefaultsResult, saveDefaultsResult, error, saved]);
 
   const handleExport = useCallback(async () => {
     setExporting(true);
@@ -3179,22 +3185,29 @@ The system provides existing memory context at the start of each pipeline run. U
         )}
       </div>
 
-      {/* ── Saving overlay ── */}
-      <LoadingModal visible={saving} message="Saving configuration…" />
+      {/* ── Config action loading overlay (covers save / import / clear / restore / save-defaults) ── */}
+      <LoadingModal
+        visible={saving || importing || clearingConfig || restoringUserDefaults || restoringDefaults || savingDefaults}
+        message={
+          saving
+            ? "Saving configuration…"
+            : importing
+              ? "Importing configuration — restarting backend services…"
+              : clearingConfig
+                ? "Clearing configuration — restarting backend services…"
+                : restoringUserDefaults
+                  ? "Restoring defaults — restarting backend services…"
+                  : restoringDefaults
+                    ? "Restoring agent defaults…"
+                    : savingDefaults
+                      ? "Saving current configuration as defaults…"
+                      : undefined
+        }
+      />
 
       <div className="config-footer">
-        {exportResult && <span className="config-success">{exportResult}</span>}
-        {importResult && <span className="config-success">{importResult}</span>}
-        {clearResult && <span className="config-success">{clearResult}</span>}
-        {error && <span className="config-error">{error}</span>}
-        {saved && !restartNeeded && <span className="config-success">✓ Configuration saved</span>}
-        {saved && restartNeeded && (
-          <span className="config-warning">
-            <Icon name="check" size="12" color="green" /> Saved — <Icon name="warning" size="12" color="orange" /> Restart agent runner to apply
-            changes
-          </span>
-        )}
-
+        {/* ── Buttons row (top of footer, horizontal) ── */}
+        <div className="config-footer-buttons">
         {activeTab === "config" && (
           <>
             {activeJobs.length > 0 ? (
@@ -3243,18 +3256,6 @@ The system provides existing memory context at the start of each pipeline run. U
                     )}
                   </button>
                 </Tooltip>
-                {saveDefaultsResult && (
-                  <span
-                    className={`config-footer-result ${saveDefaultsResult.includes("Defaults updated") ? "config-footer-result--ok" : "config-footer-result--err"}`}>
-                    {saveDefaultsResult}
-                  </span>
-                )}
-                {restoreUserDefaultsResult && (
-                  <span
-                    className={`config-footer-result ${restoreUserDefaultsResult.includes("restored") ? "config-footer-result--ok" : "config-footer-result--err"}`}>
-                    {restoreUserDefaultsResult}
-                  </span>
-                )}
               </div>
             )}
           </>
@@ -3351,6 +3352,46 @@ The system provides existing memory context at the start of each pipeline run. U
             )}
           </div>
         )}
+        </div>
+
+        {/* ── Feedback log (scrollable, under the buttons) ── */}
+        <div className="config-footer-feedback" ref={feedbackRef}>
+          {exportResult && (
+            <span className={`config-footer-result ${exportResult.startsWith("Exported") ? "config-footer-result--ok" : "config-footer-result--err"}`}>
+              {exportResult}
+            </span>
+          )}
+          {importResult && (
+            <span className={`config-footer-result ${importResult.includes("imported") ? "config-footer-result--ok" : "config-footer-result--err"}`}>
+              {importResult}
+            </span>
+          )}
+          {clearResult && (
+            <span className={`config-footer-result ${clearResult.includes("cleared") ? "config-footer-result--ok" : "config-footer-result--err"}`}>
+              {clearResult}
+            </span>
+          )}
+          {restoreUserDefaultsResult && (
+            <span
+              className={`config-footer-result ${restoreUserDefaultsResult.includes("restored") ? "config-footer-result--ok" : "config-footer-result--err"}`}>
+              {restoreUserDefaultsResult}
+            </span>
+          )}
+          {saveDefaultsResult && (
+            <span
+              className={`config-footer-result ${saveDefaultsResult.includes("Defaults updated") ? "config-footer-result--ok" : "config-footer-result--err"}`}>
+              {saveDefaultsResult}
+            </span>
+          )}
+          {error && <span className="config-footer-result config-footer-result--err">{error}</span>}
+          {saved && !restartNeeded && <span className="config-footer-result config-footer-result--ok">✓ Configuration saved</span>}
+          {saved && restartNeeded && (
+            <span className="config-footer-result config-footer-result--ok">
+              <Icon name="check" size="12" color="green" /> Saved — <Icon name="warning" size="12" color="orange" /> Restart agent runner to apply
+              changes
+            </span>
+          )}
+        </div>
       </div>
 
       {/* ── Clear Config confirmation dialog ── */}

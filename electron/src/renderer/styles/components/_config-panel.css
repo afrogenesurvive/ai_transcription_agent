@@ -354,11 +354,32 @@
 
 .config-footer {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
   padding: 12px 20px;
   border-top: 1px solid var(--border);
-  gap: 12px;
+  gap: 10px;
+}
+
+/* Buttons row — top of the config footer, horizontal + wraps */
+.config-footer-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Scrollable feedback log — under the buttons */
+.config-footer-feedback {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 120px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+  font-size: var(--fs-12);
 }
 
 .config-error {
@@ -1228,8 +1249,8 @@
 
 .config-footer-result {
   font-size: var(--fs-11);
-  width: 100%;
-  margin-top: 4px;
+  line-height: 1.4;
+  word-break: break-word;
 }
 
 .config-footer-result--ok {
