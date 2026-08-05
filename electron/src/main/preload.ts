@@ -264,7 +264,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // ── Tunnel (Cloudflare) ──
   startTunnel: (): Promise<{ success: boolean; error?: string; url?: string }> => ipcRenderer.invoke("tunnel:start"),
   stopTunnel: (): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke("tunnel:stop"),
-  getTunnelStatus: (): Promise<{ running: boolean; url: string | null; error: string | null }> => ipcRenderer.invoke("tunnel:status"),
+  forceStopTunnel: (): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke("tunnel:forceStop"),
+  getTunnelStatus: (): Promise<{ running: boolean; connected: boolean; url: string | null; error: string | null }> => ipcRenderer.invoke("tunnel:status"),
 
   // ── Platform ──
   platform: process.platform,

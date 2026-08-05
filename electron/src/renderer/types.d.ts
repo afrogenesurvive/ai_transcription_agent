@@ -300,7 +300,8 @@ export interface ElectronAPI {
   // ── Tunnel (Cloudflare) ──
   startTunnel: () => Promise<{ success: boolean; error?: string; url?: string }>;
   stopTunnel: () => Promise<{ success: boolean; error?: string }>;
-  getTunnelStatus: () => Promise<{ running: boolean; url: string | null; error: string | null }>;
+  forceStopTunnel: () => Promise<{ success: boolean; error?: string }>;
+  getTunnelStatus: () => Promise<{ running: boolean; connected: boolean; url: string | null; error: string | null }>;
 
   platform: string;
 }

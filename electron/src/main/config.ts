@@ -108,6 +108,8 @@ export interface AppConfig {
   USAGE_TRACKING_ENABLED: string;
   /** Optional named Cloudflare tunnel for the Quick Action (empty = quick tunnel) */
   CLOUDFLARED_TUNNEL_NAME: string;
+  /** Cloudflare tunnel token for the Quick Action Start button (cloudflared tunnel run --token … --protocol http2) */
+  CLOUDFLARED_TUNNEL_TOKEN: string;
 
   // ── Diarization tuning (ASV phantom speaker suppression) ──
   /** Minimum total speech duration (s) for a valid speaker; below this = phantom */
@@ -172,6 +174,7 @@ const DEFAULTS: AppConfig = {
   DSMON_PUSH_TOKEN: "",
   USAGE_TRACKING_ENABLED: "false",
   CLOUDFLARED_TUNNEL_NAME: "",
+  CLOUDFLARED_TUNNEL_TOKEN: "",
   // ── Diarization tuning defaults ──
   DIARIZATION_MIN_SPEAKER_DURATION: "3.0",
   DIARIZATION_MIN_SPEAKER_SEGMENTS: "3",

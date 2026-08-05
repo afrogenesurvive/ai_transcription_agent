@@ -49,6 +49,7 @@ interface ConfigValues {
   DSMON_PUSH_TOKEN: string;
   USAGE_TRACKING_ENABLED: string;
   CLOUDFLARED_TUNNEL_NAME: string;
+  CLOUDFLARED_TUNNEL_TOKEN: string;
   HUGGING_FACE_TOKEN: string;
   GITHUB_TOKEN: string;
   EMBEDDING_PROVIDER: string;
@@ -117,6 +118,7 @@ const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secre
   { key: "DSMON_PUSH_INTERVAL", label: "DS-mon Push Interval (ms)", required: false, secret: false, section: "Usage Tracking" },
   { key: "DSMON_PUSH_URL", label: "DS-mon Push URL", required: false, secret: false, section: "Usage Tracking" },
   { key: "DSMON_PUSH_TOKEN", label: "DS-mon Push Token", required: false, secret: true, section: "Usage Tracking" },
+  { key: "CLOUDFLARED_TUNNEL_TOKEN", label: "Cloudflare Tunnel Token", required: false, secret: true, section: "Usage Tracking" },
   { key: "USAGE_TRACKING_ENABLED", label: "Enable Usage Tracking", required: false, secret: false, section: "Usage Tracking" },
   // ── Diarization tuning ──
   { key: "DIARIZATION_MIN_SPEAKER_DURATION", label: "Min Speaker Duration (s)", required: false, secret: false, section: "Diarization" },
@@ -172,6 +174,7 @@ function loadConfigValues(cfg: Record<string, { value: string; source: string }>
     DSMON_PUSH_TOKEN: cfg.DSMON_PUSH_TOKEN?.value || "",
     USAGE_TRACKING_ENABLED: cfg.USAGE_TRACKING_ENABLED?.value || "false",
     CLOUDFLARED_TUNNEL_NAME: cfg.CLOUDFLARED_TUNNEL_NAME?.value || "",
+    CLOUDFLARED_TUNNEL_TOKEN: cfg.CLOUDFLARED_TUNNEL_TOKEN?.value || "",
     LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
     LOG_COLLAPSE_REPEATED_PREFIXES: cfg.LOG_COLLAPSE_REPEATED_PREFIXES?.value || "true",
     LOG_CHROMIUM: cfg.LOG_CHROMIUM?.value || "true",
@@ -426,7 +429,7 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
   const [restoringDefaults, setRestoringDefaults] = useState(false);
 
   // ── Tunnel state ──
-  const [tunnelStatus, setTunnelStatus] = useState<{ running: boolean; url: string | null; error: string | null }>({ running: false, url: null, error: null });
+  const [tunnelStatus, setTunnelStatus] = useState<{ running: boolean; connected: boolean; url: string | null; error: string | null }>({ running: false, connected: false, url: null, error: null });
   const [tunnelStarting, setTunnelStarting] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
 
@@ -451,7 +454,7 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
     try {
       const result = await window.electronAPI?.startTunnel();
       if (result?.success) {
-        setTunnelStatus({ running: true, url: result.url || null, error: null });
+        setTunnelStatus({ running: true, connected: true, url: result.url || null, error: null });
       } else {
         setTunnelStatus((prev) => ({ ...prev, error: result?.error || "Failed to start" }));
       }
@@ -465,9 +468,25 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
   const stopTunnel = useCallback(async () => {
     try {
       await window.electronAPI?.stopTunnel();
-      setTunnelStatus({ running: false, url: null, error: null });
+      setTunnelStatus({ running: false, connected: false, url: null, error: null });
     } catch (err: any) {
       setTunnelStatus((prev) => ({ ...prev, error: err.message }));
+    }
+  }, []);
+
+  const forceStopTunnel = useCallback(async () => {
+    setTunnelStarting(true);
+    try {
+      const result = await window.electronAPI?.forceStopTunnel();
+      if (result?.success) {
+        setTunnelStatus({ running: false, connected: false, url: null, error: null });
+      } else {
+        setTunnelStatus((prev) => ({ ...prev, error: result?.error || "Failed to force-stop tunnel" }));
+      }
+    } catch (err: any) {
+      setTunnelStatus((prev) => ({ ...prev, error: err.message }));
+    } finally {
+      setTunnelStarting(false);
     }
   }, []);
 
@@ -2076,10 +2095,21 @@ The system provides existing memory context at the start of each pipeline run. U
                                             ? "Required — DS-mon enforces the push token"
                                             : field.key === "DSMON_PUSH_INTERVAL"
                                               ? "300000"
-                                              : "Optional"
+                                              : field.key === "CLOUDFLARED_TUNNEL_TOKEN"
+                                                ? "cloudflared tunnel token <name>"
+                                                : "Optional"
                                   }
                                   disabled={activeJobs.length > 0}
                                 />
+                                {field.secret && (
+                                  <button
+                                    className="config-visibility-toggle"
+                                    onClick={() => toggleVisible(field.key)}
+                                    title={visibleKeys.has(field.key) ? "Hide value" : "Show value"}
+                                    type="button">
+                                    {visibleKeys.has(field.key) ? <Icon name="visibility" size="14" /> : <Icon name="visibility_off" size="14" />}
+                                  </button>
+                                )}
                               </div>
                               <p className="config-field-hint" style={{ marginTop: 2 }}>
                                 {field.key === "DSMON_INSTANCE_ID" &&
@@ -2090,6 +2120,8 @@ The system provides existing memory context at the start of each pipeline run. U
                                   "Static URL of the DS-mon sync server, e.g. https://dsmon.yourdomain.com/sync/push (a public hostname on your Cloudflare tunnel) or http://<host>:18888/sync/push on a LAN."}
                                 {field.key === "DSMON_PUSH_TOKEN" &&
                                   "Required. Shared secret for the DS-mon host's /sync/push endpoint — DS-mon returns 401 without it. Must match the push token configured in DS-mon. Stored locally only."}
+                                {field.key === "CLOUDFLARED_TUNNEL_TOKEN" &&
+                                  "Token for the DS-mon Cloudflare tunnel (get it with: cloudflared tunnel token dsmon). Used by the Quick Actions Start button to run `cloudflared tunnel run --token … --protocol http2`. Stored locally only."}
                               </p>
                             </div>
                           ))}
@@ -2132,10 +2164,12 @@ The system provides existing memory context at the start of each pipeline run. U
                               <code>Authorization: Bearer &lt;token&gt;</code>. Every remote must use the same value.
                             </li>
                             <li style={{ marginTop: 8 }}>
-                              Expose the sync server with a <strong>Cloudflare tunnel</strong> (run externally — the in-app Start button is disabled).
-                              Add a <strong>public hostname</strong> (<code>dsmon.yourdomain.com</code> → <code>http://localhost:18888</code>) and run{" "}
-                              <code>cloudflared tunnel run --token &lt;TOKEN&gt;</code> or <code>sudo cloudflared service install &lt;TOKEN&gt;</code>.
-                              Remotes then use <code>https://dsmon.yourdomain.com/sync/push</code>.
+                              Expose the sync server with a <strong>Cloudflare tunnel</strong>. Add a <strong>public hostname</strong>{" "}
+                              (<code>dsmon.yourdomain.com</code> → <code>http://localhost:18888</code>) and paste your tunnel token (get it with{" "}
+                              <code>cloudflared tunnel token &lt;tunnel-name&gt;</code>) into the <strong>Cloudflare Tunnel Token</strong> field above — the
+                              Quick Actions <strong>Start</strong> button then runs{" "}
+                              <code>cloudflared tunnel run --token &lt;TOKEN&gt; --protocol http2</code>. Remotes then use{" "}
+                              <code>https://dsmon.yourdomain.com/sync/push</code>.
                             </li>
                           </ol>
 
@@ -2206,11 +2240,9 @@ The system provides existing memory context at the start of each pipeline run. U
                                 width: 10,
                                 height: 10,
                                 borderRadius: "50%",
-                                background: tunnelStatus.running
+                                background: tunnelStatus.connected
                                   ? "var(--green, #3fb950)"
-                                  : tunnelStatus.error
-                                    ? "var(--red, #f85149)"
-                                    : "var(--text-muted)",
+                                  : "var(--red, #f85149)",
                                 flexShrink: 0,
                               }}
                             />
@@ -2218,7 +2250,7 @@ The system provides existing memory context at the start of each pipeline run. U
                               <div style={{ fontSize: 13, fontWeight: 500 }}>
                                 <Icon name="open_in_new" size="14" color="accent" /> Cloudflare Tunnel
                               </div>
-                              {tunnelStatus.running && tunnelStatus.url ? (
+                              {tunnelStatus.connected && tunnelStatus.url ? (
                                 <div
                                   style={{
                                     fontSize: 11,
@@ -2233,25 +2265,37 @@ The system provides existing memory context at the start of each pipeline run. U
                                 </div>
                               ) : tunnelStatus.error ? (
                                 <div style={{ fontSize: 11, color: "var(--red)", marginTop: 2 }}>Error: {tunnelStatus.error}</div>
+                              ) : tunnelStatus.connected ? (
+                                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                                  Connected{tunnelStatus.running ? "" : " (external)"}
+                                </div>
                               ) : (
-                                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>Not running</div>
+                                <div style={{ fontSize: 11, color: "var(--red)", marginTop: 2 }}>Not connected</div>
                               )}
                             </div>
                             <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                               {tunnelStatus.running ? (
-                                <button className="config-update-status-btn" onClick={stopTunnel} title="Stop tunnel">
+                                <button className="config-update-status-btn" onClick={stopTunnel} title="Stop tunnel (app-managed)">
                                   <Icon name="stop" size="12" /> Stop
+                                </button>
+                              ) : tunnelStatus.connected ? (
+                                <button className="config-update-status-btn" onClick={forceStopTunnel} title="Stop the tunnel — sudo killall cloudflared">
+                                  <Icon name="stop" size="12" /> Force Stop
                                 </button>
                               ) : (
                                 <button
                                   className="config-update-status-btn"
                                   onClick={startTunnel}
-                                  disabled
-                                  title="Disabled — the tunnel is managed externally (cloudflared tunnel run / service)">
+                                  disabled={!values.CLOUDFLARED_TUNNEL_TOKEN?.trim()}
+                                  title={
+                                    values.CLOUDFLARED_TUNNEL_TOKEN?.trim()
+                                      ? "Start cloudflared tunnel (token mode)"
+                                      : "Set the Cloudflare Tunnel Token above to enable Start"
+                                  }>
                                   Start
                                 </button>
                               )}
-                              {tunnelStatus.running && tunnelStatus.url && (
+                              {tunnelStatus.connected && tunnelStatus.url && (
                                 <button
                                   className="config-update-status-btn"
                                   onClick={() => {
@@ -2269,6 +2313,12 @@ The system provides existing memory context at the start of each pipeline run. U
                               )}
                             </div>
                           </div>
+
+                          {!tunnelStatus.connected && !values.CLOUDFLARED_TUNNEL_TOKEN?.trim() && (
+                            <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>
+                              Enter your Cloudflare tunnel token above to enable the Start button.
+                            </div>
+                          )}
 
                           {/* Copy feedback toast */}
                           {copyFeedback && (

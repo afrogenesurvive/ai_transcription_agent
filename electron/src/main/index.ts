@@ -10,7 +10,7 @@
  */
 
 import fs from "fs";
-import { spawn, execSync } from "child_process";
+import { spawn, execSync, execFile } from "child_process";
 import { app, BrowserWindow, Tray, Menu, nativeImage, Notification, ipcMain, dialog, shell } from "electron";
 import path from "path";
 import pidusage from "pidusage";
@@ -2167,27 +2167,119 @@ function resolveNamedTunnelUrl(name: string): string | null {
   return null;
 }
 
-ipcMain.handle("tunnel:start", async () => {
+/** Name of the DS-mon tunnel used for connection checks (defaults to "dsmon"). */
+function getDsmonTunnelName(): string {
+  return (getConfig().CLOUDFLARED_TUNNEL_NAME || "dsmon").trim() || "dsmon";
+}
+
+/** True if the named tunnel currently has at least one active connection (i.e. it's running, possibly externally).
+ *  Async (spawn-based) so an offline/hung cloudflared can never block the main process. */
+function tunnelHasConnections(name: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    let proc: import("child_process").ChildProcess | null = null;
+    try {
+      proc = spawn("cloudflared", ["tunnel", "list", "--output", "json"], {
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env },
+      });
+    } catch {
+      resolve(false);
+      return;
+    }
+    let out = "";
+    proc.stdout?.on("data", (d: Buffer) => { out += d.toString(); });
+    const timer = setTimeout(() => {
+      try { proc?.kill("SIGKILL"); } catch {}
+      resolve(false);
+    }, 10000);
+    proc.on("error", () => { clearTimeout(timer); resolve(false); });
+    proc.on("close", () => {
+      clearTimeout(timer);
+      try {
+        const list = JSON.parse(out);
+        const entry = (Array.isArray(list) ? list : []).find((t: any) => t.name === name);
+        if (!entry) return resolve(false);
+        // `cloudflared tunnel list` reports the CONNECTIONS column as an array of
+        // connection IDs — non-empty means the tunnel is live (externally or via us).
+        const conns = entry.connections ?? entry.conns;
+        resolve(Array.isArray(conns) && conns.length > 0);
+      } catch {
+        resolve(false);
+      }
+    });
+  });
+}
+
+/** Derive the public tunnel URL in token mode from the DSMON_PUSH_URL origin. */
+function tokenModeUrlFromConfig(): string | null {
+  try {
+    return new URL((getConfig().DSMON_PUSH_URL || "").trim()).origin;
+  } catch {
+    return null;
+  }
+}
+
+/** Route a tunnel event through the app logger (live log + per-job pipeline.log) AND the terminal. */
+function tunnelLog(level: "debug" | "info" | "warn" | "error", message: string): void {
+  addLog("main", level, message);
+  console.log(`[main] ${message}`);
+}
+
+/** At startup: if usage tracking is enabled and a tunnel token is set, check the
+ *  DS-mon tunnel and auto-start it when it isn't connected. */
+async function ensureDsmonTunnelRunning(): Promise<void> {
+  const cfg = getConfig();
+  const token = (cfg.CLOUDFLARED_TUNNEL_TOKEN || "").trim();
+  const enabled = (cfg.USAGE_TRACKING_ENABLED || "").trim() === "true";
+  if (!token || !enabled) {
+    tunnelLog("debug", "[tunnel] Auto-check skipped — usage tracking off or no tunnel token");
+    return;
+  }
+  if (await tunnelHasConnections(getDsmonTunnelName())) {
+    tunnelLog("info", "[tunnel] DS-mon tunnel already connected — no auto-start needed");
+    return;
+  }
+  tunnelLog("info", "[tunnel] DS-mon tunnel not connected — auto-starting");
+  const result = await startTunnelInternal();
+  if (!result.success) {
+    tunnelLog("warn", `[tunnel] Auto-start failed: ${result.error}`);
+  }
+}
+
+async function startTunnelInternal(): Promise<{ success: boolean; error?: string; url?: string; running?: boolean }> {
   if (tunnelProcess) {
-    return { success: false, error: "Tunnel is already running", running: true, url: tunnelUrl };
+    return { success: false, error: "Tunnel is already running", running: true, url: tunnelUrl ?? undefined };
   }
   tunnelUrl = null;
   tunnelError = null;
-  const tunnelName = (getConfig().CLOUDFLARED_TUNNEL_NAME || "").trim();
-  addLog("main", "info", `[tunnel] Starting cloudflared tunnel on port 18888 (${tunnelName ? `named: ${tunnelName}` : "quick"})`);
+  const cfg = getConfig();
+  const tunnelToken = (cfg.CLOUDFLARED_TUNNEL_TOKEN || "").trim();
+  const tunnelName = (cfg.CLOUDFLARED_TUNNEL_NAME || "").trim();
+  // In token mode the public hostname is the DSMON_PUSH_URL origin
+  // (that hostname routes to this tunnel → localhost:18888).
+  const tokenModeUrl = tunnelToken ? tokenModeUrlFromConfig() : null;
+  tunnelLog("info", `[tunnel] Starting cloudflared tunnel on port 18888 (${tunnelToken ? "token" : tunnelName ? `named: ${tunnelName}` : "quick"})`);
   return new Promise<{ success: boolean; error?: string; url?: string }>((resolve) => {
     try {
+      // Token mode: `cloudflared tunnel run --token <TOKEN> --protocol http2`.
       // A named tunnel has a stable https://<tunnel-id>.cfargotunnel.com URL;
       // a quick tunnel prints a throwaway trycloudflare URL once connected.
-      const namedUrl = tunnelName ? resolveNamedTunnelUrl(tunnelName) : null;
-      if (tunnelName && !namedUrl) {
+      const namedUrl = tunnelName && !tunnelToken ? resolveNamedTunnelUrl(tunnelName) : null;
+      if (tunnelName && !tunnelToken && !namedUrl) {
         tunnelError = `Named tunnel "${tunnelName}" not found — create it with: cloudflared tunnel create ${tunnelName}`;
-        addLog("main", "error", `[tunnel] ${tunnelError}`);
+        tunnelLog("error", `[tunnel] ${tunnelError}`);
         resolve({ success: false, error: tunnelError });
         return;
       }
 
-      const args = tunnelName ? ["tunnel", "run", tunnelName] : ["tunnel", "--url", "http://localhost:18888"];
+      let args: string[];
+      if (tunnelToken) {
+        args = ["tunnel", "run", "--token", tunnelToken, "--protocol", "http2"];
+      } else if (tunnelName) {
+        args = ["tunnel", "run", tunnelName];
+      } else {
+        args = ["tunnel", "--url", "http://localhost:18888"];
+      }
       const proc = spawn("cloudflared", args, {
         stdio: ["ignore", "pipe", "pipe"],
         env: { ...process.env },
@@ -2195,22 +2287,27 @@ ipcMain.handle("tunnel:start", async () => {
       tunnelProcess = proc;
       let resolved = false;
 
-      const success = (url: string) => {
+      const success = (url: string | null) => {
         if (resolved) return;
         resolved = true;
         tunnelUrl = url;
         // Write current URL to disk (.cloudflared-url) for reference
-        try {
-          fs.writeFileSync(CLOUDFLARED_URL_FILE, url + "\n", "utf8");
-        } catch {}
-        addLog("main", "info", `[tunnel] Cloudflare tunnel URL: ${url}`);
-        resolve({ success: true, url });
+        if (url) {
+          try {
+            fs.writeFileSync(CLOUDFLARED_URL_FILE, url + "\n", "utf8");
+          } catch {}
+        }
+        tunnelLog("info", `[tunnel] Cloudflare tunnel URL: ${url ?? "(unknown)"}`);
+        resolve({ success: true, url: url ?? undefined });
       };
 
       const onData = (d: Buffer, source: string) => {
         const text = d.toString();
-        addLog("main", "debug", `[tunnel${source}] ${text.trim()}`);
-        if (tunnelName) {
+        tunnelLog("debug", `[tunnel${source}] ${text.trim()}`);
+        if (tunnelToken) {
+          // Token mode logs a "Registered tunnel connection" line once live.
+          if (!resolved && /registered tunnel connection|connection established/i.test(text)) success(tokenModeUrl);
+        } else if (tunnelName) {
           // Named tunnels log a "Registered tunnel connection" line once live.
           if (!resolved && /registered tunnel connection|connection established/i.test(text)) success(namedUrl!);
         } else {
@@ -2223,7 +2320,7 @@ ipcMain.handle("tunnel:start", async () => {
 
       proc.on("close", (code) => {
         tunnelProcess = null;
-        addLog("main", "info", `[tunnel] Process exited with code ${code}`);
+        tunnelLog("info", `[tunnel] Process exited with code ${code}`);
         if (!resolved) {
           resolved = true;
           tunnelError = `cloudflared exited with code ${code}`;
@@ -2232,7 +2329,7 @@ ipcMain.handle("tunnel:start", async () => {
       });
       proc.on("error", (err) => {
         tunnelProcess = null;
-        addLog("main", "error", `[tunnel] Failed to start: ${err.message}`);
+        tunnelLog("error", `[tunnel] Failed to start: ${err.message}`);
         if (!resolved) {
           resolved = true;
           tunnelError = (err as NodeJS.ErrnoException).code === "ENOENT" ? "cloudflared not found — install it with: brew install cloudflared" : err.message;
@@ -2245,7 +2342,7 @@ ipcMain.handle("tunnel:start", async () => {
         if (!resolved && tunnelProcess) {
           resolved = true;
           tunnelError = "Timed out waiting for tunnel (45s) — check your internet connection";
-          addLog("main", "error", `[tunnel] ${tunnelError}`);
+          tunnelLog("error", `[tunnel] ${tunnelError}`);
           tunnelProcess.kill("SIGTERM");
           tunnelProcess = null;
           resolve({ success: false, error: tunnelError });
@@ -2253,17 +2350,19 @@ ipcMain.handle("tunnel:start", async () => {
       }, 45000);
     } catch (err: any) {
       tunnelError = err.message;
-      addLog("main", "error", `[tunnel] Spawn error: ${err.message}`);
+      tunnelLog("error", `[tunnel] Spawn error: ${err.message}`);
       resolve({ success: false, error: err.message });
     }
   });
-});
+}
+
+ipcMain.handle("tunnel:start", () => startTunnelInternal());
 
 ipcMain.handle("tunnel:stop", async () => {
   if (!tunnelProcess) {
     return { success: false, error: "Tunnel is not running" };
   }
-  addLog("main", "info", "[tunnel] Stopping cloudflared tunnel");
+  tunnelLog("info", "[tunnel] Stopping cloudflared tunnel");
   tunnelProcess.kill("SIGTERM");
   tunnelProcess = null;
   tunnelUrl = null;
@@ -2273,12 +2372,51 @@ ipcMain.handle("tunnel:stop", async () => {
   return { success: true };
 });
 
+/** Force-stop any running cloudflared (external / root-owned) — equivalent to `sudo killall cloudflared`. */
+ipcMain.handle("tunnel:forceStop", async () => {
+  // 1) Kill any process we spawned.
+  if (tunnelProcess) {
+    try { tunnelProcess.kill("SIGTERM"); } catch {}
+    tunnelProcess = null;
+  }
+  tunnelUrl = null;
+  tunnelError = null;
+  try { fs.unlinkSync(CLOUDFLARED_URL_FILE); } catch {}
+
+  // 2) Kill any other cloudflared processes (external / root-owned).
+  try {
+    if (process.platform === "darwin") {
+      // Native macOS admin prompt → runs `killall cloudflared` as root (== sudo).
+      const script = 'do shell script "killall cloudflared" with administrator privileges';
+      await new Promise<void>((resolve, reject) => {
+        execFile("osascript", ["-e", script], (err) => (err ? reject(err) : resolve()));
+      });
+    } else if (process.platform === "win32") {
+      await new Promise<void>((resolve, reject) => {
+        execFile("taskkill", ["/IM", "cloudflared.exe", "/F"], (err) => (err ? reject(err) : resolve()));
+      });
+    } else {
+      await new Promise<void>((resolve, reject) => {
+        execFile("killall", ["cloudflared"], (err) => (err ? reject(err) : resolve()));
+      });
+    }
+    tunnelLog("info", "[tunnel] Force-stopped cloudflared");
+  } catch (err: any) {
+    const msg = `Could not stop cloudflared automatically — run 'sudo killall cloudflared' in a terminal. (${err?.message || err})`;
+    tunnelLog("warn", `[tunnel] ${msg}`);
+    return { success: false, error: msg };
+  }
+  return { success: true };
+});
+
 ipcMain.handle("tunnel:status", async () => {
-  return {
-    running: tunnelProcess !== null,
-    url: tunnelUrl,
-    error: tunnelError,
-  };
+  const token = (getConfig().CLOUDFLARED_TUNNEL_TOKEN || "").trim();
+  const running = tunnelProcess !== null;
+  // "Connected" means the DS-mon tunnel has active connections — this also
+  // catches tunnels managed externally (launchd / cloudflared service).
+  const connected = token ? (running ? true : await tunnelHasConnections(getDsmonTunnelName())) : running;
+  const url = tunnelUrl || (connected && token ? tokenModeUrlFromConfig() : null);
+  return { running, connected, url, error: tunnelError };
 });
 
 // ── Voiceprint conflict checking ──
@@ -2801,6 +2939,9 @@ app.whenReady().then(async () => {
 
   // Start periodic health monitoring
   startHealthMonitoring();
+
+  // ── DS-mon tunnel: check connection state and auto-start if needed ──
+  ensureDsmonTunnelRunning();
 
   // ── Initialize writable agent-config in userData ──
   // Copies bundled agent-config (read-only in production) to userData so the
