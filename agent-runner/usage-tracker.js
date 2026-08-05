@@ -91,6 +91,10 @@ let flushTimer = null;
  * @param {object} stepInfo - { step: number, tool: string } identifying the pipeline step
  */
 export function recordCall(usage, model, latencyMs, stepInfo) {
+  // Master switch — no collection unless USAGE_TRACKING_ENABLED=true.
+  // (recordCall used to be gated only on PUSH_URL, so records were still
+  // buffered while tracking was disabled whenever a push URL was configured.)
+  if (!TRACKING_ENABLED) return;
   if (!PUSH_URL) return;
 
   const record = {
@@ -124,6 +128,8 @@ export function recordCall(usage, model, latencyMs, stepInfo) {
  * On failure, leaves records intact for retry on the next cycle.
  */
 export async function flushBuffer() {
+  // Master switch — never push while tracking is disabled.
+  if (!TRACKING_ENABLED) return;
   if (!PUSH_URL) return;
 
   if (!fs.existsSync(BUFFER_FILE)) return;

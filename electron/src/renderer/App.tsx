@@ -352,9 +352,13 @@ export default function App() {
 
   // Live per-stage progress (Diarization / ASR %) from the logger — feeds the
   // pipeline stepper. Only applied when it belongs to the job currently shown.
+  // Note: 0.6.9-5 made the History selection persist across new jobs, so a stale
+  // historyJobId would otherwise shadow the current jobId and drop every
+  // job-progress event for the new job. Scope to the History job only while
+  // History is actually open (mirroring the render gating).
   React.useEffect(() => {
     const cleanup = window.electronAPI?.onJobProgress((payload) => {
-      const activeJobId = historyJobId || jobId;
+      const activeJobId = (showHistory && historyJobId) || jobId;
       if (!activeJobId) return;
       if (payload.jobId && payload.jobId !== activeJobId) return;
       if (payload.stage !== "diarization" && payload.stage !== "transcription") return;
@@ -362,7 +366,7 @@ export default function App() {
       setStageProgress((prev) => ({ ...prev, [payload.stage]: payload.percent }));
     });
     return () => cleanup?.();
-  }, [jobId, historyJobId]);
+  }, [jobId, historyJobId, showHistory]);
 
   // Cleanup notification timer on unmount
   React.useEffect(() => {
@@ -1487,7 +1491,7 @@ export default function App() {
                                       setShowNewForm(true);
                                       setSidebarView("current");
                                     }}
-                                    jobId={historyJobId || jobId || undefined}
+                                    jobId={(showHistory && historyJobId) || jobId || undefined}
                                     startedAtMs={statusData?.started_at}
                                     finishedAtMs={statusData?.finished_at}
                                     stageProgress={stageProgress}
