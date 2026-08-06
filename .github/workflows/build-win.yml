@@ -77,6 +77,15 @@ jobs:
           cp node-v20.18.0-win-x64/node.exe dist-resources/node-bin/node.exe
           rm -rf node-v20.18.0-win-x64 node.zip
 
+      - name: Bundle ffmpeg for Windows (avoids end-user download)
+        shell: bash
+        run: |
+          mkdir -p dist-resources/ffmpeg
+          curl -fsSL https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip -o ffmpeg.zip
+          unzip -o ffmpeg.zip
+          cp ffmpeg-*-essentials_build/bin/ffmpeg.exe dist-resources/ffmpeg/ffmpeg.exe
+          rm -rf ffmpeg-*-essentials_build ffmpeg.zip
+
       - name: Build bridge-server & agent-runner deps
         run: |
           cd bridge-server && npm ci && cd ..

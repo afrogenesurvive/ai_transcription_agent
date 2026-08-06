@@ -614,10 +614,16 @@ class TranscriptionEngine:
                 )
 
             if proc.exitcode != 0:
-                self.mps_oom_occurred = True
+                crash_hint = (
+                    "likely MPS OOM"
+                    if self.device == "mps"
+                    else "see backend logs for the subprocess error"
+                )
+                if self.device == "mps":
+                    self.mps_oom_occurred = True
                 raise RuntimeError(
                     f"Diarization subprocess crashed (exit code {proc.exitcode}) — "
-                    f"likely MPS OOM. Parent process unaffected."
+                    f"{crash_hint}. Parent process unaffected."
                 )
 
             # Collect the final result. Prefer the one captured during the live

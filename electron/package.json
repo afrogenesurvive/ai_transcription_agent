@@ -51,6 +51,13 @@
         ]
       },
       {
+        "from": "../dist-resources/ffmpeg",
+        "to": "ffmpeg",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
         "from": "../bridge-server",
         "to": "bridge-server",
         "filter": [

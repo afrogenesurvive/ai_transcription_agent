@@ -1094,6 +1094,11 @@ function ffmpegTargetPath(): string {
   return path.join(app.getPath("userData"), "bin", IS_WIN ? "ffmpeg.exe" : "ffmpeg");
 }
 
+/** Path to an ffmpeg bundled with the app (extraResources/ffmpeg), if any. */
+function bundledFfmpegPath(): string | null {
+  return path.join(resourcePath("ffmpeg"), IS_WIN ? "ffmpeg.exe" : "ffmpeg");
+}
+
 /** ffmpeg download URLs per platform. */
 function ffmpegDownloadUrl(): string {
   if (IS_WIN) return "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
@@ -1236,6 +1241,23 @@ export async function ensureFfmpegAvailable(): Promise<string | null> {
     const managed = ffmpegTargetPath();
     if (fs.existsSync(managed)) return managed;
     return null;
+  }
+
+  // Prefer an ffmpeg bundled with the installer (extraResources/ffmpeg) so end
+  // users never need to download/copy it manually. Stage it into userData/bin
+  // exactly like the download path would.
+  const bundled = bundledFfmpegPath();
+  if (bundled && fs.existsSync(bundled)) {
+    addLog("main", "info", `[ffmpeg] Using bundled binary ${bundled}`);
+    try {
+      fs.mkdirSync(path.dirname(ffmpegTargetPath()), { recursive: true });
+      fs.copyFileSync(bundled, ffmpegTargetPath());
+      if (!IS_WIN) fs.chmodSync(ffmpegTargetPath(), 0o755);
+      addLog("main", "info", `[ffmpeg] Staged bundled binary to ${ffmpegTargetPath()}`);
+      return ffmpegTargetPath();
+    } catch (err: any) {
+      addLog("main", "warn", `[ffmpeg] Failed to stage bundled binary: ${err.message} — falling back to download`);
+    }
   }
 
   addLog("main", "info", "[ffmpeg] Not found on system \u2014 will download and install");

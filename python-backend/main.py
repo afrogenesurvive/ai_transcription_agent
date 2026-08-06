@@ -5356,7 +5356,11 @@ async def _run_pipeline_async(job_id: str):
                 # If it was an MPS OOM, surface that clearly in the error message
                 err_str = str(e).lower()
                 if "mps" in err_str or "out of memory" in err_str:
-                    enhanced = f"MPS out of memory — device='{detect_device()}', try setting DEVICE=cpu in .env: {e}"
+                    device = detect_device()
+                    if device == "mps":
+                        enhanced = f"MPS out of memory — try setting DEVICE=cpu in .env: {e}"
+                    else:
+                        enhanced = f"Backend error (device={device}): {e}"
                     uploader.update_status(job_id, {"status": "failed", "error": enhanced})
                     agent_bridge.enqueue_failed(job_id, enhanced, {})
                 else:
@@ -6129,5 +6133,11 @@ def _redact_custom(text: str, rule: str) -> str:
 
 
 if __name__ == "__main__":
+    # Required for Windows + PyInstaller: mp.Process uses SPAWN on Windows, so a
+    # spawned diarization subprocess re-imports/executes this module. Without
+    # freeze_support() the child re-runs the whole backend (port-bind conflict
+    # [Errno 10048]) and crashes (exit code 3). No-op when not frozen (macOS dev).
+    import multiprocessing
+    multiprocessing.freeze_support()
     import uvicorn
     uvicorn.run(app, host=config.HOST, port=config.PORT)

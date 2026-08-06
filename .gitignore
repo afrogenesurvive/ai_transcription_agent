@@ -36,6 +36,9 @@ logs/
 safe/
 dist/
 
+# CI-downloaded ffmpeg staged for installer bundling
+dist-resources/ffmpeg/
+
 # ── Transcription Agent Service (self-contained, gitignored) ──
 transcription-agent/
 .next/
