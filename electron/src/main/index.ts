@@ -33,24 +33,23 @@ if (process.platform === "win32") {
   app.commandLine.appendSwitch("disable-gpu-compositing");
 }
 
-// ── Detect Wine/CrossOver so renderer-compat workarounds only apply there ──
+// ── Disable the Chromium sandbox on win32 (CrossOver blank-window fix) ──
 // CrossOver presents itself as Windows to the app, so `process.platform ===
-// "win32"` can't tell it apart from native Windows. Wine/CrossOver set these env
-// vars in the bottle environment; native Windows does not. Chromium's Windows
-// sandbox relies on Win32 security primitives (job objects, integrity levels)
-// that Wine doesn't implement, so under CrossOver the renderer process can fail
-// to launch silently — main process + Python backend run fine, but the window
-// stays blank and the chromium.log shows only browser-process lines (no
-// renderer/GPU PIDs). Disabling the sandbox is gated to Wine so native Windows
-// keeps its sandbox.
-const isWine = Boolean(
-  process.env.WINEPREFIX || process.env.WINELOADERNOEXEC || process.env.WINEDEBUG || process.env.WINEDLLOVERRIDES || process.env.WINEARCH,
-);
-
-// ── Disable the Chromium sandbox under Wine/CrossOver (blank-window fix) ──
-// The renderer never starts under the sandbox in Wine/CrossOver → blank window
-// with a healthy backend. Only applies under Wine so native Windows is untouched.
-if (process.platform === "win32" && isWine) {
+// "win32"` can't tell it apart from native Windows. Chromium's Windows sandbox
+// relies on Win32 security primitives (job objects, integrity levels) that Wine
+// doesn't implement, so under CrossOver the renderer process can fail to launch
+// silently — main process + Python backend run fine, but the window stays blank
+// while the renderer's HTML never executes.
+//
+// The original fix tried to detect Wine from bottle env vars (WINEPREFIX /
+// WINELOADERNOEXEC / WINEDEBUG / WINEDLLOVERRIDES / WINEARCH), but CrossOver does
+// not reliably export those into the launched exe's environment, so `isWine` was
+// false and no-sandbox never fired (verified on 0.6.10: blank window; passing
+// --no-sandbox on the launch command made the full UI render). This app loads
+// only local file:// content, so disable the sandbox on ALL win32 builds; set
+// ELECTRON_ENABLE_SANDBOX=1 to restore it on native Windows.
+const keepSandbox = process.env.ELECTRON_ENABLE_SANDBOX === "1";
+if (process.platform === "win32" && !keepSandbox) {
   app.commandLine.appendSwitch("no-sandbox");
 }
 
