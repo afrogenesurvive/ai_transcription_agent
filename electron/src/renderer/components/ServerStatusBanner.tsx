@@ -102,6 +102,17 @@ export default function ServerStatusBanner() {
     setRestarting((prev) => ({ ...prev, _all: false }));
   }, [onRestartAll]);
 
+  // First-time setup: let the user pick an exported config file, which the
+  // main process imports and then restarts all services (config:import).
+  const handleImportConfig = useCallback(async () => {
+    setRestarting((prev) => ({ ...prev, _import: true }));
+    const result = await window.electronAPI?.importConfig();
+    setRestarting((prev) => ({ ...prev, _import: false }));
+    if (result?.success) {
+      onCheckServers();
+    }
+  }, [onCheckServers]);
+
   const handleCloseApp = useCallback(async () => {
     await window.electronAPI?.closeApp();
   }, []);
@@ -179,6 +190,13 @@ export default function ServerStatusBanner() {
           </div>
           <div className="ssb-header-text">
             <h2 className="ssb-title">Setting Up&hellip;</h2>
+            <button
+              className="ssb-import-config-btn"
+              onClick={handleImportConfig}
+              disabled={restarting._import}
+              title="First install? Select a config file, then services restart automatically">
+              <Icon name="download" size="14" /> Import Config
+            </button>
             {countdownDone && (
               <div className="ssb-retry-actions">
                 <button className="ssb-retry-btn" onClick={handleRestartAll} disabled={anyBusy}>
@@ -210,6 +228,12 @@ export default function ServerStatusBanner() {
               const isOllama = item.name === "ollama";
               const isOnline = item.status === true;
               const isChecking = item.status === null;
+              // When diarization fails due to HF auth/gating, link to the HF page so
+              // the user can accept the model terms / grab a token.
+              const gatedHfUrl =
+                isDiarization && !isOnline && diarizationError && /gated|access|token|terms/i.test(diarizationError)
+                  ? (diarizationError.match(/https:\/\/hf\.co\/[^\s]+/) || [])[0] || "https://hf.co/pyannote/speaker-diarization-3.1"
+                  : null;
               return (
                 <div
                   key={item.name}
@@ -233,6 +257,14 @@ export default function ServerStatusBanner() {
                                 ? "not running"
                                 : "offline"}
                       </span>
+                      {isDiarization && gatedHfUrl && (
+                        <button
+                          className="ssb-hf-link"
+                          onClick={() => window.electronAPI?.openExternal(gatedHfUrl!)}
+                          title="Open Hugging Face to accept the model terms / get a token">
+                          <Icon name="open_in_new" size="13" /> Accept terms on Hugging Face
+                        </button>
+                      )}
                     </div>
                   </div>
                   {!isOnline && (

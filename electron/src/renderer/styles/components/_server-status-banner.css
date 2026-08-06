@@ -400,3 +400,58 @@
   color: var(--text);
   border-color: var(--text-muted);
 }
+
+/* ── Import Config (first-time setup) + Hugging Face gating link ── */
+
+.ssb-import-config-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: var(--fs-12);
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  white-space: nowrap;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.ssb-import-config-btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+}
+
+.ssb-import-config-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ssb-hf-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-size: var(--fs-12);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.ssb-hf-link:hover {
+  background: var(--accent);
+  color: #fff;
+}

@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getReadme: (): Promise<string> => ipcRenderer.invoke("app:readme"),
   getGuide: (): Promise<string> => ipcRenderer.invoke("app:guide"),
   getDoc: (filename: string): Promise<string> => ipcRenderer.invoke("app:doc", filename),
+  openExternal: (url: string): Promise<{ success: boolean }> => ipcRenderer.invoke("app:openExternal", url),
 
   // ── Job status ──
   getActiveJobs: (): Promise<Array<{ job_id: string; status: string; progress: number; title: string }>> => ipcRenderer.invoke("jobs:getActive"),

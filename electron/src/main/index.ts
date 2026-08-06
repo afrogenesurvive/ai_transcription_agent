@@ -996,6 +996,20 @@ ipcMain.handle("app:quitApp", async () => {
   return { success: true };
 });
 
+ipcMain.handle("app:openExternal", async (_event, url: unknown) => {
+  // Only allow http(s) URLs — never hand arbitrary protocols to the OS shell.
+  if (typeof url !== "string") return { success: false };
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { success: false };
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return { success: false };
+  await shell.openExternal(parsed.toString());
+  return { success: true };
+});
+
 // ── Per-service management ──
 
 const stopFn: Record<string, () => Promise<void>> = {
