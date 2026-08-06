@@ -37,9 +37,22 @@ export default function ServerStatusBanner() {
   const [countdown, setCountdown] = useState(COUNTDOWN_SECONDS);
   const [countdownActive, setCountdownActive] = useState(true);
   const [visible, setVisible] = useState(true);
+  const [configMissing, setConfigMissing] = useState(false);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasTriggeredCheck = useRef(false);
   const initialMount = useRef(true);
+
+  // Show "Import Config" only when the config is absent / malformed / invalid
+  // (i.e. a first-run or broken-config situation), not on every setup screen.
+  useEffect(() => {
+    let cancelled = false;
+    window.electronAPI?.checkConfig().then((r) => {
+      if (!cancelled) setConfigMissing(!r.ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Countdown timer: 25 → 0, then trigger auto-check.
   // The interval updater must be PURE — React invokes updater functions during
@@ -74,6 +87,7 @@ export default function ServerStatusBanner() {
     if (!hasTriggeredCheck.current) {
       hasTriggeredCheck.current = true;
       onCheckServers();
+      window.electronAPI?.checkConfig().then((r) => setConfigMissing(!r.ok));
     }
   }, [countdown, countdownActive, onCheckServers]);
 
@@ -109,6 +123,8 @@ export default function ServerStatusBanner() {
     const result = await window.electronAPI?.importConfig();
     setRestarting((prev) => ({ ...prev, _import: false }));
     if (result?.success) {
+      const cfg = await window.electronAPI?.checkConfig();
+      setConfigMissing(!cfg?.ok);
       onCheckServers();
     }
   }, [onCheckServers]);
@@ -190,13 +206,15 @@ export default function ServerStatusBanner() {
           </div>
           <div className="ssb-header-text">
             <h2 className="ssb-title">Setting Up&hellip;</h2>
-            <button
-              className="ssb-import-config-btn"
-              onClick={handleImportConfig}
-              disabled={restarting._import}
-              title="First install? Select a config file, then services restart automatically">
-              <Icon name="download" size="14" /> Import Config
-            </button>
+            {configMissing && (
+              <button
+                className="ssb-import-config-btn"
+                onClick={handleImportConfig}
+                disabled={restarting._import}
+                title="First install? Select a config file, then services restart automatically">
+                <Icon name="download" size="14" /> Import Config
+              </button>
+            )}
             {countdownDone && (
               <div className="ssb-retry-actions">
                 <button className="ssb-retry-btn" onClick={handleRestartAll} disabled={anyBusy}>
