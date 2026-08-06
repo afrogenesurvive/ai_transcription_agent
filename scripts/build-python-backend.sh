@@ -92,6 +92,11 @@ mkdir -p "$OUTDIR"
 #
 # Hidden imports are needed because PyInstaller's static analysis can't
 # always detect dynamically imported modules.
+#
+# --collect-all for lightning_fabric / pytorch_lightning / pyannote.audio is required:
+# those packages read DATA files at import time (e.g. lightning_fabric/version.info) and
+# dynamically import submodules. Without it, `import pyannote.audio` raises
+# FileNotFoundError in the packaged backend (diarization reported unavailable).
 
 echo "   🔨 Running PyInstaller (this may take a few minutes)..."
 echo ""
@@ -164,6 +169,9 @@ echo ""
   --hidden-import "starlette.responses" \
   --hidden-import "starlette.datastructures" \
   --hidden-import "multidict" \
+  --collect-all "lightning_fabric" \
+  --collect-all "pytorch_lightning" \
+  --collect-all "pyannote.audio" \
   main.py 2>&1
 
 echo ""

@@ -36,6 +36,9 @@ jobs:
         run: |
           cd python-backend
           source venv/Scripts/activate
+          # --collect-all for lightning_fabric / pytorch_lightning / pyannote.audio bundles the
+          # ML packages' DATA files (e.g. lightning_fabric/version.info) — without them,
+          # `import pyannote.audio` crashes with FileNotFoundError (diarization unavailable).
           pyinstaller --onedir --name main --distpath ../dist-resources/python-backend --workpath build/pyinstaller --specpath build \
             --hidden-import "uvicorn" --hidden-import "uvicorn.logging" --hidden-import "uvicorn.loops" --hidden-import "uvicorn.loops.auto" \
             --hidden-import "uvicorn.protocols" --hidden-import "uvicorn.protocols.http" --hidden-import "uvicorn.protocols.http.httptools_impl" \
@@ -58,6 +61,9 @@ jobs:
             --hidden-import "starlette" --hidden-import "starlette.middleware" --hidden-import "starlette.middleware.cors" \
             --hidden-import "starlette.routing" --hidden-import "starlette.applications" --hidden-import "starlette.requests" \
             --hidden-import "starlette.responses" --hidden-import "starlette.datastructures" --hidden-import "multidict" \
+            --collect-all "lightning_fabric" \
+            --collect-all "pytorch_lightning" \
+            --collect-all "pyannote.audio" \
             main.py
           rm -rf build
 
