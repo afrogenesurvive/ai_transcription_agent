@@ -10,8 +10,10 @@ soundfile~=0.13
 numpy~=2.0
 
 # Machine Learning
-torch~=2.8  # Tested with 2.8.0; major upgrades need pyannote compat check
-torchaudio~=2.8  # pyannote uses deprecated torchaudio._backend.utils.info (removed in 2.9)
+torch~=2.8.0  # Tested with 2.8.0; major upgrades need pyannote compat check
+# ~=2.8.0 (three-component) restricts to <2.9: torchaudio 2.9 removed AudioMetaData,
+# which pyannote.audio imports at module load (io.py annotation) -> AttributeError.
+torchaudio~=2.8.0
 pyannote.audio~=3.4
 
 # ── Whisper ASR variants ──
