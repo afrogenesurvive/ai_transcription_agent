@@ -24,6 +24,8 @@ export default function ServerStatusBanner() {
     services,
     diarizationOk,
     diarizationError,
+    diarizationModel,
+    hfTokenConfigured,
     ollamaOk,
     ollamaProvider,
     checking,
@@ -38,6 +40,9 @@ export default function ServerStatusBanner() {
   const [countdownActive, setCountdownActive] = useState(true);
   const [visible, setVisible] = useState(true);
   const [configMissing, setConfigMissing] = useState(false);
+  // No Hugging Face token configured — importing a config that contains the token
+  // is the setup-path fix, so the Import Config button should appear in this case too.
+  const needsToken = hfTokenConfigured === false;
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasTriggeredCheck = useRef(false);
   const initialMount = useRef(true);
@@ -206,12 +211,16 @@ export default function ServerStatusBanner() {
           </div>
           <div className="ssb-header-text">
             <h2 className="ssb-title">Setting Up&hellip;</h2>
-            {configMissing && (
+            {(configMissing || needsToken) && (
               <button
                 className="ssb-import-config-btn"
                 onClick={handleImportConfig}
                 disabled={restarting._import}
-                title="First install? Select a config file, then services restart automatically">
+                title={
+                  needsToken && !configMissing
+                    ? "No Hugging Face token configured — import a config that includes one, then services restart automatically"
+                    : "First install? Select a config file, then services restart automatically"
+                }>
                 <Icon name="download" size="14" /> Import Config
               </button>
             )}
@@ -247,10 +256,12 @@ export default function ServerStatusBanner() {
               const isOnline = item.status === true;
               const isChecking = item.status === null;
               // When diarization fails due to HF auth/gating, link to the HF page so
-              // the user can accept the model terms / grab a token.
+              // the user can accept the model terms / grab a token. The fallback URL is
+              // built from the actual model in use (diarizationModel), not hardcoded.
+              const fallbackHfUrl = `https://hf.co/${diarizationModel || "pyannote/speaker-diarization-3.1"}`;
               const gatedHfUrl =
                 isDiarization && !isOnline && diarizationError && /gated|access|token|terms/i.test(diarizationError)
-                  ? (diarizationError.match(/https:\/\/hf\.co\/[^\s]+/) || [])[0] || "https://hf.co/pyannote/speaker-diarization-3.1"
+                  ? (diarizationError.match(/https:\/\/hf\.co\/[^\s]+/) || [])[0] || fallbackHfUrl
                   : null;
               return (
                 <div

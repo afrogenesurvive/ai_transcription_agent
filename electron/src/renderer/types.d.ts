@@ -124,8 +124,24 @@ export interface StorageUsage {
 
 export interface ElectronAPI {
   selectAudioFile: () => Promise<string | null>;
-  getBackendStatus: () => Promise<{ python: boolean; bridge: boolean; agent: boolean; diarizationAvailable: boolean | null; diarizationError: string | null }>;
-  checkServers: () => Promise<{ python: boolean; bridge: boolean; agent: boolean; diarizationAvailable: boolean | null; diarizationError: string | null }>;
+  getBackendStatus: () => Promise<{
+    python: boolean;
+    bridge: boolean;
+    agent: boolean;
+    diarizationAvailable: boolean | null;
+    diarizationError: string | null;
+    diarizationModel: string | null;
+    hfTokenConfigured: boolean | null;
+  }>;
+  checkServers: () => Promise<{
+    python: boolean;
+    bridge: boolean;
+    agent: boolean;
+    diarizationAvailable: boolean | null;
+    diarizationError: string | null;
+    diarizationModel: string | null;
+    hfTokenConfigured: boolean | null;
+  }>;
   stopServices: () => Promise<{ success: boolean }>;
   restartServices: () => Promise<{ success: boolean }>;
   closeApp: () => Promise<{ success: boolean }>;
@@ -145,7 +161,9 @@ export interface ElectronAPI {
   getLogs: () => Promise<LogEntry[]>;
   clearLogs: () => Promise<{ success: boolean }>;
   onLog: (cb: (entry: LogEntry) => void) => () => void;
-  onJobProgress: (cb: (payload: { jobId?: string; stage: "diarization" | "transcription"; percent: number; timestamp?: number }) => void) => () => void;
+  onJobProgress: (
+    cb: (payload: { jobId?: string; stage: "diarization" | "transcription"; percent: number; timestamp?: number }) => void,
+  ) => () => void;
   getConfig: () => Promise<Record<string, string>>;
   saveConfig: (values: Record<string, string>) => Promise<Record<string, string>>;
   checkConfig: () => Promise<{ ok: boolean; missing: string[] }>;

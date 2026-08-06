@@ -644,6 +644,8 @@ ipcMain.handle("backend:status", async () => {
   const agent = isAgentRunning();
   let diarizationAvailable: boolean | null = null;
   let diarizationError: string | null = null;
+  let diarizationModel: string | null = null;
+  let hfTokenConfigured: boolean | null = null;
 
   try {
     const pyRes = await fetch("http://127.0.0.1:5001/health", { signal: AbortSignal.timeout(2000) });
@@ -672,13 +674,15 @@ ipcMain.handle("backend:status", async () => {
         const data = await toolsRes.json();
         diarizationAvailable = data.diarization_available;
         diarizationError = data.diarization_error;
+        diarizationModel = data.diarization_model ?? null;
+        hfTokenConfigured = data.hf_token_configured ?? null;
       }
     } catch {
       // diarization check failed
     }
   }
 
-  return { python, bridge, agent, diarizationAvailable, diarizationError };
+  return { python, bridge, agent, diarizationAvailable, diarizationError, diarizationModel, hfTokenConfigured };
 });
 
 ipcMain.handle("app:version", () => {

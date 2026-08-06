@@ -26,6 +26,8 @@ export interface ServiceStatusValue {
   services: Record<ServiceName, ServiceStatus>;
   diarizationOk: boolean | null;
   diarizationError: string | null;
+  diarizationModel: string | null;
+  hfTokenConfigured: boolean | null;
   ollamaOk: boolean | null;
   ollamaProvider: boolean;
   allReady: boolean;
@@ -69,6 +71,8 @@ export function ServiceStatusProvider({ children, ollamaRequired }: ProviderProp
   });
   const [diarizationOk, setDiarizationOk] = useState<boolean | null>(null);
   const [diarizationError, setDiarizationError] = useState<string | null>(null);
+  const [diarizationModel, setDiarizationModel] = useState<string | null>(null);
+  const [hfTokenConfigured, setHfTokenConfigured] = useState<boolean | null>(null);
   const [ollamaOk, setOllamaOk] = useState<boolean | null>(null);
   const [ollamaProvider, setOllamaProvider] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -87,6 +91,8 @@ export function ServiceStatusProvider({ children, ollamaRequired }: ProviderProp
         setServices({ python: s.python, bridge: s.bridge, agent: s.agent });
         setDiarizationOk(s.diarizationAvailable);
         setDiarizationError(s.diarizationError);
+        setDiarizationModel(s.diarizationModel);
+        setHfTokenConfigured(s.hfTokenConfigured);
       } catch {
         // IPC failed
       }
@@ -152,6 +158,8 @@ export function ServiceStatusProvider({ children, ollamaRequired }: ProviderProp
         setServices({ python: s.python, bridge: s.bridge, agent: s.agent });
         setDiarizationOk(s.diarizationAvailable);
         setDiarizationError(s.diarizationError);
+        setDiarizationModel(s.diarizationModel);
+        setHfTokenConfigured(s.hfTokenConfigured);
         result = s;
       }
     } catch {
@@ -224,6 +232,8 @@ export function ServiceStatusProvider({ children, ollamaRequired }: ProviderProp
     services,
     diarizationOk,
     diarizationError,
+    diarizationModel,
+    hfTokenConfigured,
     ollamaOk,
     ollamaProvider,
     allReady,

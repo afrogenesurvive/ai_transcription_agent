@@ -19,6 +19,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     agent: boolean;
     diarizationAvailable: boolean | null;
     diarizationError: string | null;
+    diarizationModel: string | null;
+    hfTokenConfigured: boolean | null;
   }> => ipcRenderer.invoke("backend:status"),
 
   // checkServers is intentionally aliased to getBackendStatus for API clarity
@@ -28,6 +30,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     agent: boolean;
     diarizationAvailable: boolean | null;
     diarizationError: string | null;
+    diarizationModel: string | null;
+    hfTokenConfigured: boolean | null;
   }> => ipcRenderer.invoke("backend:status"),
 
   // ── Service management ──
@@ -266,7 +270,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   startTunnel: (): Promise<{ success: boolean; error?: string; url?: string }> => ipcRenderer.invoke("tunnel:start"),
   stopTunnel: (): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke("tunnel:stop"),
   forceStopTunnel: (): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke("tunnel:forceStop"),
-  getTunnelStatus: (): Promise<{ running: boolean; connected: boolean; url: string | null; error: string | null }> => ipcRenderer.invoke("tunnel:status"),
+  getTunnelStatus: (): Promise<{ running: boolean; connected: boolean; url: string | null; error: string | null }> =>
+    ipcRenderer.invoke("tunnel:status"),
 
   // ── Platform ──
   platform: process.platform,
