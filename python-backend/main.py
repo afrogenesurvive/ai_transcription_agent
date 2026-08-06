@@ -3832,9 +3832,61 @@ def _current_dl_progress():
     return None
 
 
+def _diar_diag(event, detail="", tb=None):
+    """Append a diagnostic line to <userData>/logs/diarization-error.log.
+
+    The Setting Up modal truncates the on-screen error, so persist the full
+    picture (cache location, attempts, errors, tracebacks) to a file that can
+    be read even while the modal is up.
+    """
+    try:
+        log_dir = os.environ.get("ELECTRON_LOGS_DIR") or os.path.join(
+            config.STORAGE_PATH, "logs"
+        )
+        os.makedirs(log_dir, exist_ok=True)
+        with open(os.path.join(log_dir, "diarization-error.log"), "a", encoding="utf-8") as f:
+            f.write(f"[{datetime.now().isoformat()}] {event}: {detail}\n")
+            if tb:
+                f.write(tb if tb.endswith("\n") else tb + "\n")
+    except Exception:
+        pass
+
+
+def _diar_diag_env():
+    """Log where the app resolves the pyannote/HF caches and whether the model is visible.
+
+    pyannote.audio 3.4 caches under PYANNOTE_CACHE (default ~/.cache/torch/pyannote),
+    NOT the huggingface_hub default — the most common confusion when copying a cache
+    from another machine.
+    """
+    try:
+        import huggingface_hub.constants as _hf_c
+        hf_cache = _hf_c.HUGGINGFACE_HUB_CACHE
+        py_cache = os.path.expanduser(os.environ.get("PYANNOTE_CACHE", "~/.cache/torch/pyannote"))
+        model_dir = os.path.join(py_cache, "models--pyannote--speaker-diarization-3.1")
+        snap = os.path.join(model_dir, "snapshots")
+        detail = (
+            f"home={os.path.expanduser('~')} | PYANNOTE_CACHE={os.environ.get('PYANNOTE_CACHE')} "
+            f"pyannote_cache={py_cache} exists={os.path.exists(py_cache)} | "
+            f"hf_cache={hf_cache} exists={os.path.exists(hf_cache)}"
+        )
+        if os.path.isdir(snap):
+            revs = os.listdir(snap)
+            files = []
+            for r in revs:
+                files.extend(sorted(os.listdir(os.path.join(snap, r))))
+            detail += f" | pyannote_model_snapshots={revs} files={files}"
+        else:
+            detail += " | pyannote_model_cache=ABSENT"
+        _diar_diag("env", detail)
+    except Exception as e:
+        _diar_diag("env", f"(env probe failed: {e})")
+
+
 def _load_diarization_model_sync():
     """Synchronous pyannote pipeline load (runs inside a worker thread)."""
     result: dict = {"available": False, "error": None, "traceback": None}
+    _diar_diag_env()
     try:
         from pyannote.audio import Pipeline
         import torch as _torch
@@ -3857,22 +3909,31 @@ def _load_diarization_model_sync():
                 return _orig_load(f, *a, **kw)
             _torch.load = _permissive_load
 
-            # Try online first so pyannote can check for model updates.
-            # Falls back to local cache on network errors (DNS, timeout, etc.).
+            # Try online first so pyannote can check for model updates. On ANY
+            # failure (network, TLS, transient, auth) retry from the local cache
+            # so an already-downloaded model still loads offline. Note: pyannote's
+            # from_pretrained does NOT accept local_files_only, so we force the
+            # whole process offline (HF_HUB_OFFLINE) instead of passing it.
+            _diar_diag("attempt", "online")
             try:
                 pipeline = Pipeline.from_pretrained(
                     config.DIARIZATION_MODEL, use_auth_token=hf_token,
                 )
             except Exception as _hub_err:
-                if is_network_error(_hub_err):
-                    print(f"[models_status] ⚠️  HuggingFace unreachable ({_hub_err}). "
-                          f"Falling back to local cache...")
+                import traceback as _tb
+                _diar_diag("online_failed", str(_hub_err)[:500], _tb.format_exc())
+                _diar_diag("download_progress", str(patches.get_dl_progress()))
+                patches.force_offline()
+                _diar_diag("attempt", "offline (fallback to cache)")
+                try:
                     pipeline = Pipeline.from_pretrained(
                         config.DIARIZATION_MODEL, use_auth_token=hf_token,
-                        local_files_only=True,
                     )
-                else:
-                    raise
+                except Exception:
+                    _diar_diag("offline_failed", str(_hub_err)[:500])
+                    # No usable local cache — surface the ORIGINAL online error.
+                    raise _hub_err
+                _diar_diag("result", "loaded from local cache (online unreachable)")
             if pipeline is None:
                 result["error"] = (
                     f"Model '{config.DIARIZATION_MODEL}' returned None — "
@@ -3883,6 +3944,7 @@ def _load_diarization_model_sync():
                 pipeline.to(_torch.device("cpu"))
                 result["available"] = True
                 del pipeline
+                _diar_diag("result", "available")
         finally:
             _torch.load = _orig_load
     except Exception as e:
@@ -3901,6 +3963,7 @@ def _load_diarization_model_sync():
             )
         else:
             result["error"] = f"Model failed to load: {msg[:300]}"
+        _diar_diag("error", result["error"], result["traceback"])
     return result
 
 

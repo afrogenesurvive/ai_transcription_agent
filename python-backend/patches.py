@@ -14,6 +14,7 @@ Patches:
      HuggingFace (trusted source), so we default to weights_only=False.
 """
 
+import os
 import soundfile
 import torch
 import torchaudio as _torchaudio
@@ -161,3 +162,29 @@ try:
     print("[patches] [OK] Patched tqdm -> records download progress for UI feedback")
 except Exception:
     pass  # tqdm unavailable
+
+
+def force_offline():
+    """Force huggingface_hub into offline/local-cache mode for the whole process.
+
+    Sets ``HF_HUB_OFFLINE`` and patches the ``HF_HUB_OFFLINE`` constant on the
+    huggingface_hub modules that captured it at import time, so all subsequent
+    ``hf_hub_download``/``snapshot_download`` calls (including pyannote's internal
+    sub-model loads) read from the local cache only and never touch the network.
+    """
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    try:
+        import huggingface_hub.constants as _hf_const
+        _hf_const.HF_HUB_OFFLINE = True
+        for _mod_name in ("file_download", "_snapshot_download", "hf_hub_download"):
+            try:
+                _mod = __import__(
+                    "huggingface_hub." + _mod_name, fromlist=["HF_HUB_OFFLINE"]
+                )
+                if hasattr(_mod, "HF_HUB_OFFLINE"):
+                    _mod.HF_HUB_OFFLINE = True
+            except Exception:
+                pass
+        return True
+    except Exception:
+        return False

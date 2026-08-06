@@ -18,6 +18,7 @@ def is_network_error(exc: Exception) -> bool:
     for keyword in (
         "connectionerror", "timeout", "maxretryerror",
         "nameresolutionerror", "connectionreseterror",
+        "sslerror", "certificateerror", "tlserror",
     ):
         if keyword in err_type:
             return True
@@ -27,6 +28,8 @@ def is_network_error(exc: Exception) -> bool:
         "max retries exceeded", "failed to resolve",
         "connection timeout", "network unreachable",
         "host unreachable", "temporarily unavailable",
+        "ssl", "tls", "certificate verify failed",
+        "wrong version number",
     ):
         if keyword in msg:
             return True
