@@ -40,6 +40,18 @@ def _env_float(name, default):
         return default
 
 
+# Normalize the pyannote model cache path. pyannote.audio's default is
+# `~/.cache/torch/pyannote`; on Windows/Wine that becomes a mixed-separator path
+# (C:\users\<user>/.cache/torch/pyannote) which Wine's file layer can reject with
+# OSError [Errno 22] when opening snapshot files after a fresh download. Set a
+# fully-normalized (all-native-separator) path so clean installs can download and
+# load the diarization model.
+if "PYANNOTE_CACHE" not in os.environ:
+    os.environ["PYANNOTE_CACHE"] = os.path.normpath(
+        os.path.join(os.path.expanduser("~"), ".cache", "torch", "pyannote")
+    )
+
+
 class Config:
     # Server
     HOST = os.getenv("TRANSCRIPTION_HOST", "127.0.0.1")

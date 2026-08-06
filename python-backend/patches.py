@@ -213,3 +213,33 @@ def force_offline():
         return True
     except Exception:
         return False
+
+
+# ── 7. huggingface_hub snapshot pointers -> real file copies (Wine) ──
+# Under Wine, os.symlink() "succeeds" but the resulting symlinked snapshot entry
+# cannot be opened (OSError [Errno 22] Invalid argument), so a fresh model
+# download crashes at pyannote's open(config_yml). Force real files instead —
+# the copied cache worked precisely because cp -RL dereferenced symlinks.
+try:
+    import os as _os
+    import shutil as _shutil
+    import huggingface_hub.file_download as _hf_fd
+    _orig_create_symlink = _hf_fd._create_symlink
+
+    def _copy_pointer(src, dst, new_blob=False):
+        abs_src = _os.path.abspath(_os.path.expanduser(src))
+        abs_dst = _os.path.abspath(_os.path.expanduser(dst))
+        try:
+            _os.remove(abs_dst)
+        except OSError:
+            pass
+        _os.makedirs(_os.path.dirname(abs_dst), exist_ok=True)
+        if new_blob:
+            _shutil.move(abs_src, abs_dst, copy_function=_shutil.copyfile)
+        else:
+            _shutil.copyfile(abs_src, abs_dst)
+
+    _hf_fd._create_symlink = _copy_pointer
+    print("[patches] [OK] Patched huggingface_hub._create_symlink -> real file copies (Wine EINVAL workaround)")
+except Exception:
+    pass  # huggingface_hub unavailable
