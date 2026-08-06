@@ -56,6 +56,32 @@ if (process.platform === "win32" && !keepSandbox) {
   app.commandLine.appendSwitch("no-sandbox");
 }
 
+// ── Ensure Chromium switches are on the REAL OS command line (CrossOver) ──
+// Under Wine/CrossOver, Chromium only honors switches present on the OS command
+// line at process start — app.commandLine.appendSwitch() is read too late for the
+// renderer sandbox AND the GPU feature config, so the baked-in switches above do
+// not take effect (verified on 0.6.10: blank window until --disable-gpu
+// --in-process-gpu were passed on the launch command). Relaunch once with the
+// required switches on the actual argv so Chromium honors them. The relaunched
+// process inherits TRANS_AGENT_RELAUNCHED=1, preventing an infinite loop.
+function ensureWinSwitchesOnCommandLine(): void {
+  if (process.platform !== "win32") return;
+  if (process.env.TRANS_AGENT_RELAUNCHED === "1") return;
+
+  const required = ["no-sandbox", "disable-gpu", "disable-gpu-compositing", "in-process-gpu"];
+  if (process.env.ELECTRON_ENABLE_SANDBOX === "1") {
+    const i = required.indexOf("no-sandbox");
+    if (i >= 0) required.splice(i, 1);
+  }
+  const missing = required.filter((s) => !process.argv.includes(`--${s}`));
+  if (missing.length === 0) return;
+
+  process.env.TRANS_AGENT_RELAUNCHED = "1";
+  app.relaunch({ args: [...missing.map((s) => `--${s}`), ...process.argv.slice(1)] });
+  app.exit(0);
+}
+ensureWinSwitchesOnCommandLine();
+
 // ── Single-instance lock ──
 // Request the lock BEFORE any startup work. Without this, a second launch on
 // Windows (Start Menu, shortcut, installer "run after finish") would spawn
