@@ -64,6 +64,7 @@ jobs:
             --collect-all "lightning_fabric" \
             --collect-all "pytorch_lightning" \
             --collect-all "pyannote.audio" \
+            --add-data "venv/Lib/site-packages/speechbrain;speechbrain" \
             main.py
           rm -rf build
 

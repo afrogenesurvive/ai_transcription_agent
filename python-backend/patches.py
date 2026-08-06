@@ -41,6 +41,31 @@ except Exception:
     pass  # speechbrain may not be installed
 
 
+# ── 6. speechbrain find_imports resilience (PyInstaller) ──
+# speechbrain's lazy loader scans package dirs with os.listdir(). Under PyInstaller
+# those directories aren't always extracted to disk (modules can live in the PYZ), so
+# lobes/__init__.py -> lazy_export_all -> find_imports can crash with
+# FileNotFoundError [WinError 3] '..._internal\speechbrain\lobes'.
+# Make it return [] when the directory is missing; explicit imports
+# (speechbrain.inference) still resolve from the bundle.
+try:
+    import speechbrain.utils.importutils as _sb_importutils
+    _orig_sb_find_imports = _sb_importutils.find_imports
+
+    def _safe_sb_find_imports(file_path, find_subpackages=False):
+        try:
+            return _orig_sb_find_imports(
+                file_path, find_subpackages=find_subpackages
+            )
+        except OSError:
+            return []
+
+    _sb_importutils.find_imports = _safe_sb_find_imports
+    print("[patches] [OK] Patched speechbrain.find_imports -> resilient to missing package dirs (PyInstaller)")
+except Exception:
+    pass  # speechbrain may not be installed
+
+
 # ── 2. torchaudio compat patch ──
 # pyannote.audio uses torchaudio.list_audio_backends() — deprecated since
 # torchaudio 2.5+ and scheduled for removal in torchaudio 2.9.
