@@ -275,6 +275,13 @@ function createWindow() {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
+      // Disable the renderer OS-level sandbox (CrossOver blank-window fix).
+      // app.commandLine.appendSwitch("no-sandbox") is read too late for the
+      // renderer sandbox — Chromium decides that flag at browser startup from
+      // the OS command line, before this JS runs. The per-window webPreference
+      // is applied at renderer creation, so it reliably disables the sandbox.
+      // This app loads only local file:// content; contextIsolation stays on.
+      sandbox: false,
     },
     show: false,
   });
