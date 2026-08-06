@@ -646,6 +646,8 @@ ipcMain.handle("backend:status", async () => {
   let diarizationError: string | null = null;
   let diarizationModel: string | null = null;
   let hfTokenConfigured: boolean | null = null;
+  let diarizationStatus: string | null = null;
+  let diarizationProgress: number | null = null;
 
   try {
     const pyRes = await fetch("http://127.0.0.1:5001/health", { signal: AbortSignal.timeout(2000) });
@@ -661,7 +663,8 @@ ipcMain.handle("backend:status", async () => {
     // bridge not running
   }
 
-  // Check diarization model status via bridge (backend caches for 60s)
+  // Check diarization model status via bridge (backend returns instantly;
+  // the model itself is loaded once in a background task)
   if (bridge) {
     try {
       const toolsRes = await fetch("http://127.0.0.1:5010/tools/call", {
@@ -676,13 +679,25 @@ ipcMain.handle("backend:status", async () => {
         diarizationError = data.diarization_error;
         diarizationModel = data.diarization_model ?? null;
         hfTokenConfigured = data.hf_token_configured ?? null;
+        diarizationStatus = data.diarization_status ?? null;
+        diarizationProgress = typeof data.diarization_progress === "number" ? data.diarization_progress : null;
       }
     } catch {
       // diarization check failed
     }
   }
 
-  return { python, bridge, agent, diarizationAvailable, diarizationError, diarizationModel, hfTokenConfigured };
+  return {
+    python,
+    bridge,
+    agent,
+    diarizationAvailable,
+    diarizationError,
+    diarizationModel,
+    hfTokenConfigured,
+    diarizationStatus,
+    diarizationProgress,
+  };
 });
 
 ipcMain.handle("app:version", () => {

@@ -26,6 +26,8 @@ export default function ServerStatusBanner() {
     diarizationError,
     diarizationModel,
     hfTokenConfigured,
+    diarizationStatus,
+    diarizationProgress,
     ollamaOk,
     ollamaProvider,
     checking,
@@ -255,14 +257,40 @@ export default function ServerStatusBanner() {
               const isOllama = item.name === "ollama";
               const isOnline = item.status === true;
               const isChecking = item.status === null;
+              // First-run model fetch feedback: the backend reports a non-blocking
+              // diarization status so the user sees the download (with % when known)
+              // under the Diarization Model badge.
+              const isDownloading = isDiarization && diarizationStatus === "downloading";
+              const isLoading = isDiarization && diarizationStatus === "loading";
+              const hasProgress = isDownloading && diarizationProgress != null;
               // When diarization fails due to HF auth/gating, link to the HF page so
               // the user can accept the model terms / grab a token. The fallback URL is
               // built from the actual model in use (diarizationModel), not hardcoded.
+              // Only shown on a genuine error — never while downloading/loading.
               const fallbackHfUrl = `https://hf.co/${diarizationModel || "pyannote/speaker-diarization-3.1"}`;
               const gatedHfUrl =
-                isDiarization && !isOnline && diarizationError && /gated|access|token|terms/i.test(diarizationError)
+                isDiarization && !isOnline && !isDownloading && !isLoading && diarizationError && /gated|access|token|terms/i.test(diarizationError)
                   ? (diarizationError.match(/https:\/\/hf\.co\/[^\s]+/) || [])[0] || fallbackHfUrl
                   : null;
+              const statusText = isOnline
+                ? "running"
+                : isDiarization
+                  ? isDownloading
+                    ? hasProgress
+                      ? `Downloading model… ${Math.round(diarizationProgress!)}%`
+                      : "Downloading model… (first run, ~1.5 GB, may take a few minutes)"
+                    : isLoading
+                      ? "Loading model…"
+                      : diarizationStatus === "checking" || diarizationStatus === "idle"
+                        ? "checking…"
+                        : diarizationError
+                          ? `unavailable — ${diarizationError.slice(0, 80)}`
+                          : "unavailable"
+                  : isChecking
+                    ? "checking…"
+                    : isOllama
+                      ? "not running"
+                      : "offline";
               return (
                 <div
                   key={item.name}
@@ -273,19 +301,15 @@ export default function ServerStatusBanner() {
                     </span>
                     <div>
                       <span className="ssb-service-name">{item.label}</span>
-                      <span className="ssb-service-status">
-                        {isOnline
-                          ? "running"
-                          : isChecking
-                            ? "checking…"
-                            : isDiarization
-                              ? diarizationError
-                                ? `unavailable — ${diarizationError.slice(0, 80)}`
-                                : "unavailable"
-                              : isOllama
-                                ? "not running"
-                                : "offline"}
-                      </span>
+                      <span className="ssb-service-status">{statusText}</span>
+                      {isDiarization && isDownloading && hasProgress && (
+                        <div className="ssb-dl-progress-wrap">
+                          <div
+                            className="ssb-dl-progress"
+                            style={{ width: `${Math.min(100, Math.max(0, diarizationProgress!))}%` }}
+                          />
+                        </div>
+                      )}
                       {isDiarization && gatedHfUrl && (
                         <button
                           className="ssb-hf-link"

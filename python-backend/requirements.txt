@@ -15,6 +15,10 @@ torch~=2.8.0  # Tested with 2.8.0; major upgrades need pyannote compat check
 # which pyannote.audio imports at module load (io.py annotation) -> AttributeError.
 torchaudio~=2.8.0
 pyannote.audio~=3.4
+# huggingface_hub ~=0.36.2 (<0.37): v1.0 REMOVED the `use_auth_token` kwarg that
+# pyannote.audio 3.4 still passes to hf_hub_download -> TypeError on Windows,
+# which the backend's error classifier then mislabels as "Model is gated".
+huggingface_hub~=0.36.2
 
 # ── Whisper ASR variants ──
 # Install ONE of the following depending on your platform.

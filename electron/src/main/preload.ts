@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     diarizationError: string | null;
     diarizationModel: string | null;
     hfTokenConfigured: boolean | null;
+    diarizationStatus: string | null;
+    diarizationProgress: number | null;
   }> => ipcRenderer.invoke("backend:status"),
 
   // checkServers is intentionally aliased to getBackendStatus for API clarity
@@ -32,6 +34,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     diarizationError: string | null;
     diarizationModel: string | null;
     hfTokenConfigured: boolean | null;
+    diarizationStatus: string | null;
+    diarizationProgress: number | null;
   }> => ipcRenderer.invoke("backend:status"),
 
   // ── Service management ──

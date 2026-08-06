@@ -132,6 +132,8 @@ export interface ElectronAPI {
     diarizationError: string | null;
     diarizationModel: string | null;
     hfTokenConfigured: boolean | null;
+    diarizationStatus: string | null;
+    diarizationProgress: number | null;
   }>;
   checkServers: () => Promise<{
     python: boolean;
@@ -141,6 +143,8 @@ export interface ElectronAPI {
     diarizationError: string | null;
     diarizationModel: string | null;
     hfTokenConfigured: boolean | null;
+    diarizationStatus: string | null;
+    diarizationProgress: number | null;
   }>;
   stopServices: () => Promise<{ success: boolean }>;
   restartServices: () => Promise<{ success: boolean }>;

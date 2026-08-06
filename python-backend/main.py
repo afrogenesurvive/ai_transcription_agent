@@ -109,12 +109,21 @@ _mps_oom_occurred: bool = False
 _last_pipeline_end_time: float = 0.0
 _MIN_INTERJOB_COOLDOWN_SEC = 20.0
 
-# ── models_status cache ──
-# Cache the result of /transcribe/models/status to avoid loading the full
-# pyannote Pipeline on every poll (which leaks POSIX named semaphores on macOS).
-# Refreshed at most once per minute.
-_models_status_cache: dict = {"result": None, "timestamp": 0.0}
-_MODELS_STATUS_CACHE_TTL = 60  # seconds
+# ── Diarization model status (non-blocking) ──
+# The pyannote pipeline is loaded ONCE in a background asyncio task so that
+# /transcribe/models/status never blocks the request — important on first run
+# where the model must be downloaded (can take minutes). The request handler
+# returns the current state instantly and the UI can show download progress.
+# status: "idle" | "downloading" | "loading" | "available" | "error"
+_diar_model_state: dict = {
+    "status": "idle",
+    "progress": None,      # float 0-100 when known, else None
+    "available": False,
+    "error": None,         # str | None
+    "traceback": None,     # str | None
+    "started": False,
+}
+_diar_model_task: asyncio.Task = None
 
 # ML pipeline statuses that indicate a job is actively running in the pipeline.
 # Shared across upload endpoints, active job listing, and cleanup logic.
@@ -3808,111 +3817,173 @@ async def clear_ephemeral_data():
     return {"deleted": deleted_files, "errors": errors, "message": msg}
 
 
+def _current_dl_progress():
+    """Current huggingface_hub download progress (0-100) from the tqdm hook.
+
+    Returns None when no download is actively in progress (e.g. the model is
+    already cached and merely being loaded).
+    """
+    try:
+        p = patches.get_dl_progress()
+    except Exception:
+        return None
+    if p.get("active") and p.get("total"):
+        return min(100.0, p["done"] / p["total"] * 100.0)
+    return None
+
+
+def _load_diarization_model_sync():
+    """Synchronous pyannote pipeline load (runs inside a worker thread)."""
+    result: dict = {"available": False, "error": None, "traceback": None}
+    try:
+        from pyannote.audio import Pipeline
+        import torch as _torch
+        hf_token = config.HUGGING_FACE_TOKEN
+        if not hf_token:
+            result["error"] = (
+                "No HUGGING_FACE_TOKEN set. "
+                f"Get a token at https://hf.co/settings/tokens and accept the model terms at "
+                f"https://hf.co/{config.DIARIZATION_MODEL}"
+            )
+            return result
+
+        # PyTorch 2.6+ needs relaxed loading for pyannote pickle models.
+        _orig_load = _torch.load
+        try:
+            # Force weights_only=False — lightning_fabric (used by pyannote)
+            # explicitly passes weights_only=True, so setdefault is not enough.
+            def _permissive_load(f, *a, **kw):
+                kw["weights_only"] = False
+                return _orig_load(f, *a, **kw)
+            _torch.load = _permissive_load
+
+            # Try online first so pyannote can check for model updates.
+            # Falls back to local cache on network errors (DNS, timeout, etc.).
+            try:
+                pipeline = Pipeline.from_pretrained(
+                    config.DIARIZATION_MODEL, use_auth_token=hf_token,
+                )
+            except Exception as _hub_err:
+                if is_network_error(_hub_err):
+                    print(f"[models_status] ⚠️  HuggingFace unreachable ({_hub_err}). "
+                          f"Falling back to local cache...")
+                    pipeline = Pipeline.from_pretrained(
+                        config.DIARIZATION_MODEL, use_auth_token=hf_token,
+                        local_files_only=True,
+                    )
+                else:
+                    raise
+            if pipeline is None:
+                result["error"] = (
+                    f"Model '{config.DIARIZATION_MODEL}' returned None — "
+                    f"it may be gated. Accept terms at "
+                    f"https://hf.co/{config.DIARIZATION_MODEL}"
+                )
+            else:
+                pipeline.to(_torch.device("cpu"))
+                result["available"] = True
+                del pipeline
+        finally:
+            _torch.load = _orig_load
+    except Exception as e:
+        import traceback
+        result["traceback"] = traceback.format_exc()
+        msg = str(e)
+        if "gated" in msg.lower() or "access" in msg.lower() or "token" in msg.lower():
+            result["error"] = (
+                "Model is gated — accept terms at "
+                f"https://hf.co/{config.DIARIZATION_MODEL} and set HUGGING_FACE_TOKEN"
+            )
+        elif "module" in msg.lower() and "torchaudio" in msg.lower():
+            result["error"] = (
+                f"PyTorch/torchaudio compatibility issue: {msg[:200]}. "
+                f"Try reinstalling pyannote.audio: pip install --upgrade pyannote.audio"
+            )
+        else:
+            result["error"] = f"Model failed to load: {msg[:300]}"
+    return result
+
+
+async def _diarization_load_worker():
+    """Background load of the pyannote diarization model (runs once).
+
+    Runs the blocking pipeline load in a thread so the status endpoint never
+    blocks. While running, ``_diar_model_state["status"]`` is "downloading";
+    the endpoint refines that to "loading" when no download is actually active
+    (cached model) and reports ``progress`` from the tqdm hook on first run.
+    """
+    if not config.HUGGING_FACE_TOKEN:
+        _diar_model_state["status"] = "error"
+        _diar_model_state["error"] = (
+            "No HUGGING_FACE_TOKEN set. "
+            f"Get a token at https://hf.co/settings/tokens and accept the model terms at "
+            f"https://hf.co/{config.DIARIZATION_MODEL}"
+        )
+        return
+    _diar_model_state["status"] = "downloading"
+    _diar_model_state["progress"] = None
+    try:
+        outcome = await asyncio.to_thread(_load_diarization_model_sync)
+    except Exception as e:  # pragma: no cover - defensive
+        import traceback
+        _diar_model_state["status"] = "error"
+        _diar_model_state["error"] = f"Model failed to load: {e}"
+        _diar_model_state["traceback"] = traceback.format_exc()
+        return
+    _diar_model_state["available"] = bool(outcome.get("available"))
+    _diar_model_state["error"] = outcome.get("error")
+    _diar_model_state["traceback"] = outcome.get("traceback")
+    _diar_model_state["status"] = "available" if _diar_model_state["available"] else "error"
+    _diar_model_state["progress"] = None
+
+
+async def _ensure_diarization_load_started():
+    """Lazily start the background diarization load exactly once."""
+    global _diar_model_task
+    if _diar_model_state["started"]:
+        return
+    # No await between check and set, so this is race-free on the event loop.
+    _diar_model_state["started"] = True
+    _diar_model_task = asyncio.create_task(_diarization_load_worker())
+
+
 @app.get("/transcribe/models/status")
 async def models_status():
     """Check which ML models are available. Helps users diagnose setup issues.
 
-    Caches the result for ``_MODELS_STATUS_CACHE_TTL`` seconds to avoid loading
-    the full pyannote Pipeline on every poll. Each load creates internal
-    ``mp.Queue`` / POSIX named semaphore objects that leak on macOS, so this
-    cache is critical for preventing semaphore exhaustion over time.
+    Non-blocking: the pyannote pipeline is loaded once in a background task, so
+    this endpoint returns instantly. On first run (fresh install / empty cache)
+    it reports ``diarization_status: "downloading"`` with a progress percentage
+    (when known) so the UI can show the model fetch.
     """
-    global _models_status_cache
-    now = time.time()
-    if (
-        _models_status_cache["result"] is not None
-        and now - _models_status_cache["timestamp"] < _MODELS_STATUS_CACHE_TTL
-    ):
-        return _models_status_cache["result"]
+    await _ensure_diarization_load_started()
+
+    state = _diar_model_state
+    if state["status"] == "downloading":
+        pct = _current_dl_progress()
+        if pct is not None:
+            status, progress = "downloading", pct
+        else:
+            status, progress = "loading", None
+    else:
+        status, progress = state["status"], None
 
     result = {
         "device": detect_device(),
         "whisper_model": config.WHISPER_MODEL_SIZE,
         "diarization_model": config.DIARIZATION_MODEL,
-        "diarization_available": False,
-        "diarization_error": None,
-        "diarization_traceback": None,
+        "diarization_available": state["available"],
+        "diarization_error": state["error"],
+        "diarization_traceback": state["traceback"],
         "hf_token_configured": bool(config.HUGGING_FACE_TOKEN),
+        "diarization_status": status,
+        "diarization_progress": progress,
     }
 
-    # Try to verify diarization model is loadable
-    try:
-        from pyannote.audio import Pipeline
-        import torch
-        hf_token = config.HUGGING_FACE_TOKEN
-        if not hf_token:
-            result["diarization_error"] = (
-                "No HUGGING_FACE_TOKEN set. "
-                f"Get a token at https://hf.co/settings/tokens and accept the model terms at "
-                f"https://hf.co/{config.DIARIZATION_MODEL}"
-            )
-        else:
-            # PyTorch 2.6+ needs relaxed loading for pyannote pickle models
-            import torch as _torch
-            _orig_load = _torch.load
-            try:
-                # Force weights_only=False — lightning_fabric (used by
-                # pyannote) explicitly passes weights_only=True, so setdefault
-                # is not enough.
-                def _permissive_load(f, *a, **kw):
-                    kw["weights_only"] = False
-                    return _orig_load(f, *a, **kw)
-                _torch.load = _permissive_load
-
-                # Try online first so pyannote can check for model updates.
-                # Falls back to local cache on network errors (DNS, timeout, etc.).
-                try:
-                    pipeline = Pipeline.from_pretrained(
-                        config.DIARIZATION_MODEL, use_auth_token=hf_token,
-                    )
-                except Exception as _hub_err:
-                    if is_network_error(_hub_err):
-                        print(f"[models_status] ⚠️  HuggingFace unreachable ({_hub_err}). "
-                              f"Falling back to local cache...")
-                        pipeline = Pipeline.from_pretrained(
-                            config.DIARIZATION_MODEL, use_auth_token=hf_token,
-                            local_files_only=True,
-                        )
-                    else:
-                        raise
-                if pipeline is None:
-                    result["diarization_error"] = (
-                        f"Model '{config.DIARIZATION_MODEL}' returned None — "
-                        f"it may be gated. Accept terms at "
-                        f"https://hf.co/{config.DIARIZATION_MODEL}"
-                    )
-                else:
-                    pipeline.to(_torch.device("cpu"))
-                    result["diarization_available"] = True
-                    del pipeline
-            finally:
-                _torch.load = _orig_load
-    except Exception as e:
-        import traceback
-        tb = traceback.format_exc()
-        result["diarization_traceback"] = tb
-        msg = str(e)
-        if "gated" in msg.lower() or "access" in msg.lower() or "token" in msg.lower():
-            result["diarization_error"] = (
-                "Model is gated — accept terms at "
-                f"https://hf.co/{config.DIARIZATION_MODEL} and set HUGGING_FACE_TOKEN"
-            )
-        elif "module" in msg.lower() and "torchaudio" in msg.lower():
-            result["diarization_error"] = (
-                f"PyTorch/torchaudio compatibility issue: {msg[:200]}. "
-                f"Try reinstalling pyannote.audio: pip install --upgrade pyannote.audio"
-            )
-        else:
-            result["diarization_error"] = f"Model failed to load: {msg[:300]}"
-
-    # Update cache before returning
-    _models_status_cache["result"] = result
-    _models_status_cache["timestamp"] = now
-
-    status_icon = "✅" if result["diarization_available"] else "❌"
-    print(f"[api] GET /transcribe/models/status → diarization={status_icon} device={result['device']}")
-    if result["diarization_error"]:
-        print(f"[api]   diarization_error: {result['diarization_error'][:200]}")
+    status_icon = "✅" if state["available"] else "❌"
+    print(f"[api] GET /transcribe/models/status → diarization={status_icon} status={status} device={result['device']}")
+    if state["error"]:
+        print(f"[api]   diarization_error: {state['error'][:200]}")
     return result
 
 

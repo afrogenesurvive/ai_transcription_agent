@@ -98,3 +98,66 @@ def _patched_torch_load(f, *args, **kwargs):
 
 torch.load = _patched_torch_load
 print("[patches] [OK] Patched torch.load -> forces weights_only=False")
+
+
+# ── 5. tqdm download progress capture ──
+# huggingface_hub renders model download progress with tqdm. We wrap tqdm to
+# record (done, total) bytes into a global so the backend can report a live
+# percentage to the UI while the diarization model downloads on first run.
+_dl_progress = {"active": False, "done": 0, "total": 0}
+
+
+def get_dl_progress():
+    """Return a snapshot of the current download progress (bytes)."""
+    return dict(_dl_progress)
+
+
+try:
+    import tqdm as _tqdm_mod
+
+    def _set_progress(tq):
+        """Record current byte progress into the shared dict (best-effort)."""
+        try:
+            _dl_progress["active"] = True
+            _dl_progress["done"] = int(getattr(tq, "n", 0) or 0)
+            _dl_progress["total"] = int(getattr(tq, "total", 0) or 0)
+        except Exception:
+            pass
+
+    class _TrackingTqdm(_tqdm_mod.tqdm):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            _set_progress(self)
+
+        def update(self, n=1):
+            result = super().update(n)
+            _set_progress(self)
+            return result
+
+        def close(self):
+            try:
+                super().close()
+            finally:
+                # Guarded: at interpreter shutdown the module globals may be
+                # torn down (None), so never assume _dl_progress exists.
+                try:
+                    _dl_progress["active"] = False
+                except Exception:
+                    pass
+
+    # Patch the concrete tqdm classes huggingface_hub may reference (lazy
+    # imports resolve to these at call time).
+    _tqdm_mod.tqdm = _TrackingTqdm
+    try:
+        import tqdm.std as _tqdm_std
+        _tqdm_std.tqdm = _TrackingTqdm
+    except Exception:
+        pass
+    try:
+        import tqdm.auto as _tqdm_auto
+        _tqdm_auto.tqdm = _TrackingTqdm
+    except Exception:
+        pass
+    print("[patches] [OK] Patched tqdm -> records download progress for UI feedback")
+except Exception:
+    pass  # tqdm unavailable

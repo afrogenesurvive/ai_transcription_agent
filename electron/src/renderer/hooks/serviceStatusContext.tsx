@@ -28,6 +28,8 @@ export interface ServiceStatusValue {
   diarizationError: string | null;
   diarizationModel: string | null;
   hfTokenConfigured: boolean | null;
+  diarizationStatus: string | null;
+  diarizationProgress: number | null;
   ollamaOk: boolean | null;
   ollamaProvider: boolean;
   allReady: boolean;
@@ -73,6 +75,8 @@ export function ServiceStatusProvider({ children, ollamaRequired }: ProviderProp
   const [diarizationError, setDiarizationError] = useState<string | null>(null);
   const [diarizationModel, setDiarizationModel] = useState<string | null>(null);
   const [hfTokenConfigured, setHfTokenConfigured] = useState<boolean | null>(null);
+  const [diarizationStatus, setDiarizationStatus] = useState<string | null>(null);
+  const [diarizationProgress, setDiarizationProgress] = useState<number | null>(null);
   const [ollamaOk, setOllamaOk] = useState<boolean | null>(null);
   const [ollamaProvider, setOllamaProvider] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -93,6 +97,8 @@ export function ServiceStatusProvider({ children, ollamaRequired }: ProviderProp
         setDiarizationError(s.diarizationError);
         setDiarizationModel(s.diarizationModel);
         setHfTokenConfigured(s.hfTokenConfigured);
+        setDiarizationStatus(s.diarizationStatus);
+        setDiarizationProgress(s.diarizationProgress);
       } catch {
         // IPC failed
       }
@@ -160,6 +166,8 @@ export function ServiceStatusProvider({ children, ollamaRequired }: ProviderProp
         setDiarizationError(s.diarizationError);
         setDiarizationModel(s.diarizationModel);
         setHfTokenConfigured(s.hfTokenConfigured);
+        setDiarizationStatus(s.diarizationStatus);
+        setDiarizationProgress(s.diarizationProgress);
         result = s;
       }
     } catch {
@@ -234,6 +242,8 @@ export function ServiceStatusProvider({ children, ollamaRequired }: ProviderProp
     diarizationError,
     diarizationModel,
     hfTokenConfigured,
+    diarizationStatus,
+    diarizationProgress,
     ollamaOk,
     ollamaProvider,
     allReady,
