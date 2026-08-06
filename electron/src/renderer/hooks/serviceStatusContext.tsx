@@ -81,10 +81,7 @@ export function ServiceStatusProvider({ children, ollamaRequired }: ProviderProp
   const [ollamaProvider, setOllamaProvider] = useState(false);
   const [checking, setChecking] = useState(false);
 
-  const allReady =
-    SERVICES.every((s) => services[s] === true) &&
-    diarizationOk === true &&
-    (!ollamaRequired || ollamaOk === true);
+  const allReady = SERVICES.every((s) => services[s] === true) && diarizationOk === true && (!ollamaRequired || ollamaOk === true);
 
   // ── Poll: backend status (every 5s) ──
 
@@ -256,9 +253,5 @@ export function ServiceStatusProvider({ children, ollamaRequired }: ProviderProp
     pollOllama,
   };
 
-  return (
-    <ServiceStatusContext.Provider value={value}>
-      {children}
-    </ServiceStatusContext.Provider>
-  );
+  return <ServiceStatusContext.Provider value={value}>{children}</ServiceStatusContext.Provider>;
 }

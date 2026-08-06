@@ -304,10 +304,7 @@ export default function ServerStatusBanner() {
                       <span className="ssb-service-status">{statusText}</span>
                       {isDiarization && isDownloading && hasProgress && (
                         <div className="ssb-dl-progress-wrap">
-                          <div
-                            className="ssb-dl-progress"
-                            style={{ width: `${Math.min(100, Math.max(0, diarizationProgress!))}%` }}
-                          />
+                          <div className="ssb-dl-progress" style={{ width: `${Math.min(100, Math.max(0, diarizationProgress!))}%` }} />
                         </div>
                       )}
                       {isDiarization && gatedHfUrl && (
