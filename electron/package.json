@@ -1,6 +1,6 @@
 {
   "name": "transcription-electron",
-  "version": "0.6.10",
+  "version": "0.7.0",
   "private": true,
   "license": "Apache-2.0",
   "description": "Electron desktop UI for AI Meeting Transcription Agent",

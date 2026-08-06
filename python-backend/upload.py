@@ -13,6 +13,58 @@ from typing import Optional
 from config import config
 
 
+# Cache the resolved ffmpeg path (resolved once per process).
+_FFMPEG_CACHE = {"path": None}
+
+
+def resolve_ffmpeg() -> str:
+    """Resolve a usable ffmpeg binary for audio standardization / clip extraction.
+
+    Candidate order: FFMPEG_PATH (env) -> PATH (ffmpeg/ffmpeg.exe) -> the app's
+    managed binary (<userData>/bin/ffmpeg[.exe]) -> the Mac-managed binary
+    (~/Library/Application Support/Transcription Agent/bin/ffmpeg) as a
+    CrossOver/Wine testing fallback. Each candidate is verified by running
+    `ffmpeg -version`, so a binary Wine can't execute (e.g. a Mach-O binary)
+    is skipped automatically.
+    """
+    if _FFMPEG_CACHE["path"]:
+        return _FFMPEG_CACHE["path"]
+
+    candidates = []
+    if config.FFMPEG_PATH:
+        candidates.append(config.FFMPEG_PATH)
+    for name in ("ffmpeg", "ffmpeg.exe"):
+        found = shutil.which(name)
+        if found:
+            candidates.append(found)
+    logs_dir = os.environ.get("ELECTRON_LOGS_DIR")
+    if logs_dir:
+        user_data = os.path.dirname(logs_dir)
+        exe = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+        candidates.append(os.path.join(user_data, "bin", exe))
+    # CrossOver/Wine testing fallback — the Mac app's managed ffmpeg.
+    candidates.append(
+        os.path.expanduser(
+            "~/Library/Application Support/Transcription Agent/bin/ffmpeg"
+        )
+    )
+
+    for c in candidates:
+        if not c or not os.path.exists(c):
+            continue
+        try:
+            subprocess.run([c, "-version"], capture_output=True, timeout=10)
+        except Exception:
+            continue
+        _FFMPEG_CACHE["path"] = c
+        return c
+
+    raise RuntimeError(
+        "ffmpeg not found — set FFMPEG_PATH or place ffmpeg at "
+        "userData/bin/. Tried: " + ", ".join(str(c) for c in candidates if c)
+    )
+
+
 class AudioUploader:
     def __init__(self, storage_path: Optional[str] = None):
         self.storage_path = storage_path or config.STORAGE_PATH
@@ -211,7 +263,7 @@ class AudioUploader:
     def _standardize_audio(self, input_path: str, output_path: str):
         """Convert to 16kHz mono WAV using ffmpeg."""
         cmd = [
-            config.FFMPEG_PATH, "-i", input_path,
+            resolve_ffmpeg(), "-i", input_path,
             "-acodec", "pcm_s16le", "-ac", "1", "-ar", "16000",
             "-y", output_path,
         ]

@@ -67,7 +67,7 @@ from contextlib import asynccontextmanager
 from config import config
 from utils import is_network_error
 
-from upload import AudioUploader
+from upload import AudioUploader, resolve_ffmpeg
 from voiceprint import VoiceprintManager
 from transcription import TranscriptionEngine, detect_device, PipelineCancelled
 from models import (
@@ -1394,7 +1394,7 @@ async def agent_voiceprint_sample(email: str):
 
     try:
         _sp.run([
-            "ffmpeg", "-y",
+            resolve_ffmpeg(), "-y",
             "-ss", str(clip_start),
             "-t", str(clip_duration),
             "-i", audio_path,
@@ -2053,7 +2053,7 @@ async def serve_speaker_clip(job_id: str, speaker_id: str, clip_index: int):
     os.close(fd)
     try:
         cmd = [
-            config.FFMPEG_PATH, "-y",
+            resolve_ffmpeg(), "-y",
             "-i", audio_path,
             "-ss", str(clip_start),
             "-to", str(clip_end),
