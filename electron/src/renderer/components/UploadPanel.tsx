@@ -258,10 +258,15 @@ export default function UploadPanel({ file, onFileChange, onUpload, onUploadByPa
   const handleFile = useCallback(
     (f: File) => {
       onFileChange(f);
-      // Persist the file path so the New form can restore it after a restart (rule 8a)
+      // Persist the file path so the New form can restore it after a restart (rule 8a).
+      // If no real backing path is available (getPathForFile returns ""), drop any
+      // stale remembered path instead of letting a prior-session path linger as the
+      // fallback/chip — the live File is authoritative for this session.
       const filePath = window.electronAPI?.getPathForFile(f);
       if (filePath) {
         setRememberedFile({ path: filePath, name: f.name });
+      } else {
+        setRememberedFile(null);
       }
       if (!title) {
         // Derive title from filename

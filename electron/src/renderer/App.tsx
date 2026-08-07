@@ -1018,7 +1018,13 @@ export default function App() {
     setJobMetadata(null);
     setStatusData(null);
     setStageProgress({});
-    setFormFile(null); // fresh form — drop any previously picked File
+    // NOTE: deliberately do NOT clear formFile here. The live File is hoisted to App
+    // state so it survives view switches; every path back to the New form (sidebar
+    // New button, PipelineProgress onNewJob) runs handleNew, so clearing it here would
+    // destroy the user's selected file and force submit down the path-based
+    // upload_by_path fallback (stale path → backend 404 "File not found"). The file is
+    // cleared on successful submit (handleUpload / handleUploadByPath) and via the
+    // form's Remove / clearForm, which is the correct lifecycle.
     setShowHistory(false); // New form is its own mode — don't leave History "open"/highlighted
     statusHook.stopPolling();
   };
@@ -1544,7 +1550,11 @@ export default function App() {
                                       cancelling={cancellingForeign}
                                       diarizationAvailable={diarizationAvailable}
                                       isForeignJob={true}
-                                      onNewJob={handleNew}
+                                      onNewJob={() => {
+                                        handleNew();
+                                        setShowNewForm(true);
+                                        setSidebarView("current");
+                                      }}
                                       jobId={foreignJobId}
                                     />
                                   );
