@@ -34,6 +34,54 @@ const PUSH_INTERVAL = parseInt(process.env.DSMON_PUSH_INTERVAL || "300000", 10);
 const PUSH_TOKEN = process.env.DSMON_PUSH_TOKEN || "";
 const STORAGE_BASE = process.env.TRANSCRIPTION_STORAGE || path.resolve(__dirname, "..", "storage");
 const BUFFER_FILE = path.join(STORAGE_BASE, "dsmon_buffer.jsonl");
+// Diagnostic log — persists every push outcome so failures are visible even
+// when no job is active (the main-process logger only writes to a job's
+// pipeline.log while a job is running).
+const LOG_FILE = path.join(STORAGE_BASE, "dsmon.log");
+// Cap the buffer so a permanently-unreachable DS-mon host can't grow it forever.
+const MAX_BUFFER_BYTES = 5 * 1024 * 1024; // 5 MB
+const PUSH_TIMEOUT_MS = 30000; // 30s (was 15s — a slow tunnel can exceed 15s)
+
+// Last-push status (for UI/telemetry visibility via getDsmonStatus).
+let lastPush = { at: null, ok: null, count: 0, error: null };
+let retryTimer = null;
+
+/** Append a line to the DS-mon diagnostic log (and mirror to stdout). */
+function _log(msg) {
+  const line = `[${new Date().toISOString()}] ${msg}`;
+  console.log(line);
+  try {
+    fs.mkdirSync(path.dirname(LOG_FILE), { recursive: true });
+    fs.appendFileSync(LOG_FILE, line + "\n", "utf8");
+  } catch {
+    // Non-fatal — diagnostics only
+  }
+}
+
+/** Export current push status + buffer stats (for UI / diagnostics). */
+export function getDsmonStatus() {
+  let bufferBytes = 0;
+  let bufferCount = 0;
+  try {
+    if (fs.existsSync(BUFFER_FILE)) {
+      bufferBytes = fs.statSync(BUFFER_FILE).size;
+      const content = fs.readFileSync(BUFFER_FILE, "utf8");
+      bufferCount = content.split("\n").filter((l) => l.trim()).length;
+    }
+  } catch {
+    // ignore
+  }
+  return { ...lastPush, bufferBytes, bufferCount };
+}
+
+/** Schedule a fast retry after a failed push (recovers quickly when the host returns). */
+function _scheduleRetry() {
+  if (retryTimer) return;
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    flushBuffer();
+  }, 60000);
+}
 
 /**
  * Generate a stable, human-readable instance identifier.
@@ -116,9 +164,13 @@ export function recordCall(usage, model, latencyMs, stepInfo) {
 
   try {
     fs.mkdirSync(path.dirname(BUFFER_FILE), { recursive: true });
+    if (fs.existsSync(BUFFER_FILE) && fs.statSync(BUFFER_FILE).size > MAX_BUFFER_BYTES) {
+      _log(`⚠️ [DSMON] Buffer exceeds ${MAX_BUFFER_BYTES} bytes — dropping record (host unreachable?)`);
+      return;
+    }
     fs.appendFileSync(BUFFER_FILE, JSON.stringify(record) + "\n", "utf8");
   } catch (err) {
-    console.log(`⚠️ [DSMON] Failed to buffer usage record: ${err.message}`);
+    _log(`⚠️ [DSMON] Failed to buffer usage record: ${err.message}`);
   }
 }
 
@@ -142,7 +194,7 @@ export async function flushBuffer() {
       .filter((l) => l.trim())
       .map((l) => JSON.parse(l));
   } catch (err) {
-    console.log(`⚠️ [DSMON] Failed to read buffer file: ${err.message}`);
+    _log(`⚠️ [DSMON] Failed to read buffer file: ${err.message}`);
     return;
   }
 
@@ -156,20 +208,25 @@ export async function flushBuffer() {
       method: "POST",
       headers,
       body: JSON.stringify(records),
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(PUSH_TIMEOUT_MS),
     });
 
     if (resp.ok) {
       // Truncate the buffer — write empty string (not unlink) to avoid
       // race conditions with concurrent recordCall() appends
       fs.writeFileSync(BUFFER_FILE, "", "utf8");
-      console.log(`📊 [DSMON] Pushed ${records.length} usage records to ${PUSH_URL}`);
+      lastPush = { at: Date.now(), ok: true, count: records.length, error: null };
+      _log(`📊 [DSMON] Pushed ${records.length} usage records to ${PUSH_URL}`);
     } else {
       const text = await resp.text().catch(() => "");
-      console.log(`⚠️ [DSMON] Push failed: HTTP ${resp.status} ${text.slice(0, 100)} — ${records.length} records retained`);
+      lastPush = { at: Date.now(), ok: false, count: records.length, error: `HTTP ${resp.status} ${text.slice(0, 100)}` };
+      _log(`⚠️ [DSMON] Push failed: HTTP ${resp.status} ${text.slice(0, 100)} — ${records.length} records retained`);
+      _scheduleRetry();
     }
   } catch (err) {
-    console.log(`⚠️ [DSMON] Push error: ${err.message} — ${records.length} records retained for retry`);
+    lastPush = { at: Date.now(), ok: false, count: records.length, error: err.message };
+    _log(`⚠️ [DSMON] Push error: ${err.message} — ${records.length} records retained for retry`);
+    _scheduleRetry();
   }
 }
 

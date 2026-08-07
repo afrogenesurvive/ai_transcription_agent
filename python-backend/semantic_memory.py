@@ -11,6 +11,7 @@ import os
 import re
 import json
 from typing import List, Optional, Dict, Any
+from typing_extensions import override
 from config import config
 
 
@@ -49,6 +50,38 @@ def _is_abbreviation(word: str) -> bool:
 _PARAGRAPH_SPLIT = re.compile(r'\n\s*\n')
 
 
+def _install_noop_chroma_telemetry() -> None:
+    """Ensure chromadb's product-telemetry import resolves to a no-op.
+
+    ChromaDB resolves its product-telemetry impl (default
+    ``chromadb.telemetry.product.posthog.Posthog``) via importlib whenever a
+    client is created — unconditionally, even with ``anonymized_telemetry=False``.
+    That module isn't bundled by PyInstaller, which previously broke save-context
+    with ``No module named 'chromadb.telemetry.product.posthog'``.
+
+    We pre-seed ``sys.modules`` with a stub module so the import succeeds and
+    provides a no-op ``Posthog`` class (no telemetry is ever transmitted).
+    """
+    import sys
+    import types
+    from chromadb.telemetry.product import ProductTelemetryClient, ProductTelemetryEvent
+
+    module_name = "chromadb.telemetry.product.posthog"
+    if module_name in sys.modules:
+        return
+
+    class NoopPosthog(ProductTelemetryClient):
+        """Stand-in for chromadb's Posthog telemetry client — captures nothing."""
+
+        @override
+        def capture(self, event: ProductTelemetryEvent) -> None:
+            return None
+
+    stub = types.ModuleType(module_name)
+    stub.Posthog = NoopPosthog
+    sys.modules[module_name] = stub
+
+
 class SemanticMemory:
     """Wrapper around ChromaDB for meeting transcript/summary storage and retrieval.
 
@@ -70,6 +103,10 @@ class SemanticMemory:
         import chromadb
         from chromadb.config import Settings
 
+        # ChromaDB imports its posthog telemetry module on every client creation
+        # (even with anonymized_telemetry=False); provide a no-op so it works in
+        # the PyInstaller bundle where that module isn't present.
+        _install_noop_chroma_telemetry()
         os.makedirs(self.persist_dir, exist_ok=True)
         client = chromadb.PersistentClient(
             path=self.persist_dir,
