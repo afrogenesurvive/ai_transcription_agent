@@ -80,6 +80,9 @@ export default function App() {
   const [configOk, setConfigOk] = useState(true);
   const [showConfigOverlay, setShowConfigOverlay] = useState(false);
   const [ollamaRequired, setOllamaRequired] = useState(false);
+  // Job-status polling safety cap (ms), driven by PIPELINE_TIMEOUT_MINUTES from
+  // config so the UI never gives up before the backend's own pipeline timeout.
+  const [pipelineTimeoutMs, setPipelineTimeoutMs] = useState<number>(60 * 60 * 1000);
   const [cancelling, setCancelling] = useState(false);
   const [cancellingForeign, setCancellingForeign] = useState(false);
   const [diarizationAvailable, setDiarizationAvailable] = useState<boolean | null>(null);
@@ -308,6 +311,10 @@ export default function App() {
     });
     window.electronAPI?.getConfig().then((cfg) => {
       setOllamaRequired(cfg?.LLM_PROVIDER === "ollama");
+      const mins = Number(cfg?.PIPELINE_TIMEOUT_MINUTES);
+      if (Number.isFinite(mins) && mins > 0) {
+        setPipelineTimeoutMs(mins * 60 * 1000);
+      }
     });
   }, []);
 
@@ -388,6 +395,7 @@ export default function App() {
     jobId,
     useCallback((id: string) => fetcherRef.current?.(id) ?? Promise.reject(new Error("no fetcher")), []),
     serverStatus.allReady,
+    pipelineTimeoutMs,
   );
 
   // Whether a job is currently running (processing).

@@ -32,7 +32,12 @@ const FAILED_GRACE_PERIOD_MS = 2 * 60 * 1000; // 2 minutes
 // timeout is the real cap on runaway polling).
 const MAX_CONSECUTIVE_FETCH_ERRORS = 5;
 
-export function useJobStatus(jobId: string | null, fetcher: (id: string) => Promise<any>, backendHealthy: boolean = true) {
+export function useJobStatus(
+  jobId: string | null,
+  fetcher: (id: string) => Promise<any>,
+  backendHealthy: boolean = true,
+  timeoutMs?: number,
+) {
   const [data, setData] = useState<any>(null);
   const [state, setState] = useState<PollingState>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -57,6 +62,11 @@ export function useJobStatus(jobId: string | null, fetcher: (id: string) => Prom
   // meeting produces a large transcript that can take >10 min to process through
   // the full LLM pipeline (refine, summarize, analyze, save context, deliver).
   const POLLING_TIMEOUT_MS = 30 * 60 * 1000;
+
+  // Config-driven safety cap. The backend allows up to PIPELINE_TIMEOUT_MINUTES
+  // (default 60), so the renderer must not cut a job off before the backend
+  // would. Falls back to the 30-minute default when the caller doesn't pass one.
+  const activeTimeoutMs = timeoutMs && timeoutMs > 0 ? timeoutMs : POLLING_TIMEOUT_MS;
 
   // Track when the backend was last seen as healthy - used to pause the
   // rolling timeout counter when the backend goes down.
@@ -128,8 +138,9 @@ export function useJobStatus(jobId: string | null, fetcher: (id: string) => Prom
 
         // Safety timeout - only counts time when backend was healthy
         const elapsedActive = Date.now() - startedAt - totalBackendDownMs.current;
-        if (elapsedActive > POLLING_TIMEOUT_MS) {
-          const timeoutErr = "Job processing timed out - the pipeline may be hung. Check the backend logs for details.";
+        if (elapsedActive > activeTimeoutMs) {
+          const timeoutErr =
+            `Job processing timed out after the ${activeTimeoutMs / 60000}-minute safety cap — the pipeline may be hung. Check the backend logs for details.`;
           console.log("[useJobStatus] Polling timeout for " + jobId + " - reporting as error");
           setState("error");
           setError(timeoutErr);
@@ -216,7 +227,7 @@ export function useJobStatus(jobId: string | null, fetcher: (id: string) => Prom
     intervalRef.current = setInterval(poll, 10000);
 
     return () => stopPolling();
-  }, [jobId, stopPolling, successStatuses, backendHealthy]);
+  }, [jobId, stopPolling, successStatuses, backendHealthy, activeTimeoutMs]);
 
   return { data, state, error, stopPolling };
 }
