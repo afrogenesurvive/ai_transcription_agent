@@ -107,6 +107,10 @@ class VoiceprintManager:
                              f"Supported: {list(self.EMBEDDING_PROVIDERS.keys())}")
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self._embedding_model = None  # Lazy-loaded embedding model (provider-specific)
+        # Serialize lazy embedding-model load so concurrent callers (pipeline
+        # thread, async endpoints offloaded to threads) never double-download
+        # or double-initialize the model.
+        self._model_lock = threading.Lock()
         # Track every connection this instance creates so they can all be
         # closed before the DB file or its WAL companions are removed.
         self._conns: set = set()
@@ -293,11 +297,41 @@ class VoiceprintManager:
         self._embedding_model = None
 
     def _load_embedding_model(self):
+        """Thread-safe lazy load: double-checked lock around the real loader.
+
+        Prevents concurrent callers (the pipeline thread and async endpoints
+        running in worker threads) from racing to download/initialize the model.
+        """
+        if self._embedding_model is not None:
+            return
+        with self._model_lock:
+            if self._embedding_model is None:
+                self._load_embedding_model_unlocked()
+
+    def preload_model(self) -> dict:
+        """Eagerly load the embedding model (called from a background thread).
+
+        No-op if already loaded. Returns
+        {"available": bool, "error": str | None, "traceback": str | None}.
+        """
+        import traceback as _tb
+        try:
+            self._load_embedding_model()
+            return {
+                "available": self._embedding_model is not None,
+                "error": None,
+                "traceback": None,
+            }
+        except Exception as e:
+            return {"available": False, "error": str(e), "traceback": _tb.format_exc()}
+
+    def _load_embedding_model_unlocked(self):
         """Load (or lazy-reload) the embedding model for the current provider.
 
         Auto-downloads from HuggingFace on first use. Handles gated-model
         auth, network fallback to local cache, and MPS→CPU device fallback.
         Sets self._embedding_model to a provider-specific model object.
+        Callers must hold ``self._model_lock``.
         """
         provider_cfg = self.EMBEDDING_PROVIDERS[self.provider]
         hf_id = provider_cfg["hf_id"]

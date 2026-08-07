@@ -125,6 +125,20 @@ _diar_model_state: dict = {
 }
 _diar_model_task: asyncio.Task = None
 
+# ── Voiceprint embedding model status (non-blocking) ──
+# pyannote/embedding is loaded ONCE in a background asyncio task (mirrors the
+# diarization preload) so it is in memory before any labeling/clip request and
+# a fresh install downloads it at startup instead of blocking the event loop
+# mid-request. status: "idle" | "loading" | "available" | "error"
+_emb_model_state: dict = {
+    "status": "idle",
+    "available": False,
+    "error": None,
+    "traceback": None,
+    "started": False,
+}
+_emb_model_task: asyncio.Task = None
+
 # ML pipeline statuses that indicate a job is actively running in the pipeline.
 # Shared across upload endpoints, active job listing, and cleanup logic.
 # NOTE: pending_raw_review and pending_delivery_review are intentionally
@@ -983,8 +997,9 @@ async def agent_label_speakers(req: LabelRequest):
                         break
                     s = speaker_segs[i]
                     try:
-                        seg_emb = vp_manager.extract_embedding(
-                            audio_path, segment=(s["start"], s["end"])
+                        seg_emb = await asyncio.to_thread(
+                            vp_manager.extract_embedding, audio_path,
+                            segment=(s["start"], s["end"]),
                         )
                         sampled_embs.append(seg_emb)
                     except Exception as e:
@@ -1007,8 +1022,9 @@ async def agent_label_speakers(req: LabelRequest):
                     sample_start = longest["start"]
                     sample_end = longest["end"]
                     try:
-                        emb = vp_manager.extract_embedding(
-                            audio_path, segment=(sample_start, sample_end)
+                        emb = await asyncio.to_thread(
+                            vp_manager.extract_embedding, audio_path,
+                            segment=(sample_start, sample_end),
                         )
                         print(f"[api]   ✅ Extracted embedding (fallback) for '{label.name}' ({label.speaker_id})")
                     except Exception as e:
@@ -1035,8 +1051,9 @@ async def agent_label_speakers(req: LabelRequest):
         if emb is None:
             continue
         email_key = vp_manager._make_email(name, email)
-        all_matches = vp_manager.find_matching_voiceprints(
-            emb, threshold=config.VOICEPRINT_THRESHOLD
+        all_matches = await asyncio.to_thread(
+            vp_manager.find_matching_voiceprints, emb,
+            threshold=config.VOICEPRINT_THRESHOLD,
         )
         for m in all_matches:
             if m["name"].lower() == name.lower():
@@ -1179,8 +1196,9 @@ async def verify_labels(payload: dict = Body(...)):
                     break
                 s = segs[i]
                 try:
-                    seg_emb = vp_manager.extract_embedding(
-                        audio_path, segment=(s["start"], s["end"])
+                    seg_emb = await asyncio.to_thread(
+                        vp_manager.extract_embedding, audio_path,
+                        segment=(s["start"], s["end"]),
                     )
                     sampled_embs.append(seg_emb)
                 except Exception:
@@ -1191,8 +1209,9 @@ async def verify_labels(payload: dict = Body(...)):
                 emb = emb / np.linalg.norm(emb)
 
                 # Find matches against ALL enrolled voiceprints
-                matches = vp_manager.find_matching_voiceprints(
-                    emb, threshold=config.VOICEPRINT_THRESHOLD
+                matches = await asyncio.to_thread(
+                    vp_manager.find_matching_voiceprints, emb,
+                    threshold=config.VOICEPRINT_THRESHOLD,
                 )
 
                 # Report any match where the existing name differs from the assigned
@@ -1831,15 +1850,17 @@ async def get_speaker_clips(job_id: str):
                     if len(sampled_embs) >= MAX_SAMPLE:
                         break
                     s = segs[i]
-                    seg_emb = vp_manager.extract_embedding(
-                        audio_path, segment=(s["start"], s["end"])
+                    seg_emb = await asyncio.to_thread(
+                        vp_manager.extract_embedding, audio_path,
+                        segment=(s["start"], s["end"]),
                     )
                     sampled_embs.append(seg_emb)
                 if sampled_embs:
                     emb = np.mean(sampled_embs, axis=0)
                     emb = emb / np.linalg.norm(emb)
-                    matches = vp_manager.find_matching_voiceprints(
-                        emb, threshold=config.VOICEPRINT_THRESHOLD
+                    matches = await asyncio.to_thread(
+                        vp_manager.find_matching_voiceprints, emb,
+                        threshold=config.VOICEPRINT_THRESHOLD,
                     )
                     voiceprint_matches = [
                         {
@@ -2109,7 +2130,7 @@ async def label_and_resume(job_id: str, payload: dict = Body(...)):
         if not labels or not isinstance(labels, list):
             raise HTTPException(400, "Body must contain a 'labels' array of {speaker_id, name} objects")
 
-        _inner_label_and_resume(job_id, labels, overwrite_names, excluded_non_speaking)
+        await _inner_label_and_resume(job_id, labels, overwrite_names, excluded_non_speaking)
     except HTTPException:
         raise
     except Exception as e:
@@ -2132,10 +2153,12 @@ def _dump_all_voiceprints(label: str):
         print(f"[drift] ⚠️  _dump_all_voiceprints error: {e}")
 
 
-def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = None,
-                            excluded_non_speaking: list = None):
+async def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = None,
+                                  excluded_non_speaking: list = None):
     """Inner function — all the actual work, extracted so the async route
-    handler has a clean try/except wrapper.
+    handler has a clean try/except wrapper. Runs on the event loop; the heavy
+    embedding extraction/matching is offloaded to worker threads via
+    ``asyncio.to_thread`` so the loop stays responsive during labeling.
 
     Args:
         job_id: The job ID
@@ -2198,8 +2221,9 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
                     break
                 s = segs[i]
                 try:
-                    seg_emb = vp_manager.extract_embedding(
-                        audio_path, segment=(s["start"], s["end"])
+                    seg_emb = await asyncio.to_thread(
+                        vp_manager.extract_embedding, audio_path,
+                        segment=(s["start"], s["end"]),
                     )
                     sampled_embs.append(seg_emb)
                 except Exception as e:
@@ -2220,8 +2244,8 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
                 # Fallback: use the longest segment
                 longest = max(segs, key=lambda s: s["duration"])
                 try:
-                    emb = vp_manager.extract_embedding(
-                        audio_path,
+                    emb = await asyncio.to_thread(
+                        vp_manager.extract_embedding, audio_path,
                         segment=(longest["start"], longest["end"]),
                     )
                     sample_start = longest["start"]
@@ -2275,8 +2299,9 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
             # or by re-running embedding comparison.
             old_matches = list(spk_matches)  # shallow copy
             if not old_matches and emb is not None:
-                old_matches = vp_manager.find_matching_voiceprints(
-                    emb, threshold=config.VOICEPRINT_THRESHOLD
+                old_matches = await asyncio.to_thread(
+                    vp_manager.find_matching_voiceprints, emb,
+                    threshold=config.VOICEPRINT_THRESHOLD,
                 )
 
             deleted_any = False
@@ -2310,8 +2335,9 @@ def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: list = N
 
         email_key = vp_manager._make_email(name, email)
         # Match against ALL existing enrolled voiceprints
-        all_matches = vp_manager.find_matching_voiceprints(
-            emb, threshold=config.VOICEPRINT_THRESHOLD
+        all_matches = await asyncio.to_thread(
+            vp_manager.find_matching_voiceprints, emb,
+            threshold=config.VOICEPRINT_THRESHOLD,
         )
         # If ANY enrolled voiceprint has the same name as the assigned name
         # (above threshold), the speaker is already correctly identified.
@@ -4010,6 +4036,48 @@ async def _ensure_diarization_load_started():
     _diar_model_task = asyncio.create_task(_diarization_load_worker())
 
 
+def _load_embedding_model_sync():
+    """Synchronous voiceprint embedding-model load (runs in a worker thread)."""
+    if not config.HUGGING_FACE_TOKEN:
+        return {
+            "available": False,
+            "error": (
+                "No HUGGING_FACE_TOKEN set. "
+                "Get a token at https://hf.co/settings/tokens and accept the model terms at "
+                "https://hf.co/pyannote/embedding"
+            ),
+            "traceback": None,
+        }
+    return vp_manager.preload_model()
+
+
+async def _embedding_model_load_worker():
+    """Background load of the voiceprint embedding model (runs once)."""
+    _emb_model_state["status"] = "loading"
+    try:
+        outcome = await asyncio.to_thread(_load_embedding_model_sync)
+    except Exception as e:  # pragma: no cover - defensive
+        import traceback
+        _emb_model_state["status"] = "error"
+        _emb_model_state["error"] = f"Model failed to load: {e}"
+        _emb_model_state["traceback"] = traceback.format_exc()
+        return
+    _emb_model_state["available"] = bool(outcome.get("available"))
+    _emb_model_state["error"] = outcome.get("error")
+    _emb_model_state["traceback"] = outcome.get("traceback")
+    _emb_model_state["status"] = "available" if _emb_model_state["available"] else "error"
+
+
+async def _ensure_embedding_model_load_started():
+    """Lazily start the background embedding-model load exactly once."""
+    global _emb_model_task
+    if _emb_model_state["started"]:
+        return
+    # No await between check and set, so this is race-free on the event loop.
+    _emb_model_state["started"] = True
+    _emb_model_task = asyncio.create_task(_embedding_model_load_worker())
+
+
 @app.get("/transcribe/models/status")
 async def models_status():
     """Check which ML models are available. Helps users diagnose setup issues.
@@ -4020,6 +4088,7 @@ async def models_status():
     (when known) so the UI can show the model fetch.
     """
     await _ensure_diarization_load_started()
+    await _ensure_embedding_model_load_started()
 
     state = _diar_model_state
     if state["status"] == "downloading":
