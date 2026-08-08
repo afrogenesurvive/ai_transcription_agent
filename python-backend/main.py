@@ -4452,13 +4452,13 @@ async def memory_ephemeral_table(table_name: str, limit: int = 100, offset: int 
 
     try:
         all_rows = ephemeral_memory.query_all(table_name, "", limit + offset)
-        total = len(all_rows)
         rows = all_rows[offset:offset + limit]
         return {
             "table": table_name,
             "columns": ephemeral_memory.table_columns(table_name),
             "rows": rows,
-            "total": total,
+            # Real total via COUNT(*) — len(all_rows) is capped at limit + offset
+            "total": ephemeral_memory.row_count(table_name),
             "limit": limit,
             "offset": offset,
         }

@@ -365,6 +365,7 @@ function DatabaseTab() {
   const [tableRows, setTableRows] = useState<any[]>([]);
   const [tableColumns, setTableColumns] = useState<string[]>([]);
   const [tableTotal, setTableTotal] = useState(0);
+  const [tableError, setTableError] = useState<string | null>(null);
   const [meetings, setMeetings] = useState<MeetingInfo[]>([]);
   const [semanticStats, setSemanticStats] = useState<SemanticStats | null>(null);
   const [semanticOverlap, setSemanticOverlap] = useState<SemanticOverlap | null>(null);
@@ -539,12 +540,25 @@ function DatabaseTab() {
   const handleSelectTable = useCallback(async (tableName: string) => {
     setSelectedTable(tableName);
     setExpandedRows(new Set()); // Clear expanded state when switching tables
+    setTableError(null);
     setLoading(true);
     const result = await callBridge("memory_ephemeral_table", { tableName, limit: 100, offset: 0 });
-    if (result) {
+    if (result?.error) {
+      // Backend/bridge returned an error (e.g. failed query) — surface it
+      // instead of silently showing an empty table.
+      setTableError(result.error);
+      setTableRows([]);
+      setTableColumns([]);
+      setTableTotal(0);
+    } else if (result) {
       setTableRows(result.rows || []);
       setTableColumns(result.columns || []);
       setTableTotal(result.total || 0);
+    } else {
+      setTableError("Bridge unreachable — cannot load table rows.");
+      setTableRows([]);
+      setTableColumns([]);
+      setTableTotal(0);
     }
     setLoading(false);
   }, []);
@@ -715,7 +729,12 @@ function DatabaseTab() {
             {/* Table content */}
             <div className="dev-panel-db-content" ref={contentRef}>
               {!selectedTable && <div className="dev-panel-empty">Select a table to view its rows.</div>}
-              {selectedTable && tableRows.length === 0 && <div className="dev-panel-empty">(empty table)</div>}
+              {selectedTable && tableError && (
+                <div className="dev-panel-empty" style={{ color: "var(--red)" }}>
+                  Error: {tableError}
+                </div>
+              )}
+              {selectedTable && !tableError && tableRows.length === 0 && <div className="dev-panel-empty">(empty table)</div>}
               {selectedTable && tableRows.length > 0 && (
                 <>
                   <table className="dev-panel-db-table">

@@ -874,6 +874,10 @@ class EphemeralMemory:
         table = table.lower()
         if table not in ("jobs", "attendees", "action_items", "contacts", "budgets", "decisions", "notes", "events"):
             return []
+        # Not every table has a `created_at` column (contacts → last_mentioned,
+        # events → queued_at for the SQLite-backed queue). Map each table to its
+        # closest timestamp column so ORDER BY never hits "no such column".
+        sort_col = {"contacts": "last_mentioned", "events": "queued_at"}.get(table, "created_at")
         conn = self._get_conn()
         conn.row_factory = sqlite3.Row
         if q and table == "jobs":
@@ -903,7 +907,7 @@ class EphemeralMemory:
             ).fetchall()
         elif q and table == "contacts":
             rows = conn.execute(
-                "SELECT * FROM contacts WHERE name LIKE ? OR email LIKE ? OR organization LIKE ? OR role LIKE ? ORDER BY created_at DESC LIMIT ?",
+                f"SELECT * FROM contacts WHERE name LIKE ? OR email LIKE ? OR organization LIKE ? OR role LIKE ? ORDER BY {sort_col} DESC LIMIT ?",
                 (f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%", limit),
             ).fetchall()
         elif q and table == "notes":
@@ -913,7 +917,7 @@ class EphemeralMemory:
             ).fetchall()
         else:
             rows = conn.execute(
-                f"SELECT * FROM {table} ORDER BY created_at DESC LIMIT ?", (limit,)
+                f"SELECT * FROM {table} ORDER BY {sort_col} DESC LIMIT ?", (limit,)
             ).fetchall()
         return [dict(r) for r in rows]
 
