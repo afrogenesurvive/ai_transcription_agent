@@ -48,7 +48,13 @@ jobs:
             --hidden-import "multipart" --hidden-import "python_multipart" --hidden-import "soundfile" --hidden-import "numpy" \
             --hidden-import "torch" --hidden-import "torchaudio" --hidden-import "pyannote.audio" \
             --hidden-import "pyannote.audio.pipelines" --hidden-import "pyannote.audio.pipelines.speaker_diarization" \
-            --hidden-import "chromadb" --hidden-import "sentence_transformers" --hidden-import "dotenv" \
+            # chromadb resolves its API impl (chromadb.api.rust.RustBindingsAPI) + telemetry via importlib
+            # string paths, and chromadb_rust_bindings is a native extension — collect ALL so save-context
+            # works in the frozen bundle (bare --hidden-import "chromadb" missed them →
+            # "No module named 'chromadb.api.rust'" on the packaged Windows app).
+            --collect-all "chromadb" \
+            --collect-all "chromadb_rust_bindings" \
+            --hidden-import "sentence_transformers" --hidden-import "dotenv" \
             --hidden-import "json" --hidden-import "threading" --hidden-import "warnings" --hidden-import "asyncio" \
             --hidden-import "os" --hidden-import "sys" --hidden-import "shutil" --hidden-import "glob" --hidden-import "uuid" \
             --hidden-import "datetime" --hidden-import "pathlib" --hidden-import "sqlite3" --hidden-import "hashlib" \
