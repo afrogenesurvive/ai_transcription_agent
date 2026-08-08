@@ -545,7 +545,7 @@ Choose your AI provider:
 
 **Keep Transcript Timestamps** — when enabled, timestamps are preserved in the refined transcript (default: on).
 
-**Pipeline Timeout** — maximum time (in minutes) the pipeline can run before timing out. Default: 15 minutes.
+**Pipeline/Polling Timeout** — maximum time (in minutes) the whole pipeline can run before timing out. This same value also sets the UI's job-status polling cap, so the app keeps checking until the backend would give up (it never reports "timed out" early). Default: 60 minutes.
 
 **Keep Models Warm** — when enabled, AI models stay loaded in memory between jobs for faster startup on subsequent runs.
 

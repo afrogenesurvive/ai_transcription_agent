@@ -161,7 +161,7 @@ ML_UPLOAD_BLOCKING_STATUSES = frozenset({
 # Maximum wall-clock time (seconds) for the entire ML pipeline before
 # it's considered hung and fails itself. Prevents silent MPS hangs when
 # multiple pipelines contend for GPU resources.
-# Editable from the Config UI as "Pipeline Timeout (minutes)".
+# Editable from the Config UI as "Pipeline/Polling Timeout (minutes)".
 PIPELINE_TIMEOUT_SECONDS = config.PIPELINE_TIMEOUT_SECONDS
 
 # ── Simplified step messages for the mini live log ──

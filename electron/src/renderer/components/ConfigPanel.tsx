@@ -100,7 +100,7 @@ const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secre
   { key: "OLLAMA_MODEL", label: "Ollama Model", required: false, secret: false, section: "LLM Provider" },
   { key: "OLLAMA_NUM_CTX", label: "Ollama Context Window", required: false, secret: false, section: "LLM Provider" },
   { key: "LLM_TEMPERATURE", label: "LLM Temperature (0.0–2.0)", required: false, secret: false, section: "LLM Provider" },
-  { key: "PIPELINE_TIMEOUT_MINUTES", label: "Pipeline Timeout (minutes)", required: false, secret: false, section: "Pipeline" },
+  { key: "PIPELINE_TIMEOUT_MINUTES", label: "Pipeline/Polling Timeout (minutes)", required: false, secret: false, section: "Pipeline" },
   { key: "HUGGING_FACE_TOKEN", label: "Hugging Face Token", required: false, secret: true, section: "LLM Provider" },
   { key: "GITHUB_TOKEN", label: "GitHub PAT (for private repo auto-updates)", required: false, secret: true, section: "Auto-Update" },
   { key: "EMBEDDING_PROVIDER", label: "Speaker Embedding Model", required: false, secret: false, section: "LLM Provider" },
@@ -260,7 +260,7 @@ function validateNumericConfig(values: ConfigValues): Record<string, string> {
   }
 
   requireNumber("LLM_TEMPERATURE", "LLM Temperature", 0, 2);
-  requireNumber("PIPELINE_TIMEOUT_MINUTES", "Pipeline Timeout (minutes)", 1);
+  requireNumber("PIPELINE_TIMEOUT_MINUTES", "Pipeline/Polling Timeout (minutes)", 1);
   requireNumber("DIARIZATION_MIN_SPEAKER_DURATION", "Min Speaker Duration", 0);
   requireNumber("DIARIZATION_MIN_SPEAKER_SEGMENTS", "Min Speaker Segments", 1);
   requireNumber("DIARIZATION_MERGING_GAP", "Merging Gap", 0);
@@ -1854,7 +1854,7 @@ The system provides existing memory context at the start of each pipeline run. U
                     <>
                       {/* Pipeline Timeout — number input */}
                       <div className="config-field">
-                        <label className="config-label">Pipeline Timeout (minutes)</label>
+                        <label className="config-label">Pipeline/Polling Timeout (minutes)</label>
                         <input
                           className="config-input config-input--number"
                           type="number"
