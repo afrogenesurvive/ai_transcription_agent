@@ -6,19 +6,22 @@ on:
   push:
     tags: ["v*"] # auto-trigger on version tags
 
+permissions:
+  contents: read
+
 jobs:
   build-win:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.11"
 
@@ -30,6 +33,15 @@ jobs:
           pip install -r requirements.txt
           pip install faster-whisper
           pip install pyinstaller
+
+      - name: Audit Python dependencies (pip-audit)
+        continue-on-error: true # informational first pass; tighten once clean
+        shell: bash
+        run: |
+          cd python-backend
+          source venv/Scripts/activate
+          pip install pip-audit
+          pip-audit
 
       - name: Build Python backend (Windows)
         shell: bash
@@ -78,10 +90,10 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist-resources/node-bin
-          curl -fsSL https://nodejs.org/dist/v20.18.0/node-v20.18.0-win-x64.zip -o node.zip
+          curl -fsSL https://nodejs.org/dist/v22.23.2/node-v22.23.2-win-x64.zip -o node.zip
           unzip -o node.zip
-          cp node-v20.18.0-win-x64/node.exe dist-resources/node-bin/node.exe
-          rm -rf node-v20.18.0-win-x64 node.zip
+          cp node-v22.23.2-win-x64/node.exe dist-resources/node-bin/node.exe
+          rm -rf node-v22.23.2-win-x64 node.zip
 
       - name: Bundle ffmpeg for Windows (avoids end-user download)
         shell: bash
@@ -108,8 +120,15 @@ jobs:
           npm run build
           npx electron-builder --win --publish never
 
+      - name: Audit npm production dependencies
+        continue-on-error: true # informational first pass; tighten once clean
+        run: |
+          cd electron && npm audit --omit=dev; cd ..
+          cd agent-runner && npm audit --omit=dev; cd ..
+          cd bridge-server && npm audit --omit=dev; cd ..
+
       - name: Upload installer artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: Transcription-Agent-Windows
           path: electron/dist/*.exe

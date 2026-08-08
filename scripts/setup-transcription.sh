@@ -69,8 +69,25 @@ echo ""
 
 cd "$ROOT/python-backend"
 
+# ── Pick a Python >= 3.10 (the security-pinned deps in requirements.txt and
+# the ML stack require it; the app is tested on 3.11). Bare `python3` may be
+# 3.9 on some systems (e.g. older macOS), which can no longer resolve them. ──
+PYTHON_BIN=""
+for cand in python3.13 python3.12 python3.11 python3.10 python3; do
+  if command -v "$cand" >/dev/null 2>&1 && "$cand" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
+    PYTHON_BIN="$cand"
+    break
+  fi
+done
+
+if [ -z "$PYTHON_BIN" ]; then
+  log "❌ Python >= 3.10 required (Python 3.11 recommended). Install it and re-run this script."
+  exit 1
+fi
+log "🐍 Using Python: $("$PYTHON_BIN" --version)"
+
 if [ ! -d "venv" ]; then
-    python3 -m venv venv
+    "$PYTHON_BIN" -m venv venv
     log "✅ venv created"
 else
     log "✅ venv already exists"
@@ -78,6 +95,13 @@ fi
 
 source venv/bin/activate
 log "🐍 Python: $(python3 --version)"
+
+# Reject a pre-existing venv built on Python < 3.10 (requirements.txt can no
+# longer resolve there). Rebuilding on 3.11 also applies the pip-audit fixes.
+if ! python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
+  log "❌ Existing venv is Python < 3.10. Delete python-backend/venv and re-run this script to rebuild it."
+  exit 1
+fi
 
 echo ""
 log "📦 Installing base Python packages (pip upgrade + requirements.txt)..."

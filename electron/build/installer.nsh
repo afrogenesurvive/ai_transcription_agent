@@ -55,7 +55,7 @@ Function welcomePage
     "This installer will set up Transcription Agent on your computer.$\r$\n$\r$\n\
      The application bundles everything it needs:$\r$\n\
      🐍  Python Backend — whisper ASR + speaker diarization$\r$\n\
-     ⚡  Node.js Runtime v20 LTS — bridge + agent runner$\r$\n\
+     ⚡  Node.js Runtime v22 LTS — bridge + agent runner$\r$\n\
      🌉  Bridge Server — REST API gateway$\r$\n\
      🤖  Agent Runner — LLM pipeline orchestrator$\r$\n$\r$\n\
      Installation size: approximately 400 MB."
@@ -103,7 +103,7 @@ Function instProgressPage
      $INSTDIR$\r$\n$\r$\n\
      The following components will be installed:$\r$\n\
      🐍  Python Backend — Whisper ASR + speaker diarization$\r$\n\
-     ⚡  Node.js Runtime v20 LTS$\r$\n\
+     ⚡  Node.js Runtime v22 LTS$\r$\n\
      🌉  Bridge Server — REST API gateway$\r$\n\
      🤖  Agent Runner — LLM pipeline orchestrator$\r$\n$\r$\n\
      Total size: approximately 400 MB."
@@ -149,9 +149,9 @@ FunctionEnd
 !macro NodeJsMessage
   DetailPrint ""
   DetailPrint "⚡  Node.js Runtime"
-  DetailPrint "    • Version 20 LTS"
+  DetailPrint "    • Version 22 LTS"
   DetailPrint "    • Used by: Bridge Server & Agent Runner"
-  DetailPrint "    • Size: ~50 MB"
+  DetailPrint "    • Size: ~80 MB"
 !macroend
 
 !macro BridgeServerMessage

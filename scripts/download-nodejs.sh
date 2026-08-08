@@ -8,7 +8,7 @@
 # Usage:
 #   ./scripts/download-nodejs.sh [version]
 #
-# Default version: v20.18.0 (LTS)
+# Default version: v22.23.2 (LTS)
 #
 # The output structure:
 #   dist-resources/node-bin/
@@ -18,7 +18,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="${1:-v20.18.0}"
+VERSION="${1:-v22.23.2}"
 OUTDIR="$ROOT/dist-resources/node-bin"
 
 OS="$(uname -s)"
