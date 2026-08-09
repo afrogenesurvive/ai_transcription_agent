@@ -16,6 +16,28 @@
 !include "LogicLib.nsh"
 !include "nsDialogs.nsh"
 
+; ── Override electron-builder's "app is running" check ──
+; electron-builder 26 (0.7.5+) treats ANY process whose executable path lives
+; under $INSTDIR as "the app running" (PowerShell Get-CimInstance Win32_Process,
+; Path StartsWith $INSTDIR). This app's bundled Python backend (main.exe) and
+; Node (node.exe) run from $INSTDIR\resources\..., so a leftover backend from a
+; previous run makes the installer show "Transcription Agent cannot be closed.
+; Please close it manually and click Retry to continue" even though the UI isn't
+; running (regression introduced with the electron-builder 25→26 upgrade).
+; The default kill step only targets "${APP_EXECUTABLE_FILENAME}" by image name,
+; so it misses the backend. Override with a kill-by-PID sweep that actually
+; closes every process running from the install directory.
+!macro customCheckAppRunning
+  ; Kill the UI if it's running.
+  nsExec::Exec `taskkill /IM "${APP_EXECUTABLE_FILENAME}" /T /F`
+  Pop $0
+  ; Kill any process running from the install dir (backend main.exe / node.exe)
+  ; by PID so the installer is never blocked by a leftover backend.
+  nsExec::Exec `"$PowerShellPath" -NoProfile -C "Get-CimInstance -ClassName Win32_Process | ? {$$_.Path -and $$_.Path.StartsWith('$INSTDIR', 'CurrentCultureIgnoreCase')} | % { Stop-Process -Id $$_.ProcessId -Force }"`
+  Pop $0
+  Sleep 300
+!macroend
+
 ; ── Branding ──
 
 BrandingText "Transcription Agent Installer"

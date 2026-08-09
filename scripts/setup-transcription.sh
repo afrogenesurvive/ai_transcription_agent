@@ -107,7 +107,7 @@ echo ""
 log "📦 Installing base Python packages (pip upgrade + requirements.txt)..."
 echo "   This may take a few minutes — downloading and compiling dependencies..."
 echo ""
-pip install --upgrade pip 2>&1 || true
+pip install --upgrade pip setuptools 2>&1 || true
 pip install -r requirements.txt 2>&1 || true
 echo ""
 log "✅ Base dependencies installed (or already up to date)"
