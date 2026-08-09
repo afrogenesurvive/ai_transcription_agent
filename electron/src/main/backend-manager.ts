@@ -629,7 +629,8 @@ export async function startBridgeServer(bridgePort = 5010, pythonPort = 5001): P
     persistChildPids();
   });
 
-  await waitForServer(`http://127.0.0.1:${bridgePort}/health`);
+  // 60s like the Python backend — Electron-as-node cold start under Wine/CrossOver is slow
+  await waitForServer(`http://127.0.0.1:${bridgePort}/health`, 60000);
   console.log(`[bridge] Bridge server is ready on :${bridgePort}`);
   persistChildPids();
 }

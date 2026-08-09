@@ -116,7 +116,7 @@ The system runs as **four independent services**:
 ### Prerequisites
 
 - **Python 3.10+**
-- **Node.js 22 LTS**
+- **Node.js 24 LTS**
 - **FFmpeg** (auto-installed if missing)
 - **Hugging Face token** (free) — required for the speaker diarization model
 

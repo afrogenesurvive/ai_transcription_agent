@@ -14,7 +14,7 @@
     "build": "tsc -b && vite build",
     "build:main": "tsc -p tsconfig.main.json",
     "start": "electron .",
-    "dist:prepare": "bash ../scripts/write-version.sh && bash ../scripts/download-nodejs.sh && bash ../scripts/build-python-backend.sh",
+    "dist:prepare": "bash ../scripts/write-version.sh && bash ../scripts/build-python-backend.sh",
     "dist:win": "npm run build && npm run dist:prepare && electron-builder --win",
     "dist:mac": "npm run build && npm run dist:prepare && electron-builder --mac",
     "dist:linux": "npm run build && npm run dist:prepare && electron-builder --linux",
@@ -39,13 +39,6 @@
       {
         "from": "../dist-resources/python-backend",
         "to": "python-backend",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "../dist-resources/node-bin",
-        "to": "node-bin",
         "filter": [
           "**/*"
         ]

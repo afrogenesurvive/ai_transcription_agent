@@ -34,6 +34,13 @@ if (process.platform === "win32") {
   app.commandLine.appendSwitch("disable-gpu-compositing");
   app.commandLine.appendSwitch("disable-gpu");
   app.commandLine.appendSwitch("in-process-gpu");
+  // Chromium 146 (Electron 43) no longer has a working D3D11Warp fallback under
+  // Wine/CrossOver ("No available renderers" → NOTREACHED → blank window). Forcing
+  // the ANGLE SwiftShader (pure software) GL backend restores painting; the old
+  // --disable-gpu --in-process-gpu combo alone is insufficient on Chromium 146.
+  // Verified working under CrossOver 2026-08-09.
+  app.commandLine.appendSwitch("use-angle", "swiftshader");
+  app.commandLine.appendSwitch("enable-unsafe-swiftshader");
 }
 
 // ── Disable the Chromium sandbox on win32 (CrossOver blank-window fix) ──
@@ -68,7 +75,17 @@ function ensureWinSwitchesOnCommandLine(): void {
   if (process.platform !== "win32") return;
   if (process.env.TRANS_AGENT_RELAUNCHED === "1") return;
 
-  const required = ["no-sandbox", "disable-gpu", "disable-gpu-compositing", "in-process-gpu"];
+  // Chromium 146 needs the SwiftShader (software) GL backend on Wine/CrossOver
+  // (verified working 2026-08-09); the old disable-gpu+in-process-gpu combo is not
+  // enough. Applied win32-wide — this app is a plain UI, software rendering is safe.
+  const required = [
+    "no-sandbox",
+    "disable-gpu",
+    "disable-gpu-compositing",
+    "in-process-gpu",
+    "use-angle=swiftshader",
+    "enable-unsafe-swiftshader",
+  ];
   if (process.env.ELECTRON_ENABLE_SANDBOX === "1") {
     const i = required.indexOf("no-sandbox");
     if (i >= 0) required.splice(i, 1);
@@ -278,7 +295,7 @@ function startChromiumLogTailer(logPath: string): void {
 }
 import { startAutoUpdater, stopAutoUpdater, registerAutoUpdateIpc, getUpdateState, checkAndUpdate } from "./auto-updater";
 import { uninstall } from "./cleanup";
-import { getBundledNodePath, nodeSpawnSpec } from "./node-resolver";
+import { nodeSpawnSpec } from "./node-resolver";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -2790,11 +2807,7 @@ ipcMain.handle("testing:bot:checkNode", async () => {
     return { available: true, path: `${process.execPath} (Electron embedded Node)` };
   }
 
-  // Dev: check bundled Node.js binary first, then system PATH
-  const bundled = getBundledNodePath();
-  if (bundled) {
-    return { available: true, path: bundled };
-  }
+  // Dev: system Node on PATH (no bundled node anymore)
   try {
     execSync("node --version", { stdio: "pipe" });
     return { available: true, path: "node" };
