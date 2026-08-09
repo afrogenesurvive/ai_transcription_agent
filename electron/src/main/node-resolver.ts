@@ -21,6 +21,7 @@ import { spawnSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import { app } from "electron";
+import { addLog } from "./logger";
 
 const IS_WIN = process.platform === "win32";
 const NODE_PROBE_TIMEOUT_MS = 5000;
@@ -91,4 +92,35 @@ export function resolveNodeBin(): string {
   // Last resort: return the first candidate so a startup failure is visible.
   cachedNodeBin = candidates[0];
   return cachedNodeBin;
+}
+
+/** Spawn spec for running a Node.js script (command + args + extra env). */
+export interface NodeSpawnSpec {
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+}
+
+/**
+ * Resolve how to run a Node.js script.
+ *
+ * PACKAGED: run it on Electron's OWN embedded Node via ELECTRON_RUN_AS_NODE.
+ * Electron provably runs under CrossOver/Wine (the app itself runs there),
+ * whereas a standalone bundled node.exe fails to launch under Wine with
+ * rc=768 — for EVERY version tested (20.18, 22.23, 24.19). Running the
+ * bridge/agent on Electron's embedded Node removes the node.exe dependency
+ * entirely, so no Wine-incompatible binary is ever spawned.
+ *
+ * DEV: use the system/dist-resources node via resolveNodeBin().
+ */
+export function nodeSpawnSpec(scriptPath: string): NodeSpawnSpec {
+  if (app.isPackaged) {
+    addLog("main", "info", `[node] Packaged: ${scriptPath} via Electron embedded Node (ELECTRON_RUN_AS_NODE)`);
+    return {
+      command: process.execPath,
+      args: [scriptPath],
+      env: { ELECTRON_RUN_AS_NODE: "1" },
+    };
+  }
+  return { command: resolveNodeBin(), args: [scriptPath], env: {} };
 }

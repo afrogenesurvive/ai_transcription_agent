@@ -15,7 +15,7 @@ import path from "path";
 import { app } from "electron";
 import { addLog, setCurrentJobId } from "./logger";
 import { getChildEnv } from "./config";
-import { resolveNodeBin } from "./node-resolver";
+import { nodeSpawnSpec } from "./node-resolver";
 
 /** Cross-platform synchronous sleep using execSync. Falls back gracefully on all platforms. */
 function syncSleep(seconds: number): void {
@@ -557,14 +557,15 @@ export async function startBridgeServer(bridgePort = 5010, pythonPort = 5001): P
   await killProcessOnPort(bridgePort);
 
   const bridgeDir = resourcePath("bridge-server");
-  const nodeBin = resolveNodeBin();
+  const nodeSpec = nodeSpawnSpec("index.js");
 
-  console.log(`[bridge] Starting bridge server at ${bridgeDir}`);
+  console.log(`[bridge] Starting bridge server at ${bridgeDir} using ${nodeSpec.command}`);
 
-  bridgeProcess = spawn(nodeBin, ["index.js"], {
+  bridgeProcess = spawn(nodeSpec.command, nodeSpec.args, {
     cwd: bridgeDir,
     env: {
       ...getChildEnv(),
+      ...nodeSpec.env,
       BRIDGE_PORT: String(bridgePort),
       PYTHON_API_URL: `http://127.0.0.1:${pythonPort}`,
       ELECTRON_LOGS_DIR: path.join(app.getPath("userData"), "logs"),
@@ -1255,14 +1256,15 @@ export async function ensureFfmpegAvailable(): Promise<string | null> {
 }
 export async function startAgentRunner(): Promise<void> {
   const agentDir = resourcePath("agent-runner");
-  const nodeBin = resolveNodeBin();
+  const nodeSpec = nodeSpawnSpec("index.js");
 
-  console.log(`[agent] Starting agent runner at ${agentDir}`);
+  console.log(`[agent] Starting agent runner at ${agentDir} using ${nodeSpec.command}`);
 
-  agentProcess = spawn(nodeBin, ["index.js"], {
+  agentProcess = spawn(nodeSpec.command, nodeSpec.args, {
     cwd: agentDir,
     env: {
       ...getChildEnv(),
+      ...nodeSpec.env,
       BRIDGE_URL: "http://127.0.0.1:5010",
       TRANSCRIPTION_STORAGE: path.join(app.getPath("userData"), "storage"),
       TRANSCRIPTION_QUEUE_DIR: path.join(app.getPath("userData"), "queue"),

@@ -278,7 +278,7 @@ function startChromiumLogTailer(logPath: string): void {
 }
 import { startAutoUpdater, stopAutoUpdater, registerAutoUpdateIpc, getUpdateState, checkAndUpdate } from "./auto-updater";
 import { uninstall } from "./cleanup";
-import { getBundledNodePath, resolveNodeBin } from "./node-resolver";
+import { getBundledNodePath, nodeSpawnSpec } from "./node-resolver";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -2706,18 +2706,19 @@ ipcMain.handle("testing:bot:run", async () => {
 
   addLog("main", "info", "[bot] Starting test bot script");
 
-  // Resolve node binary — bundled (with Wine fallback), else system PATH
-  let nodeBin = "node";
+  // Resolve node — packaged uses Electron's embedded Node (Wine-safe); dev uses system node
+  let nodeSpec = { command: "node", args: [scriptPath], env: {} as Record<string, string> };
   try {
-    nodeBin = resolveNodeBin();
+    nodeSpec = nodeSpawnSpec(scriptPath);
   } catch {}
 
   return new Promise<{ exitCode: number; output: string }>((resolve) => {
-    botProcess = spawn(nodeBin, [scriptPath], {
+    botProcess = spawn(nodeSpec.command, nodeSpec.args, {
       cwd,
       stdio: ["pipe", "pipe", "pipe"],
       env: {
         ...process.env,
+        ...nodeSpec.env,
         NODE_ENV: "development",
         TRANSCRIPTION_STORAGE: process.env.TRANSCRIPTION_STORAGE || path.join(app.getPath("userData"), "storage"),
       },
@@ -2784,13 +2785,16 @@ ipcMain.handle("testing:bot:stop", async () => {
 });
 
 ipcMain.handle("testing:bot:checkNode", async () => {
-  // 1. Check bundled Node.js binary first (packaged or dev)
+  // Packaged: Node runs via Electron's embedded runtime (ELECTRON_RUN_AS_NODE) — always available.
+  if (app.isPackaged) {
+    return { available: true, path: `${process.execPath} (Electron embedded Node)` };
+  }
+
+  // Dev: check bundled Node.js binary first, then system PATH
   const bundled = getBundledNodePath();
   if (bundled) {
     return { available: true, path: bundled };
   }
-
-  // 2. Fall back to system PATH
   try {
     execSync("node --version", { stdio: "pipe" });
     return { available: true, path: "node" };
