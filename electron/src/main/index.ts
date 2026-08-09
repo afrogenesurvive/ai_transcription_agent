@@ -278,6 +278,7 @@ function startChromiumLogTailer(logPath: string): void {
 }
 import { startAutoUpdater, stopAutoUpdater, registerAutoUpdateIpc, getUpdateState, checkAndUpdate } from "./auto-updater";
 import { uninstall } from "./cleanup";
+import { getBundledNodePath, resolveNodeBin } from "./node-resolver";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -2668,17 +2669,6 @@ function getBotScriptDir(): string {
   return path.join(app.getAppPath(), "..", "scripts");
 }
 
-/** Resolve the bundled Node.js binary path, or null if not found. */
-function getBundledNodePath(): string | null {
-  if (app.isPackaged) {
-    const bundled = path.join(process.resourcesPath, "node-bin", process.platform === "win32" ? "node.exe" : "node");
-    return fs.existsSync(bundled) ? bundled : null;
-  }
-  // Dev: check dist-resources/node-bin/
-  const devPath = path.join(app.getAppPath(), "..", "dist-resources", "node-bin", process.platform === "win32" ? "node.exe" : "node");
-  return fs.existsSync(devPath) ? devPath : null;
-}
-
 ipcMain.handle("testing:bot:read", async () => {
   const scriptPath = path.join(getBotScriptDir(), "test-bot.mjs");
   try {
@@ -2716,11 +2706,10 @@ ipcMain.handle("testing:bot:run", async () => {
 
   addLog("main", "info", "[bot] Starting test bot script");
 
-  // Resolve node binary — prefer the bundled one, fall back to PATH
+  // Resolve node binary — bundled (with Wine fallback), else system PATH
   let nodeBin = "node";
   try {
-    const bundledNode = getBundledNodePath();
-    if (bundledNode) nodeBin = bundledNode;
+    nodeBin = resolveNodeBin();
   } catch {}
 
   return new Promise<{ exitCode: number; output: string }>((resolve) => {

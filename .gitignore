@@ -38,6 +38,8 @@ dist/
 
 # CI-downloaded ffmpeg staged for installer bundling
 dist-resources/ffmpeg/
+# CI-downloaded Node.js binaries (node.exe + node20.exe) staged for installer bundling
+dist-resources/node-bin/
 
 # ── Transcription Agent Service (self-contained, gitignored) ──
 transcription-agent/

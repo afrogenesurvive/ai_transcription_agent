@@ -1000,7 +1000,7 @@ C:\Program Files\Transcription Agent\
 | `resources\python-backend\`         | PyInstaller-built Python backend        |
 | `resources\bridge-server\`          | Node.js bridge server                   |
 | `resources\agent-runner\`           | Node.js agent runner                    |
-| `resources\node-bin\`               | Bundled Node.js v22 LTS binary          |
+| `resources\node-bin\`               | Bundled Node.js v24 LTS + v20 Wine fallback |
 | `Uninstall Transcription Agent.exe` | NSIS uninstaller                        |
 
 ### User Data

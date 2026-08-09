@@ -15,6 +15,7 @@ import path from "path";
 import { app } from "electron";
 import { addLog, setCurrentJobId } from "./logger";
 import { getChildEnv } from "./config";
+import { resolveNodeBin } from "./node-resolver";
 
 /** Cross-platform synchronous sleep using execSync. Falls back gracefully on all platforms. */
 function syncSleep(seconds: number): void {
@@ -75,24 +76,6 @@ function extractSubSource(msg: string): string | undefined {
 
 /** Platform-aware Python binary name (dev fallback) */
 const PYTHON_BIN = IS_WIN ? "python" : "python3";
-
-/**
- * Resolve the Node.js binary path.
- *
- * In production (packaged), uses the bundled binary from extraResources.
- * In development, falls back to the system PATH.
- */
-function resolveNodeBin(): string {
-  if (isProd) {
-    const bundled = path.join(process.resourcesPath, "node-bin", IS_WIN ? "node.exe" : "node");
-    if (fs.existsSync(bundled)) {
-      console.log(`[backend] Using bundled Node.js: ${bundled}`);
-      return bundled;
-    }
-    console.log(`[backend] Bundled Node.js not found at ${bundled} — falling back to system PATH`);
-  }
-  return IS_WIN ? "node.exe" : "node";
-}
 
 /** Path to the child-PID file the Windows NSIS uninstaller reads so it can stop
  *  backend processes that outlived the Electron shell (crash, silent uninstall). */
