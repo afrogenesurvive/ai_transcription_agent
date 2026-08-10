@@ -98,6 +98,8 @@ from reconciliation import (
     _register_attendees_after_reconciliation, _dedup_attendees,
     _ensure_job_attendees_registered, _job_attendee_shortfall,
 )
+from pipeline_state import PipelineState
+from model_preload import router as model_preload_router
 
 uploader: AudioUploader = None
 vp_manager: VoiceprintManager = None
@@ -106,56 +108,12 @@ agent_bridge: AgentBridge = None
 semantic_memory: SemanticMemory = None
 ephemeral_memory: EphemeralMemory = None
 
-# ── Async pipeline management ──
-# Instead of threading.Thread, we use asyncio tasks with a semaphore to
-# limit concurrent ML pipeline runs. This allows clean integration with
-# FastAPI's event loop, proper cancellation, and in-memory job tracking.
-_pipeline_tasks: dict[str, asyncio.Task] = {}
-_pipeline_cancel: set[str] = set()
-_pipeline_semaphore = asyncio.Semaphore(config.MAX_CONCURRENT_PIPELINES)
-
-# In-memory active job tracking (replaces disk-scanning in /transcribe/active)
-# Keyed by job_id; values are {status, progress, title}
-_active_jobs: dict[str, dict] = {}
-
-# MPS OOM flag — set when an ML step hits an MPS out-of-memory error.
-# The pipeline reads this after each ML step and falls back to CPU for
-# subsequent steps to avoid cascading failures.
-_mps_oom_occurred: bool = False
-
-# Timestamp of the last pipeline completion — used to insert a cooldown
-# delay between sequential jobs so MPS fragmented memory can settle.
-_last_pipeline_end_time: float = 0.0
-
-# ── Diarization model status (non-blocking) ──
-# The pyannote pipeline is loaded ONCE in a background asyncio task so that
-# /transcribe/models/status never blocks the request — important on first run
-# where the model must be downloaded (can take minutes). The request handler
-# returns the current state instantly and the UI can show download progress.
-# status: "idle" | "downloading" | "loading" | "available" | "error"
-_diar_model_state: dict = {
-    "status": "idle",
-    "progress": None,      # float 0-100 when known, else None
-    "available": False,
-    "error": None,         # str | None
-    "traceback": None,     # str | None
-    "started": False,
-}
-_diar_model_task: asyncio.Task = None
-
-# ── Voiceprint embedding model status (non-blocking) ──
-# pyannote/embedding is loaded ONCE in a background asyncio task (mirrors the
-# diarization preload) so it is in memory before any labeling/clip request and
-# a fresh install downloads it at startup instead of blocking the event loop
-# mid-request. status: "idle" | "loading" | "available" | "error"
-_emb_model_state: dict = {
-    "status": "idle",
-    "available": False,
-    "error": None,
-    "traceback": None,
-    "started": False,
-}
-_emb_model_task: asyncio.Task = None
+# ── Pipeline state (consolidated Phase 1) ──
+# Holds the asyncio task registry, cancel set, active-job tracker, MPS OOM
+# flag, inter-job cooldown timestamp and the concurrency semaphore. Staying
+# code (pipeline runners + cancel/delete/clear routes) accesses it via
+# `state.*`; the two start methods call the runners through services.*.
+state = PipelineState()
 
 
 @asynccontextmanager
@@ -394,6 +352,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# /transcribe/models/status (model preload status) moved to model_preload.py (Phase 1)
+app.include_router(model_preload_router)
+
 
 # ── ML Pipeline ──
 
@@ -408,7 +369,7 @@ async def upload_audio(
     skip_steps: str = Form(""),
 ):
     # Reject new uploads while ML pipeline jobs or review-gated jobs exist
-    for info in _active_jobs.values():
+    for info in state._active_jobs.values():
         if info.get("status") in ML_UPLOAD_BLOCKING_STATUSES:
             raise HTTPException(409, "A transcription job is already running — wait for it to finish before starting a new one")
 
@@ -462,7 +423,7 @@ async def upload_audio(
     except Exception as e:
         print(f"[upload] Warning: could not persist job record: {e}")
 
-    _start_pipeline_async(job_id)
+    state.start_pipeline_async(job_id)
     return {"job_id": job_id, "status": "uploaded"}
 
 
@@ -518,7 +479,7 @@ async def upload_audio_by_path(req: UploadByPathRequest):
     POSIX (macOS/Linux) and Windows paths via os.path.
     """
     # Reject new uploads while ML pipeline jobs or review-gated jobs exist
-    for info in _active_jobs.values():
+    for info in state._active_jobs.values():
         if info.get("status") in ML_UPLOAD_BLOCKING_STATUSES:
             raise HTTPException(409, "A transcription job is already running — wait for it to finish before starting a new one")
 
@@ -571,7 +532,7 @@ async def upload_audio_by_path(req: UploadByPathRequest):
     except Exception as e:
         print(f"[upload_by_path] Warning: could not persist job record: {e}")
 
-    _start_pipeline_async(job_id)
+    state.start_pipeline_async(job_id)
     return {"job_id": job_id, "status": "uploaded", "file_path": file_path}
 
 
@@ -591,7 +552,7 @@ async def add_step_message(job_id: str, body: dict = Body(...)):
     message = body.get("message", "")
     if not message:
         raise HTTPException(400, "message is required")
-    _add_step_message(job_id, message)
+    state.add_step_message(job_id, message)
     return {"ok": True}
 
 
@@ -612,7 +573,7 @@ async def get_active_jobs():
             "progress": info.get("progress", 0.0),
             "title": info.get("title", "Untitled"),
         }
-        for job_id, info in _active_jobs.items()
+        for job_id, info in state._active_jobs.items()
         if info.get("status") in ML_UPLOAD_BLOCKING_STATUSES
     ]
     active.sort(key=lambda j: j.get("progress", 0), reverse=True)
@@ -2462,7 +2423,7 @@ async def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: li
 
         metadata = uploader.get_metadata(job_id)
         skip = metadata.get("skip_steps")
-        _update_active(job_id, "ready_for_agent", 0.95)
+        state.update_active(job_id, "ready_for_agent", 0.95)
 
         # Build reconciliation from user labels + saved pre-labeling state
         # At this point all speakers should be known (user labeled them all)
@@ -2656,7 +2617,7 @@ async def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: li
         if config.GATE_RAW_REVIEW_ENABLED:
             uploader.update_status(job_id, {"status": "pending_raw_review", "progress": 0.95})
             print(f"[label_and_resume] ⏸️  Gate 1 active — pausing for raw transcript review after labeling")
-            _update_active(job_id, "pending_raw_review", 0.95)
+            state.update_active(job_id, "pending_raw_review", 0.95)
             return {"job_id": job_id, "status": "pending_raw_review", "applied_labels": len(label_map)}
 
         agent_bridge.enqueue_ready(
@@ -2669,7 +2630,7 @@ async def _inner_label_and_resume(job_id: str, labels: list, overwrite_names: li
         return result
     else:
         # Pre-ASR (diarization only) — run full resumed pipeline (ASR → alignment → agent)
-        _start_resumed_pipeline(job_id, label_map, excluded_non_speaking)
+        state.start_resumed_pipeline(job_id, label_map, excluded_non_speaking)
         result = {"job_id": job_id, "status": "resuming", "applied_labels": len(label_map)}
         if drift_entries:
             result["voice_match_conflicts"] = drift_entries
@@ -2755,7 +2716,7 @@ async def approve_gate1(job_id: str, body: dict = Body(...)):
         elif action == "reject_retry":
             uploader.save_edit_action(job_id, "gate1_reject_retry", {})
             uploader.update_status(job_id, {"status": "reprocessing", "progress": 0.0})
-            _start_pipeline_async(job_id)
+            state.start_pipeline_async(job_id)
             print(f"[api]   🔄 Gate 1: rejected and retrying pipeline")
             print(f"\n{'═' * 40}")
             print(f"  🔄 GATE 1 REJECTED — Pipeline retrying (job={job_id[:8]})")
@@ -2930,24 +2891,16 @@ async def approve_gate2(job_id: str, body: dict = Body(...)):
         raise HTTPException(500, f"Gate 2 approval failed: {e}")
 
 
-def _start_resumed_pipeline(job_id: str, label_map: dict, excluded_non_speaking: list = None):
-    """Launch the resumed pipeline in a background asyncio task."""
-    task = asyncio.create_task(
-        _run_resumed_pipeline_async(job_id, label_map, excluded_non_speaking)
-    )
-    _pipeline_tasks[job_id] = task
-
-
 async def _run_resumed_pipeline_async(job_id: str, label_map: dict, excluded_non_speaking: list = None):
     """Async wrapper for the resumed pipeline (diarization → ASR → alignment)."""
-    async with _pipeline_semaphore:
+    async with state._pipeline_semaphore:
         print(f"\n{'='*60}")
         print(f"   ▶️  [PIPELINE] Resuming pipeline for job {job_id} (after labeling)")
         print(f"{'='*60}")
-        _active_jobs[job_id] = {"status": "resuming", "progress": 0.35, "title": "..."}
+        state._active_jobs[job_id] = {"status": "resuming", "progress": 0.35, "title": "..."}
         try:
             metadata = uploader.get_metadata(job_id)
-            _active_jobs[job_id]["title"] = metadata.get("title", "Untitled")
+            state._active_jobs[job_id]["title"] = metadata.get("title", "Untitled")
         except Exception:
             pass
         try:
@@ -2958,14 +2911,14 @@ async def _run_resumed_pipeline_async(job_id: str, label_map: dict, excluded_non
             print(f"   ✅ [PIPELINE] Resumed pipeline complete for job {job_id}")
             print(f"{'='*60}\n")
         except PipelineCancelled:
-            _pipeline_cancel.add(job_id)
+            state._pipeline_cancel.add(job_id)
             print(f"\n   🛑 [pipeline] Job {job_id} cancelled by user.")
-            _active_jobs.pop(job_id, None)
+            state._active_jobs.pop(job_id, None)
             # Swallow: the finally block cleans up tracking.
         except asyncio.CancelledError:
-            _pipeline_cancel.add(job_id)
+            state._pipeline_cancel.add(job_id)
             print(f"\n   🛑 [pipeline] Job {job_id} task cancelled.")
-            _active_jobs.pop(job_id, None)
+            state._active_jobs.pop(job_id, None)
             raise
         except Exception as e:
             print(f"\n   ❌ [pipeline] ERROR in resumed job {job_id}: {e}")
@@ -2974,9 +2927,9 @@ async def _run_resumed_pipeline_async(job_id: str, label_map: dict, excluded_non
             uploader.update_status(job_id, {"status": "failed", "error": str(e)})
             agent_bridge.enqueue_failed(job_id, str(e), {})
         finally:
-            _pipeline_tasks.pop(job_id, None)
-            _pipeline_cancel.discard(job_id)
-            _active_jobs.pop(job_id, None)
+            state._pipeline_tasks.pop(job_id, None)
+            state._pipeline_cancel.discard(job_id)
+            state._active_jobs.pop(job_id, None)
             _cleanup_pipeline_resources()
 
 
@@ -2991,7 +2944,7 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict, excluded_non_speaki
     _pipeline_start = time.time()
     jlog = _setup_job_logger(job_id)
     try:
-        _update_active(job_id, "resuming", 0.35)
+        state.update_active(job_id, "resuming", 0.35)
         global engine
 
         # Reuse warm engine if available (same logic as _run_pipeline_sync)
@@ -3068,18 +3021,18 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict, excluded_non_speaki
 
         # ── Step 3: ASR Transcription ──
         jlog.log(f"\n   🎤 [PIPELINE] Step 3/5: ASR transcription (Whisper)...")
-        if _check_cancelled(job_id): return
-        _update_active(job_id, "processing_transcription", 0.5)
-        _check_pipeline_timeout(job_id, _pipeline_start, jlog)
+        if state.check_cancelled(job_id): return
+        state.update_active(job_id, "processing_transcription", 0.5)
+        state.check_pipeline_timeout(job_id, _pipeline_start, jlog)
         t_asr = time.time()
-        transcription = engine.run_transcription(audio_path, cancel_check=lambda: job_id in _pipeline_cancel)
+        transcription = engine.run_transcription(audio_path, cancel_check=lambda: job_id in state._pipeline_cancel)
         asr_elapsed = time.time() - t_asr
 
         # ── Step 4: Alignment ──
         jlog.log(f"\n   🔗 [PIPELINE] Step 4/5: Aligning diarization with transcript...")
-        if _check_cancelled(job_id): return
-        _update_active(job_id, "aligning", 0.7)
-        _check_pipeline_timeout(job_id, _pipeline_start, jlog)
+        if state.check_cancelled(job_id): return
+        state.update_active(job_id, "aligning", 0.7)
+        state.check_pipeline_timeout(job_id, _pipeline_start, jlog)
         t_align = time.time()
         aligned = engine.align_transcript(transcription, diarization)
         align_elapsed = time.time() - t_align
@@ -3114,7 +3067,7 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict, excluded_non_speaki
 
         uploader.save_transcript(job_id, aligned)
         uploader.save_transcript_text(job_id, aligned)
-        _update_active(job_id, "transcribed", 0.85)
+        state.update_active(job_id, "transcribed", 0.85)
 
         # Timing summary
         jlog.log(f"\n{'='*50}")
@@ -3126,8 +3079,8 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict, excluded_non_speaki
 
         # ── Step 5: Enqueue for agent or pause for labeling ──
         jlog.log(f"\n   📨 [PIPELINE] Step 5/5: Enqueueing for agent runner...")
-        if _check_cancelled(job_id): return
-        _check_pipeline_timeout(job_id, _pipeline_start, jlog)
+        if state.check_cancelled(job_id): return
+        state.check_pipeline_timeout(job_id, _pipeline_start, jlog)
         if unknown:
             for u in unknown:
                 for seg in aligned:
@@ -3172,7 +3125,7 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict, excluded_non_speaki
                             "similarity": round(score, 3),
                         }]
 
-            _update_active(job_id, "paused_for_labeling", 0.9,
+            state.update_active(job_id, "paused_for_labeling", 0.9,
                           labeling_phase="post_asr", speakers=speaker_info,
                           unknown_speakers=unknown,
                           voiceprint_matches_by_speaker=voiceprint_matches_by_speaker,
@@ -3192,7 +3145,7 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict, excluded_non_speaki
         else:
             # ── Gate 1: Raw Transcript Review ──
             if config.GATE_RAW_REVIEW_ENABLED:
-                _update_active(job_id, "pending_raw_review", 0.95)
+                state.update_active(job_id, "pending_raw_review", 0.95)
                 print(f"\n{'═' * 40}")
                 print(f"  ⏸️  GATE 1 TRIGGERED — Raw Transcript Review (job={job_id[:8]})")
                 print(f"{'═' * 40}")
@@ -3212,7 +3165,7 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict, excluded_non_speaki
                 )
                 return  # Exit pipeline — resume via POST /transcribe/approve_gate1/{job_id}
 
-            _update_active(job_id, "ready_for_agent", 0.95)
+            state.update_active(job_id, "ready_for_agent", 0.95)
 
             # ── Persist reconciled attendee list back to metadata.json ──
             _update_metadata_with_reconciliation(job_id, metadata, reconciliation, jlog,
@@ -3255,7 +3208,7 @@ def _run_pipeline_resumed_sync(job_id: str, label_map: dict, excluded_non_speaki
             print(f"[pipeline] Job {job_id} was deleted — skipping failure status write")
     finally:
         jlog.close()
-        _pipeline_cancel.discard(job_id)
+        state._pipeline_cancel.discard(job_id)
 
 
 # ── Job record upsert (called from agent-runner for touchpoints C & D) ──
@@ -3357,13 +3310,13 @@ async def cancel_job(job_id: str):
     s = uploader.get_status(job_id)
     if s["status"] == "not_found":
         raise HTTPException(404, "Job not found")
-    _pipeline_cancel.add(job_id)
+    state._pipeline_cancel.add(job_id)
     # Cancel the asyncio task if it's still running
-    task = _pipeline_tasks.pop(job_id, None)
+    task = state._pipeline_tasks.pop(job_id, None)
     if task and not task.done():
         task.cancel()
     uploader.update_status(job_id, {"status": "failed", "error": "Cancelled by user", "progress": 0.0})
-    _active_jobs.pop(job_id, None)
+    state._active_jobs.pop(job_id, None)
     # Persist terminal state
     try:
         ephemeral_memory.upsert_job(job_id, {"result": "cancelled", "completed_at": datetime.utcnow().isoformat()})
@@ -3380,7 +3333,7 @@ async def fail_job(job_id: str, error: str = "Processing failed"):
     if s["status"] == "not_found":
         raise HTTPException(404, "Job not found")
     uploader.update_status(job_id, {"status": "failed", "error": error, "progress": 0.0})
-    _active_jobs.pop(job_id, None)
+    state._active_jobs.pop(job_id, None)
     # Persist terminal state
     try:
         ephemeral_memory.upsert_job(job_id, {"result": "failed", "error_message": error, "completed_at": datetime.utcnow().isoformat()})
@@ -3421,14 +3374,14 @@ async def complete_job(job_id: str):
             except Exception:
                 pass
     else:
-        _active_jobs.pop(job_id, None)
+        state._active_jobs.pop(job_id, None)
         uploader.update_status(job_id, {"status": "complete_with_warning", "progress": 1.0})
         print(f"[api] POST /transcribe/complete/{job_id} → preserved complete_with_warning "
               f"(attendee registration pending)")
         return {"job_id": job_id, "status": "complete_with_warning"}
 
     uploader.update_status(job_id, {"status": "complete", "progress": 1.0})
-    _active_jobs.pop(job_id, None)
+    state._active_jobs.pop(job_id, None)
 
     # Gather final content metrics from disk before persisting
     try:
@@ -3561,11 +3514,11 @@ async def delete_job(job_id: str):
         raise HTTPException(400, "Not a valid job directory")
 
     # Cancel if running
-    _pipeline_cancel.add(job_id)
-    task = _pipeline_tasks.pop(job_id, None)
+    state._pipeline_cancel.add(job_id)
+    task = state._pipeline_tasks.pop(job_id, None)
     if task and not task.done():
         task.cancel()
-    _active_jobs.pop(job_id, None)
+    state._active_jobs.pop(job_id, None)
 
     try:
         shutil.rmtree(job_dir)
@@ -3687,10 +3640,10 @@ async def clear_all_jobs():
     # pipeline thread resurrect a deleted job (write status.json, re-enter
     # _active_jobs) — the exact bug that made jobs look "still running" after
     # Clear All Data.
-    for _jid in list(_active_jobs.keys()):
-        _pipeline_cancel.add(_jid)
-    _pipeline_tasks.clear()
-    _active_jobs.clear()
+    for _jid in list(state._active_jobs.keys()):
+        state._pipeline_cancel.add(_jid)
+    state._pipeline_tasks.clear()
+    state._active_jobs.clear()
 
     # Also clear from uploader's status cache
     if uploader and hasattr(uploader, '_status_cache'):
@@ -3789,216 +3742,6 @@ async def clear_ephemeral_data():
         msg += f" | Errors: {', '.join(errors)}"
 
     return {"deleted": deleted_files, "errors": errors, "message": msg}
-
-
-def _load_diarization_model_sync():
-    """Synchronous pyannote pipeline load (runs inside a worker thread)."""
-    result: dict = {"available": False, "error": None, "traceback": None}
-    _diar_diag_env()
-    try:
-        from pyannote.audio import Pipeline
-        import torch as _torch
-        hf_token = config.HUGGING_FACE_TOKEN
-        if not hf_token:
-            result["error"] = (
-                "No HUGGING_FACE_TOKEN set. "
-                f"Get a token at https://hf.co/settings/tokens and accept the model terms at "
-                f"https://hf.co/{config.DIARIZATION_MODEL}"
-            )
-            return result
-
-        # PyTorch 2.6+ needs relaxed loading for pyannote pickle models.
-        _orig_load = _torch.load
-        try:
-            # Force weights_only=False — lightning_fabric (used by pyannote)
-            # explicitly passes weights_only=True, so setdefault is not enough.
-            def _permissive_load(f, *a, **kw):
-                kw["weights_only"] = False
-                return _orig_load(f, *a, **kw)
-            _torch.load = _permissive_load
-
-            # Try online first so pyannote can check for model updates. On ANY
-            # failure (network, TLS, transient, auth) retry from the local cache
-            # so an already-downloaded model still loads offline. Note: pyannote's
-            # from_pretrained does NOT accept local_files_only, so we force the
-            # whole process offline (HF_HUB_OFFLINE) instead of passing it.
-            _diar_diag("attempt", "online")
-            try:
-                pipeline = Pipeline.from_pretrained(
-                    config.DIARIZATION_MODEL, use_auth_token=hf_token,
-                )
-            except Exception as _hub_err:
-                import traceback as _tb
-                _diar_diag("online_failed", str(_hub_err)[:500], _tb.format_exc())
-                _diar_diag("download_progress", str(patches.get_dl_progress()))
-                patches.force_offline()
-                _diar_diag("attempt", "offline (fallback to cache)")
-                try:
-                    pipeline = Pipeline.from_pretrained(
-                        config.DIARIZATION_MODEL, use_auth_token=hf_token,
-                    )
-                except Exception:
-                    _diar_diag("offline_failed", str(_hub_err)[:500])
-                    # No usable local cache — surface the ORIGINAL online error.
-                    raise _hub_err
-                _diar_diag("result", "loaded from local cache (online unreachable)")
-            if pipeline is None:
-                result["error"] = (
-                    f"Model '{config.DIARIZATION_MODEL}' returned None — "
-                    f"it may be gated. Accept terms at "
-                    f"https://hf.co/{config.DIARIZATION_MODEL}"
-                )
-            else:
-                pipeline.to(_torch.device("cpu"))
-                result["available"] = True
-                del pipeline
-                _diar_diag("result", "available")
-        finally:
-            _torch.load = _orig_load
-    except Exception as e:
-        import traceback
-        result["traceback"] = traceback.format_exc()
-        msg = str(e)
-        if "gated" in msg.lower() or "access" in msg.lower() or "token" in msg.lower():
-            result["error"] = (
-                "Model is gated — accept terms at "
-                f"https://hf.co/{config.DIARIZATION_MODEL} and set HUGGING_FACE_TOKEN"
-            )
-        elif "module" in msg.lower() and "torchaudio" in msg.lower():
-            result["error"] = (
-                f"PyTorch/torchaudio compatibility issue: {msg[:200]}. "
-                f"Try reinstalling pyannote.audio: pip install --upgrade pyannote.audio"
-            )
-        else:
-            result["error"] = f"Model failed to load: {msg[:300]}"
-        _diar_diag("error", result["error"], result["traceback"])
-    return result
-
-
-async def _diarization_load_worker():
-    """Background load of the pyannote diarization model (runs once).
-
-    Runs the blocking pipeline load in a thread so the status endpoint never
-    blocks. While running, ``_diar_model_state["status"]`` is "downloading";
-    the endpoint refines that to "loading" when no download is actually active
-    (cached model) and reports ``progress`` from the tqdm hook on first run.
-    """
-    if not config.HUGGING_FACE_TOKEN:
-        _diar_model_state["status"] = "error"
-        _diar_model_state["error"] = (
-            "No HUGGING_FACE_TOKEN set. "
-            f"Get a token at https://hf.co/settings/tokens and accept the model terms at "
-            f"https://hf.co/{config.DIARIZATION_MODEL}"
-        )
-        return
-    _diar_model_state["status"] = "downloading"
-    _diar_model_state["progress"] = None
-    try:
-        outcome = await asyncio.to_thread(_load_diarization_model_sync)
-    except Exception as e:  # pragma: no cover - defensive
-        import traceback
-        _diar_model_state["status"] = "error"
-        _diar_model_state["error"] = f"Model failed to load: {e}"
-        _diar_model_state["traceback"] = traceback.format_exc()
-        return
-    _diar_model_state["available"] = bool(outcome.get("available"))
-    _diar_model_state["error"] = outcome.get("error")
-    _diar_model_state["traceback"] = outcome.get("traceback")
-    _diar_model_state["status"] = "available" if _diar_model_state["available"] else "error"
-    _diar_model_state["progress"] = None
-
-
-async def _ensure_diarization_load_started():
-    """Lazily start the background diarization load exactly once."""
-    global _diar_model_task
-    if _diar_model_state["started"]:
-        return
-    # No await between check and set, so this is race-free on the event loop.
-    _diar_model_state["started"] = True
-    _diar_model_task = asyncio.create_task(_diarization_load_worker())
-
-
-def _load_embedding_model_sync():
-    """Synchronous voiceprint embedding-model load (runs in a worker thread)."""
-    if not config.HUGGING_FACE_TOKEN:
-        return {
-            "available": False,
-            "error": (
-                "No HUGGING_FACE_TOKEN set. "
-                "Get a token at https://hf.co/settings/tokens and accept the model terms at "
-                "https://hf.co/pyannote/embedding"
-            ),
-            "traceback": None,
-        }
-    return vp_manager.preload_model()
-
-
-async def _embedding_model_load_worker():
-    """Background load of the voiceprint embedding model (runs once)."""
-    _emb_model_state["status"] = "loading"
-    try:
-        outcome = await asyncio.to_thread(_load_embedding_model_sync)
-    except Exception as e:  # pragma: no cover - defensive
-        import traceback
-        _emb_model_state["status"] = "error"
-        _emb_model_state["error"] = f"Model failed to load: {e}"
-        _emb_model_state["traceback"] = traceback.format_exc()
-        return
-    _emb_model_state["available"] = bool(outcome.get("available"))
-    _emb_model_state["error"] = outcome.get("error")
-    _emb_model_state["traceback"] = outcome.get("traceback")
-    _emb_model_state["status"] = "available" if _emb_model_state["available"] else "error"
-
-
-async def _ensure_embedding_model_load_started():
-    """Lazily start the background embedding-model load exactly once."""
-    global _emb_model_task
-    if _emb_model_state["started"]:
-        return
-    # No await between check and set, so this is race-free on the event loop.
-    _emb_model_state["started"] = True
-    _emb_model_task = asyncio.create_task(_embedding_model_load_worker())
-
-
-@app.get("/transcribe/models/status")
-async def models_status():
-    """Check which ML models are available. Helps users diagnose setup issues.
-
-    Non-blocking: the pyannote pipeline is loaded once in a background task, so
-    this endpoint returns instantly. On first run (fresh install / empty cache)
-    it reports ``diarization_status: "downloading"`` with a progress percentage
-    (when known) so the UI can show the model fetch.
-    """
-    await _ensure_diarization_load_started()
-    await _ensure_embedding_model_load_started()
-
-    state = _diar_model_state
-    if state["status"] == "downloading":
-        pct = _current_dl_progress()
-        if pct is not None:
-            status, progress = "downloading", pct
-        else:
-            status, progress = "loading", None
-    else:
-        status, progress = state["status"], None
-
-    result = {
-        "device": detect_device(),
-        "whisper_model": config.WHISPER_MODEL_SIZE,
-        "diarization_model": config.DIARIZATION_MODEL,
-        "diarization_available": state["available"],
-        "diarization_error": state["error"],
-        "diarization_traceback": state["traceback"],
-        "hf_token_configured": bool(config.HUGGING_FACE_TOKEN),
-        "diarization_status": status,
-        "diarization_progress": progress,
-    }
-
-    status_icon = "✅" if state["available"] else "❌"
-    print(f"[api] GET /transcribe/models/status → diarization={status_icon} status={status} device={result['device']}")
-    if state["error"]:
-        print(f"[api]   diarization_error: {state['error'][:200]}")
-    return result
 
 
 @app.get("/health")
@@ -4537,55 +4280,6 @@ def _setup_job_logger(job_id: str):
         return _NullLogger()
 
 
-# ── Pipeline management ──
-
-def _start_pipeline_async(job_id: str):
-    """Fire-and-forget: create an asyncio task for the pipeline, tracked
-    so it can be cancelled and monitored via the /transcribe/active endpoint."""
-    task = asyncio.create_task(_run_pipeline_async(job_id))
-    _pipeline_tasks[job_id] = task
-
-
-def _check_cancelled(job_id: str) -> bool:
-    """Check if this job has been cancelled. Returns True if cancelled."""
-    if job_id in _pipeline_cancel:
-        print(f"\n   🛑 [pipeline] Job {job_id} cancelled — stopping.")
-        _pipeline_cancel.discard(job_id)
-        _pipeline_tasks.pop(job_id, None)
-        _active_jobs.pop(job_id, None)
-        return True
-    return False
-
-
-def _job_dir_exists(job_id: str) -> bool:
-    """True if the job's storage directory still exists (i.e. wasn't deleted).
-
-    Guards against an orphaned pipeline thread resurrecting a job the user
-    deleted from History: upload._write_status() does ``os.makedirs(exist_ok=True)``,
-    so a late failure write would recreate the deleted job folder + status.json.
-    """
-    try:
-        return os.path.isdir(os.path.join(config.STORAGE_PATH, job_id))
-    except Exception:
-        return False
-
-
-def _check_pipeline_timeout(job_id: str, start_time: float, jlog=None) -> bool:
-    """Check if the pipeline has exceeded the wall-clock timeout.
-
-    Returns True if timed out (caller should return/fail). Raises
-    TimeoutError so the outer try/except catches it and sets failed status.
-    """
-    elapsed = time.time() - start_time
-    if elapsed > PIPELINE_TIMEOUT_SECONDS:
-        msg = (f"Pipeline exceeded {PIPELINE_TIMEOUT_SECONDS // 60}-minute timeout "
-               f"(elapsed={elapsed:.0f}s)")
-        if jlog:
-            jlog.log(f"\n   ⏰ [pipeline] {msg}")
-        raise TimeoutError(msg)
-    return False
-
-
 async def _run_pipeline_async(job_id: str):
     """Async wrapper around the synchronous ML pipeline.
 
@@ -4594,24 +4288,23 @@ async def _run_pipeline_async(job_id: str):
     An ``asyncio.Semaphore`` limits how many pipelines run simultaneously.
 
     The synchronous ``_run_pipeline`` function runs in a thread. Cancellation
-    is cooperative — the thread checks ``_pipeline_cancel`` between steps.
+    is cooperative — the thread checks ``state._pipeline_cancel`` between steps.
     """
-    async with _pipeline_semaphore:
+    async with state._pipeline_semaphore:
         # Reset the MPS OOM flag before each new pipeline run
-        global _mps_oom_occurred
-        _mps_oom_occurred = False
+        state._mps_oom_occurred = False
 
         # Register job immediately so the frontend sees "initializing"
         # during the cooldown period (instead of stale "uploaded" status).
         print(f"\n{'='*60}")
         print(f"   🎬 [PIPELINE] Starting pipeline for job {job_id}")
         print(f"{'='*60}")
-        _active_jobs[job_id] = {"status": "initializing", "progress": 0.0, "title": "..."}
+        state._active_jobs[job_id] = {"status": "initializing", "progress": 0.0, "title": "..."}
         try:
             # Fetch metadata upfront (lightweight, no ML)
             metadata = uploader.get_metadata(job_id)
             title = metadata.get("title", "Untitled")
-            _active_jobs[job_id]["title"] = title
+            state._active_jobs[job_id]["title"] = title
             print(f"[pipeline] JOB-STARTED job_id={job_id} title='{title}'")
         except Exception:
             print(f"[pipeline] JOB-STARTED job_id={job_id} title='Untitled'")
@@ -4620,9 +4313,8 @@ async def _run_pipeline_async(job_id: str):
             uploader.update_status(job_id, {"status": "initializing", "progress": 0.0})
 
         # ── Inter-job cooldown (after registration, so frontend shows progress) ──
-        global _last_pipeline_end_time
-        if not config.KEEP_MODELS_WARM and _last_pipeline_end_time > 0:
-            elapsed_since_last = time.time() - _last_pipeline_end_time
+        if not config.KEEP_MODELS_WARM and state._last_pipeline_end_time > 0:
+            elapsed_since_last = time.time() - state._last_pipeline_end_time
             if elapsed_since_last < _MIN_INTERJOB_COOLDOWN_SEC:
                 wait = _MIN_INTERJOB_COOLDOWN_SEC - elapsed_since_last
                 print(f"[pipeline] ⏳ Inter-job cooldown: waiting {wait:.1f}s for MPS memory to settle...")
@@ -4634,15 +4326,15 @@ async def _run_pipeline_async(job_id: str):
             print(f"   ✅ [PIPELINE] Pipeline complete for job {job_id}")
             print(f"{'='*60}\n")
         except PipelineCancelled:
-            _pipeline_cancel.add(job_id)
+            state._pipeline_cancel.add(job_id)
             print(f"\n   🛑 [pipeline] Job {job_id} cancelled by user.")
-            _active_jobs.pop(job_id, None)
+            state._active_jobs.pop(job_id, None)
             # Swallow: the finally block cleans up tracking; do not mark failed
             # or print "Pipeline complete".
         except asyncio.CancelledError:
-            _pipeline_cancel.add(job_id)
+            state._pipeline_cancel.add(job_id)
             print(f"\n   🛑 [pipeline] Job {job_id} task cancelled.")
-            _active_jobs.pop(job_id, None)
+            state._active_jobs.pop(job_id, None)
             raise
         except Exception as e:
             print(f"\n   ❌ [pipeline] ERROR in job {job_id}: {e}")
@@ -4668,12 +4360,12 @@ async def _run_pipeline_async(job_id: str):
                     uploader.update_status(job_id, {"status": "failed", "error": str(e)})
                     agent_bridge.enqueue_failed(job_id, str(e), {})
         finally:
-            _pipeline_tasks.pop(job_id, None)
-            _pipeline_cancel.discard(job_id)
-            _active_jobs.pop(job_id, None)
-            _last_pipeline_end_time = time.time()
+            state._pipeline_tasks.pop(job_id, None)
+            state._pipeline_cancel.discard(job_id)
+            state._active_jobs.pop(job_id, None)
+            state._last_pipeline_end_time = time.time()
             _cleanup_pipeline_resources()
-            _mps_oom_occurred = False  # defensive reset
+            state._mps_oom_occurred = False  # defensive reset
 
 
 def _cleanup_pipeline_resources():
@@ -4748,58 +4440,25 @@ def _cleanup_pipeline_resources():
         print(f"[pipeline]   \u26a0\ufe0f Cleanup warning: {e}")
 
 
-def _update_active(job_id: str, status: str, progress: float, **extra):
-    """Update the in-memory active job tracker and persist to disk."""
-    # Don't re-add jobs that have been cancelled — the thread may still be
-    # running an ML operation when the cancel endpoint already popped the job.
-    if job_id in _pipeline_cancel:
-        return
-    _active_jobs[job_id] = {**_active_jobs.get(job_id, {}), "status": status, "progress": progress}
-    _active_jobs[job_id].update(extra)
-
-    # Append a simplified step message for the mini live log
-    msg = _STATUS_MESSAGES.get(status)
-    if msg:
-        msgs = _active_jobs[job_id].setdefault("step_messages", [])
-        msgs.append(msg)
-        _active_jobs[job_id]["step_messages"] = msgs[-_MAX_STEP_MESSAGES:]
-
-    update_kwargs = {"status": status, "progress": progress}
-    if extra:
-        update_kwargs.update(extra)
-    uploader.update_status(job_id, update_kwargs)
-
-
-def _add_step_message(job_id: str, message: str):
-    """Append a custom step message to a job's live log (used by agent runner)."""
-    if not message:
-        return
-    if job_id in _active_jobs:
-        msgs = _active_jobs[job_id].setdefault("step_messages", [])
-        msgs.append(message)
-        _active_jobs[job_id]["step_messages"] = msgs[-_MAX_STEP_MESSAGES:]
-    # Also persist to disk so the frontend can read it
-    uploader.update_status(job_id, {"step_messages": _active_jobs.get(job_id, {}).get("step_messages", [])})
-
-
 def _run_pipeline_sync(job_id: str):
     """Synchronous ML pipeline — runs inside ``asyncio.to_thread()``.
 
-    Each step updates the in-memory ``_active_jobs`` dict (via ``_update_active``)
-    and checks ``_pipeline_cancel`` for cooperative cancellation.
+    Each step updates the in-memory ``state._active_jobs`` dict (via
+    ``state.update_active``) and checks ``state._pipeline_cancel`` for
+    cooperative cancellation.
 
     All progress is also written to a per-job log file at ``<storage>/<job_id>/pipeline.log``.
     """
     _pipeline_start = time.time()
     jlog = _setup_job_logger(job_id)
     try:
-        _update_active(job_id, "initializing", 0.05)
-        global engine, _mps_oom_occurred
+        state.update_active(job_id, "initializing", 0.05)
+        global engine
 
         # Create the transcription engine, respecting any prior MPS OOM flag.
         # If a previous job in this process hit an MPS OOM error, force CPU
         # from the start for this job to prevent cascading failures.
-        initial_device = "cpu" if _mps_oom_occurred else None
+        initial_device = "cpu" if state._mps_oom_occurred else None
         if initial_device == "cpu":
             jlog.log(f"[pipeline] ⚠️  Prior MPS OOM detected — forcing CPU fallback for this job")
         engine = TranscriptionEngine(device=initial_device)
@@ -4826,18 +4485,18 @@ def _run_pipeline_sync(job_id: str):
         # transcription.py). If pyannote's internal multiprocessing crashes,
         # only the child dies — the backend survives and retries on CPU.
         jlog.log(f"\n   🔬 [PIPELINE] Step 1/5: Diarization (identifying speakers)...")
-        if _check_cancelled(job_id): return
-        _update_active(job_id, "processing_diarization", 0.2)
-        _check_pipeline_timeout(job_id, _pipeline_start, jlog)
+        if state.check_cancelled(job_id): return
+        state.update_active(job_id, "processing_diarization", 0.2)
+        state.check_pipeline_timeout(job_id, _pipeline_start, jlog)
         t_diar = time.time()
         # Live progress: pyannote step progress maps onto the 0.2 → 0.3 band so
         # the UI moves instead of sitting at 20% for long files.
         def _diar_progress(frac):
-            _update_active(job_id, "processing_diarization", 0.2 + 0.1 * max(0.0, min(1.0, frac)))
+            state.update_active(job_id, "processing_diarization", 0.2 + 0.1 * max(0.0, min(1.0, frac)))
 
         # Cancellation check shared by every long ML call in this pipeline thread.
         def _is_cancelled():
-            return job_id in _pipeline_cancel
+            return job_id in state._pipeline_cancel
 
         try:
             diarization = engine.run_diarization(
@@ -4852,7 +4511,7 @@ def _run_pipeline_sync(job_id: str):
             if "subprocess" in err_str or "timed out" in err_str or "mps" in err_str or "out of memory" in err_str:
                 jlog.log(f"[pipeline] ⚠️  Diarization subprocess failed — {_diar_err}")
                 jlog.log(f"[pipeline]    Retrying diarization on CPU...")
-                _mps_oom_occurred = True
+                state._mps_oom_occurred = True
                 engine = TranscriptionEngine(device="cpu")
                 t_diar_cpu = time.time()
                 diarization = engine.run_diarization(
@@ -4861,7 +4520,7 @@ def _run_pipeline_sync(job_id: str):
                 )
                 diar_elapsed = time.time() - t_diar_cpu
                 jlog.log(f"   ✅ [pipeline] CPU diarization: {len(diarization)} segments in {diar_elapsed:.1f}s")
-                _mps_oom_occurred = False
+                state._mps_oom_occurred = False
             else:
                 raise
         else:
@@ -4909,16 +4568,16 @@ def _run_pipeline_sync(job_id: str):
                     "sample_start": longest["start"],
                     "sample_end": longest["end"],
                 })
-            _update_active(job_id, "paused_for_labeling", 0.3, speakers=speaker_info)
+            state.update_active(job_id, "paused_for_labeling", 0.3, speakers=speaker_info)
             jlog.log(f"[pipeline] ⏸️  Pipeline paused — waiting for speaker labels from user")
             jlog.log(f"[pipeline]   Detected speakers: {', '.join(sorted(speaker_segments.keys()))}")
             return  # Exit pipeline — resume via POST /transcribe/label_and_resume
 
         # ── Step 2: Voiceprint matching ──
         jlog.log(f"\n   🧬 [PIPELINE] Step 2/5: Voiceprint matching...")
-        if _check_cancelled(job_id): return
-        _update_active(job_id, "matching_voiceprints", 0.35)
-        _check_pipeline_timeout(job_id, _pipeline_start, jlog)
+        if state.check_cancelled(job_id): return
+        state.update_active(job_id, "matching_voiceprints", 0.35)
+        state.check_pipeline_timeout(job_id, _pipeline_start, jlog)
         t_vp = time.time()
         attendees = metadata.get("attendees", [])
         if attendees:
@@ -5094,9 +4753,9 @@ def _run_pipeline_sync(job_id: str):
 
         # ── Step 3: ASR Transcription ──
         jlog.log(f"\n   🎤 [PIPELINE] Step 3/5: ASR transcription (Whisper)...")
-        if _check_cancelled(job_id): return
-        _update_active(job_id, "processing_transcription", 0.5)
-        _check_pipeline_timeout(job_id, _pipeline_start, jlog)
+        if state.check_cancelled(job_id): return
+        state.update_active(job_id, "processing_transcription", 0.5)
+        state.check_pipeline_timeout(job_id, _pipeline_start, jlog)
         t_asr = time.time()
         transcription = engine.run_transcription(audio_path, cancel_check=_is_cancelled)
         asr_elapsed = time.time() - t_asr
@@ -5106,20 +4765,20 @@ def _run_pipeline_sync(job_id: str):
         # ── MPS OOM check after ASR ──
         # If ASR hit an MPS OOM error, the transcription may be empty.
         # Fall back to CPU and re-run.
-        if (getattr(engine, 'mps_oom_occurred', False) or _mps_oom_occurred) and not transcription.get("words"):
-            _mps_oom_occurred = True
+        if (getattr(engine, 'mps_oom_occurred', False) or state._mps_oom_occurred) and not transcription.get("words"):
+            state._mps_oom_occurred = True
             jlog.log(f"[pipeline] ⚠️  MPS OOM during ASR — retrying transcription on CPU...")
             engine = TranscriptionEngine(device="cpu")
             t_asr_cpu = time.time()
             transcription = engine.run_transcription(audio_path, cancel_check=_is_cancelled)
             asr_elapsed = time.time() - t_asr_cpu
             jlog.log(f"   ✅ [pipeline] CPU ASR retry: {len(transcription.get('words', []))} words in {asr_elapsed:.1f}s")
-            _mps_oom_occurred = False
+            state._mps_oom_occurred = False
 
         # ── Step 4: Alignment ──
         jlog.log(f"\n   🔗 [PIPELINE] Step 4/5: Aligning diarization with transcript...")
-        if _check_cancelled(job_id): return
-        _update_active(job_id, "aligning", 0.7)
+        if state.check_cancelled(job_id): return
+        state.update_active(job_id, "aligning", 0.7)
         t_align = time.time()
         aligned = engine.align_transcript(transcription, diarization)
         align_elapsed = time.time() - t_align
@@ -5156,7 +4815,7 @@ def _run_pipeline_sync(job_id: str):
 
         uploader.save_transcript(job_id, aligned)
         uploader.save_transcript_text(job_id, aligned)
-        _update_active(job_id, "transcribed", 0.85)
+        state.update_active(job_id, "transcribed", 0.85)
 
         # ── Pipeline timing summary ──
         pipeline_total = time.time() - (t_diar - diar_elapsed)
@@ -5173,8 +4832,8 @@ def _run_pipeline_sync(job_id: str):
 
         # ── Step 5: Enqueue for agent or pause for labeling ──
         jlog.log(f"\n   📨 [PIPELINE] Step 5/5: Enqueueing for agent runner...")
-        if _check_cancelled(job_id): return
-        _check_pipeline_timeout(job_id, _pipeline_start, jlog)
+        if state.check_cancelled(job_id): return
+        state.check_pipeline_timeout(job_id, _pipeline_start, jlog)
         unknown = match_result.get("unknown", [])
         if unknown:
             for u in unknown:
@@ -5253,7 +4912,7 @@ def _run_pipeline_sync(job_id: str):
                             "sample_job_id": u_job_id,
                         }]
 
-            _update_active(job_id, "paused_for_labeling", 0.9,
+            state.update_active(job_id, "paused_for_labeling", 0.9,
                           labeling_phase="post_asr", speakers=speaker_info,
                           unknown_speakers=unknown,
                           voiceprint_matches_by_speaker=voiceprint_matches_by_speaker,
@@ -5294,12 +4953,12 @@ def _run_pipeline_sync(job_id: str):
 
             # ── Gate 1: Raw Transcript Review ──
             if config.GATE_RAW_REVIEW_ENABLED:
-                _update_active(job_id, "pending_raw_review", 0.95)
+                state.update_active(job_id, "pending_raw_review", 0.95)
                 jlog.log(f"\n   ⏸️  [PIPELINE] Gate 1 active — pausing for raw transcript review")
                 jlog.log(f"[pipeline] ⏸️  Pipeline paused — waiting for user to review/edit transcript")
                 return  # Exit pipeline — resume via POST /transcribe/approve_gate1/{job_id}
 
-            _update_active(job_id, "ready_for_agent", 0.95)
+            state.update_active(job_id, "ready_for_agent", 0.95)
             skip = metadata.get("skip_steps")
             jlog.log(f"[pipeline] All speakers known — enqueueing ready_for_processing (skip_steps={skip})")
             agent_bridge.enqueue_ready(
@@ -5314,7 +4973,15 @@ def _run_pipeline_sync(job_id: str):
         raise  # Re-raise so the outer _run_pipeline handles status + enqueue
     finally:
         jlog.close()
-        _pipeline_cancel.discard(job_id)
+        state._pipeline_cancel.discard(job_id)
+
+
+# ── Late-bind the pipeline runners for pipeline_state (Phase 1) ──
+# pipeline_state.py's start_pipeline_async / start_resumed_pipeline call these
+# via `services.<name>` (see services.py). Assigned here, AFTER the defs exist,
+# so there is no import cycle and no `__main__` re-execution problem.
+services.run_pipeline_async = _run_pipeline_async
+services.run_resumed_pipeline_async = _run_resumed_pipeline_async
 
 
 if __name__ == "__main__":

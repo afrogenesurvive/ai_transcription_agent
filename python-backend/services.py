@@ -25,3 +25,11 @@ engine = None
 agent_bridge = None
 semantic_memory = None
 ephemeral_memory = None
+
+# Late-bound callables for the pipeline runners (Phase 1). main.py assigns these
+# at the bottom of the module (after the runner defs exist); pipeline_state.py's
+# start_pipeline_async / start_resumed_pipeline call them via `services.<name>`.
+# This avoids an import cycle AND the `__main__` re-execution problem (a later
+# `import main` would create a fresh module copy that never runs lifespan()).
+run_pipeline_async = None
+run_resumed_pipeline_async = None
