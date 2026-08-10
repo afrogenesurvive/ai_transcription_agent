@@ -712,21 +712,26 @@ const server = http.createServer(async (req, res) => {
         res.end();
       });
     } else if (req.method === "GET" && url.pathname.startsWith("/transcribe/audio/")) {
-      // Proxy audio file serving — pipe through for streaming
-      const jobId = url.pathname.split("/").pop();
-      console.log(`[bridge] → GET /transcribe/audio/${jobId} (proxying audio stream)`);
+      // Proxy audio file serving — pipe through for streaming.
+      // Forward the FULL pathname to Python so both
+      //   /transcribe/audio/{job_id}  AND
+      //   /transcribe/audio/speaker_clip/{job_id}/{speaker_id}/{clip_index}
+      // resolve correctly. Previously we rebuilt the URL from the last path
+      // segment, which for speaker clips is the clip index (not the job id),
+      // causing playback to 404 in the speaker labeling modal.
+      console.log(`[bridge] → GET ${url.pathname} (proxying audio stream)`);
 
       // Forward Range header (for audio seeking) in a single fetch — avoids
       // double-fetching the entire file just to check existence.
       const rangeHeader = req.headers["range"];
-      const audioUrl = `${PYTHON_API}/transcribe/audio/${jobId}`;
+      const audioUrl = `${PYTHON_API}${url.pathname}`;
       const fetchOpts = {};
       if (rangeHeader) fetchOpts.headers = { Range: rangeHeader };
 
       const audioResp = await fetch(audioUrl, fetchOpts);
       if (!audioResp.ok) {
         const errBody = await audioResp.text().catch(() => "");
-        console.error(`[bridge] ← GET /transcribe/audio/${jobId} → ${audioResp.status}: ${errBody.slice(0, 200)}`);
+        console.error(`[bridge] ← GET ${url.pathname} → ${audioResp.status}: ${errBody.slice(0, 200)}`);
         res.writeHead(audioResp.status, { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "Audio not found" }));
         return;
@@ -737,13 +742,14 @@ const server = http.createServer(async (req, res) => {
       const contentRange = audioResp.headers.get("content-range");
       const statusCode = rangeHeader && audioResp.status === 206 ? 206 : 200;
 
+      const fileName = url.pathname.split("/").pop() || "audio";
       const responseHeaders = {
         "Content-Type": contentType,
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, OPTIONS",
         "Access-Control-Allow-Headers": "Range, Content-Type",
         "Access-Control-Expose-Headers": "Content-Range, Accept-Ranges, Content-Length",
-        "Content-Disposition": `inline; filename="${jobId}.wav"`,
+        "Content-Disposition": `inline; filename="${fileName}.wav"`,
         "Accept-Ranges": "bytes",
         "Cache-Control": "no-cache",
       };
