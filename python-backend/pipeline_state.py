@@ -111,3 +111,11 @@ class PipelineState:
             services.run_resumed_pipeline_async(job_id, label_map, excluded_non_speaking)
         )
         self._pipeline_tasks[job_id] = task
+
+
+# ── Shared pipeline-state singleton (Phase 2) ──
+# Created here (not in main.py) so that services/pipeline.py and main.py can both
+# do `from pipeline_state import state`. PipelineState.__init__ has no main.py
+# dependency (only asyncio/time/config/constants/services), so this is
+# import-safe and equivalent in timing to main.py's old `state = PipelineState()`.
+state = PipelineState()
