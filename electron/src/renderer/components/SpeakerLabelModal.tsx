@@ -156,6 +156,14 @@ export default function SpeakerLabelModal({
   // dismiss it (accepting the overwrite on save), or edit the name (which clears
   // it). The user has full visibility into what exists and where the mismatch is.
   const [driftNotices, setDriftNotices] = useState<Record<string, VoiceDriftConflict>>({});
+  // ── Proactive voiceprint-overwrite warnings ──
+  // Set when the user picks an existing attendee that already has an enrolled
+  // voiceprint (the "Voiceprint owners" dropdown bucket). Confirming that label
+  // will OVERWRITE the existing voiceprint with this meeting's voice, so we show
+  // a warning border + message until the user edits the name or confirms.
+  const [vpOverwriteWarnings, setVpOverwriteWarnings] = useState<
+    Record<string, { name: string; email: string; sample_job_id?: string }>
+  >({});
 
   // A registered attendee already assigned to a speaker slot is disabled in
   // every dropdown (the app rejects duplicate speaker names anyway).
@@ -798,6 +806,25 @@ export default function SpeakerLabelModal({
         next.delete(speakerId);
         return next;
       });
+      // Proactive overwrite warning: if the picked attendee already has an
+      // enrolled voiceprint (with_voiceprint bucket), surface that confirming
+      // this assignment will overwrite it. No voiceprint → clear any warning.
+      if (attendee.sample_job_id) {
+        setVpOverwriteWarnings((prev) => ({
+          ...prev,
+          [speakerId]: {
+            name: attendee.name,
+            email,
+            sample_job_id: attendee.sample_job_id,
+          },
+        }));
+      } else {
+        setVpOverwriteWarnings((prev) => {
+          const next = { ...prev };
+          delete next[speakerId];
+          return next;
+        });
+      }
       onClearError?.();
       void verifySingleSpeaker(speakerId, attendee.name, email);
     },
@@ -968,10 +995,11 @@ export default function SpeakerLabelModal({
           {speakers.map((spk, idx) => {
             const hasName = (labels[spk.speaker_id]?.trim() ?? "").length > 0;
             const drift = driftNotices[spk.speaker_id];
+            const vpOverwrite = vpOverwriteWarnings[spk.speaker_id];
             return (
               <div
                 key={spk.speaker_id}
-                className={`speaker-item ${hasName ? "speaker-item--labeled" : ""} ${conflictSpeakerIds.has(spk.speaker_id) ? "speaker-item--conflict" : ""}`}>
+                className={`speaker-item ${hasName ? "speaker-item--labeled" : ""} ${conflictSpeakerIds.has(spk.speaker_id) ? "speaker-item--conflict" : ""} ${vpOverwrite ? "speaker-item--vp-overwrite" : ""}`}>
                 <div className="speaker-header">
                   <span className="speaker-number">#{idx + 1}</span>
                   <span className="speaker-stats">
@@ -1003,6 +1031,13 @@ export default function SpeakerLabelModal({
                         setLabels((prev) => ({ ...prev, [spk.speaker_id]: e.target.value }));
                         // A name edit invalidates any prior drift notice for this speaker.
                         setDriftNotices((prev) => {
+                          const next = { ...prev };
+                          delete next[spk.speaker_id];
+                          return next;
+                        });
+                        // A name edit also clears any proactive voiceprint-overwrite
+                        // warning (the assignment is no longer that attendee).
+                        setVpOverwriteWarnings((prev) => {
                           const next = { ...prev };
                           delete next[spk.speaker_id];
                           return next;
@@ -1065,7 +1100,7 @@ export default function SpeakerLabelModal({
                       title="Assign a registered attendee to this speaker">
                       <option value="">Assign known attendee…</option>
                       {knownAttendees && knownAttendees.with_voiceprint.length > 0 && (
-                        <optgroup label={`Voiceprint owners (${knownAttendees.with_voiceprint.length})`}>
+                        <optgroup label={`Voiceprint owners — selecting overwrites (${knownAttendees.with_voiceprint.length})`}>
                           {knownAttendees.with_voiceprint.map((a, i) => (
                             <option key={`vp-${i}`} value={`vp:${i}`} disabled={isAttendeeUsed(a.name)}>
                               {a.name}
@@ -1094,6 +1129,17 @@ export default function SpeakerLabelModal({
                     </select>
                   </Tooltip>
                 </div>
+                {/* ── Proactive voiceprint-overwrite warning ── */}
+                {vpOverwrite && (
+                  <div className="speaker-vp-overwrite-warning">
+                    <Icon name="warning" size="13" color="orange" />
+                    <span>
+                      <strong>{vpOverwrite.name}</strong> already has an enrolled voiceprint
+                      {vpOverwrite.sample_job_id ? <> from job {vpOverwrite.sample_job_id.slice(0, 8)}</> : ""}.
+                      Confirming this label will <strong>overwrite</strong> it with this recording.
+                    </span>
+                  </div>
+                )}
                 {/* ── A/B conflict choice selector ── */}
                 {perSpeakerConflicts[spk.speaker_id]?.voice_match_conflicts?.map((mc, ci) => {
                   const chosen = conflictChoices[spk.speaker_id];
