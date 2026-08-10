@@ -713,6 +713,8 @@ Browse on-disk log files from both the primary (userData) and mirror (dev storag
 - Lists all `.jsonl` log files with file size and last modified date
 - Click any file to view its contents in the built-in viewer
 - **Pipeline logs** — per-job `pipeline.log` files showing agent trace output
+- Bridge/agent also write plain-text diagnostic logs (`bridge.log`, `agent.log`) to
+  `{userData}/logs` — these are **not** `.jsonl`, so they're excluded from this listing
 
 ### Testing Tab
 

@@ -77,6 +77,19 @@ function extractSubSource(msg: string): string | undefined {
 /** Platform-aware Python binary name (dev fallback) */
 const PYTHON_BIN = IS_WIN ? "python" : "python3";
 
+/** Append a line to a per-service diagnostic log under userData/logs (e.g. bridge.log).
+ *  The bridge/agent stderr otherwise only reaches the in-memory Live Log, which the
+ *  setup modal can block — a file gives post-mortem visibility (esp. under Wine). */
+function appendServiceLog(fileName: string, line: string): void {
+  try {
+    const logsDir = path.join(app.getPath("userData"), "logs");
+    fs.mkdirSync(logsDir, { recursive: true });
+    fs.appendFileSync(path.join(logsDir, fileName), `${new Date().toISOString()} ${line}\n`, "utf8");
+  } catch {
+    // non-critical
+  }
+}
+
 /** Path to the child-PID file the Windows NSIS uninstaller reads so it can stop
  *  backend processes that outlived the Electron shell (crash, silent uninstall). */
 function childPidsFilePath(): string {
@@ -587,6 +600,7 @@ export async function startBridgeServer(bridgePort = 5010, pythonPort = 5001): P
     for (const line of lines) {
       const msg = line.trim();
       if (!msg) continue;
+      appendServiceLog("bridge.log", msg);
       // Extract tool name from lines like "→ transcribe_models_status (job=?)" → "models_status"
       const toolMatch = msg.match(/→ (?:transcribe_)?(\w+)/);
       // Fallback: extract route from HTTP request lines like "GET /health" → "health"
@@ -619,6 +633,7 @@ export async function startBridgeServer(bridgePort = 5010, pythonPort = 5001): P
   bridgeProcess.stderr?.on("data", (d: Buffer) => {
     const msg = d.toString().trim();
     if (!msg) return;
+    appendServiceLog("bridge.log", `[stderr] ${msg}`);
     console.error(`[bridge:err] ${msg}`);
     addLog("bridge", "error", msg);
   });
@@ -1334,6 +1349,7 @@ export async function startAgentRunner(): Promise<void> {
     for (const line of lines) {
       const msg = line.trim();
       if (!msg) continue;
+      appendServiceLog("agent.log", `[stderr] ${msg}`);
       console.error(`[agent:err] ${msg}`);
       addLog("agent", "error", msg);
     }
