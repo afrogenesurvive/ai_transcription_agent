@@ -978,7 +978,43 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(BRIDGE_PORT, "127.0.0.1", () => {
-  console.log(`[bridge] Listening on http://127.0.0.1:${BRIDGE_PORT}`);
-  console.log(`[bridge] Proxying to Python backend at ${PYTHON_API}`);
+// ── Listen (with graceful EADDRINUSE retry) ──
+//
+// Under CrossOver/Wine (and occasionally native Windows on a quick restart)
+// a stale bridge process can still hold BRIDGE_PORT, so `listen` fails with
+// EADDRINUSE. Without an error handler Node turns that into an unhandled
+// 'error' event and the process crashes with a raw stack trace. Retry a
+// bounded number of times (the stale process may be releasing the port), then
+// exit cleanly so the Electron main can report a clear error instead.
+const LISTEN_RETRY_ATTEMPTS = 5;
+const LISTEN_RETRY_DELAY_MS = 2000;
+
+let listenAttempt = 0;
+
+function startListening() {
+  listenAttempt += 1;
+  server.listen(BRIDGE_PORT, "127.0.0.1", () => {
+    console.log(`[bridge] Listening on http://127.0.0.1:${BRIDGE_PORT}`);
+    console.log(`[bridge] Proxying to Python backend at ${PYTHON_API}`);
+  });
+}
+
+server.on("error", (err) => {
+  if (err && err.code === "EADDRINUSE") {
+    if (listenAttempt < LISTEN_RETRY_ATTEMPTS) {
+      console.log(`[bridge] Port ${BRIDGE_PORT} in use — retrying (attempt ${listenAttempt}/${LISTEN_RETRY_ATTEMPTS})...`);
+      setTimeout(startListening, LISTEN_RETRY_DELAY_MS);
+      return;
+    }
+    console.error(
+      `[bridge] ❌ Cannot bind port ${BRIDGE_PORT} — address already in use after ${LISTEN_RETRY_ATTEMPTS} attempts. A stale bridge process is likely still running.`
+    );
+    process.exit(1);
+    return;
+  }
+  // Non-EADDRINUSE server error — log it; per-request handling stays in the
+  // request handler and the server keeps serving.
+  console.error(`[bridge] Server error: ${err?.message || err}`);
 });
+
+startListening();

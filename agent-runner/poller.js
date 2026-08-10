@@ -41,7 +41,11 @@ export async function claimPendingEvent(typesFilter) {
     console.log(`   [POLLER] Claimed ${event.id?.slice(0, 8)} — ${event.type} (priority=${event.priority})`);
     return event;
   } catch (err) {
-    console.error(`   ❌ [POLLER] claim error: ${err.message}`);
+    // undici wraps the real network error (ECONNREFUSED etc.) in err.cause —
+    // surface it so the log shows why the poller can't reach the backend.
+    const cause = err?.cause?.message || err?.message || err;
+    const code = err?.cause?.code ? ` (${err.cause.code})` : "";
+    console.error(`   ❌ [POLLER] claim error: ${cause}${code}`);
     return null;
   }
 }

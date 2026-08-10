@@ -108,34 +108,51 @@ function persistChildPids(): void {
   }
 }
 
+/** List PIDs listening EXACTLY on the given TCP port (Windows netstat). */
+function pidsListeningOnPort(port: number): number[] {
+  try {
+    const result = execSync("netstat -ano -p tcp", { encoding: "utf8", timeout: 3000 });
+    const pids: number[] = [];
+    for (const line of result.trim().split(/\r?\n/)) {
+      const parts = line.trim().split(/\s+/);
+      if (parts.length < 5) continue;
+      // Match the Local Address column precisely (0.0.0.0:5001 / [::]:5001) —
+      // a substring match like `findstr :5001` would also hit :50010/:50012.
+      if (!parts[3].toUpperCase().includes("LISTENING")) continue;
+      if (!parts[1].endsWith(`:${port}`)) continue;
+      const pid = Number(parts[parts.length - 1]);
+      if (Number.isInteger(pid) && pid > 0) pids.push(pid);
+    }
+    return pids;
+  } catch {
+    return [];
+  }
+}
+
 /** Kill any process listening on the given TCP port (cross-platform). */
 export async function killProcessOnPort(port: number): Promise<void> {
   if (IS_WIN) {
-    // Use netstat to find PIDs listening EXACTLY on the target port, then
-    // taskkill each. Match the Local Address column precisely (0.0.0.0:5001 /
-    // [::]:5001) — a substring match like `findstr :5001` would also hit
-    // :50010/:50012 and kill unrelated processes.
-    try {
-      const result = execSync("netstat -ano -p tcp", { encoding: "utf8", timeout: 3000 });
-      const lines = result.trim().split(/\r?\n/);
-      for (const line of lines) {
-        const parts = line.trim().split(/\s+/);
-        if (parts.length < 5) continue;
-        if (!parts[3].toUpperCase().includes("LISTENING")) continue;
-        const localAddr = parts[1];
-        if (!localAddr.endsWith(`:${port}`)) continue;
-        const pid = parts[parts.length - 1];
-        if (pid && /^\d+$/.test(pid)) {
+    // Under CrossOver/Wine (and occasionally native Windows) a single
+    // taskkill may report success without actually terminating the process
+    // holding the port. Verify with a fresh netstat each pass, retry, and
+    // escalate to PowerShell Stop-Process as a fallback.
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const pids = pidsListeningOnPort(port);
+      if (pids.length === 0) return;
+      for (const pid of pids) {
+        try {
+          execSync(`taskkill /PID ${pid} /F`, { stdio: "ignore" });
+          console.log(`[backend] Killed stale process ${pid} on port ${port} (attempt ${attempt})`);
+        } catch {
           try {
-            execSync(`taskkill /PID ${pid} /F`, { stdio: "ignore" });
-            console.log(`[backend] Killed stale process ${pid} on port ${port}`);
+            execSync(`powershell -NoProfile -Command "Stop-Process -Id ${pid} -Force"`, { stdio: "ignore" });
+            console.log(`[backend] Killed stale process ${pid} on port ${port} via PowerShell (attempt ${attempt})`);
           } catch {
-            // already gone
+            // already gone or not killable — the next pass verifies
           }
         }
       }
-    } catch {
-      // No process found on that port — great
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 500));
     }
     return;
   }
@@ -155,6 +172,30 @@ export async function killProcessOnPort(port: number): Promise<void> {
   } catch {
     // No process found on that port — great
   }
+}
+
+/**
+ * Poll until no process is listening on the given TCP port (cross-platform).
+ * Returns true if the port is free, false if it is still held after timeoutMs.
+ * Used to avoid spawning a service that would immediately crash with EADDRINUSE
+ * (e.g. a stale process Wine refused to kill).
+ */
+async function waitForPortFree(port: number, timeoutMs = 5000): Promise<boolean> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (IS_WIN) {
+      if (pidsListeningOnPort(port).length === 0) return true;
+    } else {
+      try {
+        const result = execSync(`lsof -ti:${port} -sTCP:LISTEN 2>/dev/null`, { encoding: "utf8", timeout: 3000 });
+        if (!result.trim()) return true;
+      } catch {
+        return true; // lsof found nothing — port free
+      }
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return false;
 }
 
 function resourcePath(...segments: string[]): string {
@@ -345,6 +386,32 @@ async function killProcess(proc: ChildProcess): Promise<void> {
     } catch {
       // process already gone
     }
+    // Under CrossOver/Wine taskkill can report success while the process
+    // survives (orphan holding the port). Verify the PID is actually gone and
+    // re-kill/escalate until it exits, so the next start doesn't hit EADDRINUSE.
+    const pid = proc.pid;
+    const killStart = Date.now();
+    while (Date.now() - killStart < 8000) {
+      let alive = false;
+      try {
+        process.kill(pid, 0); // throws ESRCH if the process is gone
+        alive = true;
+      } catch {
+        return; // process is gone
+      }
+      if (!alive) return;
+      try {
+        execSync(`taskkill /pid ${pid} /T /F`, { stdio: "ignore" });
+      } catch {
+        try {
+          execSync(`powershell -NoProfile -Command "Stop-Process -Id ${pid} -Force"`, { stdio: "ignore" });
+        } catch {
+          // already gone
+        }
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    console.warn(`[backend] Process ${pid} did not exit after taskkill — may be a Wine orphan`);
   } else {
     proc.kill("SIGTERM");
     // Give the process 2 seconds to exit gracefully, then force-kill
@@ -424,6 +491,14 @@ async function waitForServer(url: string, timeoutMs = 15000, isAlive?: () => boo
 export async function startPythonBackend(port = 5001): Promise<void> {
   // Clear any stale process on the target port first
   await killProcessOnPort(port);
+
+  // Fail fast if the port is still held rather than spawning a backend that
+  // immediately fails to bind and confuses the health monitor.
+  if (!(await waitForPortFree(port, 5000))) {
+    throw new Error(
+      `Port ${port} is still in use after killing stale processes — a stale backend process is holding it.`
+    );
+  }
 
   const backendDir = resourcePath("python-backend");
   const { bin: pythonBin, args: pythonArgs } = resolvePythonBin(backendDir);
@@ -569,6 +644,16 @@ export async function startBridgeServer(bridgePort = 5010, pythonPort = 5001): P
   // Clear any stale process on the target port first
   await killProcessOnPort(bridgePort);
 
+  // Fail fast if the port is still held (e.g. a stale process Wine refused to
+  // kill) rather than spawning a bridge that will immediately crash with
+  // EADDRINUSE and loop the health monitor.
+  if (!(await waitForPortFree(bridgePort, 5000))) {
+    throw new Error(
+      `Port ${bridgePort} is still in use after killing stale processes — a stale bridge process is holding it. ` +
+        `Close other app instances or kill the process listening on port ${bridgePort}.`
+    );
+  }
+
   const bridgeDir = resourcePath("bridge-server");
   const nodeSpec = nodeSpawnSpec("index.js");
 
@@ -654,7 +739,11 @@ export async function stopBridgeServer(): Promise<void> {
   if (bridgeProcess) {
     await killProcess(bridgeProcess);
     bridgeProcess = null;
+    persistChildPids();
   }
+  // Wait for the bridge port to actually be released so the next
+  // startBridgeServer doesn't hit EADDRINUSE from a lingering orphan.
+  await waitForPortFree(5010, 8000);
 }
 
 // ── Agent Runner ──
@@ -1533,6 +1622,17 @@ export async function restartAll(): Promise<void> {
 
 let healthInterval: ReturnType<typeof setInterval> | null = null;
 
+// Consecutive auto-restart failure trackers per service, used to back off the
+// health watcher so a stuck service (e.g. a stale process holding the port that
+// Wine won't kill) doesn't crash-loop forever.
+const RESTART_COOLDOWN_MS = 60_000;
+const MAX_RESTART_FAILURES = 3;
+const restartFailures: Record<string, { count: number; suppressedUntil: number }> = {
+  python: { count: 0, suppressedUntil: 0 },
+  bridge: { count: 0, suppressedUntil: 0 },
+  agent: { count: 0, suppressedUntil: 0 },
+};
+
 /** Health check a single HTTP service. Returns true if healthy. */
 async function checkService(url: string, label: string, timeoutMs = 3000): Promise<boolean> {
   try {
@@ -1542,6 +1642,29 @@ async function checkService(url: string, label: string, timeoutMs = 3000): Promi
     return false;
   } catch {
     return false;
+  }
+}
+
+/** Whether the given service's auto-restart is currently in its cooldown window. */
+function restartSuppressed(key: string): boolean {
+  return Date.now() < (restartFailures[key]?.suppressedUntil || 0);
+}
+
+/** Record a successful auto-restart — clears the failure counter. */
+function recordRestartSuccess(key: string): void {
+  if (restartFailures[key]) restartFailures[key].count = 0;
+}
+
+/** Record a failed auto-restart; after MAX_RESTART_FAILURES start a cooldown. */
+function recordRestartFailure(key: string, err: any): void {
+  const tracker = restartFailures[key];
+  if (!tracker) return;
+  tracker.count += 1;
+  if (tracker.count >= MAX_RESTART_FAILURES) {
+    tracker.suppressedUntil = Date.now() + RESTART_COOLDOWN_MS;
+    addLog("main", "error", `Auto-restart failed ${tracker.count}× (${err?.message}) — pausing restarts for ${RESTART_COOLDOWN_MS / 1000}s`);
+  } else {
+    addLog("main", "error", `Failed to auto-restart: ${err?.message}`);
   }
 }
 
@@ -1560,37 +1683,59 @@ export function startHealthMonitoring(): void {
     const bridgeOk = await checkService("http://127.0.0.1:5010/health", "Bridge", 3000);
 
     if (!pythonOk && !pythonProcess) {
-      console.log(`[health] Python backend is down — restarting...`);
-      addLog("main", "warn", "Python backend is down — restarting...");
-      try {
-        await startPythonBackend();
-        addLog("main", "info", "Python backend auto-restarted");
-      } catch (err: any) {
-        addLog("main", "error", `Failed to auto-restart Python: ${err.message}`);
+      if (restartSuppressed("python")) {
+        console.log(`[health] Python auto-restart suppressed (cooldown) — port 5001 may be held by a stale process`);
+      } else {
+        console.log(`[health] Python backend is down — restarting...`);
+        addLog("main", "warn", "Python backend is down — restarting...");
+        try {
+          await startPythonBackend();
+          recordRestartSuccess("python");
+          addLog("main", "info", "Python backend auto-restarted");
+        } catch (err: any) {
+          recordRestartFailure("python", err);
+        }
       }
+    } else {
+      recordRestartSuccess("python");
     }
 
     if (!bridgeOk && !bridgeProcess) {
-      console.log(`[health] Bridge server is down — restarting...`);
-      addLog("main", "warn", "Bridge server is down — restarting...");
-      try {
-        await startBridgeServer();
-        addLog("main", "info", "Bridge server auto-restarted");
-      } catch (err: any) {
-        addLog("main", "error", `Failed to auto-restart bridge: ${err.message}`);
+      if (restartSuppressed("bridge")) {
+        console.log(`[health] Bridge auto-restart suppressed (cooldown) — port 5010 may be held by a stale process`);
+        addLog("main", "warn", "Bridge auto-restart paused — a stale process may be holding port 5010. Close other app instances or kill the process on port 5010.");
+      } else {
+        console.log(`[health] Bridge server is down — restarting...`);
+        addLog("main", "warn", "Bridge server is down — restarting...");
+        try {
+          await startBridgeServer();
+          recordRestartSuccess("bridge");
+          addLog("main", "info", "Bridge server auto-restarted");
+        } catch (err: any) {
+          recordRestartFailure("bridge", err);
+        }
       }
+    } else {
+      recordRestartSuccess("bridge");
     }
 
     // Agent runner has no HTTP endpoint — check if process is alive
     if (!isAgentRunning()) {
-      console.log(`[health] Agent runner is down — restarting...`);
-      addLog("main", "warn", "Agent runner is down — restarting...");
-      try {
-        await startAgentRunner();
-        addLog("main", "info", "Agent runner auto-restarted");
-      } catch (err: any) {
-        addLog("main", "error", `Failed to auto-restart agent runner: ${err.message}`);
+      if (restartSuppressed("agent")) {
+        console.log(`[health] Agent auto-restart suppressed (cooldown)`);
+      } else {
+        console.log(`[health] Agent runner is down — restarting...`);
+        addLog("main", "warn", "Agent runner is down — restarting...");
+        try {
+          await startAgentRunner();
+          recordRestartSuccess("agent");
+          addLog("main", "info", "Agent runner auto-restarted");
+        } catch (err: any) {
+          recordRestartFailure("agent", err);
+        }
       }
+    } else {
+      recordRestartSuccess("agent");
     }
   }, 30000);
 }
