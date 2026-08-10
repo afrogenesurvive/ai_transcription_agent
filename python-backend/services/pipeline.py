@@ -153,7 +153,12 @@ async def _run_pipeline_async(job_id: str):
                     services.agent_bridge.enqueue_failed(job_id, str(e), {})
         finally:
             state._pipeline_tasks.pop(job_id, None)
-            state._pipeline_cancel.discard(job_id)
+            # NOTE: do NOT discard _pipeline_cancel here. cancel_job adds the job id
+            # to the set and task.cancel() unwinds this wrapper immediately, but the
+            # ML thread (run via asyncio.to_thread) keeps running and would otherwise
+            # re-add the job to _active_jobs (blocking new uploads) or even complete
+            # it. The marker is cleared by _run_pipeline_sync's own finally once the
+            # thread actually stops.
             state._active_jobs.pop(job_id, None)
             state._last_pipeline_end_time = time.time()
             _cleanup_pipeline_resources()
@@ -799,7 +804,8 @@ async def _run_resumed_pipeline_async(job_id: str, label_map: dict, excluded_non
             services.agent_bridge.enqueue_failed(job_id, str(e), {})
         finally:
             state._pipeline_tasks.pop(job_id, None)
-            state._pipeline_cancel.discard(job_id)
+            # NOTE: keep the cancel marker (see _run_pipeline_async) — it is cleared
+            # by _run_pipeline_resumed_sync's finally once the thread stops.
             state._active_jobs.pop(job_id, None)
             _cleanup_pipeline_resources()
 

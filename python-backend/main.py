@@ -1055,6 +1055,35 @@ async def agent_label_speakers(req: LabelRequest):
 
 # ── Label Verification (Mitigation 1: voiceprint-backed label verification) ──
 
+def _normalize_name(value: str) -> str:
+    return re.sub(r"\s+", " ", (value or "").strip()).lower()
+
+
+def _build_attendee_presence_warning(registered_attendees, speaker_labels):
+    """Return a warning if an attendee was listed for the job but no label in the
+    current audio matches them. This is advisory only and never blocks submission."""
+    normalized_labels = {
+        _normalize_name(label)
+        for label in (speaker_labels or [])
+        if _normalize_name(label)
+    }
+    for attendee in (registered_attendees or []):
+        attendee_name = (attendee or "").strip()
+        normalized_attendee = _normalize_name(attendee_name)
+        if not normalized_attendee:
+            continue
+        if normalized_attendee not in normalized_labels:
+            return {
+                "type": "attendee_not_present_in_audio",
+                "name": attendee_name,
+                "message": (
+                    f"'{attendee_name}' was listed as an attendee for this meeting, "
+                    "but no speaker label in the current audio matched them."
+                ),
+            }
+    return None
+
+
 @app.post("/agent/verify-labels")
 async def verify_labels(payload: dict = Body(...)):
     """Verify proposed speaker labels against enrolled voiceprints.
@@ -1099,6 +1128,7 @@ async def verify_labels(payload: dict = Body(...)):
 
     verifications = []
     unregistered_names = []
+    attendee_presence_warnings = []
 
     for label in labels:
         spk = label.get("speaker_id", "")
@@ -1114,6 +1144,20 @@ async def verify_labels(payload: dict = Body(...)):
             )
             if not is_registered:
                 unregistered_names.append(name)
+
+    warning = _build_attendee_presence_warning(
+        registered_attendees,
+        [label.get("name", "").strip() for label in labels if label.get("name", "").strip()],
+    )
+    if warning:
+        attendee_presence_warnings.append(warning)
+
+    for label in labels:
+        spk = label.get("speaker_id", "")
+        name = label.get("name", "").strip()
+        email = label.get("email", "").strip()
+        if not spk or not name:
+            continue
 
         # Extract embedding and match against ALL voiceprints
         voice_match_conflicts = []
@@ -1197,6 +1241,7 @@ async def verify_labels(payload: dict = Body(...)):
         "verifications": verifications,
         "unregistered_names": unregistered_names,
         "registered_attendees": registered_attendees,
+        "attendee_presence_warnings": attendee_presence_warnings,
     }
 
 

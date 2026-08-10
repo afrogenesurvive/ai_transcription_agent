@@ -194,6 +194,7 @@ export default function SpeakerLabelModal({
   // ── Unregistered name warning (Mitigation 3) ──
   const [unregisteredNames, setUnregisteredNames] = useState<string[]>([]);
   const [dismissedUnregistered, setDismissedUnregistered] = useState(false);
+  const [attendeePresenceWarnings, setAttendeePresenceWarnings] = useState<Array<{ name: string; message: string }>>([]);
 
   // ── Populate inline conflicts from post-submit drift audit ──
   // When the backend returns voice match conflicts during label_and_resume,
@@ -506,6 +507,7 @@ export default function SpeakerLabelModal({
           const verifications = vResult.verifications || [];
           const voiceConflicts = verifications.filter((v: LabelVerification) => (v.voice_match_conflicts?.length || 0) > 0);
           const unregistered = vResult.unregistered_names || [];
+          const attendeePresenceWarnings = (vResult.attendee_presence_warnings || []) as Array<{ name: string; message: string }>;
 
           // Populate inline own-print drift notices from this verification pass.
           const drift: Record<string, VoiceDriftConflict> = {};
@@ -525,8 +527,12 @@ export default function SpeakerLabelModal({
             return; // Show voice match dialog
           }
 
+          setAttendeePresenceWarnings(attendeePresenceWarnings);
+
           if (unregistered.length > 0) {
             setUnregisteredNames(unregistered);
+          } else {
+            setUnregisteredNames([]);
           }
         }
       } catch {
@@ -728,6 +734,9 @@ export default function SpeakerLabelModal({
               return next;
             });
           }
+
+          const warnings = (res?.attendee_presence_warnings || []) as Array<{ name: string; message: string }>;
+          setAttendeePresenceWarnings(warnings);
         } catch {
           // Backend unavailable — ignore
         }
@@ -765,6 +774,9 @@ export default function SpeakerLabelModal({
             return next;
           });
         }
+
+        const warnings = (res?.attendee_presence_warnings || []) as Array<{ name: string; message: string }>;
+        setAttendeePresenceWarnings(warnings);
       } catch {
         // Backend unavailable — ignore
       }
@@ -1401,6 +1413,15 @@ export default function SpeakerLabelModal({
             <button className="btn-icon speaker-unregistered-dismiss" onClick={() => setDismissedUnregistered(true)} title="Dismiss">
               <Icon name="close" size="12" color="muted" />
             </button>
+          </div>
+        )}
+
+        {attendeePresenceWarnings.length > 0 && !showVoiceWarnings && conflicts.length === 0 && (
+          <div className="speaker-unregistered-banner">
+            <Icon name="info" size="14" color="accent" />
+            <span>
+              <strong>Attendee warning:</strong> {attendeePresenceWarnings.map((warning) => warning.message).join(" ")}
+            </span>
           </div>
         )}
 
