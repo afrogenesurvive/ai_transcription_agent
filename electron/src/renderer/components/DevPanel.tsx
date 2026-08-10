@@ -3924,6 +3924,7 @@ function TestingLogsTab() {
 
 /** Documentation files to display in the Guide tab (excluding end_user_guide.md). */
 const DOC_FILES = [
+  { id: "agent_instruction_customization", label: "Agent Instructions", file: "agent_instruction_customization.md" },
   { id: "api_endpoints", label: "API Endpoints", file: "api_endpoints.md" },
   { id: "asv_speaker_detect_tuning", label: "ASV Speaker Tuning", file: "asv_speaker_detect_tuning.md" },
   { id: "backend_architecture", label: "Backend Architecture", file: "backend_architecture.md" },

@@ -78,7 +78,6 @@ export default function App() {
   const [devWarningModal, setDevWarningModal] = useState<SidebarView | null>(null);
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
   const [configOk, setConfigOk] = useState(true);
-  const [showConfigOverlay, setShowConfigOverlay] = useState(false);
   const [ollamaRequired, setOllamaRequired] = useState(false);
   // Job-status polling safety cap (ms), driven by PIPELINE_TIMEOUT_MINUTES from
   // config so the UI never gives up before the backend's own pipeline timeout.
@@ -317,15 +316,6 @@ export default function App() {
       }
     });
   }, []);
-
-  // Show config overlay when config is missing and user is not on the config panel
-  useEffect(() => {
-    if (!configOk && sidebarView !== "config") {
-      setShowConfigOverlay(true);
-    } else {
-      setShowConfigOverlay(false);
-    }
-  }, [configOk, sidebarView]);
 
   // Listen for Electron notifications
   React.useEffect(() => {
@@ -1175,57 +1165,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Missing-config overlay — blocks other views when no API keys are configured */}
-        {showConfigOverlay && (
-          <div className="lm-overlay" style={{ zIndex: 900 }}>
-            <div
-              style={{
-                background: "var(--surface)",
-                borderRadius: "var(--radius)",
-                padding: 32,
-                maxWidth: 440,
-                textAlign: "center",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: 16,
-                boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
-              }}>
-              <Icon name="info" size="48" color="accent" />
-              <h3 style={{ margin: 0, color: "var(--text)", fontSize: "var(--fs-16)" }}>Configuration Required</h3>
-              <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "var(--fs-13)", lineHeight: 1.5 }}>
-                This app requires API keys to function. Please configure your settings or import a configuration file from a previous install.
-              </p>
-              <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-                <button
-                  className="dev-panel-btn"
-                  onClick={() => {
-                    setSidebarView("config");
-                    setShowConfigOverlay(false);
-                  }}
-                  style={{ padding: "8px 24px", fontWeight: 600 }}
-                  title="Open the configuration panel to enter API keys">
-                  <Icon name="settings" size="16" /> Open Settings
-                </button>
-                <button
-                  className="config-io-btn config-io-btn--import-highlight"
-                  onClick={async () => {
-                    const result = await window.electronAPI?.importConfig();
-                    if (result?.success) {
-                      setShowConfigOverlay(false);
-                      setSidebarView("config");
-                      window.electronAPI?.checkConfig().then((r) => setConfigOk(r.ok));
-                    }
-                  }}
-                  style={{ padding: "8px 24px", fontWeight: 600 }}
-                  title="Import configuration from a previously exported JSON file">
-                  <Icon name="download" size="16" /> Import Config
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Quit confirmation dialog */}
         {showQuitConfirm && (
           <div className="confirm-overlay" onClick={() => setShowQuitConfirm(false)}>
@@ -1435,7 +1374,11 @@ export default function App() {
             {sidebarView === "dev" && <DevPanel onClose={() => setSidebarView("current")} />}
 
             {/* ── Server status popover overlay ── */}
-            {sidebarView !== "dev" && <ServerStatusBanner />}
+            {sidebarView !== "dev" && (
+              <ServerStatusBanner
+                onConfigImported={() => window.electronAPI?.checkConfig().then((r) => setConfigOk(r.ok))}
+              />
+            )}
 
             {/* ── Normal content (always visible behind popover) ── */}
             {sidebarView !== "dev" && (

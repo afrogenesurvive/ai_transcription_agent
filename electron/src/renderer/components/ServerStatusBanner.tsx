@@ -19,7 +19,7 @@ const SERVICE_ICONS: Record<string, string> = {
 
 const COUNTDOWN_SECONDS = 25;
 
-export default function ServerStatusBanner() {
+export default function ServerStatusBanner({ onConfigImported }: { onConfigImported?: () => void }) {
   const {
     services,
     diarizationOk,
@@ -133,8 +133,9 @@ export default function ServerStatusBanner() {
       const cfg = await window.electronAPI?.checkConfig();
       setConfigMissing(!cfg?.ok);
       onCheckServers();
+      onConfigImported?.();
     }
-  }, [onCheckServers]);
+  }, [onCheckServers, onConfigImported]);
 
   const handleCloseApp = useCallback(async () => {
     await window.electronAPI?.closeApp();

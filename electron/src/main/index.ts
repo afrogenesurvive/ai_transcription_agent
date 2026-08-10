@@ -800,14 +800,24 @@ ipcMain.handle("app:guide", () => {
   return "";
 });
 
-/** Load an arbitrary doc file from the docs/ directory. */
+/** Load an arbitrary doc file from the docs/ (or docs/safe/) directory. */
 ipcMain.handle("app:doc", (_event, filename: string) => {
+  // Search docs/ first, then docs/safe/ — safe docs are served by the DevPanel
+  // Guide tab too (e.g. usage-tracking-plan.md). Both are bundled via
+  // extraResources → resources/docs/ in packaged builds.
+  const docRoots = ["docs", "docs/safe"];
   const docPath = (() => {
-    const candidates = [path.join(__dirname, "..", "..", "..", "docs", filename), path.join(app.getAppPath(), "..", "docs", filename)];
+    const candidates: string[] = [];
+    for (const root of docRoots) {
+      candidates.push(path.join(__dirname, "..", "..", "..", root, filename));
+      candidates.push(path.join(app.getAppPath(), "..", root, filename));
+    }
     if (app.isPackaged) {
-      // Bundled via extraResources → resources/docs/<filename>
-      candidates.unshift(path.join(process.resourcesPath, "..", "docs", filename));
-      candidates.unshift(path.join(process.resourcesPath, "docs", filename));
+      // Bundled via extraResources → resources/docs/<filename> (+ docs/safe)
+      for (const root of docRoots) {
+        candidates.unshift(path.join(process.resourcesPath, "..", root, filename));
+        candidates.unshift(path.join(process.resourcesPath, root, filename));
+      }
     }
     return candidates.find((p) => {
       try {

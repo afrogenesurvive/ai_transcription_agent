@@ -33,11 +33,8 @@ logs/
 
 
 # ── Build output & local data ──
-safe/
+/safe/
 dist/
-
-# CI-downloaded ffmpeg staged for installer bundling
-dist-resources/ffmpeg/
 
 # ── Transcription Agent Service (self-contained, gitignored) ──
 transcription-agent/
@@ -106,4 +103,6 @@ assets/private
 .cloudflared-url
 .github/prompts
 
-safe/
+# Only the root safe/ (local build data) stays ignored. docs/safe/ is tracked —
+# it holds project docs served by the DevPanel Guide tab.
+/safe/
