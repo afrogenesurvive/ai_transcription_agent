@@ -59,11 +59,27 @@
         ]
       },
       {
+        "from": "../bridge-server/node_modules",
+        "to": "bridge-server/node_modules",
+        "filter": [
+          "**/*",
+          "!**/.cache/**"
+        ]
+      },
+      {
         "from": "../agent-runner",
         "to": "agent-runner",
         "filter": [
           "**/*",
           "!node_modules/**/.cache/**"
+        ]
+      },
+      {
+        "from": "../agent-runner/node_modules",
+        "to": "agent-runner/node_modules",
+        "filter": [
+          "**/*",
+          "!**/.cache/**"
         ]
       },
       {

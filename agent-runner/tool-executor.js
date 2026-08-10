@@ -6,7 +6,6 @@
  * This prevents credentials, tokens, or injection payloads from leaking.
  */
 
-import "dotenv/config";
 import fs from "fs";
 import path from "path";
 import { sanitizeApiResponse } from "./sanitize.js";

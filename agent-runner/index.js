@@ -20,7 +20,6 @@
  *   stop     — Shut down
  */
 
-import "dotenv/config";
 import fs from "fs";
 import os from "os";
 import path from "path";

@@ -9,7 +9,6 @@
  * This keeps the agent runner purely Node.js and the Python backend isolated.
  */
 
-import "dotenv/config";
 import http from "http";
 import fs from "fs";
 import path from "path";
