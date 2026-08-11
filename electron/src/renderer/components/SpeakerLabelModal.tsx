@@ -883,6 +883,83 @@ export default function SpeakerLabelModal({
     [speakers, onClearError, verifySingleSpeaker],
   );
 
+  /** Clear a speaker's name + email (the ✕ button on each row).
+   *  If the cleared name belonged to an enrolled-voiceprint attendee whose voice
+   *  wasn't matched in this recording (the "Enrolled voiceprint not found"
+   *  section), release them back to that section: the non-speaking radio is
+   *  re-enabled and deselected so the user can re-opt them in if desired.
+   *  All per-speaker conflict/drift/overwrite/warning state is reset so the
+   *  next blur/verify re-evaluates from a clean slate. */
+  const handleClearSpeaker = useCallback(
+    (speakerId: string) => {
+      const clearedName = (labels[speakerId] || "").trim().toLowerCase();
+      setLabels((prev) => {
+        const next = { ...prev };
+        delete next[speakerId];
+        return next;
+      });
+      setEmails((prev) => {
+        const next = { ...prev };
+        delete next[speakerId];
+        return next;
+      });
+      setEmailErrors((prev) => {
+        const next = { ...prev };
+        delete next[speakerId];
+        return next;
+      });
+      setPerSpeakerConflicts((prev) => {
+        const next = { ...prev };
+        delete next[speakerId];
+        return next;
+      });
+      setDriftNotices((prev) => {
+        const next = { ...prev };
+        delete next[speakerId];
+        return next;
+      });
+      setPerSpeakerOverwrite((prev) => {
+        const next = new Set(prev);
+        next.delete(speakerId);
+        return next;
+      });
+      setVpOverwriteWarnings((prev) => {
+        const next = { ...prev };
+        delete next[speakerId];
+        return next;
+      });
+      setConflictChoices((prev) => {
+        const next = { ...prev };
+        delete next[speakerId];
+        return next;
+      });
+      setAcceptedConflicts((prev) => {
+        const next = new Set(prev);
+        for (const k of next) {
+          if (k.startsWith(`${speakerId}:`)) next.delete(k);
+        }
+        return next;
+      });
+      setVoiceMatchKeepSet((prev) => {
+        const next = new Set(prev);
+        next.delete(speakerId);
+        return next;
+      });
+      // Release an unmatched enrolled-voiceprint attendee back to the
+      // "Enrolled voiceprint not found" section with the radio deselected
+      // (re-enabled, not auto-checked).
+      if (clearedName && unmatchedFormVoiceprintAttendees.some((a) => a.name.toLowerCase() === clearedName)) {
+        setAddedAsNonSpeaking((prev) => {
+          const next = new Set(prev);
+          next.delete(clearedName);
+          return next;
+        });
+      }
+      onClearError?.();
+    },
+    [labels, unmatchedFormVoiceprintAttendees, onClearError],
+  );
+
   /** Explicitly overwrite the enrolled voiceprint with this meeting's voice. */
   const handleDriftOverwrite = (speakerId: string) => {
     setPerSpeakerOverwrite((prev) => new Set(prev).add(speakerId));
@@ -1034,6 +1111,7 @@ export default function SpeakerLabelModal({
         <div className="speaker-list">
           {speakers.map((spk, idx) => {
             const hasName = (labels[spk.speaker_id]?.trim() ?? "").length > 0;
+            const hasEmail = (emails[spk.speaker_id]?.trim() ?? "").length > 0;
             const drift = driftNotices[spk.speaker_id];
             const vpOverwrite = vpOverwriteWarnings[spk.speaker_id];
             // (a) Recognized from a previous job: the speaker's voice matched an
@@ -1104,6 +1182,15 @@ export default function SpeakerLabelModal({
                     />
                   </Tooltip>
                   {hasName && <span className="speaker-label-check">✓</span>}
+                  {(hasName || hasEmail) && (
+                    <button
+                      className="speaker-clear-btn"
+                      onClick={() => handleClearSpeaker(spk.speaker_id)}
+                      title="Clear name & email — releases any attendee assigned to this speaker"
+                      aria-label="Clear name and email">
+                      <Icon name="close" size="14" />
+                    </button>
+                  )}
                 </div>
                 <div className="speaker-email-row">
                   <Tooltip content="Email is required — used as the unique key for voiceprint storage and matching across meetings">
