@@ -84,6 +84,8 @@ interface Props {
     originalFilename?: string;
     attendees?: string[];
     event_type?: string;
+    /** Tool names excluded from the agent pipeline for this job (from status metadata). */
+    skip_steps?: string[];
   };
   /** Pipeline status info for the Pipeline tab */
   jobStatus?: string;
@@ -2541,10 +2543,25 @@ const DELIVERY_RESULT_KEY_LABELS: Record<string, string> = {
   id: "Message ID",
 };
 
-function DeliveryTab({ jobId }: { jobId: string }) {
+function DeliveryTab({ jobId, metadata }: { jobId: string; metadata?: Props["metadata"] }) {
   const [data, setData] = useState<DeliveryResultsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Whether the agent-instructions delivery step was disabled for this job
+  // (send_delivery_email in skip_steps). Matches the pipeline stepper's
+  // computeSkippedStages convention: email delivery is the marker for the
+  // "delivery" stage. When disabled, no delivery emails were sent.
+  const deliveryStepDisabled = !!metadata?.skip_steps?.includes("send_delivery_email");
+  const deliveryDisabledNote = deliveryStepDisabled ? (
+    <div className="rv-delivery-disabled-note" role="status">
+      <Icon name="warning" size="16" color="orange" />
+      <span>
+        <strong>Delivery step disabled</strong> — the agent instructions had the delivery
+        step turned off for this job, so no delivery emails were sent.
+      </span>
+    </div>
+  ) : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -2593,6 +2610,7 @@ function DeliveryTab({ jobId }: { jobId: string }) {
   if (error || !data) {
     return (
       <div className="rv-tab-content">
+        {deliveryDisabledNote}
         <div className="rv-empty-state">
           <span className="rv-empty-icon">
             <Icon name="mail" size="32" color="muted" />
@@ -2607,6 +2625,8 @@ function DeliveryTab({ jobId }: { jobId: string }) {
 
   return (
     <div className="rv-tab-content rv-tab-content--delivery">
+      {deliveryDisabledNote}
+
       {/* Summary cards */}
       <div className="rv-tokens-summary">
         <div className="rv-tokens-card">
@@ -3297,7 +3317,7 @@ export default function ResultsViewer({
             <AnalysisTab analysis={analysis} jobId={jobId} onAnalysisUpdate={(updated) => setAnalysis(updated)} exportNamePrefix={exportNamePrefix} />
           ))}
         {activeTab === "attendees" && <AttendeesTab jobId={jobId} exportNamePrefix={exportNamePrefix} />}
-        {activeTab === "delivery" && <DeliveryTab jobId={jobId} />}
+        {activeTab === "delivery" && <DeliveryTab jobId={jobId} metadata={metadata} />}
 
         {/* Developer grouped tabs */}
         {effectiveTab === "developer" && (

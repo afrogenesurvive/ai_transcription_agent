@@ -394,6 +394,7 @@ Shows per-destination delivery results with success/failure status for each conf
   - **Result details** — expand to see the raw result data (recipients, folder name, card IDs, etc.)
   - **Timestamp** of when the delivery was attempted
 - **Delivery data unavailable** — shown when the job didn't have delivery steps configured
+- **Delivery step disabled note** — when the delivery step was turned off in the agent instructions for a job (e.g. "Deliver via Email" was skipped), an amber warning note appears at the top of the tab explaining that no delivery emails were sent
 
 ### 🎧 Audio Tab
 
