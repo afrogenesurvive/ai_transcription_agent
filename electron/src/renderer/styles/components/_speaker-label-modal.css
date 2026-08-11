@@ -874,3 +874,75 @@
 .speaker-vp-overwrite-warning strong {
   color: var(--orange);
 }
+
+/* ── Recognized from a previous job (per-input indicator) ── */
+
+.speaker-vp-recognized {
+  margin-top: 6px;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.speaker-vp-recognized strong {
+  color: var(--accent);
+}
+
+/* ── Enrolled voiceprint not found in this recording ── */
+
+.speaker-unmatched-vp-section {
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+.speaker-unmatched-vp-heading {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.speaker-unmatched-vp-desc {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.speaker-unmatched-vp-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.speaker-unmatched-vp-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.speaker-unmatched-vp-name {
+  font-weight: 500;
+}
+
+.speaker-unmatched-vp-job {
+  color: var(--text-muted);
+  font-size: 11px;
+}

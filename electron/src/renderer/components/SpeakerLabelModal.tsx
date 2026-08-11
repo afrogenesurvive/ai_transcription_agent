@@ -152,9 +152,9 @@ export default function SpeakerLabelModal({
   // Keyed by speaker_id. When the assigned name has an enrolled voiceprint but
   // the current meeting's voice doesn't match it, verifyLabels returns a
   // voice_drift_conflicts entry and we show an inline notice. It is advisory,
-  // not a gate: the user can explicitly overwrite (adds to perSpeakerOverwrite),
-  // dismiss it (accepting the overwrite on save), or edit the name (which clears
-  // it). The user has full visibility into what exists and where the mismatch is.
+  // not a gate: the user can explicitly overwrite (adds to perSpeakerOverwrite)
+  // or edit the name (which clears it). The user has full visibility into what
+  // exists and where the mismatch is.
   const [driftNotices, setDriftNotices] = useState<Record<string, VoiceDriftConflict>>({});
   // ── Proactive voiceprint-overwrite warnings ──
   // Set when the user picks an existing attendee that already has an enrolled
@@ -196,6 +196,10 @@ export default function SpeakerLabelModal({
   const [dismissedUnregistered, setDismissedUnregistered] = useState(false);
   const [attendeePresenceWarnings, setAttendeePresenceWarnings] = useState<Array<{ name: string; message: string }>>([]);
   const [voiceprintReuseWarnings, setVoiceprintReuseWarnings] = useState<Array<{ name: string; message: string }>>([]);
+
+  // ── (b) Form attendees with an enrolled voiceprint that wasn't matched to any
+  // voice in this recording (computed on mount from get_speaker_clips data). ──
+  const [unmatchedFormVoiceprintAttendees, setUnmatchedFormVoiceprintAttendees] = useState<KnownAttendee[]>([]);
 
   // ── Populate inline conflicts from post-submit drift audit ──
   // When the backend returns voice match conflicts during label_and_resume,
@@ -340,6 +344,20 @@ export default function SpeakerLabelModal({
       setPerSpeakerConflicts(conflictEntries);
       setProactiveConflicts(proactive);
     }
+
+    // ── (b) Surface form attendees that have an enrolled voiceprint (from a
+    // previous meeting) but whose voice wasn't matched to any speaker in this
+    // recording. The recognized set comes from the per-speaker voiceprint
+    // matches (get_speaker_clips), NOT the pre-filled labels — the positional
+    // fallback fills inputs with form names that may not be real voiceprint
+    // matches, so relying on labels would hide genuine non-matches.
+    const voiceprintMatchedNames = new Set(
+      (speakers || []).flatMap((s) => s.voiceprint_matches?.map((m) => m.name.toLowerCase()) ?? []),
+    );
+    const unmatchedFormWithPrint = (knownAttendees?.with_voiceprint ?? []).filter(
+      (a) => a.in_form && !voiceprintMatchedNames.has(a.name.toLowerCase()),
+    );
+    setUnmatchedFormVoiceprintAttendees(unmatchedFormWithPrint);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -860,17 +878,6 @@ export default function SpeakerLabelModal({
     });
   };
 
-  /** Dismiss the drift notice — keeps the assignment as-is (the overwrite will
-   *  happen on save; the user was informed of the mismatch and can edit the name
-   *  to change their mind). Advisory, not a gate. */
-  const handleDriftDismiss = (speakerId: string) => {
-    setDriftNotices((prev) => {
-      const next = { ...prev };
-      delete next[speakerId];
-      return next;
-    });
-  };
-
   /** Handle A/B conflict choice: fill the speaker's name/email and track the decision. */
   const handleConflictChoice = useCallback(
     (speakerId: string, choice: 'form_entry' | 'voice_owner', match: VoiceMatchConflict) => {
@@ -1015,6 +1022,20 @@ export default function SpeakerLabelModal({
             const hasName = (labels[spk.speaker_id]?.trim() ?? "").length > 0;
             const drift = driftNotices[spk.speaker_id];
             const vpOverwrite = vpOverwriteWarnings[spk.speaker_id];
+            // (a) Recognized from a previous job: the speaker's voice matched an
+            // enrolled voiceprint of a previously-registered attendee and the
+            // current label reflects that same-name match (pre-filled). Show an
+            // indicator under the input so the user knows the voice was matched
+            // against a prior meeting's voiceprint.
+            const recognizedFromPreviousJob = (() => {
+              const best = spk.voiceprint_matches?.[0];
+              if (!best || !best.sample_job_id || best.sample_job_id === jobId) return null;
+              const assigned = (labels[spk.speaker_id]?.trim() || spk.suggested_name || "").toLowerCase();
+              if (assigned && best.name.toLowerCase() !== assigned) return null;
+              // Narrow sample_job_id to a required string — the guard above
+              // guarantees it's present, so the renderer can slice it safely.
+              return best as VoiceMatchConflict & { sample_job_id: string };
+            })();
             return (
               <div
                 key={spk.speaker_id}
@@ -1098,6 +1119,17 @@ export default function SpeakerLabelModal({
                   </Tooltip>
                   {emailErrors[spk.speaker_id] && <span className="speaker-email-error">{emailErrors[spk.speaker_id]}</span>}
                 </div>
+                {/* ── (a) Recognized from a previous job indicator ── */}
+                {recognizedFromPreviousJob && (
+                  <div className="speaker-vp-recognized">
+                    <Icon name="badge" size="12" color="accent" />
+                    <span>
+                      Recognized as <strong>{recognizedFromPreviousJob.name}</strong> from job{" "}
+                      {recognizedFromPreviousJob.sample_job_id.slice(0, 8)} — this voice was matched to a registered attendee&apos;s
+                      voiceprint from a previous meeting.
+                    </span>
+                  </div>
+                )}
                 {/* ── Assign known attendee (dropdown) ── */}
                 <div className="speaker-attendee-picker">
                   <Tooltip content="Pick a registered attendee to auto-fill this speaker's name and email">
@@ -1229,9 +1261,6 @@ export default function SpeakerLabelModal({
                       <button className="btn-primary speaker-drift-btn" onClick={() => handleDriftOverwrite(spk.speaker_id)}>
                         Use “{drift.name}” &amp; overwrite voiceprint
                       </button>
-                      <button className="btn-secondary speaker-drift-btn" onClick={() => handleDriftDismiss(spk.speaker_id)}>
-                        Dismiss
-                      </button>
                     </div>
                   </div>
                 )}
@@ -1268,6 +1297,29 @@ export default function SpeakerLabelModal({
                     }>
                     <Icon name="close" size="14" />
                   </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* ── (b) Enrolled voiceprint not matched in this recording ── */}
+        {unmatchedFormVoiceprintAttendees.length > 0 && (
+          <div className="speaker-unmatched-vp-section">
+            <h3 className="speaker-unmatched-vp-heading">
+              <Icon name="badge" size="14" color="accent" /> Enrolled voiceprint not found in this recording
+            </h3>
+            <p className="speaker-unmatched-vp-desc">
+              These attendees have an enrolled voiceprint from a previous meeting, but none of the voices in this recording matched them. If one
+              of them is actually present, use the <strong>“Assign known attendee…”</strong> dropdown on a speaker to assign them to a voice.
+            </p>
+            <ul className="speaker-unmatched-vp-list">
+              {unmatchedFormVoiceprintAttendees.map((a, i) => (
+                <li key={i} className="speaker-unmatched-vp-item">
+                  <span className="speaker-unmatched-vp-name">{a.name}</span>
+                  {a.sample_job_id ? (
+                    <span className="speaker-unmatched-vp-job">· vp from {a.sample_job_id.slice(0, 8)}</span>
+                  ) : null}
                 </li>
               ))}
             </ul>

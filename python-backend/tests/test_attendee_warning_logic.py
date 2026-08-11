@@ -9,19 +9,27 @@ from routes.labeling import _build_attendee_presence_warning, _build_voiceprint_
 def test_build_attendee_presence_warning_detects_missing_attendee():
     registered_attendees = ["Alice", "Bob"]
     speaker_labels = ["Alice", "Carol"]
-    warning = _build_attendee_presence_warning(registered_attendees, speaker_labels)
+    warnings = _build_attendee_presence_warning(registered_attendees, speaker_labels)
 
-    assert warning is not None
-    assert warning["type"] == "attendee_not_present_in_audio"
-    assert warning["name"] == "Bob"
+    assert len(warnings) == 1
+    assert warnings[0]["type"] == "attendee_not_present_in_audio"
+    assert warnings[0]["name"] == "Bob"
 
 
 def test_build_attendee_presence_warning_skips_attendees_present_in_audio():
     registered_attendees = ["Alice", "Bob"]
     speaker_labels = ["Alice", "Bob"]
-    warning = _build_attendee_presence_warning(registered_attendees, speaker_labels)
+    warnings = _build_attendee_presence_warning(registered_attendees, speaker_labels)
 
-    assert warning is None
+    assert warnings == []
+
+
+def test_build_attendee_presence_warning_reports_all_unmatched():
+    registered_attendees = ["Alice", "Bob", "Carol"]
+    speaker_labels = ["Alice"]
+    warnings = _build_attendee_presence_warning(registered_attendees, speaker_labels)
+
+    assert [w["name"] for w in warnings] == ["Bob", "Carol"]
 
 
 def test_build_voiceprint_reuse_warnings_flags_cross_job_reuse():

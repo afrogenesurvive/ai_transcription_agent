@@ -412,7 +412,15 @@ async function dispatch(tool, args) {
     }
 
     case "transcribe_verify_labels":
-      return await callPython("POST", `/agent/verify-labels`, args);
+      // Backend verify_labels() reads snake_case `job_id` from the body, but the
+      // renderer sends camelCase `jobId` — which previously 400'd every call,
+      // silently disabling voice-match conflicts, drift notices, voiceprint-reuse
+      // warnings, and attendee-presence warnings. Map the field here so the
+      // endpoint actually runs.
+      return await callPython("POST", `/agent/verify-labels`, {
+        job_id: args.jobId,
+        labels: args.labels,
+      });
 
     case "transcribe_get_token_usage": {
       const usageResult = await callPython("GET", `/transcribe/usage/${args.jobId}`);
@@ -592,7 +600,11 @@ async function dispatch(tool, args) {
       return await callPython("POST", `/transcribe/save_analysis/${args.jobId}`, { analysis: parseIfString(args.analysis) });
 
     case "voiceprint_check_conflicts":
-      return await callPython("POST", "/voiceprints/check-conflicts", { names: args.attendees || [] });
+      // check_voiceprint_conflicts() declares `names: list = Body(...)`, which
+      // expects the bare JSON array as the request body. Wrapping it in
+      // `{ names: [...] }` previously returned 422 on every call, silently
+      // disabling the name/email conflict dialog.
+      return await callPython("POST", "/voiceprints/check-conflicts", args.attendees || []);
 
     case "attendees_check_conflicts":
       return await callPython("POST", "/attendees/check-conflicts", args.entries || []);

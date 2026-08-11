@@ -294,11 +294,14 @@ function deriveStatusStageProgress(source: LogEntry["source"], message: string):
  *
  * The formats we recognise (all emitted by the Python backend):
  *   - Whisper ASR:  "ASV progress: <end>/<total> (NN.N%)"          → transcription (0→100)
- *   - Diarization:  "Diarization <step>: NN.N%"                    → diarization (0→1 fraction)
+ *   - Diarization:  "Diarization Segmentation: NN.N%"              → diarization (0→1 fraction)
  *
  * Note: the subprocess's "Diarization progress: X/Y segments (NN%)" line is
  * deliberately NOT parsed — the Identifying Speakers step's second source is
  * the status-poll band progress (deriveStatusStageProgress), not that line.
+ * Likewise the "Diarization embeddings: …" hook line is NOT parsed: it stays in
+ * the logs but would otherwise overwrite the badge with a tiny value that
+ * clashes with the status-poll band.
  *
  * Messages have already had emoji stripped and any leading [tag] prefix removed
  * by backend-manager, but may carry a leading "[  12.3s]" elapsed-time bracket,
@@ -309,11 +312,16 @@ function deriveStageProgress(message: string): { stage: StageKey; percent: numbe
   const asv = message.match(/ASV progress:\s*\S+\/\S+\s*\(([\d.]+)%\)/);
   if (asv) return { stage: "transcription", percent: parseFloat(asv[1]) };
 
-  // Diarization step progress, e.g. "Diarization Segmentation: 0.45%" (pyannote hook).
-  // The hook reports a 0→1 fraction; the backend now logs it directly (0.45), so we
-  // pass the fraction through unchanged for the stepper to display as "0.45%".
-  const diarStep = message.match(/Diarization\s+[A-Za-z]+:\s*([\d.]+)%/);
-  if (diarStep) return { stage: "diarization", percent: parseFloat(diarStep[1]) };
+  // Diarization step progress from pyannote's hook (0→1 fraction). Only the
+  // "Segmentation" step drives the Identifying Speakers badge, shown as the raw
+  // fraction (e.g. "0.45%"). The "embeddings" hook line is deliberately NOT
+  // parsed — it stays in the logs but would otherwise overwrite the badge with a
+  // tiny value that clashes with the status-poll band (deriveStatusStageProgress,
+  // which reports "Diarization Processing progress = … (40.0%)").
+  const diarSeg = message.match(/Diarization\s+([A-Za-z]+):\s*([\d.]+)%/);
+  if (diarSeg && diarSeg[1].toLowerCase() === "segmentation") {
+    return { stage: "diarization", percent: parseFloat(diarSeg[2]) };
+  }
 
   return null;
 }
