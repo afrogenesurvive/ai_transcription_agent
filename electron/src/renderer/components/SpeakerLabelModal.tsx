@@ -306,11 +306,7 @@ export default function SpeakerLabelModal({
       // their data must stay out of every input until the user acts.
       if (spk.form_entry_email && !unmatchedEmailsLower.has(spk.form_entry_email.toLowerCase())) {
         initialEmails[spk.speaker_id] = spk.form_entry_email;
-      } else if (
-        i < suggestedEmails.length &&
-        suggestedEmails[i] &&
-        !unmatchedEmailsLower.has(suggestedEmails[i].toLowerCase())
-      ) {
+      } else if (i < suggestedEmails.length && suggestedEmails[i] && !unmatchedEmailsLower.has(suggestedEmails[i].toLowerCase())) {
         initialEmails[spk.speaker_id] = suggestedEmails[i];
       }
     }
@@ -1404,7 +1400,8 @@ export default function SpeakerLabelModal({
             </h3>
             <p className="speaker-unmatched-vp-desc">
               These attendees have an enrolled voiceprint from a previous meeting, but none of the voices in this recording matched them. Use the{" "}
-              <strong>“Assign known attendee…”</strong> dropdown on a speaker to assign them to a voice, or mark them below as present-but-did-not-speak.
+              <strong>“Assign known attendee…”</strong> dropdown on a speaker to assign them to a voice, or mark them below as
+              present-but-did-not-speak.
             </p>
             <ul className="speaker-unmatched-vp-list">
               {unmatchedFormVoiceprintAttendees.map((a, i) => {
@@ -1421,8 +1418,7 @@ export default function SpeakerLabelModal({
                     key={i}
                     className={`speaker-unmatched-vp-item${assigned ? " speaker-unmatched-vp-item--assigned" : ""}${
                       checked ? " speaker-unmatched-vp-item--added" : ""
-                    }`}
-                  >
+                    }`}>
                     <label className="speaker-unmatched-vp-option" title={title}>
                       <input
                         type="radio"

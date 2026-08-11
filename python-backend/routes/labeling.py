@@ -198,6 +198,18 @@ def _normalize_name(value: str) -> str:
     return re.sub(r"\s+", " ", (value or "").strip()).lower()
 
 
+def _job_meeting_name(job_id: str) -> str:
+    """Resolve a job id to its human-readable meeting title for display in
+    warnings. Falls back to the short job id when the source job has no title
+    or its metadata can't be read."""
+    try:
+        meta = services.uploader.get_metadata(job_id) or {}
+        title = (meta.get("title") or "").strip()
+        return title or job_id[:8]
+    except Exception:
+        return job_id[:8]
+
+
 def _build_voiceprint_reuse_warnings(entries, current_job_id, voiceprints):
     """Return advisory warnings for attendees whose voiceprint belongs to another job.
 
@@ -225,6 +237,7 @@ def _build_voiceprint_reuse_warnings(entries, current_job_id, voiceprints):
                 continue
             if not vp_name and not vp_email:
                 continue
+            meeting_name = _job_meeting_name(sample_job_id)
             if name and vp_name and _normalize_name(vp_name) == _normalize_name(name):
                 warnings.append({
                     "type": "voiceprint_reused_from_other_job",
@@ -234,7 +247,7 @@ def _build_voiceprint_reuse_warnings(entries, current_job_id, voiceprints):
                     "existing_email": vp_email,
                     "sample_job_id": sample_job_id,
                     "message": (
-                        f"'{name}' already has an enrolled voiceprint from job {sample_job_id[:8]} "
+                        f"'{name}' already has an enrolled voiceprint from meeting {meeting_name} "
                         "and may be a reused attendee from another meeting."
                     ),
                 })
@@ -248,7 +261,7 @@ def _build_voiceprint_reuse_warnings(entries, current_job_id, voiceprints):
                     "existing_email": vp_email,
                     "sample_job_id": sample_job_id,
                     "message": (
-                        f"'{email}' already has an enrolled voiceprint from job {sample_job_id[:8]} "
+                        f"'{name or email}' already has an enrolled voiceprint from meeting {meeting_name} "
                         "and may be a reused attendee from another meeting."
                     ),
                 })
@@ -256,30 +269,43 @@ def _build_voiceprint_reuse_warnings(entries, current_job_id, voiceprints):
     return warnings
 
 
-def _build_attendee_presence_warning(registered_attendees, speaker_labels):
-    """Return a list of warnings for attendees who were listed for the job but had
-    no speaker label in the current audio matching them. Advisory only — never
-    blocks submission. Every unmatched attendee is reported, not just the first."""
-    normalized_labels = {
-        _normalize_name(label)
-        for label in (speaker_labels or [])
-        if _normalize_name(label)
-    }
+def _compact_identity(value: str) -> str:
+    """Whitespace-insensitive lowercase identity for attendee matching —
+    'test 011' and 'test011' are the same person."""
+    return re.sub(r"\s+", "", (value or "").strip().lower())
+
+
+def _build_attendee_presence_warning(form_attendees, matched_voiceprint_names, enrolled_voiceprint_names):
+    """Return advisory warnings for REGISTERED attendees (those with an enrolled
+    voiceprint) who were listed for this job but whose registered voiceprint was
+    NOT matched by any voice in the current audio.
+
+    Brand-new, unregistered attendees (no enrolled voiceprint) are excluded —
+    they have no print to match, so their presence can't be voice-confirmed yet;
+    they are surfaced by the separate 'unregistered' banner instead.
+
+    Advisory only — never blocks submission. Every unmatched registered attendee
+    is reported, not just the first."""
+    matched = {_compact_identity(n) for n in (matched_voiceprint_names or []) if _compact_identity(n)}
+    enrolled = {_compact_identity(n) for n in (enrolled_voiceprint_names or []) if _compact_identity(n)}
     warnings = []
-    for attendee in (registered_attendees or []):
+    for attendee in (form_attendees or []):
         attendee_name = (attendee or "").strip()
-        normalized_attendee = _normalize_name(attendee_name)
-        if not normalized_attendee:
+        identity = _compact_identity(attendee_name)
+        if not identity:
             continue
-        if normalized_attendee not in normalized_labels:
-            warnings.append({
-                "type": "attendee_not_present_in_audio",
-                "name": attendee_name,
-                "message": (
-                    f"'{attendee_name}' was listed as an attendee for this meeting, "
-                    "but no speaker label in the current audio matched them."
-                ),
-            })
+        if identity not in enrolled:
+            continue  # Not a registered attendee with an enrolled voiceprint
+        if identity in matched:
+            continue  # Their registered voiceprint WAS matched in this audio
+        warnings.append({
+            "type": "attendee_not_present_in_audio",
+            "name": attendee_name,
+            "message": (
+                f"Registered attendee '{attendee_name}' was added to this meeting, "
+                "but no meeting audio matched their registered voiceprint."
+            ),
+        })
     return warnings
 
 
@@ -329,6 +355,21 @@ async def verify_labels(payload: dict = Body(...)):
     unregistered_names = []
     attendee_presence_warnings = []
 
+    # Precomputed per-speaker voiceprint matches from the pipeline (covers every
+    # speaker even before all labels are verified). May be empty when the
+    # pipeline paused pre-ASR before voiceprint matching ran — the label loop
+    # below still collects each speaker's matches.
+    try:
+        _status = services.uploader.get_status(job_id) or {}
+    except Exception:
+        _status = {}
+    precomputed_matches = (_status or {}).get("voiceprint_matches_by_speaker", {}) or {}
+    matched_voiceprint_names: set = set()
+    for _spk_matches in precomputed_matches.values():
+        for _m in _spk_matches or []:
+            if _m.get("name"):
+                matched_voiceprint_names.add(_m["name"])
+
     for label in labels:
         spk = label.get("speaker_id", "")
         name = label.get("name", "").strip()
@@ -343,13 +384,6 @@ async def verify_labels(payload: dict = Body(...)):
             )
             if not is_registered:
                 unregistered_names.append(name)
-
-    attendee_presence_warnings.extend(
-        _build_attendee_presence_warning(
-            registered_attendees,
-            [label.get("name", "").strip() for label in labels if label.get("name", "").strip()],
-        )
-    )
 
     for label in labels:
         spk = label.get("speaker_id", "")
@@ -388,6 +422,13 @@ async def verify_labels(payload: dict = Body(...)):
                     services.vp_manager.find_matching_voiceprints, emb,
                     threshold=config.VOICEPRINT_THRESHOLD,
                 )
+
+                # Collect every matched enrolled-voiceprint name so the
+                # attendee-presence advisory knows which registered attendees'
+                # voiceprints WERE matched in this recording.
+                for _m in matches:
+                    if _m.get("name"):
+                        matched_voiceprint_names.add(_m["name"])
 
                 # Report any match where the existing name differs from the assigned
                 # name. If the names match (e.g. user clicked "Use ExistingName" via
@@ -431,6 +472,15 @@ async def verify_labels(payload: dict = Body(...)):
             "voice_match_conflicts": voice_match_conflicts,
             "voice_drift_conflicts": voice_drift_conflicts,
         })
+
+    # Attendee-presence advisory: REGISTERED attendees only (enrolled voiceprint)
+    # whose registered voiceprint was NOT matched by any voice in this recording.
+    # Brand-new/unregistered attendees are excluded (surfaced via unregistered_names).
+    attendee_presence_warnings = _build_attendee_presence_warning(
+        registered_attendees,
+        matched_voiceprint_names,
+        [v.get("name", "") for v in (services.vp_manager.list_voiceprints() or []) if v.get("name")],
+    )
 
     print(f"[api] POST /agent/verify-labels → {len(verifications)} verifications, "
           f"{sum(len(v['voice_match_conflicts']) for v in verifications)} conflict(s), "

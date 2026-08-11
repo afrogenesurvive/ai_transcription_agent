@@ -7,6 +7,7 @@
 
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { LogEntry, LogFileInfo } from "./logger";
+import type { GmailAuthResult } from "./gmailOAuth";
 
 contextBridge.exposeInMainWorld("electronAPI", {
   // ── File dialogs ──
@@ -56,6 +57,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getGuide: (): Promise<string> => ipcRenderer.invoke("app:guide"),
   getDoc: (filename: string): Promise<string> => ipcRenderer.invoke("app:doc", filename),
   openExternal: (url: string): Promise<{ success: boolean }> => ipcRenderer.invoke("app:openExternal", url),
+
+  // ── Gmail OAuth ("Connect with Google") ──
+  startGmailOAuth: (clientId?: string, clientSecret?: string): Promise<GmailAuthResult> =>
+    ipcRenderer.invoke("gmail:auth:start", { clientId, clientSecret }),
+  cancelGmailOAuth: (): Promise<{ ok: boolean }> => ipcRenderer.invoke("gmail:auth:cancel"),
 
   // ── Job status ──
   getActiveJobs: (): Promise<Array<{ job_id: string; status: string; progress: number; title: string }>> => ipcRenderer.invoke("jobs:getActive"),

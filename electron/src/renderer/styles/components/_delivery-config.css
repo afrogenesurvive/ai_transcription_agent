@@ -42,3 +42,38 @@
 .delivery-config-body .config-field:last-child {
   margin-bottom: 0;
 }
+
+/* ── Gmail "Connect with Google" (ConfigPanel Services) ── */
+
+.gmail-connect-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin-bottom: 12px;
+}
+
+.gmail-connect-row .config-update-status-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gmail-connect-hint {
+  font-size: var(--fs-11);
+  color: var(--text-muted);
+}
+
+.gmail-connect-feedback {
+  margin: -2px 0 12px;
+  font-size: var(--fs-12);
+  font-weight: 500;
+}
+
+.gmail-connect-feedback--ok {
+  color: var(--green, #3fb950);
+}
+
+.gmail-connect-feedback--err {
+  color: var(--red, #f85149);
+}

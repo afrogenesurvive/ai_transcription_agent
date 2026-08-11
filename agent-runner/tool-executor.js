@@ -12,6 +12,17 @@ import { sanitizeApiResponse } from "./sanitize.js";
 
 const BRIDGE = process.env.BRIDGE_URL || "http://127.0.0.1:5010";
 
+/** Append a friendly reconnect hint to Gmail/Drive auth errors (Testing-mode
+ *  refresh tokens expire ~weekly; the user needs to re-run "Connect with
+ *  Google" in Settings → Services). Never logs the token itself. */
+function withAuthHint(message) {
+  const msg = String(message || "");
+  if (/invalid_grant|expired|revoked|unauthorized|invalid client|invalid credentials/i.test(msg)) {
+    return `${msg} — Gmail/Drive authorization expired or invalid — reconnect Google in Settings → Services.`;
+  }
+  return msg;
+}
+
 async function callBridge(tool, args) {
   const resp = await fetch(`${BRIDGE}/tools/call`, {
     method: "POST",
@@ -99,7 +110,7 @@ async function sendEmail(to, subject, body, meetingTitle, jobId) {
       });
       results.push({ ok: true, recipient, id: res.data.id });
     } catch (err) {
-      results.push({ ok: false, recipient, error: err.message });
+      results.push({ ok: false, recipient, error: withAuthHint(err.message) });
     }
   }
 
@@ -201,6 +212,6 @@ export async function executeToolCall(toolName, args) {
     return result;
   } catch (err) {
     console.error(`   ❌ [EXECUTOR] ${toolName} failed: ${err.message}`);
-    return { ok: false, tool: toolName, error: err.message };
+    return { ok: false, tool: toolName, error: withAuthHint(err.message) };
   }
 }

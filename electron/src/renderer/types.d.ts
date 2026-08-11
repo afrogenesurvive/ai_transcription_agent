@@ -122,6 +122,16 @@ export interface StorageUsage {
   error?: string;
 }
 
+/** Result of the in-app "Connect with Google" OAuth flow (gmail:auth:start). */
+export interface GmailAuthResult {
+  ok: boolean;
+  refreshToken?: string;
+  clientId?: string;
+  clientSecret?: string;
+  user?: string;
+  error?: string;
+}
+
 export interface ElectronAPI {
   selectAudioFile: () => Promise<string | null>;
   getBackendStatus: () => Promise<{
@@ -159,6 +169,8 @@ export interface ElectronAPI {
   getGuide: () => Promise<string>;
   getDoc: (filename: string) => Promise<string>;
   openExternal: (url: string) => Promise<{ success: boolean }>;
+  startGmailOAuth: (clientId?: string, clientSecret?: string) => Promise<GmailAuthResult>;
+  cancelGmailOAuth: () => Promise<{ ok: boolean }>;
   getActiveJobs: () => Promise<Array<{ job_id: string; status: string; progress: number; title: string }>>;
   getRunningBotJobs: () => Promise<Array<{ job_id: string; status: string }>>;
   onNotification: (cb: (msg: string) => void) => () => void;

@@ -15,6 +15,7 @@ import { app, BrowserWindow, Tray, Menu, nativeImage, Notification, ipcMain, dia
 import path from "path";
 import pidusage from "pidusage";
 import { registerExportHandlers } from "./exporter";
+import { registerGmailOAuthIpc } from "./gmailOAuth";
 import { playAlertSound } from "./alert-sound";
 
 // Set app name before anything else — macOS menu bar and Windows taskbar
@@ -3013,6 +3014,10 @@ ipcMain.handle("ollama:pullModel", async (_event, modelName: string) => {
 // ── Export IPC handlers (PDF / Word) ──
 
 registerExportHandlers(() => mainWindow);
+
+// ── Gmail OAuth IPC handlers ("Connect with Google") ──
+
+registerGmailOAuthIpc();
 
 // ── App Lifecycle ──
 
