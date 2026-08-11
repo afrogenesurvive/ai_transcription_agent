@@ -53,7 +53,14 @@ ShowInstDetails show
 ; call them automatically (Page instfiles resolves <page>.<callback> by name),
 ; which re-enables Cancel so a ~400 MB install can be aborted mid-way.
 ; Re-running the installer repairs any partial extraction.
+;
+; NOTE: guarded with !ifndef BUILD_UNINSTALLER — electron-builder injects this
+; include into the shared script header compiled for BOTH the installer and the
+; (intermediate) uninstaller, and runs makensis with -WX (warnings as errors).
+; The uninstaller has no "instfiles" page (only "uninstfiles"), so these
+; functions would otherwise be "not referenced" (NSIS warning 6010) → fatal.
 
+!ifndef BUILD_UNINSTALLER
 Function instfiles.pre
   GetDlgItem $0 $HWNDPARENT 2
   EnableWindow $0 1
@@ -63,6 +70,7 @@ Function instfiles.show
   GetDlgItem $0 $HWNDPARENT 2
   EnableWindow $0 1
 FunctionEnd
+!endif
 
 ; ── Custom Welcome Page (installer only) ──
 
