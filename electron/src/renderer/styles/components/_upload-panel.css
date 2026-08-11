@@ -115,6 +115,49 @@
   color: var(--text-muted);
 }
 
+/* ── Google delivery status row (New Job form) ── */
+
+.delivery-connect {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.delivery-connect-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+
+.delivery-connect-label {
+  font-weight: 600;
+  font-size: var(--fs-13);
+  color: var(--text);
+}
+
+.delivery-connect-row .config-update-status-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.delivery-connect-feedback {
+  font-size: var(--fs-12);
+  color: var(--text-muted);
+}
+
+.delivery-connect-feedback--ok {
+  color: var(--green, #3fb950);
+  font-weight: 500;
+}
+
+.delivery-connect-feedback--err {
+  color: var(--red, #f85149);
+  font-weight: 500;
+}
+
 /* ── Attendee list (UploadPanel) ── */
 
 .attendee-section {

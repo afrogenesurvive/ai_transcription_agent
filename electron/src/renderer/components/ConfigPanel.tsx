@@ -438,6 +438,10 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
   const [tunnelStarting, setTunnelStarting] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
 
+  // ── Gmail OAuth state ("Connect with Google") ──
+  const [gmailAuthPending, setGmailAuthPending] = useState(false);
+  const [gmailAuthFeedback, setGmailAuthFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
   // Poll tunnel status every 5s when usage tracking is enabled
   useEffect(() => {
     if (values.USAGE_TRACKING_ENABLED !== "true") return;
@@ -901,6 +905,41 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
       }
     }
   };
+
+  /** Run the in-app "Connect with Google" OAuth flow and fill the Gmail fields. */
+  const connectGmail = useCallback(async () => {
+    const clientId = (values.GMAIL_CLIENT_ID || "").trim();
+    const clientSecret = (values.GMAIL_CLIENT_SECRET || "").trim();
+    if (!clientId || !clientSecret) {
+      setGmailAuthFeedback({ type: "err", text: "Enter (or import) your Gmail Client ID and Client Secret first." });
+      return;
+    }
+    setGmailAuthPending(true);
+    setGmailAuthFeedback(null);
+    try {
+      const res = await window.electronAPI?.startGmailOAuth(clientId, clientSecret);
+      if (res?.ok) {
+        handleChange("GMAIL_REFRESH_TOKEN", res.refreshToken ?? "");
+        if (res.clientId) handleChange("GMAIL_CLIENT_ID", res.clientId);
+        if (res.clientSecret) handleChange("GMAIL_CLIENT_SECRET", res.clientSecret);
+        if (res.user) handleChange("GMAIL_USER", res.user);
+        setGmailAuthFeedback({ type: "ok", text: "Google account connected — click Save to apply." });
+      } else {
+        setGmailAuthFeedback({ type: "err", text: res?.error || "Google authorization failed or was cancelled — try again." });
+      }
+    } catch {
+      setGmailAuthFeedback({ type: "err", text: "Google authorization failed — try again." });
+    } finally {
+      setGmailAuthPending(false);
+    }
+  }, [values, handleChange]);
+
+  // Cancel any pending Gmail OAuth flow when the panel closes.
+  useEffect(() => {
+    return () => {
+      window.electronAPI?.cancelGmailOAuth();
+    };
+  }, []);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -2381,6 +2420,37 @@ The system provides existing memory context at the start of each pipeline run. U
                           <p className="config-field-hint">
                             Google OAuth credentials for Gmail and Drive. Uses the same Google Cloud project for both services.
                           </p>
+                          <div className="gmail-connect-row">
+                            <button
+                              className="config-update-status-btn config-update-status-btn--accent"
+                              onClick={connectGmail}
+                              disabled={
+                                activeJobs.length > 0 ||
+                                gmailAuthPending ||
+                                !(values.GMAIL_CLIENT_ID || "").trim() ||
+                                !(values.GMAIL_CLIENT_SECRET || "").trim()
+                              }
+                              title="Connect your Google account to enable email and Drive delivery"
+                              type="button">
+                              {gmailAuthPending ? (
+                                <>
+                                  <span className="updates-spinner updates-spinner--small" /> Waiting for Google authorization…
+                                </>
+                              ) : (
+                                <>
+                                  <Icon name="link" size="14" /> Connect with Google
+                                </>
+                              )}
+                            </button>
+                            {!(values.GMAIL_CLIENT_ID || "").trim() || !(values.GMAIL_CLIENT_SECRET || "").trim() ? (
+                              <span className="gmail-connect-hint">
+                                Import your provided config file (or enter your Client ID &amp; Secret) to enable Google Connect.
+                              </span>
+                            ) : null}
+                          </div>
+                          {gmailAuthFeedback && (
+                            <div className={`gmail-connect-feedback gmail-connect-feedback--${gmailAuthFeedback.type}`}>{gmailAuthFeedback.text}</div>
+                          )}
                           {fields
                             .filter((f) => ["GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "GMAIL_REFRESH_TOKEN", "GMAIL_USER"].includes(f.key as string))
                             .map((field) => (

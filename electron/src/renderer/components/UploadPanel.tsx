@@ -134,6 +134,60 @@ export default function UploadPanel({ file, onFileChange, onUpload, onUploadByPa
     if (initialSkipSteps) setSkipSteps(initialSkipSteps);
   }, [initialSkipSteps]);
 
+  // ── Gmail "Connect with Google" (only surfaced when a delivery step is enabled) ──
+  const [gmailAuthPending, setGmailAuthPending] = useState(false);
+  const [gmailAuthFeedback, setGmailAuthFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [gmailConnected, setGmailConnected] = useState(false);
+  const [gmailUser, setGmailUser] = useState("");
+
+  // Detect whether Google is already connected (a refresh token is saved).
+  useEffect(() => {
+    let cancelled = false;
+    window.electronAPI?.getConfig().then((cfg) => {
+      if (cancelled) return;
+      const token = (cfg?.GMAIL_REFRESH_TOKEN || "").trim();
+      setGmailConnected(!!token);
+      setGmailUser((cfg?.GMAIL_USER || "").trim());
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Cancel any pending Gmail OAuth flow when the panel unmounts.
+  useEffect(() => {
+    return () => {
+      window.electronAPI?.cancelGmailOAuth();
+    };
+  }, []);
+
+  /** Run "Connect with Google" and auto-save the credentials (no config Save here). */
+  const connectGmail = useCallback(async () => {
+    if (gmailAuthPending || disabled || uploading) return;
+    setGmailAuthPending(true);
+    setGmailAuthFeedback(null);
+    try {
+      const res = await window.electronAPI?.startGmailOAuth();
+      if (res?.ok) {
+        await window.electronAPI?.saveConfig({
+          GMAIL_CLIENT_ID: res.clientId ?? "",
+          GMAIL_CLIENT_SECRET: res.clientSecret ?? "",
+          GMAIL_REFRESH_TOKEN: res.refreshToken ?? "",
+          GMAIL_USER: res.user ?? "",
+        });
+        setGmailConnected(!!res.refreshToken);
+        setGmailUser(res.user || "");
+        setGmailAuthFeedback({ type: "ok", text: res.user ? `Google connected: ${res.user}` : "Google connected — ready to deliver." });
+      } else {
+        setGmailAuthFeedback({ type: "err", text: res?.error || "Google authorization failed or was cancelled — try again." });
+      }
+    } catch {
+      setGmailAuthFeedback({ type: "err", text: "Google authorization failed — try again." });
+    } finally {
+      setGmailAuthPending(false);
+    }
+  }, [gmailAuthPending, disabled, uploading]);
+
   // ── Fetch registered attendees + voiceprints from bridge on mount ──
   useEffect(() => {
     let cancelled = false;
@@ -203,6 +257,8 @@ export default function UploadPanel({ file, onFileChange, onUpload, onUploadByPa
   const deliveryTools = ["transcribe_prepare_delivery", "send_delivery_email", "save_to_drive", "create_trello_action_items"];
   const deliveryFullySkipped = deliveryTools.every((t) => skipSteps.includes(t));
   const anyDeliverySkipped = deliveryTools.some((t) => skipSteps.includes(t));
+  /** Google-dependent delivery (email or Drive) is enabled — surface the Connect row. */
+  const googleDeliveryEnabled = !skipSteps.includes("send_delivery_email") || !skipSteps.includes("save_to_drive");
 
   // Set of registered attendee names (lowercase) for UI highlighting
   const registeredNames = useMemo(() => new Set(registeredAttendees.map((ra) => ra.name.toLowerCase())), [registeredAttendees]);
@@ -879,6 +935,60 @@ export default function UploadPanel({ file, onFileChange, onUpload, onUploadByPa
           </Tooltip>
         ))}
       </div> */}
+
+      {/* ── Google delivery status (shown only when a Google-dependent delivery step is enabled) ── */}
+      {googleDeliveryEnabled && (
+        <div className="delivery-connect">
+          <div className="delivery-connect-row">
+            <Icon name="email" size="14" color="accent" />
+            <span className="delivery-connect-label">Delivery</span>
+            {gmailConnected ? (
+              <>
+                <span className="delivery-connect-feedback delivery-connect-feedback--ok">
+                  Google connected: {gmailUser || "your account"}
+                </span>
+                <button
+                  className="config-update-status-btn"
+                  onClick={connectGmail}
+                  disabled={gmailAuthPending || disabled || uploading}
+                  title="Reconnect Google (needed about weekly while the app is unverified)"
+                  type="button">
+                  {gmailAuthPending ? (
+                    <>
+                      <span className="updates-spinner updates-spinner--small" /> Connecting…
+                    </>
+                  ) : (
+                    <>Reconnect</>
+                  )}
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="delivery-connect-feedback">Delivery is enabled but Google isn&apos;t connected yet.</span>
+                <button
+                  className="config-update-status-btn config-update-status-btn--accent"
+                  onClick={connectGmail}
+                  disabled={gmailAuthPending || disabled || uploading}
+                  title="Connect your Google account to enable email and Drive delivery"
+                  type="button">
+                  {gmailAuthPending ? (
+                    <>
+                      <span className="updates-spinner updates-spinner--small" /> Waiting for Google authorization…
+                    </>
+                  ) : (
+                    <>
+                      <Icon name="link" size="14" /> Connect with Google
+                    </>
+                  )}
+                </button>
+              </>
+            )}
+          </div>
+          {gmailAuthFeedback && (
+            <div className={`delivery-connect-feedback delivery-connect-feedback--${gmailAuthFeedback.type}`}>{gmailAuthFeedback.text}</div>
+          )}
+        </div>
+      )}
 
       {/* ── Divider between form fields and the submit actions ── */}
       <div className="upload-form-divider" />
