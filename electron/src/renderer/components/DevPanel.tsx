@@ -1724,7 +1724,9 @@ function UpdatesTab() {
               </div>
               <div className="updates-version-block">
                 <span className="updates-version-label">Available</span>
-                <span className="updates-version-value updates-version-value--new">v{status.updateAvailable}</span>
+                <span className="updates-version-value updates-version-value--new">
+                  {status.mode === "dev" ? status.updateAvailable : `v${status.updateAvailable}`}
+                </span>
               </div>
             </>
           )}
@@ -1830,8 +1832,8 @@ function UpdatesTab() {
         <div className="updates-info-body">
           {status.mode === "dev" ? (
             <ul>
-              <li>Checks the Git repository every 12 hours for new commits on your current branch</li>
-              <li>On finding updates: pulls changes, installs dependencies, rebuilds, then restarts</li>
+              <li>Checks the Git repository every 12 hours for new commits on your current branch (and for newer version branches, e.g. 0.7.x)</li>
+              <li>On finding updates: pulls changes or switches to the newer branch, installs dependencies, rebuilds, then restarts</li>
               <li>Only works in development mode where the source code and git are available</li>
             </ul>
           ) : (

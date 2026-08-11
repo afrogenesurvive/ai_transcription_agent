@@ -192,6 +192,58 @@ function countBehind(branch: string): number {
   }
 }
 
+/**
+ * Parse a branch name into a version tuple if it looks like a version branch.
+ * "0.7.11" → [0, 7, 11]; "main" / "feature-x" → null.
+ */
+function parseVersionBranch(branch: string): number[] | null {
+  const m = branch.match(/^(\d+)\.(\d+)(?:\.(\d+))?/);
+  if (!m) return null;
+  return [Number(m[1]), Number(m[2]), m[3] ? Number(m[3]) : 0];
+}
+
+/** Compare two version tuples — negative if a < b. */
+function compareVersions(a: number[], b: number[]): number {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const av = a[i] ?? 0;
+    const bv = b[i] ?? 0;
+    if (av !== bv) return av - bv;
+  }
+  return 0;
+}
+
+/** List remote (origin) branch names, e.g. ["0.7.11", "main", ...]. */
+function remoteBranches(): string[] {
+  try {
+    // Note: git() shells out via /bin/sh, so the %(…) format must be shell-quoted
+    // (unquoted %(refname:short) is a sh syntax error and would return [] here).
+    return git(["for-each-ref", "refs/remotes/origin", "--format='%(refname:short)'"], 10_000)
+      .split("\n")
+      .filter(Boolean)
+      .map((b) => b.replace(/^origin\//, ""));
+  } catch {
+    return [];
+  }
+}
+
+/** Commits reachable from origin/<branch> but not from HEAD. */
+function aheadOfHead(branch: string): number {
+  try {
+    return parseInt(git(["rev-list", "--count", "HEAD..origin/" + branch], 10_000), 10) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** True when the working tree has no uncommitted changes. */
+function workingTreeClean(): boolean {
+  try {
+    return git(["status", "--porcelain"], 10_000).length === 0;
+  } catch {
+    return false;
+  }
+}
+
 function installDeps(dir: string): boolean {
   if (!fs.existsSync(path.join(dir, "package.json"))) return true;
   try {
@@ -249,28 +301,91 @@ async function checkDevUpdate(force: boolean): Promise<{
     return { updateAvailable: false, details: null, error: "Fetch failed" };
   }
 
+  // Commits behind on the CURRENT branch (existing behavior)
   const behind = countBehind(state.currentVersion);
+  // Highest-version remote branch (ignoring `main`) with commits not in HEAD
+  const newerBranch = findNewerBranch(state.currentVersion);
+
   state.lastCheck = new Date().toISOString();
-  state.updateAvailable = behind > 0 ? `${behind} commit(s)` : null;
+  state.updateAvailable = behind > 0
+    ? `${behind} commit(s)`
+    : newerBranch
+      ? `${newerBranch.ahead} commit(s) ahead on branch ${newerBranch.name}`
+      : null;
 
-  if (behind === 0 && !force) {
+  // Up to date on the current branch AND no newer branch → done
+  if (behind === 0 && !newerBranch) {
     return { updateAvailable: false, details: null, error: null };
   }
-  if (behind === 0) {
-    return { updateAvailable: false, details: null, error: null };
+
+  // 1) Current branch has new commits → pull it (existing path)
+  if (behind > 0) {
+    addLog("main", "info", `[auto-update] ${behind} commit(s) behind — pulling...`);
+    try {
+      git(["pull", "--ff-only", "origin", state.currentVersion], 60_000);
+    } catch (err: any) {
+      const msg = `git pull failed: ${err.message}`;
+      addLog("main", "error", `[auto-update] ${msg}`);
+      state.error = msg;
+      return { updateAvailable: false, details: null, error: msg };
+    }
+    return await applyDevUpdate(`${behind} commit(s) pulled`);
   }
 
-  addLog("main", "info", `[auto-update] ${behind} commit(s) behind — pulling...`);
+  // 2) A newer (higher-version) branch exists → switch to it
+  const target = newerBranch!;
+  addLog("main", "info", `[auto-update] Branch ${target.name} is ahead (${target.ahead} commit(s)) — switching...`);
+
+  if (!workingTreeClean()) {
+    const msg = `Working tree not clean — commit or stash before switching to ${target.name}`;
+    addLog("main", "warn", `[auto-update] ${msg}`);
+    state.error = msg;
+    return { updateAvailable: true, details: `${target.ahead} commit(s) ahead on branch ${target.name}`, error: msg };
+  }
 
   try {
-    git(["pull", "--ff-only", "origin", state.currentVersion], 60_000);
+    git(["checkout", "-B", target.name, "origin/" + target.name], 60_000);
   } catch (err: any) {
-    const msg = `git pull failed: ${err.message}`;
+    const msg = `git checkout ${target.name} failed: ${err.message}`;
     addLog("main", "error", `[auto-update] ${msg}`);
     state.error = msg;
     return { updateAvailable: false, details: null, error: msg };
   }
 
+  return await applyDevUpdate(`switched to branch ${target.name}`);
+}
+
+/**
+ * Find the highest-version remote branch (ignoring `main` / non-version branches)
+ * that has commits not reachable from HEAD. Returns null when none exists.
+ */
+function findNewerBranch(current: string): { name: string; ahead: number } | null {
+  const currentVer = parseVersionBranch(current);
+  if (!currentVer) return null; // non-version branch (e.g. main) — ignored for now
+
+  let best: { name: string; ahead: number } | null = null;
+  for (const branch of remoteBranches()) {
+    if (branch === current) continue;
+    const ver = parseVersionBranch(branch);
+    if (!ver) continue; // skip main / non-version branches
+    if (compareVersions(ver, currentVer) <= 0) continue; // not higher than current
+    const ahead = aheadOfHead(branch);
+    if (ahead > 0 && (!best || compareVersions(ver, parseVersionBranch(best.name)!) > 0)) {
+      best = { name: branch, ahead };
+    }
+  }
+  return best;
+}
+
+/**
+ * Shared post-update path: install deps, rebuild main, relaunch.
+ * Only reached after a successful pull or branch switch.
+ */
+async function applyDevUpdate(summary: string): Promise<{
+  updateAvailable: boolean;
+  details: string | null;
+  error: string | null;
+}> {
   const rootDir = projectRoot();
   const depsOk = installDeps(app.getAppPath()) && installDeps(path.join(rootDir, "bridge-server")) && installDeps(path.join(rootDir, "agent-runner"));
   installPythonDeps(path.join(rootDir, "python-backend"));
@@ -278,7 +393,7 @@ async function checkDevUpdate(force: boolean): Promise<{
   if (!depsOk) {
     state.error = "Dependency installation failed";
     state.lastUpdate = new Date().toISOString();
-    return { updateAvailable: true, details: `${behind} commit(s) pulled`, error: "Deps install failed" };
+    return { updateAvailable: true, details: summary, error: "Deps install failed" };
   }
 
   const buildOk = rebuildMain();
@@ -287,11 +402,11 @@ async function checkDevUpdate(force: boolean): Promise<{
 
   if (!buildOk) {
     state.error = "Rebuild failed";
-    return { updateAvailable: true, details: `${behind} commit(s) pulled`, error: "Rebuild failed" };
+    return { updateAvailable: true, details: summary, error: "Rebuild failed" };
   }
 
-  new Notification({ title: "App Updated", body: `Pulled ${behind} new commit(s). Restarting...` }).show();
-  addLog("main", "info", `[auto-update] Pulled ${behind} commit(s) — restarting`);
+  new Notification({ title: "App Updated", body: `${summary}. Restarting...` }).show();
+  addLog("main", "info", `[auto-update] ${summary} — restarting`);
 
   await new Promise((r) => setTimeout(r, 1500));
   app.relaunch();
@@ -302,7 +417,7 @@ async function checkDevUpdate(force: boolean): Promise<{
   }
   app.exit(0);
 
-  return { updateAvailable: true, details: `${behind} commit(s) pulled`, error: null };
+  return { updateAvailable: true, details: summary, error: null };
 }
 
 // ══════════════════════════════════════════════════════════════
