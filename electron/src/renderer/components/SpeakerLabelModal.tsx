@@ -141,7 +141,7 @@ export default function SpeakerLabelModal({
   // Tracks which option the user selected in the A/B conflict selector.
   // 'form_entry' = use the name/email from the new job form (overwrite)
   // 'voice_owner' = use the matched voiceprint owner's name/email (keep existing)
-  const [conflictChoices, setConflictChoices] = useState<Record<string, 'form_entry' | 'voice_owner'>>({});
+  const [conflictChoices, setConflictChoices] = useState<Record<string, "form_entry" | "voice_owner">>({});
 
   // ── Non-speaking attendee manual removal (X buttons) ──
   // Lowercased names the user removed from the "Also present but did not speak"
@@ -161,9 +161,7 @@ export default function SpeakerLabelModal({
   // voiceprint (the "Voiceprint owners" dropdown bucket). Confirming that label
   // will OVERWRITE the existing voiceprint with this meeting's voice, so we show
   // a warning border + message until the user edits the name or confirms.
-  const [vpOverwriteWarnings, setVpOverwriteWarnings] = useState<
-    Record<string, { name: string; email: string; sample_job_id?: string }>
-  >({});
+  const [vpOverwriteWarnings, setVpOverwriteWarnings] = useState<Record<string, { name: string; email: string; sample_job_id?: string }>>({});
 
   // A registered attendee already assigned to a speaker slot is disabled in
   // every dropdown (the app rejects duplicate speaker names anyway).
@@ -200,6 +198,12 @@ export default function SpeakerLabelModal({
   // ── (b) Form attendees with an enrolled voiceprint that wasn't matched to any
   // voice in this recording (computed on mount from get_speaker_clips data). ──
   const [unmatchedFormVoiceprintAttendees, setUnmatchedFormVoiceprintAttendees] = useState<KnownAttendee[]>([]);
+
+  // ── (b) Unmatched enrolled-voiceprint attendees opted in as non-speaking ──
+  // Radio toggles in the "Enrolled voiceprint not found" section. Checked names
+  // are included in the meeting record as non-speaking (present but silent);
+  // unchecked ones are excluded (their voice wasn't in this recording).
+  const [addedAsNonSpeaking, setAddedAsNonSpeaking] = useState<Set<string>>(new Set());
 
   // ── Populate inline conflicts from post-submit drift audit ──
   // When the backend returns voice match conflicts during label_and_resume,
@@ -316,10 +320,7 @@ export default function SpeakerLabelModal({
       // (defense-in-depth for edge cases where positional form data doesn't
       // align with voiceprint identity after fix A).
       const suggestedMatch = (spk.suggested_name || "").toLowerCase();
-      if (
-        best.name.toLowerCase() !== formName.toLowerCase() &&
-        best.name.toLowerCase() !== suggestedMatch
-      ) {
+      if (best.name.toLowerCase() !== formName.toLowerCase() && best.name.toLowerCase() !== suggestedMatch) {
         conflictEntries[spk.speaker_id] = {
           speaker_id: spk.speaker_id,
           assigned_name: formName,
@@ -351,9 +352,7 @@ export default function SpeakerLabelModal({
     // matches (get_speaker_clips), NOT the pre-filled labels — the positional
     // fallback fills inputs with form names that may not be real voiceprint
     // matches, so relying on labels would hide genuine non-matches.
-    const voiceprintMatchedNames = new Set(
-      (speakers || []).flatMap((s) => s.voiceprint_matches?.map((m) => m.name.toLowerCase()) ?? []),
-    );
+    const voiceprintMatchedNames = new Set((speakers || []).flatMap((s) => s.voiceprint_matches?.map((m) => m.name.toLowerCase()) ?? []));
     const unmatchedFormWithPrint = (knownAttendees?.with_voiceprint ?? []).filter(
       (a) => a.in_form && !voiceprintMatchedNames.has(a.name.toLowerCase()),
     );
@@ -434,11 +433,17 @@ export default function SpeakerLabelModal({
    *  = A/B conflict losers (form entry lost to an existing voice owner)
    *    ∪ non-speaking attendees removed via the X button
    *    − any name actually assigned to a speaker slot. */
-  const buildExcludedNonSpeaking = (
-    result: Array<{ speaker_id: string; name: string; email?: string }>,
-  ): string[] => {
+  const buildExcludedNonSpeaking = (result: Array<{ speaker_id: string; name: string; email?: string }>): string[] => {
     const excluded = new Set<string>(conflictLoserNames);
     for (const n of removedNonSpeaking) excluded.add(n);
+    // (b) Unmatched enrolled-voiceprint attendees that were NOT opted in as
+    // non-speaking: their voice wasn't in the recording, so drop them from the
+    // meeting record + delivery. Opted-in ones stay (→ included as non-speaking).
+    for (const a of unmatchedFormVoiceprintAttendees) {
+      if (!addedAsNonSpeaking.has(a.name.toLowerCase())) {
+        excluded.add(a.name.toLowerCase());
+      }
+    }
     const labeled = new Set(result.map((l) => l.name.trim().toLowerCase()).filter(Boolean));
     return Array.from(excluded).filter((n) => !labeled.has(n));
   };
@@ -569,12 +574,7 @@ export default function SpeakerLabelModal({
       .map((sid) => labels[sid]?.trim())
       .filter(Boolean) as string[];
     const excludedNonSpeaking = buildExcludedNonSpeaking(result);
-    await onConfirm(
-      result,
-      overwriteNames.length > 0 || excludedNonSpeaking.length > 0
-        ? { overwriteNames, excludedNonSpeaking }
-        : undefined,
-    );
+    await onConfirm(result, overwriteNames.length > 0 || excludedNonSpeaking.length > 0 ? { overwriteNames, excludedNonSpeaking } : undefined);
   };
 
   /** Toggle whether a conflicting voiceprint should be overwritten. */
@@ -706,10 +706,9 @@ export default function SpeakerLabelModal({
     // Merge the voice-match-dialog conflict losers into the exclusion list
     // (minus any name that still ended up assigned to a speaker slot).
     const labeled = new Set(result.map((l) => l.name.trim().toLowerCase()).filter(Boolean));
-    const mergedExcluded = Array.from(new Set([
-      ...excludedNonSpeaking,
-      ...conflictLosers.map((n) => n.toLowerCase()).filter((n) => !labeled.has(n)),
-    ]));
+    const mergedExcluded = Array.from(
+      new Set([...excludedNonSpeaking, ...conflictLosers.map((n) => n.toLowerCase()).filter((n) => !labeled.has(n))]),
+    );
     await onConfirm(
       result,
       buildOverwriteNames.length > 0 || mergedExcluded.length > 0
@@ -817,9 +816,7 @@ export default function SpeakerLabelModal({
       // Email-fill rule: prefer the job-form email when this attendee is in the
       // form (the backend's email-mismatch correction forces it anyway); else
       // use the enrolled email so the voiceprint join key is preserved.
-      const email = attendee.in_form
-        ? spk?.form_entry_email || attendee.email || ""
-        : attendee.email || "";
+      const email = attendee.in_form ? spk?.form_entry_email || attendee.email || "" : attendee.email || "";
       setLabels((prev) => ({ ...prev, [speakerId]: attendee.name }));
       setEmails((prev) => ({ ...prev, [speakerId]: email }));
       setEmailErrors((prev) => {
@@ -862,6 +859,14 @@ export default function SpeakerLabelModal({
           return next;
         });
       }
+      // (b) An attendee assigned to a speaker can no longer be marked as a
+      // non-speaking attendee — drop any pending "add as non-speaking" mark.
+      setAddedAsNonSpeaking((prev) => {
+        if (!prev.has(attendee.name.toLowerCase())) return prev;
+        const next = new Set(prev);
+        next.delete(attendee.name.toLowerCase());
+        return next;
+      });
       onClearError?.();
       void verifySingleSpeaker(speakerId, attendee.name, email);
     },
@@ -880,17 +885,16 @@ export default function SpeakerLabelModal({
 
   /** Handle A/B conflict choice: fill the speaker's name/email and track the decision. */
   const handleConflictChoice = useCallback(
-    (speakerId: string, choice: 'form_entry' | 'voice_owner', match: VoiceMatchConflict) => {
+    (speakerId: string, choice: "form_entry" | "voice_owner", match: VoiceMatchConflict) => {
       setConflictChoices((prev) => ({ ...prev, [speakerId]: choice }));
 
       const spk = speakers.find((s) => s.speaker_id === speakerId);
       if (!spk) return;
 
-      if (choice === 'voice_owner') {
+      if (choice === "voice_owner") {
         // Fill inputs with voiceprint match data (use the matched name/email)
         setLabels((prev) => ({ ...prev, [speakerId]: match.name }));
-        const resolvedEmail = match.email && !match.email.includes("@voiceprint.local")
-          ? match.email : match.email;
+        const resolvedEmail = match.email && !match.email.includes("@voiceprint.local") ? match.email : match.email;
         setEmails((prev) => ({ ...prev, [speakerId]: resolvedEmail }));
         // Remove from overwrite set — name matches voiceprint, no overwrite needed
         setPerSpeakerOverwrite((prev) => {
@@ -900,8 +904,8 @@ export default function SpeakerLabelModal({
         });
       } else {
         // Fill inputs with form entry data (the name/email from the new job form)
-        setLabels((prev) => ({ ...prev, [speakerId]: spk.form_entry_name || '' }));
-        setEmails((prev) => ({ ...prev, [speakerId]: spk.form_entry_email || '' }));
+        setLabels((prev) => ({ ...prev, [speakerId]: spk.form_entry_name || "" }));
+        setEmails((prev) => ({ ...prev, [speakerId]: spk.form_entry_email || "" }));
         // Add to overwrite set — form entry name differs from voiceprint, need to overwrite
         setPerSpeakerOverwrite((prev) => new Set(prev).add(speakerId));
       }
@@ -1124,9 +1128,8 @@ export default function SpeakerLabelModal({
                   <div className="speaker-vp-recognized">
                     <Icon name="badge" size="12" color="accent" />
                     <span>
-                      Recognized as <strong>{recognizedFromPreviousJob.name}</strong> from job{" "}
-                      {recognizedFromPreviousJob.sample_job_id.slice(0, 8)} — this voice was matched to a registered attendee&apos;s
-                      voiceprint from a previous meeting.
+                      Recognized as <strong>{recognizedFromPreviousJob.name}</strong> from job {recognizedFromPreviousJob.sample_job_id.slice(0, 8)} —
+                      this voice was matched to a registered attendee&apos;s voiceprint from a previous meeting.
                     </span>
                   </div>
                 )}
@@ -1142,10 +1145,7 @@ export default function SpeakerLabelModal({
                         if (!val) return;
                         const [bucket, idxStr] = val.split(":");
                         const idx = Number(idxStr);
-                        const attendee =
-                          bucket === "vp"
-                            ? knownAttendees?.with_voiceprint?.[idx]
-                            : knownAttendees?.without_voiceprint?.[idx];
+                        const attendee = bucket === "vp" ? knownAttendees?.with_voiceprint?.[idx] : knownAttendees?.without_voiceprint?.[idx];
                         if (attendee) handleAttendeeSelect(spk.speaker_id, attendee);
                       }}
                       title="Assign a registered attendee to this speaker">
@@ -1171,8 +1171,7 @@ export default function SpeakerLabelModal({
                           ))}
                         </optgroup>
                       )}
-                      {!knownAttendees ||
-                      (knownAttendees.with_voiceprint.length === 0 && knownAttendees.without_voiceprint.length === 0) ? (
+                      {!knownAttendees || (knownAttendees.with_voiceprint.length === 0 && knownAttendees.without_voiceprint.length === 0) ? (
                         <option value="" disabled>
                           No registered attendees
                         </option>
@@ -1186,8 +1185,8 @@ export default function SpeakerLabelModal({
                     <Icon name="warning" size="13" color="orange" />
                     <span>
                       <strong>{vpOverwrite.name}</strong> already has an enrolled voiceprint
-                      {vpOverwrite.sample_job_id ? <> from job {vpOverwrite.sample_job_id.slice(0, 8)}</> : ""}.
-                      Confirming this label will <strong>overwrite</strong> it with this recording.
+                      {vpOverwrite.sample_job_id ? <> from job {vpOverwrite.sample_job_id.slice(0, 8)}</> : ""}. Confirming this label will{" "}
+                      <strong>overwrite</strong> it with this recording.
                     </span>
                   </div>
                 )}
@@ -1208,34 +1207,36 @@ export default function SpeakerLabelModal({
                       </div>
                       <div className="speaker-ab-conflict-options">
                         <label
-                          className={`speaker-ab-option ${chosen === 'form_entry' ? 'speaker-ab-option--selected' : ''}`}
-                          onClick={() => handleConflictChoice(spk.speaker_id, 'form_entry', mc)}>
+                          className={`speaker-ab-option ${chosen === "form_entry" ? "speaker-ab-option--selected" : ""}`}
+                          onClick={() => handleConflictChoice(spk.speaker_id, "form_entry", mc)}>
                           <input
                             type="radio"
                             name={`conflict-${spk.speaker_id}`}
-                            checked={chosen === 'form_entry'}
-                            onChange={() => handleConflictChoice(spk.speaker_id, 'form_entry', mc)}
+                            checked={chosen === "form_entry"}
+                            onChange={() => handleConflictChoice(spk.speaker_id, "form_entry", mc)}
                           />
                           <div className="speaker-ab-option-content">
                             <span className="speaker-ab-option-label">Use form entry:</span>
                             <span className="speaker-ab-option-value">
-                              {formName || <em>(no name)</em>}{formEmail ? <> &lt;{formEmail}&gt;</> : ""}
+                              {formName || <em>(no name)</em>}
+                              {formEmail ? <> &lt;{formEmail}&gt;</> : ""}
                             </span>
                           </div>
                         </label>
                         <label
-                          className={`speaker-ab-option ${chosen === 'voice_owner' ? 'speaker-ab-option--selected' : ''}`}
-                          onClick={() => handleConflictChoice(spk.speaker_id, 'voice_owner', mc)}>
+                          className={`speaker-ab-option ${chosen === "voice_owner" ? "speaker-ab-option--selected" : ""}`}
+                          onClick={() => handleConflictChoice(spk.speaker_id, "voice_owner", mc)}>
                           <input
                             type="radio"
                             name={`conflict-${spk.speaker_id}`}
-                            checked={chosen === 'voice_owner'}
-                            onChange={() => handleConflictChoice(spk.speaker_id, 'voice_owner', mc)}
+                            checked={chosen === "voice_owner"}
+                            onChange={() => handleConflictChoice(spk.speaker_id, "voice_owner", mc)}
                           />
                           <div className="speaker-ab-option-content">
                             <span className="speaker-ab-option-label">Use voice owner:</span>
                             <span className="speaker-ab-option-value">
-                              {mc.name}{mc.email ? <> &lt;{mc.email}&gt;</> : ""}
+                              {mc.name}
+                              {mc.email ? <> &lt;{mc.email}&gt;</> : ""}
                             </span>
                           </div>
                         </label>
@@ -1254,9 +1255,7 @@ export default function SpeakerLabelModal({
                         {(drift.similarity * 100).toFixed(0)}% similarity).
                       </span>
                     </div>
-                    <p className="speaker-drift-notice-desc">
-                      Saving will overwrite {drift.name}'s enrolled voiceprint with this recording.
-                    </p>
+                    <p className="speaker-drift-notice-desc">Saving will overwrite {drift.name}'s enrolled voiceprint with this recording.</p>
                     <div className="speaker-drift-notice-actions">
                       <button className="btn-primary speaker-drift-btn" onClick={() => handleDriftOverwrite(spk.speaker_id)}>
                         Use “{drift.name}” &amp; overwrite voiceprint
@@ -1276,7 +1275,8 @@ export default function SpeakerLabelModal({
               <Icon name="visibility_off" size="14" color="muted" /> Also present but did not speak
             </h3>
             <p className="speaker-non-speaking-desc">
-              These registered attendees had no detected speech segments. No voiceprint is needed — they are included in the meeting record unless you remove them.
+              These registered attendees had no detected speech segments. No voiceprint is needed — they are included in the meeting record unless you
+              remove them.
             </p>
             <ul className="speaker-non-speaking-list">
               {visibleNonSpeaking.map((ns, i) => (
@@ -1290,11 +1290,7 @@ export default function SpeakerLabelModal({
                   <button
                     className="speaker-non-speaking-remove"
                     title="Remove from meeting record"
-                    onClick={() =>
-                      setRemovedNonSpeaking((prev) =>
-                        new Set(prev).add((ns.name || "").toLowerCase()),
-                      )
-                    }>
+                    onClick={() => setRemovedNonSpeaking((prev) => new Set(prev).add((ns.name || "").toLowerCase()))}>
                     <Icon name="close" size="14" />
                   </button>
                 </li>
@@ -1310,18 +1306,41 @@ export default function SpeakerLabelModal({
               <Icon name="badge" size="14" color="accent" /> Enrolled voiceprint not found in this recording
             </h3>
             <p className="speaker-unmatched-vp-desc">
-              These attendees have an enrolled voiceprint from a previous meeting, but none of the voices in this recording matched them. If one
-              of them is actually present, use the <strong>“Assign known attendee…”</strong> dropdown on a speaker to assign them to a voice.
+              These attendees have an enrolled voiceprint from a previous meeting, but none of the voices in this recording matched them. Use the{" "}
+              <strong>“Assign known attendee…”</strong> dropdown on a speaker to assign them to a voice, or mark them below as present-but-did-not-speak.
             </p>
             <ul className="speaker-unmatched-vp-list">
-              {unmatchedFormVoiceprintAttendees.map((a, i) => (
-                <li key={i} className="speaker-unmatched-vp-item">
-                  <span className="speaker-unmatched-vp-name">{a.name}</span>
-                  {a.sample_job_id ? (
-                    <span className="speaker-unmatched-vp-job">· vp from {a.sample_job_id.slice(0, 8)}</span>
-                  ) : null}
-                </li>
-              ))}
+              {unmatchedFormVoiceprintAttendees.map((a, i) => {
+                const assigned = labeledNames.has(a.name.toLowerCase());
+                const checked = addedAsNonSpeaking.has(a.name.toLowerCase()) && !assigned;
+                return (
+                  <li key={i} className={`speaker-unmatched-vp-item${assigned ? " speaker-unmatched-vp-item--assigned" : ""}`}>
+                    <label className="speaker-unmatched-vp-option">
+                      <input
+                        type="radio"
+                        name={`unmatched-vp-nonspeaking-${i}`}
+                        checked={checked}
+                        disabled={assigned}
+                        onChange={() =>
+                          setAddedAsNonSpeaking((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(a.name.toLowerCase())) next.delete(a.name.toLowerCase());
+                            else next.add(a.name.toLowerCase());
+                            return next;
+                          })
+                        }
+                      />
+                      <span className="speaker-unmatched-vp-name">{a.name}</span>
+                      {a.sample_job_id ? <span className="speaker-unmatched-vp-job">· vp from {a.sample_job_id.slice(0, 8)}</span> : null}
+                    </label>
+                    {assigned && (
+                      <span className="speaker-unmatched-vp-assigned-note">
+                        assigned to a speaker — this attendee&apos;s voiceprint will be overwritten
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </div>
         )}
@@ -1475,14 +1494,14 @@ export default function SpeakerLabelModal({
           </div>
         )}
 
-        {([...attendeePresenceWarnings, ...voiceprintReuseWarnings].length > 0) && !showVoiceWarnings && conflicts.length === 0 && (
+        {[...attendeePresenceWarnings, ...voiceprintReuseWarnings].length > 0 && !showVoiceWarnings && conflicts.length === 0 && (
           <div className="speaker-unregistered-banner">
             <Icon name="info" size="14" color="accent" />
             <span>
-              <strong>Advisory:</strong> {[
-                ...attendeePresenceWarnings.map((warning) => warning.message),
-                ...voiceprintReuseWarnings.map((warning) => warning.message),
-              ].join(" ")}
+              <strong>Advisory:</strong>{" "}
+              {[...attendeePresenceWarnings.map((warning) => warning.message), ...voiceprintReuseWarnings.map((warning) => warning.message)].join(
+                " ",
+              )}
             </span>
           </div>
         )}
@@ -1530,8 +1549,8 @@ export default function SpeakerLabelModal({
               Cancel Job
             </button>
           </Tooltip>
-          <Tooltip content="Skip naming — speakers will use their auto-generated IDs (Speaker_1, etc.)">
-            <button className="btn-secondary" onClick={handleSkip} disabled={submitting} title="Use auto-generated speaker IDs instead of names">
+          <Tooltip content="Disabled — every speaker must be labeled to save and resume">
+            <button className="btn-secondary" onClick={handleSkip} disabled title="Use Default Names is disabled — every speaker must be labeled">
               Use Default Names
             </button>
           </Tooltip>

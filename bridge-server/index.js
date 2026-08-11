@@ -1025,7 +1025,7 @@ server.on("error", (err) => {
       return;
     }
     console.error(
-      `[bridge] ❌ Cannot bind port ${BRIDGE_PORT} — address already in use after ${LISTEN_RETRY_ATTEMPTS} attempts. A stale bridge process is likely still running.`
+      `[bridge] ❌ Cannot bind port ${BRIDGE_PORT} — address already in use after ${LISTEN_RETRY_ATTEMPTS} attempts. A stale bridge process is likely still running.`,
     );
     process.exit(1);
     return;
