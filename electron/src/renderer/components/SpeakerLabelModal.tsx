@@ -267,6 +267,18 @@ export default function SpeakerLabelModal({
     if (initializedRef.current) return;
     initializedRef.current = true;
 
+    // ── (b) Form attendees with an enrolled voiceprint whose voice was NOT
+    // matched to any speaker in this recording. Computed FIRST so the pre-fill
+    // below can never put any of their data (name OR email) into a speaker
+    // input — the backend already excludes them from Pass 3's positional
+    // fallback, and this is defense-in-depth for the positional email fill.
+    const voiceprintMatchedNames = new Set((speakers || []).flatMap((s) => s.voiceprint_matches?.map((m) => m.name.toLowerCase()) ?? []));
+    const unmatchedFormWithPrint = (knownAttendees?.with_voiceprint ?? []).filter(
+      (a) => a.in_form && !voiceprintMatchedNames.has(a.name.toLowerCase()),
+    );
+    const unmatchedNamesLower = new Set(unmatchedFormWithPrint.map((a) => a.name.toLowerCase()));
+    const unmatchedEmailsLower = new Set(unmatchedFormWithPrint.map((a) => (a.email || "").toLowerCase()).filter(Boolean));
+
     const initialNames: Record<string, string> = {};
     const initialEmails: Record<string, string> = {};
     const conflictSpeakerIdsOnMount = new Set<string>();
@@ -286,14 +298,19 @@ export default function SpeakerLabelModal({
       const spk = speakers[i];
       // Skip pre-fill for conflicted speakers — A/B selector handles them
       if (conflictSpeakerIdsOnMount.has(spk.speaker_id)) continue;
-      if (spk.suggested_name) {
+      if (spk.suggested_name && !unmatchedNamesLower.has(spk.suggested_name.toLowerCase())) {
         initialNames[spk.speaker_id] = spk.suggested_name;
       }
-      // Use backend-resolved email (matched by voiceprint identity in Pass 2)
-      // Falls back to positional alignment only when form_entry_email is empty.
-      if (spk.form_entry_email) {
+      // Use backend-resolved email (matched by voiceprint identity in Pass 2).
+      // Never fill an email that belongs to an unmatched enrolled attendee —
+      // their data must stay out of every input until the user acts.
+      if (spk.form_entry_email && !unmatchedEmailsLower.has(spk.form_entry_email.toLowerCase())) {
         initialEmails[spk.speaker_id] = spk.form_entry_email;
-      } else if (i < suggestedEmails.length && suggestedEmails[i]) {
+      } else if (
+        i < suggestedEmails.length &&
+        suggestedEmails[i] &&
+        !unmatchedEmailsLower.has(suggestedEmails[i].toLowerCase())
+      ) {
         initialEmails[spk.speaker_id] = suggestedEmails[i];
       }
     }
@@ -346,16 +363,9 @@ export default function SpeakerLabelModal({
       setProactiveConflicts(proactive);
     }
 
-    // ── (b) Surface form attendees that have an enrolled voiceprint (from a
-    // previous meeting) but whose voice wasn't matched to any speaker in this
-    // recording. The recognized set comes from the per-speaker voiceprint
-    // matches (get_speaker_clips), NOT the pre-filled labels — the positional
-    // fallback fills inputs with form names that may not be real voiceprint
-    // matches, so relying on labels would hide genuine non-matches.
-    const voiceprintMatchedNames = new Set((speakers || []).flatMap((s) => s.voiceprint_matches?.map((m) => m.name.toLowerCase()) ?? []));
-    const unmatchedFormWithPrint = (knownAttendees?.with_voiceprint ?? []).filter(
-      (a) => a.in_form && !voiceprintMatchedNames.has(a.name.toLowerCase()),
-    );
+    // (b) Unmatched enrolled-voiceprint attendees are computed at the top of
+    // this effect (they guard the pre-fill above); surface them for the
+    // dedicated section.
     setUnmatchedFormVoiceprintAttendees(unmatchedFormWithPrint);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1313,9 +1323,20 @@ export default function SpeakerLabelModal({
               {unmatchedFormVoiceprintAttendees.map((a, i) => {
                 const assigned = labeledNames.has(a.name.toLowerCase());
                 const checked = addedAsNonSpeaking.has(a.name.toLowerCase()) && !assigned;
+                const key = a.name.toLowerCase();
+                const title = assigned
+                  ? `${a.name} is assigned to a speaker — cannot also be non-speaking`
+                  : checked
+                    ? `Remove ${a.name} from non-speaking attendees`
+                    : `Mark ${a.name} as present but did not speak (included in the meeting record)`;
                 return (
-                  <li key={i} className={`speaker-unmatched-vp-item${assigned ? " speaker-unmatched-vp-item--assigned" : ""}`}>
-                    <label className="speaker-unmatched-vp-option">
+                  <li
+                    key={i}
+                    className={`speaker-unmatched-vp-item${assigned ? " speaker-unmatched-vp-item--assigned" : ""}${
+                      checked ? " speaker-unmatched-vp-item--added" : ""
+                    }`}
+                  >
+                    <label className="speaker-unmatched-vp-option" title={title}>
                       <input
                         type="radio"
                         name={`unmatched-vp-nonspeaking-${i}`}
@@ -1324,15 +1345,32 @@ export default function SpeakerLabelModal({
                         onChange={() =>
                           setAddedAsNonSpeaking((prev) => {
                             const next = new Set(prev);
-                            if (next.has(a.name.toLowerCase())) next.delete(a.name.toLowerCase());
-                            else next.add(a.name.toLowerCase());
+                            if (next.has(key)) next.delete(key);
+                            else next.add(key);
                             return next;
                           })
                         }
+                        onClick={(e) => {
+                          // A native radio does NOT fire change when re-clicked
+                          // while already checked, so toggle it off here.
+                          if (checked && !assigned) {
+                            e.preventDefault();
+                            setAddedAsNonSpeaking((prev) => {
+                              const next = new Set(prev);
+                              next.delete(key);
+                              return next;
+                            });
+                          }
+                        }}
                       />
                       <span className="speaker-unmatched-vp-name">{a.name}</span>
                       {a.sample_job_id ? <span className="speaker-unmatched-vp-job">· vp from {a.sample_job_id.slice(0, 8)}</span> : null}
                     </label>
+                    {checked && !assigned && (
+                      <span className="speaker-unmatched-vp-added-note">
+                        <Icon name="check_circle" size="12" color="green" /> added as non-speaking — click to undo
+                      </span>
+                    )}
                     {assigned && (
                       <span className="speaker-unmatched-vp-assigned-note">
                         assigned to a speaker — this attendee&apos;s voiceprint will be overwritten
