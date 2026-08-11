@@ -107,6 +107,9 @@ ensureWinSwitchesOnCommandLine();
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   // Another instance is already running — exit and let it handle the request.
+  // Log to the persistent update.log — a relaunched instance losing the lock would
+  // start then immediately quit, which looks like the update "didn't restart".
+  writeUpdateLog("warn", `Single-instance lock NOT acquired — quitting. argv=${JSON.stringify(process.argv)}`);
   app.quit();
 }
 app.on("second-instance", () => {
@@ -293,7 +296,7 @@ function startChromiumLogTailer(logPath: string): void {
   }, 3000);
   timer.unref();
 }
-import { startAutoUpdater, stopAutoUpdater, registerAutoUpdateIpc, getUpdateState, checkAndUpdate } from "./auto-updater";
+import { startAutoUpdater, stopAutoUpdater, registerAutoUpdateIpc, getUpdateState, checkAndUpdate, writeUpdateLog } from "./auto-updater";
 import { uninstall } from "./cleanup";
 import { nodeSpawnSpec } from "./node-resolver";
 
@@ -3064,6 +3067,7 @@ app.whenReady().then(async () => {
   const storageBase = process.env.TRANSCRIPTION_STORAGE || path.join(app.getPath("userData"), "storage");
   setStorageBase(storageBase);
   addLog("main", "info", `App started — per-job logs: ${storageBase}/<job_id>/pipeline.log`);
+  writeUpdateLog("info", `App started (lock acquired). execPath=${process.execPath} argv=${JSON.stringify(process.argv)}`);
 
   // Start periodic health monitoring
   startHealthMonitoring();

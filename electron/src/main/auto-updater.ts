@@ -40,6 +40,9 @@ const PACKAGED_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const GIT_FETCH_TIMEOUT_MS = 30_000;
 const BUILD_TIMEOUT_MS = 120_000;
 
+/** Dev-mode auto-update is intentionally disabled for now (all platforms). */
+const DEV_UPDATE_ENABLED = false;
+
 interface UpdateState {
   mode: "dev" | "packaged";
   enabled: boolean;
@@ -89,6 +92,37 @@ let state: UpdateState = {
 };
 
 let updateInterval: ReturnType<typeof setInterval> | null = null;
+
+// ══════════════════════════════════════════════════════════════
+//  PERSISTENT UPDATE LOG
+// ══════════════════════════════════════════════════════════════
+// The auto-updater may pull/rebuild then relaunch/exit the app, so its messages
+// must survive in a dedicated file for post-mortem diagnosis — the in-memory ring
+// buffer dies with the process. Written to <userData>/logs/update.log (same dir as
+// startup-error.log). Used by auto-updater.ts and index.ts (single-instance lock).
+function updateLogDir(): string {
+  return path.join(app.getPath("userData"), "logs");
+}
+
+function updateLogPath(): string {
+  return path.join(updateLogDir(), "update.log");
+}
+
+/** Append a line to <userData>/logs/update.log (best-effort, never throws). */
+export function writeUpdateLog(level: "info" | "warn" | "error", message: string): void {
+  try {
+    fs.mkdirSync(updateLogDir(), { recursive: true });
+    fs.appendFileSync(updateLogPath(), `[${new Date().toISOString()}] [${level.toUpperCase()}] ${message}\n`, "utf8");
+  } catch {
+    // non-fatal — in-memory buffer + console still capture it
+  }
+}
+
+/** Log an auto-update message to the live log AND the persistent update.log. */
+function updateLog(level: "info" | "warn" | "error", message: string): void {
+  addLog("main", level, `[auto-update] ${message}`);
+  writeUpdateLog(level, message);
+}
 
 // ══════════════════════════════════════════════════════════════
 //  DEV MODE — git-based
@@ -152,10 +186,10 @@ function withPatOrigin<T>(fn: () => T): T {
     if (originalUrl.startsWith("https://")) {
       const authedUrl = originalUrl.replace("https://", `https://x-access-token:${pat}@`);
       git(["remote", "set-url", "origin", authedUrl], 5000);
-      addLog("main", "info", "[auto-update] Using PAT-authenticated remote for git fetch");
+      updateLog("info", "Using PAT-authenticated remote for git fetch");
     }
   } catch {
-    addLog("main", "warn", "[auto-update] Could not read git remote URL — proceeding without PAT");
+    updateLog("warn", "Could not read git remote URL — proceeding without PAT");
   }
 
   try {
@@ -179,7 +213,7 @@ function fetchOrigin(): boolean {
     });
     return true;
   } catch (err: any) {
-    addLog("main", "error", `[auto-update] git fetch failed: ${err.message}`);
+    updateLog("error", `git fetch failed: ${err.message}`);
     return false;
   }
 }
@@ -247,11 +281,11 @@ function workingTreeClean(): boolean {
 function installDeps(dir: string): boolean {
   if (!fs.existsSync(path.join(dir, "package.json"))) return true;
   try {
-    addLog("main", "info", `[auto-update] Installing deps in ${path.basename(dir)}...`);
+    updateLog("info", `Installing deps in ${path.basename(dir)}...`);
     execSync("npm install --loglevel=error", { cwd: dir, stdio: "pipe", timeout: BUILD_TIMEOUT_MS });
     return true;
   } catch (err: any) {
-    addLog("main", "error", `[auto-update] npm install failed in ${path.basename(dir)}: ${err.message}`);
+    updateLog("error", `npm install failed in ${path.basename(dir)}: ${err.message}`);
     return false;
   }
 }
@@ -259,23 +293,23 @@ function installDeps(dir: string): boolean {
 function installPythonDeps(backendDir: string): boolean {
   if (!fs.existsSync(path.join(backendDir, "requirements.txt"))) return true;
   try {
-    addLog("main", "info", "[auto-update] Installing Python deps...");
+    updateLog("info", "Installing Python deps...");
     const pipCmd = IS_WIN ? "python -m pip install -r requirements.txt" : "pip3 install -r requirements.txt";
     execSync(pipCmd, { cwd: backendDir, stdio: "pipe", timeout: BUILD_TIMEOUT_MS });
     return true;
   } catch (err: any) {
-    addLog("main", "info", "[auto-update] Python deps skipped (non-blocking): " + err.message);
+    updateLog("info", "Python deps skipped (non-blocking): " + err.message);
     return true;
   }
 }
 
 function rebuildMain(): boolean {
   try {
-    addLog("main", "info", "[auto-update] Rebuilding main process...");
+    updateLog("info", "Rebuilding main process...");
     execSync("npx tsc -p tsconfig.main.json", { cwd: app.getAppPath(), stdio: "pipe", timeout: BUILD_TIMEOUT_MS });
     return true;
   } catch (err: any) {
-    addLog("main", "error", `[auto-update] Rebuild failed: ${err.message}`);
+    updateLog("error", `Rebuild failed: ${err.message}`);
     return false;
   }
 }
@@ -285,6 +319,17 @@ async function checkDevUpdate(force: boolean): Promise<{
   details: string | null;
   error: string | null;
 }> {
+  // Dev-mode auto-update is DISABLED for now (all platforms) — dev users manage their
+  // branch/updates manually with git. Flip DEV_UPDATE_ENABLED to re-enable; the git
+  // machinery below is retained for that purpose.
+  if (!DEV_UPDATE_ENABLED) {
+    updateLog("info", "Dev-mode auto-update disabled — skipping check (manage updates manually with git)");
+    state.lastCheck = new Date().toISOString();
+    state.updateAvailable = null;
+    state.error = null;
+    return { updateAvailable: false, details: null, error: null };
+  }
+
   if (!isGitRepo()) {
     state.error = "Not a git repository";
     return { updateAvailable: false, details: null, error: "Not a git repository" };
@@ -320,12 +365,12 @@ async function checkDevUpdate(force: boolean): Promise<{
 
   // 1) Current branch has new commits → pull it (existing path)
   if (behind > 0) {
-    addLog("main", "info", `[auto-update] ${behind} commit(s) behind — pulling...`);
+    updateLog("info", `${behind} commit(s) behind — pulling...`);
     try {
       git(["pull", "--ff-only", "origin", state.currentVersion], 60_000);
     } catch (err: any) {
       const msg = `git pull failed: ${err.message}`;
-      addLog("main", "error", `[auto-update] ${msg}`);
+      updateLog("error", msg);
       state.error = msg;
       return { updateAvailable: false, details: null, error: msg };
     }
@@ -334,11 +379,11 @@ async function checkDevUpdate(force: boolean): Promise<{
 
   // 2) A newer (higher-version) branch exists → switch to it
   const target = newerBranch!;
-  addLog("main", "info", `[auto-update] Branch ${target.name} is ahead (${target.ahead} commit(s)) — switching...`);
+  updateLog("info", `Branch ${target.name} is ahead (${target.ahead} commit(s)) — switching...`);
 
   if (!workingTreeClean()) {
     const msg = `Working tree not clean — commit or stash before switching to ${target.name}`;
-    addLog("main", "warn", `[auto-update] ${msg}`);
+    updateLog("warn", msg);
     state.error = msg;
     return { updateAvailable: true, details: `${target.ahead} commit(s) ahead on branch ${target.name}`, error: msg };
   }
@@ -347,7 +392,7 @@ async function checkDevUpdate(force: boolean): Promise<{
     git(["checkout", "-B", target.name, "origin/" + target.name], 60_000);
   } catch (err: any) {
     const msg = `git checkout ${target.name} failed: ${err.message}`;
-    addLog("main", "error", `[auto-update] ${msg}`);
+    updateLog("error", msg);
     state.error = msg;
     return { updateAvailable: false, details: null, error: msg };
   }
@@ -406,7 +451,7 @@ async function applyDevUpdate(summary: string): Promise<{
   }
 
   new Notification({ title: "App Updated", body: `${summary}. Restarting...` }).show();
-  addLog("main", "info", `[auto-update] ${summary} — restarting`);
+  updateLog("info", `${summary} — restarting`);
 
   await new Promise((r) => setTimeout(r, 1500));
   app.relaunch();
@@ -434,7 +479,7 @@ function setupPackagedUpdater(): void {
 
   autoUpdater.on("checking-for-update", () => {
     state.checking = true;
-    addLog("main", "info", "[auto-update] Checking for updates (packaged)...");
+    updateLog("info", "Checking for updates (packaged)...");
   });
 
   autoUpdater.on("update-available", (info: any) => {
@@ -442,7 +487,7 @@ function setupPackagedUpdater(): void {
     state.lastCheck = new Date().toISOString();
     state.updateAvailable = info?.version || "yes";
     state.error = null;
-    addLog("main", "info", `[auto-update] Update available: v${info.version}`);
+    updateLog("info", `Update available: v${info.version}`);
     new Notification({ title: "Update Available", body: `Version ${info.version} is ready to download.` }).show();
   });
 
@@ -451,13 +496,13 @@ function setupPackagedUpdater(): void {
     state.lastCheck = new Date().toISOString();
     state.updateAvailable = null;
     state.error = null;
-    addLog("main", "info", "[auto-update] Already up to date");
+    updateLog("info", "Already up to date");
   });
 
   autoUpdater.on("error", (err: Error) => {
     state.checking = false;
     state.error = err.message;
-    addLog("main", "error", `[auto-update] ${err.message}`);
+    updateLog("error", err.message);
   });
 
   autoUpdater.on("download-progress", (progress: { percent: number }) => {
@@ -468,7 +513,7 @@ function setupPackagedUpdater(): void {
     state.downloadProgress = null;
     state.updateDownloaded = true;
     state.lastUpdate = new Date().toISOString();
-    addLog("main", "info", `[auto-update] Update v${info.version} downloaded`);
+    updateLog("info", `Update v${info.version} downloaded`);
     new Notification({ title: "Update Ready", body: `Version ${info.version} downloaded. Restart to install.` }).show();
   });
 }
@@ -512,7 +557,7 @@ async function downloadPackagedUpdate(): Promise<{ success: boolean; error: stri
 
 function installPackagedUpdate(): void {
   if (!autoUpdater || !state.updateDownloaded) return;
-  addLog("main", "info", "[auto-update] Installing update and restarting...");
+  updateLog("info", "Installing update and restarting...");
   // On Windows, use non-silent install so the UAC elevation prompt appears.
   // On macOS/Linux, silent install works fine without elevation.
   autoUpdater.quitAndInstall(false, !IS_WIN);
@@ -570,7 +615,7 @@ export function startAutoUpdater(): void {
   if (isPackaged) setupPackagedUpdater();
 
   const interval = isPackaged ? PACKAGED_CHECK_INTERVAL_MS : DEV_CHECK_INTERVAL_MS;
-  addLog("main", "info", `[auto-update] Starting auto-updater (every 12 hours, mode: ${state.mode})`);
+  updateLog("info", `Starting auto-updater (every 12 hours, mode: ${state.mode})`);
 
   setTimeout(() => {
     if (state.enabled) checkAndUpdate().catch(() => {});
@@ -593,7 +638,7 @@ export function getUpdateState(): UpdateState {
 
 export function setAutoUpdateEnabled(enabled: boolean): void {
   state.enabled = enabled;
-  addLog("main", "info", `[auto-update] ${enabled ? "Enabled" : "Disabled"}`);
+  updateLog("info", enabled ? "Enabled" : "Disabled");
 }
 
 // ── IPC Handlers ──
