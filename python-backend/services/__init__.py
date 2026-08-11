@@ -12,7 +12,7 @@ main.py must NOT do ``from main import uploader`` at module top: a later
 heavy module-level code), and that second copy never runs ``lifespan()``, so its
 singletons would stay at ``None``.
 
-Instead, main.py's ``lifespan()`` assigns the live instances here right after
+Instead, ``services/lifespan.py``'s ``lifespan()`` assigns the live instances here right after
 constructing them, and the moved helper modules read them lazily at call time via
 ``import services; services.<name>``. Because ``import services`` only binds the
 module object (not a value), attribute access at call time always sees the

@@ -1,7 +1,7 @@
 """Queue routes (SQLite-backed event queue) — Phase 3f extraction from main.py.
 
 Handlers moved verbatim from main.py. Singletons are accessed lazily via the
-``services`` registry (populated by main.lifespan() before any request).
+``services`` registry (populated by services/lifespan.py before any request).
 """
 
 from fastapi import APIRouter, Body, HTTPException
