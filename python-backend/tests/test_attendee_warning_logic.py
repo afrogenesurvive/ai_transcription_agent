@@ -3,7 +3,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from main import _build_attendee_presence_warning, _build_voiceprint_reuse_warnings
+from routes.labeling import _build_attendee_presence_warning, _build_voiceprint_reuse_warnings
 
 
 def test_build_attendee_presence_warning_detects_missing_attendee():
