@@ -1059,6 +1059,64 @@ def _normalize_name(value: str) -> str:
     return re.sub(r"\s+", " ", (value or "").strip()).lower()
 
 
+def _build_voiceprint_reuse_warnings(entries, current_job_id, voiceprints):
+    """Return advisory warnings for attendees whose voiceprint belongs to another job.
+
+    This is intentionally non-blocking. It warns when an attendee entry matches an
+    enrolled voiceprint whose sample reference comes from a different job than the
+    current one, which indicates the person is being reused across meetings.
+    """
+    warnings = []
+    normalized_entries = []
+    for entry in (entries or []):
+        name = (entry.get("name") if isinstance(entry, dict) else entry) or ""
+        email = entry.get("email", "") if isinstance(entry, dict) else ""
+        normalized_entries.append((name.strip(), email.strip()))
+
+    for name, email in normalized_entries:
+        if not name and not email:
+            continue
+        for vp in (voiceprints or []):
+            vp_name = (vp.get("name") or "").strip()
+            vp_email = (vp.get("email") or "").strip()
+            sample_job_id = (vp.get("sample_job_id") or "").strip()
+            if not sample_job_id:
+                continue
+            if sample_job_id == current_job_id:
+                continue
+            if not vp_name and not vp_email:
+                continue
+            if name and vp_name and _normalize_name(vp_name) == _normalize_name(name):
+                warnings.append({
+                    "type": "voiceprint_reused_from_other_job",
+                    "name": name,
+                    "email": email,
+                    "existing_name": vp_name,
+                    "existing_email": vp_email,
+                    "sample_job_id": sample_job_id,
+                    "message": (
+                        f"'{name}' already has an enrolled voiceprint from job {sample_job_id[:8]} "
+                        "and may be a reused attendee from another meeting."
+                    ),
+                })
+                break
+            if email and vp_email and _normalize_name(vp_email) == _normalize_name(email):
+                warnings.append({
+                    "type": "voiceprint_reused_from_other_job",
+                    "name": name,
+                    "email": email,
+                    "existing_name": vp_name,
+                    "existing_email": vp_email,
+                    "sample_job_id": sample_job_id,
+                    "message": (
+                        f"'{email}' already has an enrolled voiceprint from job {sample_job_id[:8]} "
+                        "and may be a reused attendee from another meeting."
+                    ),
+                })
+                break
+    return warnings
+
+
 def _build_attendee_presence_warning(registered_attendees, speaker_labels):
     """Return a warning if an attendee was listed for the job but no label in the
     current audio matches them. This is advisory only and never blocks submission."""
@@ -1242,6 +1300,11 @@ async def verify_labels(payload: dict = Body(...)):
         "unregistered_names": unregistered_names,
         "registered_attendees": registered_attendees,
         "attendee_presence_warnings": attendee_presence_warnings,
+        "voiceprint_reuse_warnings": _build_voiceprint_reuse_warnings(
+            labels,
+            job_id,
+            vp_manager.list_voiceprints(),
+        ),
     }
 
 
@@ -1295,6 +1358,8 @@ async def check_attendee_conflicts(entries: list = Body(...)):
       - voiceprint_name_mismatch: voiceprint exists under a different name (delegated)
     """
     conflicts = []
+    warnings = []
+    voiceprints = vp_manager.list_voiceprints()
     for entry in entries:
         name = entry.get("name", "").strip()
         email = entry.get("email", "").strip()
@@ -1345,8 +1410,11 @@ async def check_attendee_conflicts(entries: list = Body(...)):
                 "message": f"Voiceprint for '{existing_vp['name']}' already exists with email '{existing_vp['email'] or 'none'}'. Entering as '{name}' will create a new voiceprint record.",
             })
 
+    for entry in entries:
+        warnings.extend(_build_voiceprint_reuse_warnings([entry], entry.get("current_job_id") or "", voiceprints))
+
     print(f"[api] POST /attendees/check-conflicts → {len(conflicts)} conflict(s)")
-    return {"conflicts": conflicts}
+    return {"conflicts": conflicts, "warnings": warnings}
 
 
 @app.delete("/agent/voiceprints/{email}")

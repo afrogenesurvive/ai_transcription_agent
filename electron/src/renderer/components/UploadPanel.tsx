@@ -107,6 +107,7 @@ export default function UploadPanel({ file, onFileChange, onUpload, onUploadByPa
   const [attendeeEmail, setAttendeeEmail] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [attendeeConflict, setAttendeeConflict] = useState<string | null>(null);
+  const [attendeeWarnings, setAttendeeWarnings] = useState<string[]>([]);
   const [addingAttendee, setAddingAttendee] = useState(false);
   const [skipSteps, setSkipSteps] = useState<string[]>(initialSkipSteps ?? DEFAULT_SKIP_STEPS);
   const [savedAttendees, setSavedAttendees] = useState<AttendeeEntry[]>(loadSavedAttendees);
@@ -340,10 +341,17 @@ export default function UploadPanel({ file, onFileChange, onUpload, onUploadByPa
             if (conflictRes.ok) {
               const conflictData = await conflictRes.json();
               const conflicts = (conflictData as any).conflicts || [];
+              const warnings = (conflictData as any).warnings || [];
               if (conflicts.length > 0) {
                 const messages = conflicts.map((c: any) => c.message).join(" ");
                 setAttendeeConflict(messages);
+                setAttendeeWarnings([]);
                 return; // Don't add — conflicts need user attention
+              }
+              if (warnings.length > 0) {
+                setAttendeeWarnings(warnings.map((w: any) => w.message));
+              } else {
+                setAttendeeWarnings([]);
               }
             }
           } catch {
@@ -446,6 +454,7 @@ export default function UploadPanel({ file, onFileChange, onUpload, onUploadByPa
   const removeAttendee = (index: number) => {
     setAttendeeList(attendeeList.filter((_, i) => i !== index));
     setFormError(null);
+    setAttendeeWarnings([]);
   };
 
   /** Resolve the voiceprint email for a registered attendee, falling back
@@ -546,6 +555,7 @@ export default function UploadPanel({ file, onFileChange, onUpload, onUploadByPa
     setAttendeeList([]);
     setFormError(null);
     setAttendeeConflict(null);
+    setAttendeeWarnings([]);
   };
 
   const formatSize = (bytes: number) => {
@@ -666,6 +676,13 @@ export default function UploadPanel({ file, onFileChange, onUpload, onUploadByPa
             </div>
           )}
 
+          {attendeeWarnings.length > 0 && (
+            <div className="attendee-warning-banner">
+              <span className="attendee-warning-icon">ℹ️</span>
+              <span className="attendee-warning-text">{attendeeWarnings.join(" ")}</span>
+            </div>
+          )}
+
           <div className="attendee-input-row">
             <div className="attendee-autocomplete-wrap">
               <Tooltip content="Enter attendee name — maps positionally to a detected speaker">
@@ -677,6 +694,7 @@ export default function UploadPanel({ file, onFileChange, onUpload, onUploadByPa
                   onChange={(e) => {
                     setAttendeeName(e.target.value);
                     setAttendeeConflict(null);
+                    setAttendeeWarnings([]);
                     setFormError(null);
                     if (e.target.value || !disabled) setShowNameSuggestions(true);
                   }}
@@ -716,6 +734,7 @@ export default function UploadPanel({ file, onFileChange, onUpload, onUploadByPa
                   onChange={(e) => {
                     setAttendeeEmail(e.target.value);
                     setAttendeeConflict(null);
+                    setAttendeeWarnings([]);
                     setFormError(null);
                     if (e.target.value || !disabled) setShowEmailSuggestions(true);
                   }}
