@@ -236,9 +236,7 @@ export default function UploadPanel({ file, onFileChange, onUpload, onUploadByPa
           const vpData = await vpRes.json();
           const vps: any[] = vpData.voiceprints || [];
           const vpsWithSample = vps.filter((vp) => vp.sample_job_id);
-          const emails = new Set<string>(
-            vpsWithSample.map((vp) => vp.email).filter(Boolean),
-          );
+          const emails = new Set<string>(vpsWithSample.map((vp) => vp.email).filter(Boolean));
           setVoiceprintEmails(emails);
           // Build name-based lookups so attendees without an email
           // (but who have a voiceprint) can still show the play button
@@ -862,7 +860,13 @@ export default function UploadPanel({ file, onFileChange, onUpload, onUploadByPa
                 onClick={() => addAttendee()}
                 disabled={disabled || addingAttendee || !attendeeName.trim()}
                 title={addingAttendee ? "Checking attendee conflicts…" : "Add this attendee to the list"}>
-                {addingAttendee ? <><Icon name="hourglass_top" size="14" /> Checking…</> : "+ Add"}
+                {addingAttendee ? (
+                  <>
+                    <Icon name="hourglass_top" size="14" /> Checking…
+                  </>
+                ) : (
+                  "+ Add"
+                )}
               </button>
             </Tooltip>
           </div>
@@ -932,7 +936,8 @@ export default function UploadPanel({ file, onFileChange, onUpload, onUploadByPa
                             </Tooltip>
                           ) : null;
                         })()}
-                        <Tooltip content={addingAttendee ? "Checking attendee conflicts…" : `Click to add ${ra.name} to the meeting participant list`}>
+                        <Tooltip
+                          content={addingAttendee ? "Checking attendee conflicts…" : `Click to add ${ra.name} to the meeting participant list`}>
                           <button
                             className="btn-text attendee-add-btn"
                             onClick={() => addAttendee(ra.name, ra.email)}
@@ -1000,9 +1005,7 @@ export default function UploadPanel({ file, onFileChange, onUpload, onUploadByPa
               </>
             ) : gmailConnected ? (
               <>
-                <span className="delivery-connect-feedback delivery-connect-feedback--ok">
-                  Google connected: {gmailUser || "your account"}
-                </span>
+                <span className="delivery-connect-feedback delivery-connect-feedback--ok">Google connected: {gmailUser || "your account"}</span>
                 <button
                   className="config-update-status-btn"
                   onClick={connectGmail}
