@@ -10,6 +10,7 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import Icon from "./Icon";
 import Tooltip from "./Tooltip";
+import LoadingModal from "./LoadingModal";
 import { useUiStateValue } from "../hooks/useUiState";
 
 interface AttendeeEntry {
@@ -46,6 +47,9 @@ interface Props {
   disabled?: boolean;
   /** Initial set of tool names to skip, derived from disabled pipeline steps in agent config. */
   initialSkipSteps?: string[];
+  /** Bumped by App each time the New Job panel is opened — UploadPanel re-checks
+   *  dynamic state (e.g. Gmail connection) even if it stays mounted. */
+  refreshTrigger?: number;
 }
 
 // ── Email validation ──
@@ -97,7 +101,7 @@ const DEFAULT_SKIP_STEPS = [
   "create_trello_action_items",
 ];
 
-export default function UploadPanel({ file, onFileChange, onUpload, onUploadByPath, uploading, disabled, initialSkipSteps }: Props) {
+export default function UploadPanel({ file, onFileChange, onUpload, onUploadByPath, uploading, disabled, initialSkipSteps, refreshTrigger }: Props) {
   const [dragOver, setDragOver] = useState(false);
   // ── Persisted New-form draft (rule 8a) — restored across restarts, cleared on job start ──
   const [title, setTitle] = useUiStateValue<string>("newForm.title", "");
@@ -139,20 +143,30 @@ export default function UploadPanel({ file, onFileChange, onUpload, onUploadByPa
   const [gmailAuthFeedback, setGmailAuthFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [gmailConnected, setGmailConnected] = useState(false);
   const [gmailUser, setGmailUser] = useState("");
+  /** True while the Google integration is being checked on submit. */
+  const [validatingGmail, setValidatingGmail] = useState(false);
+  /** Set when the submit-time validation fails — shows a red "disconnected" row. */
+  const [gmailDisconnected, setGmailDisconnected] = useState(false);
 
   // Detect whether Google is already connected (a refresh token is saved).
+  // Re-runs on mount AND whenever App bumps `refreshTrigger` (the New Job panel
+  // was switched to), so removing the token in Config is reflected immediately.
   useEffect(() => {
     let cancelled = false;
-    window.electronAPI?.getConfig().then((cfg) => {
-      if (cancelled) return;
-      const token = (cfg?.GMAIL_REFRESH_TOKEN || "").trim();
-      setGmailConnected(!!token);
-      setGmailUser((cfg?.GMAIL_USER || "").trim());
-    });
+    const check = () => {
+      window.electronAPI?.getConfig().then((cfg) => {
+        if (cancelled) return;
+        const token = (cfg?.GMAIL_REFRESH_TOKEN || "").trim();
+        setGmailConnected(!!token);
+        setGmailDisconnected(false);
+        setGmailUser((cfg?.GMAIL_USER || "").trim());
+      });
+    };
+    check();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refreshTrigger]);
 
   // Cancel any pending Gmail OAuth flow when the panel unmounts.
   useEffect(() => {
@@ -176,6 +190,7 @@ export default function UploadPanel({ file, onFileChange, onUpload, onUploadByPa
           GMAIL_USER: res.user ?? "",
         });
         setGmailConnected(!!res.refreshToken);
+        setGmailDisconnected(false);
         setGmailUser(res.user || "");
         setGmailAuthFeedback({ type: "ok", text: res.user ? `Google connected: ${res.user}` : "Google connected — ready to deliver." });
       } else {
@@ -575,6 +590,27 @@ export default function UploadPanel({ file, onFileChange, onUpload, onUploadByPa
         return;
       }
     }
+    // Validate the Google integration BEFORE uploading so a broken/expired
+    // token fails fast instead of at delivery time.
+    if (googleDeliveryEnabled) {
+      setValidatingGmail(true);
+      let valid = false;
+      try {
+        const res = await window.electronAPI?.validateGmailOAuth();
+        valid = !!res?.ok;
+      } catch {
+        valid = false;
+      } finally {
+        setValidatingGmail(false);
+      }
+      if (!valid) {
+        // Don't block with a raw API error — reflect the failed check in the
+        // delivery row as a red "Google disconnected" state instead.
+        setGmailConnected(false);
+        setGmailDisconnected(true);
+        return;
+      }
+    }
     const nameList = attendeeList.map((a) => a.name);
     const attendeeEmails = attendeeList.map((a) => a.email); // keep alignment with names (all now have validated emails)
     const deliveryRecipients = attendeeEmails.filter(Boolean);
@@ -942,7 +978,27 @@ export default function UploadPanel({ file, onFileChange, onUpload, onUploadByPa
           <div className="delivery-connect-row">
             <Icon name="email" size="14" color="accent" />
             <span className="delivery-connect-label">Delivery</span>
-            {gmailConnected ? (
+            {gmailDisconnected ? (
+              <>
+                <span className="delivery-connect-feedback delivery-connect-feedback--err">Google disconnected — reconnect to enable delivery</span>
+                <button
+                  className="config-update-status-btn config-update-status-btn--accent"
+                  onClick={connectGmail}
+                  disabled={gmailAuthPending || disabled || uploading}
+                  title="Reconnect Google to enable delivery"
+                  type="button">
+                  {gmailAuthPending ? (
+                    <>
+                      <span className="updates-spinner updates-spinner--small" /> Connecting…
+                    </>
+                  ) : (
+                    <>
+                      <Icon name="link" size="14" /> Reconnect
+                    </>
+                  )}
+                </button>
+              </>
+            ) : gmailConnected ? (
               <>
                 <span className="delivery-connect-feedback delivery-connect-feedback--ok">
                   Google connected: {gmailUser || "your account"}
@@ -1018,6 +1074,8 @@ export default function UploadPanel({ file, onFileChange, onUpload, onUploadByPa
           </button>
         </Tooltip>
       </div>
+
+      <LoadingModal visible={validatingGmail} message="Checking Google integration…" />
     </div>
   );
 }

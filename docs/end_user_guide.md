@@ -577,7 +577,7 @@ Each service has a collapsible accordion — click to expand and fill in the cre
 
 1. **Import your provided config file** (📥 Import in the config header) — this fills in the Client ID and Client Secret you received.
 2. Click **Connect with Google** — your browser opens Google's sign-in. Choose the Gmail account that will send the emails, review the permissions, and click **Allow**.
-3. The app automatically fills in the **Refresh Token** and your **Gmail User** email. Click **Save**.
+3. The app automatically fills in the **Refresh Token** and your **Gmail User** email and **saves them immediately** — no extra Save needed.
 
 > **Note:** The Gmail/Drive **Refresh Token** is tied to the Google account that authorized it and, while the app is unverified (Google "Testing" mode), it expires after about **7 days** — simply click **Connect with Google** again to re-authorize. If a delivery fails with a Gmail/Drive authorization error, reconnect Google in Settings → Services. You can also paste a refresh token manually into the field if you have one.
 

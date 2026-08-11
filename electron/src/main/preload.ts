@@ -62,6 +62,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   startGmailOAuth: (clientId?: string, clientSecret?: string): Promise<GmailAuthResult> =>
     ipcRenderer.invoke("gmail:auth:start", { clientId, clientSecret }),
   cancelGmailOAuth: (): Promise<{ ok: boolean }> => ipcRenderer.invoke("gmail:auth:cancel"),
+  validateGmailOAuth: (): Promise<GmailAuthResult> => ipcRenderer.invoke("gmail:auth:validate"),
 
   // ── Job status ──
   getActiveJobs: (): Promise<Array<{ job_id: string; status: string; progress: number; title: string }>> => ipcRenderer.invoke("jobs:getActive"),

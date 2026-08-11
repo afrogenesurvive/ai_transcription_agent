@@ -206,6 +206,61 @@ async function exchangeCode(code: string, clientId: string, clientSecret: string
   return { ok: true, refreshToken, clientId, clientSecret, user };
 }
 
+/** Validate the configured Gmail/Drive credentials by exchanging the refresh
+ *  token for an access token and calling the Gmail API. Used by the New Job
+ *  form before upload to fail fast instead of at delivery time. */
+export async function validateGmailCredentials(opts?: {
+  clientId?: string;
+  clientSecret?: string;
+  refreshToken?: string;
+}): Promise<GmailAuthResult> {
+  const cfg = getConfig();
+  const clientId = (opts?.clientId || cfg.GMAIL_CLIENT_ID || "").trim();
+  const clientSecret = (opts?.clientSecret || cfg.GMAIL_CLIENT_SECRET || "").trim();
+  const refreshToken = (opts?.refreshToken || cfg.GMAIL_REFRESH_TOKEN || "").trim();
+
+  if (!clientId || !clientSecret || !refreshToken) {
+    return {
+      ok: false,
+      error: "Google integration is not configured — import the provided config (Client ID/Secret) and connect your Google account (Refresh Token).",
+    };
+  }
+
+  try {
+    const tokenRes = await fetch(TOKEN_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: refreshToken,
+        grant_type: "refresh_token",
+      }).toString(),
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const tokenJson: any = await tokenRes.json().catch(() => ({}));
+    if (!tokenRes.ok || !tokenJson.access_token) {
+      const detail = tokenJson.error_description || tokenJson.error || `HTTP ${tokenRes.status}`;
+      addLog("main", "warn", `[gmail] validation failed: ${detail}`);
+      return { ok: false, error: `Google integration check failed: ${detail}` };
+    }
+
+    const gmailRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", {
+      headers: { Authorization: `Bearer ${tokenJson.access_token}` },
+    });
+    if (!gmailRes.ok) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const body: any = await gmailRes.json().catch(() => ({}));
+      const detail = body?.error?.message || `HTTP ${gmailRes.status}`;
+      return { ok: false, error: `Google integration check failed: ${detail}` };
+    }
+    return { ok: true };
+  } catch (err: any) {
+    addLog("main", "error", `[gmail] validation error: ${err?.message || "unknown"}`);
+    return { ok: false, error: err?.message || "Google integration check failed." };
+  }
+}
+
 /** Register the gmail:* IPC handlers. Call once from index.ts. */
 export function registerGmailOAuthIpc(): void {
   ipcMain.handle(
@@ -236,5 +291,9 @@ export function registerGmailOAuthIpc(): void {
   ipcMain.handle("gmail:auth:cancel", () => {
     cancelGmailAuth();
     return { ok: true };
+  });
+
+  ipcMain.handle("gmail:auth:validate", async (): Promise<GmailAuthResult> => {
+    return validateGmailCredentials();
   });
 }

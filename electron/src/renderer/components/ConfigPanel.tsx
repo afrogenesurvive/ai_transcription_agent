@@ -923,7 +923,19 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
         if (res.clientId) handleChange("GMAIL_CLIENT_ID", res.clientId);
         if (res.clientSecret) handleChange("GMAIL_CLIENT_SECRET", res.clientSecret);
         if (res.user) handleChange("GMAIL_USER", res.user);
-        setGmailAuthFeedback({ type: "ok", text: "Google account connected — click Save to apply." });
+        // Auto-save immediately on authorize (consistency with the New Job form),
+        // so the chosen account's email + refresh token persist right away.
+        try {
+          await window.electronAPI?.saveConfig({
+            GMAIL_CLIENT_ID: res.clientId ?? "",
+            GMAIL_CLIENT_SECRET: res.clientSecret ?? "",
+            GMAIL_REFRESH_TOKEN: res.refreshToken ?? "",
+            GMAIL_USER: res.user ?? "",
+          });
+          setGmailAuthFeedback({ type: "ok", text: "Google account connected and saved." });
+        } catch {
+          setGmailAuthFeedback({ type: "err", text: "Google connected, but saving failed — click Save to apply." });
+        }
       } else {
         setGmailAuthFeedback({ type: "err", text: res?.error || "Google authorization failed or was cancelled — try again." });
       }
