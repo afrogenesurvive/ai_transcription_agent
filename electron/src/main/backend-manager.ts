@@ -622,7 +622,7 @@ export async function startPythonBackend(port = 5001): Promise<void> {
 
   await waitForServer(
     `http://127.0.0.1:${port}/health`,
-    60000, // 60s timeout — PyInstaller binary + PyTorch init can be slow on Windows
+    120000, // 120s timeout — PyInstaller binary + PyTorch init (incl. Matplotlib font-cache build) can be slow, especially under Wine/CrossOver
     () => pythonProcess !== null && pythonProcess.exitCode === null,
   );
   console.log(`[backend] Python backend is ready on :${port}`);
