@@ -49,18 +49,26 @@ ShowInstDetails show
 ; ── Keep the Cancel button enabled during file extraction ──
 ;
 ; NSIS disables the Cancel button on the instfiles (extraction) page by
-; default. Defining functions named instfiles.pre / instfiles.show makes NSIS
-; call them automatically (Page instfiles resolves <page>.<callback> by name),
-; which re-enables Cancel so a ~400 MB install can be aborted mid-way.
-; Re-running the installer repairs any partial extraction.
+; default. MUI2 does NOT auto-call functions named instfiles.pre /
+; instfiles.show — it declares the page via `PageEx instfiles` + `PageCallbacks`
+; bound to its own mui.InstFilesPre/Show functions. Custom hooks are wired via
+; the MUI_PAGE_CUSTOMFUNCTION_PRE / _SHOW defines, which MUI_PAGE_FUNCTION_CUSTOM
+; `Call`s and then consumes (`!undef`), so they apply only to the next page that
+; expands one — here MUI_PAGE_INSTFILES (the first MUI page in this config;
+; welcome / install-mode / directory pages are custom or disabled). This
+; re-enables Cancel so a ~400 MB install can be aborted mid-way; re-running the
+; installer repairs any partial extraction.
 ;
 ; NOTE: guarded with !ifndef BUILD_UNINSTALLER — electron-builder injects this
 ; include into the shared script header compiled for BOTH the installer and the
 ; (intermediate) uninstaller, and runs makensis with -WX (warnings as errors).
-; The uninstaller has no "instfiles" page (only "uninstfiles"), so these
-; functions would otherwise be "not referenced" (NSIS warning 6010) → fatal.
+; The uninstaller has no instfiles page, so unguarded functions/defines would be
+; "not referenced" (NSIS warning 6010) → fatal.
 
 !ifndef BUILD_UNINSTALLER
+!define MUI_PAGE_CUSTOMFUNCTION_PRE instfiles.pre
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW instfiles.show
+
 Function instfiles.pre
   GetDlgItem $0 $HWNDPARENT 2
   EnableWindow $0 1
