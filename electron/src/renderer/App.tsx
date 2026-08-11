@@ -104,6 +104,9 @@ export default function App() {
   const [devAccessSignal, setDevAccessSignal] = useState(0);
   const [newJobCooldown, setNewJobCooldown] = useState(false);
   const [showNewForm, setShowNewForm] = useState(false);
+  // Bumped each time the New Job form is opened — lets UploadPanel re-check
+  // dynamic state (e.g. Google connection) even if it stays mounted.
+  const [newFormRefreshTrigger, setNewFormRefreshTrigger] = useState(0);
   // Live File object for the New form — hoisted to App so it survives panel
   // switches (UploadPanel unmounts on view change; a browser File can't be
   // serialized). Cleared on new-job and after a successful submit.
@@ -126,6 +129,9 @@ export default function App() {
   // UploadPanel checkboxes reflect which steps are disabled in the ConfigPanel.
   useEffect(() => {
     if (!showNewForm) return;
+    // The New Job form was just opened — bump the refresh trigger so UploadPanel
+    // re-checks dynamic state (e.g. Gmail connection) on every "switched to".
+    setNewFormRefreshTrigger((n) => n + 1);
     let cancelled = false;
     window.electronAPI
       ?.getAgentConfig()
@@ -1395,6 +1401,7 @@ export default function App() {
                           uploading={uploading}
                           disabled={isJobRunning}
                           initialSkipSteps={defaultSkipSteps}
+                          refreshTrigger={newFormRefreshTrigger}
                         />
                       </div>
                     ) : (

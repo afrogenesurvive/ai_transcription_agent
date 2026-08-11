@@ -171,6 +171,7 @@ export interface ElectronAPI {
   openExternal: (url: string) => Promise<{ success: boolean }>;
   startGmailOAuth: (clientId?: string, clientSecret?: string) => Promise<GmailAuthResult>;
   cancelGmailOAuth: () => Promise<{ ok: boolean }>;
+  validateGmailOAuth: () => Promise<GmailAuthResult>;
   getActiveJobs: () => Promise<Array<{ job_id: string; status: string; progress: number; title: string }>>;
   getRunningBotJobs: () => Promise<Array<{ job_id: string; status: string }>>;
   onNotification: (cb: (msg: string) => void) => () => void;
