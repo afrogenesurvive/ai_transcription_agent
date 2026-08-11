@@ -211,7 +211,7 @@ If the app has heard a speaker before (from a previous meeting), it automaticall
   2. **Voice-Match Verification** — after resolving name conflicts, the system compares proposed labels against all enrolled voiceprints. If a person's voice matches an existing voiceprint under a different name, a warning appears with similarity scores, the source job ID, and per-conflict **Accept**/**Reject** checkboxes before you can proceed. This is a hard block — unresolved conflicts prevent submission.
   3. **Unregistered Name Warning** — if a label matches no voiceprint at all, a non-blocking informational note is shown.
 - **Inline per-speaker conflict warnings** — as you type a name or tab away from a name input, the system checks that single speaker against the voiceprint database. If a conflict is found, an inline warning appears below the email input with **Use "ExistingName"** / **Keep "NewName"** buttons, so you can resolve conflicts one at a time without waiting for the final confirmation dialog.
-- **Voiceprint-overwrite warning** — the **"Assign known attendee…"** dropdown splits registered attendees into **Voiceprint owners** (group labeled *"selecting overwrites"*) and **Registered, no voiceprint**. If you pick a voiceprint owner to fill a speaker slot, the speaker row is highlighted with an orange border and a message warns that confirming will **overwrite** that attendee's existing voiceprint with this recording. Picking a no-voiceprint attendee, or editing the name, clears the warning.
+- **Voiceprint-overwrite warning** — the **"Assign known attendee…"** dropdown splits registered attendees into **Voiceprint owners** (group labeled _"selecting overwrites"_) and **Registered, no voiceprint**. If you pick a voiceprint owner to fill a speaker slot, the speaker row is highlighted with an orange border and a message warns that confirming will **overwrite** that attendee's existing voiceprint with this recording. Picking a no-voiceprint attendee, or editing the name, clears the warning.
 - **Backend error banner** — if the backend rejects the labels (e.g., a 409 voice-match conflict), a red error banner appears at the bottom of the modal with the specific error message and a dismiss button. The banner clears automatically when you edit any name or email input.
 - **Non-speaking attendees** — registered attendees who were present but never spoke (no diarization segments detected) appear under **"Also present but did not speak"** in the modal. These names are passed to the AI for context and included in delivery records.
 - **Confirm** to continue, **Skip** to use default names, or **Cancel** to stop
@@ -581,7 +581,7 @@ Each service has a collapsible accordion — click to expand and fill in the cre
 
 > **Note:** The Gmail/Drive **Refresh Token** is tied to the Google account that authorized it and, while the app is unverified (Google "Testing" mode), it expires after about **7 days** — simply click **Connect with Google** again to re-authorize. If a delivery fails with a Gmail/Drive authorization error, reconnect Google in Settings → Services. You can also paste a refresh token manually into the field if you have one.
 
-You can also start the same **Connect with Google** flow from the **New Job form** — a *Delivery* status row appears whenever an email/Drive delivery step is enabled, so you can connect before starting a transcription.
+You can also start the same **Connect with Google** flow from the **New Job form** — a _Delivery_ status row appears whenever an email/Drive delivery step is enabled, so you can connect before starting a transcription.
 
 #### Delivery Config Section
 
@@ -885,7 +885,7 @@ The app keeps itself up to date automatically, so you always get the latest fixe
 ### How you'll know an update is available
 
 - The app **checks for updates on its own** every 12 hours while it's running.
-- When a new version is ready, **Windows shows a notification** in the bottom-right corner of your screen: *"Update Available: Version X is ready to download."*
+- When a new version is ready, **Windows shows a notification** in the bottom-right corner of your screen: _"Update Available: Version X is ready to download."_
 - You can also check at any time yourself (see below).
 
 ### To install an update (step by step)

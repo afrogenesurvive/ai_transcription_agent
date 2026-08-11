@@ -172,7 +172,7 @@
       "icon": null,
       "category": "AudioVideo",
       "packageCategory": "AudioVideo",
-      "description": "AI Meeting Transcription Agent \u2014 automatic speech-to-text, speaker diarization, summarization, and memory",
+      "description": "AI Meeting Transcription Agent — automatic speech-to-text, speaker diarization, summarization, and memory",
       "target": [
         {
           "target": "AppImage",

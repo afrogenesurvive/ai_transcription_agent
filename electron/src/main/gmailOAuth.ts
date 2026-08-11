@@ -34,12 +34,7 @@ export interface GmailAuthResult {
 }
 
 /** Scopes the refresh token must cover: gmail send, Drive, plus email. */
-const GMAIL_SCOPES = [
-  "https://www.googleapis.com/auth/gmail.send",
-  "https://www.googleapis.com/auth/drive",
-  "openid",
-  "email",
-];
+const GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/drive", "openid", "email"];
 
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const USERINFO_ENDPOINT = "https://www.googleapis.com/oauth2/v2/userinfo";
@@ -209,11 +204,7 @@ async function exchangeCode(code: string, clientId: string, clientSecret: string
 /** Validate the configured Gmail/Drive credentials by exchanging the refresh
  *  token for an access token and calling the Gmail API. Used by the New Job
  *  form before upload to fail fast instead of at delivery time. */
-export async function validateGmailCredentials(opts?: {
-  clientId?: string;
-  clientSecret?: string;
-  refreshToken?: string;
-}): Promise<GmailAuthResult> {
+export async function validateGmailCredentials(opts?: { clientId?: string; clientSecret?: string; refreshToken?: string }): Promise<GmailAuthResult> {
   const cfg = getConfig();
   const clientId = (opts?.clientId || cfg.GMAIL_CLIENT_ID || "").trim();
   const clientSecret = (opts?.clientSecret || cfg.GMAIL_CLIENT_SECRET || "").trim();
@@ -263,30 +254,27 @@ export async function validateGmailCredentials(opts?: {
 
 /** Register the gmail:* IPC handlers. Call once from index.ts. */
 export function registerGmailOAuthIpc(): void {
-  ipcMain.handle(
-    "gmail:auth:start",
-    async (_event, opts: { clientId?: string; clientSecret?: string } = {}): Promise<GmailAuthResult> => {
-      const cfg = getConfig();
-      const clientId = (opts?.clientId || cfg.GMAIL_CLIENT_ID || "").trim();
-      const clientSecret = (opts?.clientSecret || cfg.GMAIL_CLIENT_SECRET || "").trim();
+  ipcMain.handle("gmail:auth:start", async (_event, opts: { clientId?: string; clientSecret?: string } = {}): Promise<GmailAuthResult> => {
+    const cfg = getConfig();
+    const clientId = (opts?.clientId || cfg.GMAIL_CLIENT_ID || "").trim();
+    const clientSecret = (opts?.clientSecret || cfg.GMAIL_CLIENT_SECRET || "").trim();
 
-      if (!clientId || !clientSecret) {
-        return {
-          ok: false,
-          error: "No Gmail Client ID/Secret configured — import the provided config or enter them in Settings → Services.",
-        };
-      }
-      if (pending) {
-        return { ok: false, error: "An authorization flow is already in progress." };
-      }
-      try {
-        return await runFlow(clientId, clientSecret);
-      } catch (err: any) {
-        addLog("main", "error", `[gmail] unexpected error: ${err?.message || "unknown"}`);
-        return { ok: false, error: err?.message || "Google authorization failed — try again." };
-      }
-    },
-  );
+    if (!clientId || !clientSecret) {
+      return {
+        ok: false,
+        error: "No Gmail Client ID/Secret configured — import the provided config or enter them in Settings → Services.",
+      };
+    }
+    if (pending) {
+      return { ok: false, error: "An authorization flow is already in progress." };
+    }
+    try {
+      return await runFlow(clientId, clientSecret);
+    } catch (err: any) {
+      addLog("main", "error", `[gmail] unexpected error: ${err?.message || "unknown"}`);
+      return { ok: false, error: err?.message || "Google authorization failed — try again." };
+    }
+  });
 
   ipcMain.handle("gmail:auth:cancel", () => {
     cancelGmailAuth();

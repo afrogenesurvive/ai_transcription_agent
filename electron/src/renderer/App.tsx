@@ -1381,9 +1381,7 @@ export default function App() {
 
             {/* ── Server status popover overlay ── */}
             {sidebarView !== "dev" && (
-              <ServerStatusBanner
-                onConfigImported={() => window.electronAPI?.checkConfig().then((r) => setConfigOk(r.ok))}
-              />
+              <ServerStatusBanner onConfigImported={() => window.electronAPI?.checkConfig().then((r) => setConfigOk(r.ok))} />
             )}
 
             {/* ── Normal content (always visible behind popover) ── */}

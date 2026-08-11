@@ -1,9 +1,9 @@
 {
-  "name": "copilot_agentic_task_helper",
+  "name": "AI Transcription Agent - Backend",
   "version": "0.8.3",
   "private": true,
   "license": "Apache-2.0",
-  "description": "Remote Collaborator Chat \u2014 Trello-powered chat interface for GitHub Copilot agent interactions",
+  "description": "AI Meeting Transcription Agent — automatic speech-to-text, speaker diarization, summarization, and memory",
   "scripts": {
     "transcribe:backend": "cd python-backend && source venv/bin/activate && python3 main.py",
     "transcribe:bridge": "cd bridge-server && npm start",

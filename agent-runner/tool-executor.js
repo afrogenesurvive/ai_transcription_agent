@@ -51,9 +51,7 @@ function resolveAuthoritativeRecipients(jobId) {
     const deliveryPath = path.join(storageBase, jobId, "delivery.json");
     if (!fs.existsSync(deliveryPath)) return null;
     const pkg = JSON.parse(fs.readFileSync(deliveryPath, "utf8"));
-    const recipients = (pkg.email_recipients || [])
-      .map((e) => (typeof e === "string" ? e.trim() : ""))
-      .filter(Boolean);
+    const recipients = (pkg.email_recipients || []).map((e) => (typeof e === "string" ? e.trim() : "")).filter(Boolean);
     return recipients.length > 0 ? recipients : null;
   } catch (err) {
     console.log(`⚠️  [EXECUTOR] Could not resolve delivery recipients from delivery.json: ${err.message}`);

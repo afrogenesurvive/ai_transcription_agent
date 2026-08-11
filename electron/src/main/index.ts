@@ -79,14 +79,7 @@ function ensureWinSwitchesOnCommandLine(): void {
   // Chromium 146 needs the SwiftShader (software) GL backend on Wine/CrossOver
   // (verified working 2026-08-09); the old disable-gpu+in-process-gpu combo is not
   // enough. Applied win32-wide — this app is a plain UI, software rendering is safe.
-  const required = [
-    "no-sandbox",
-    "disable-gpu",
-    "disable-gpu-compositing",
-    "in-process-gpu",
-    "use-angle=swiftshader",
-    "enable-unsafe-swiftshader",
-  ];
+  const required = ["no-sandbox", "disable-gpu", "disable-gpu-compositing", "in-process-gpu", "use-angle=swiftshader", "enable-unsafe-swiftshader"];
   if (process.env.ELECTRON_ENABLE_SANDBOX === "1") {
     const i = required.indexOf("no-sandbox");
     if (i >= 0) required.splice(i, 1);
