@@ -159,6 +159,26 @@
   text-align: center;
 }
 
+.speaker-clear-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+
+.speaker-clear-btn:hover {
+  color: var(--red);
+  background: var(--surface-hover);
+}
+
 .speaker-email-row {
   margin-top: 8px;
 }
