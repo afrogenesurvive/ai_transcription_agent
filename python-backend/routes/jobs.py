@@ -1,7 +1,7 @@
 """Job CRUD routes — Phase 3g extraction from main.py.
 
 Handlers moved verbatim from main.py. Singletons are accessed lazily via the
-``services`` registry (populated by main.lifespan() before any request), and
+``services`` registry (populated by services/lifespan.py before any request), and
 pipeline state via the shared ``state`` singleton from pipeline_state.py.
 """
 
