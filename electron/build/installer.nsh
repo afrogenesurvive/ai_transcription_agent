@@ -46,6 +46,24 @@ BrandingText "Transcription Agent Installer"
 
 ShowInstDetails show
 
+; ── Keep the Cancel button enabled during file extraction ──
+;
+; NSIS disables the Cancel button on the instfiles (extraction) page by
+; default. Defining functions named instfiles.pre / instfiles.show makes NSIS
+; call them automatically (Page instfiles resolves <page>.<callback> by name),
+; which re-enables Cancel so a ~400 MB install can be aborted mid-way.
+; Re-running the installer repairs any partial extraction.
+
+Function instfiles.pre
+  GetDlgItem $0 $HWNDPARENT 2
+  EnableWindow $0 1
+FunctionEnd
+
+Function instfiles.show
+  GetDlgItem $0 $HWNDPARENT 2
+  EnableWindow $0 1
+FunctionEnd
+
 ; ── Custom Welcome Page (installer only) ──
 
 !ifndef BUILD_UNINSTALLER
@@ -99,7 +117,7 @@ FunctionEnd
 !ifndef BUILD_UNINSTALLER
 
 !macro customPageAfterChangeDir
-  Page custom instProgressPage
+  Page custom instProgressPage instProgressLeave
 !macroend
 
 Var ProgressDialog
@@ -135,6 +153,22 @@ Function instProgressPage
   Pop $ProgressStatus
 
   nsDialogs::Show
+FunctionEnd
+
+; Leave callback — runs when the user clicks "Install" on the summary page.
+; If an existing installation is present this is an upgrade/overwrite, so
+; confirm before extraction begins (user data is always kept). Abort returns
+; the user to the summary page, where Cancel is still available.
+Function instProgressLeave
+  IfFileExists "$INSTDIR\Uninstall Transcription Agent.exe" installed done
+  installed:
+    MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON1 \
+      "Transcription Agent is already installed.$\r$\n$\r$\n\
+       Setup will update the existing installation.$\r$\n\
+       Your transcripts, voiceprints, and settings will be kept.$\r$\n$\r$\n\
+       Continue?" /SD IDYES IDYES done
+    Abort
+  done:
 FunctionEnd
 
 !endif
@@ -284,7 +318,9 @@ Function unWelcomePage
 
   ${NSD_CreateCheckbox} 0 -44u 100% 14u "Also delete my transcription data and settings (transcripts, voiceprints, config)"
   Pop $DeleteUserDataCheckbox
-  ${NSD_Check} $DeleteUserDataCheckbox
+  ; Default: PARTIAL uninstall — app files are always removed, but the user's
+  ; transcripts, voiceprints, and settings are kept unless they opt in below.
+  ${NSD_Uncheck} $DeleteUserDataCheckbox
 
   nsDialogs::Show
 
