@@ -681,7 +681,32 @@ async def get_speaker_clips(job_id: str):
     # ── Pass 3: Positional fallback for unmatched speakers ──
     # For speakers with no voiceprint match (or unregistered match), assign
     # remaining unused form entries positionally (preserving iteration order).
-    free_indices = [i for i in range(len(attendee_names)) if i not in used_form_indices]
+    #
+    # Skip form attendees who have an enrolled voiceprint (from a previous job)
+    # that was NOT matched to any voice in this recording: their voice isn't in
+    # the audio, so they must not be positionally filled into a speaker input.
+    # They are surfaced separately (the "Enrolled voiceprint not found" section
+    # in the labeling modal) and can be opted into the record as non-speaking.
+    pass3_form_lower = {a.strip().lower() for a in attendee_names}
+    recognized_vp_lower = {
+        m["name"].strip().lower()
+        for ps in pending
+        for m in ps["voiceprint_matches"]
+        if m.get("name")
+    }
+    vp_rows = services.vp_manager.list_voiceprints() or []
+    unmatched_vp_form_lower = {
+        v.get("name", "").strip().lower()
+        for v in vp_rows
+        if v.get("name")
+        and v.get("name", "").strip().lower() in pass3_form_lower
+        and v.get("name", "").strip().lower() not in recognized_vp_lower
+    }
+    free_indices = [
+        i for i in range(len(attendee_names))
+        if i not in used_form_indices
+        and attendee_names[i].strip().lower() not in unmatched_vp_form_lower
+    ]
     fi_next = 0
     for ps in pending:
         if ps["form_entry_name"]:

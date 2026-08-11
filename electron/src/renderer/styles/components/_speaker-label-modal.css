@@ -661,7 +661,9 @@
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
 }
 
 .speaker-non-speaking-remove:hover {
@@ -928,14 +930,34 @@
 }
 
 .speaker-unmatched-vp-item {
-  display: inline-flex;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   padding: 4px 10px;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: 8px;
   font-size: 12px;
+}
+
+.speaker-unmatched-vp-item--assigned {
+  opacity: 0.6;
+  border-color: rgba(210, 146, 34, 0.45);
+  background: rgba(210, 146, 34, 0.06);
+}
+
+.speaker-unmatched-vp-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.speaker-unmatched-vp-option input[type="radio"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+  margin: 0;
 }
 
 .speaker-unmatched-vp-name {
@@ -944,5 +966,11 @@
 
 .speaker-unmatched-vp-job {
   color: var(--text-muted);
+  font-size: 11px;
+}
+
+.speaker-unmatched-vp-assigned-note {
+  width: 100%;
+  color: var(--orange, #d29922);
   font-size: 11px;
 }
