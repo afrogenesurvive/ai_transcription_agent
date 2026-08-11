@@ -257,28 +257,30 @@ def _build_voiceprint_reuse_warnings(entries, current_job_id, voiceprints):
 
 
 def _build_attendee_presence_warning(registered_attendees, speaker_labels):
-    """Return a warning if an attendee was listed for the job but no label in the
-    current audio matches them. This is advisory only and never blocks submission."""
+    """Return a list of warnings for attendees who were listed for the job but had
+    no speaker label in the current audio matching them. Advisory only — never
+    blocks submission. Every unmatched attendee is reported, not just the first."""
     normalized_labels = {
         _normalize_name(label)
         for label in (speaker_labels or [])
         if _normalize_name(label)
     }
+    warnings = []
     for attendee in (registered_attendees or []):
         attendee_name = (attendee or "").strip()
         normalized_attendee = _normalize_name(attendee_name)
         if not normalized_attendee:
             continue
         if normalized_attendee not in normalized_labels:
-            return {
+            warnings.append({
                 "type": "attendee_not_present_in_audio",
                 "name": attendee_name,
                 "message": (
                     f"'{attendee_name}' was listed as an attendee for this meeting, "
                     "but no speaker label in the current audio matched them."
                 ),
-            }
-    return None
+            })
+    return warnings
 
 
 @router.post("/agent/verify-labels")
@@ -342,12 +344,12 @@ async def verify_labels(payload: dict = Body(...)):
             if not is_registered:
                 unregistered_names.append(name)
 
-    warning = _build_attendee_presence_warning(
-        registered_attendees,
-        [label.get("name", "").strip() for label in labels if label.get("name", "").strip()],
+    attendee_presence_warnings.extend(
+        _build_attendee_presence_warning(
+            registered_attendees,
+            [label.get("name", "").strip() for label in labels if label.get("name", "").strip()],
+        )
     )
-    if warning:
-        attendee_presence_warnings.append(warning)
 
     for label in labels:
         spk = label.get("speaker_id", "")
