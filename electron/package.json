@@ -30,6 +30,7 @@
       "provider": "github",
       "owner": "afrogenesurvive",
       "repo": "ai_transcription_agent",
+      "private": true,
       "releaseType": "release"
     },
     "files": [
