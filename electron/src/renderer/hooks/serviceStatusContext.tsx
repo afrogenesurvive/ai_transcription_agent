@@ -4,7 +4,7 @@
  * Centralizes all polling so both StatusBar (bottom bar) and ServerStatusBanner
  * ("Setting Up…" overlay) read from the same source of truth with the same
  * intervals. Eliminates the desync caused by the old approach where each
- * component polled independently at different rates.
+ * component polled independently at different rates..
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from "react";
