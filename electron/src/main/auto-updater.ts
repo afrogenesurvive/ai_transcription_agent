@@ -67,15 +67,7 @@ const isPackaged = app.isPackaged;
 // This is called at module load AND inside checkAndUpdate() so that
 // the PAT is available even if the config file wasn't ready at startup.
 (function initGitHubToken(): void {
-  try {
-    const token = getConfig().GITHUB_TOKEN;
-    if (token) {
-      if (!process.env.GH_TOKEN) process.env.GH_TOKEN = token;
-      if (!process.env.GITHUB_TOKEN) process.env.GITHUB_TOKEN = token;
-    }
-  } catch {
-    // Config not ready yet — will be retried in checkAndUpdate()
-  }
+  seedGitHubToken();
 })();
 
 let state: UpdateState = {
@@ -163,7 +155,28 @@ function currentBranch(): string {
  * electron-updater also auto-picks up process.env.GH_TOKEN in packaged mode.
  */
 function getGitHubToken(): string {
-  return getConfig().GITHUB_TOKEN || process.env.GH_TOKEN || "";
+  return (getConfig().GITHUB_TOKEN || process.env.GH_TOKEN || "").trim();
+}
+
+/**
+ * Seed electron-updater's GitHub auth.
+ *
+ * Priority: an existing env GH_TOKEN/GITHUB_TOKEN wins; the app config
+ * GITHUB_TOKEN is the fallback when no env token is present. This guarantees
+ * the update check authenticates even when there's no .env file / env var.
+ * The value is trimmed so copy-paste whitespace/newlines can't break auth.
+ */
+function seedGitHubToken(): void {
+  try {
+    const configToken = (getConfig().GITHUB_TOKEN || "").trim();
+    const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN || configToken;
+    if (token) {
+      process.env.GH_TOKEN = token;
+      process.env.GITHUB_TOKEN = token;
+    }
+  } catch {
+    // Config not ready yet — will be retried in checkAndUpdate()
+  }
 }
 
 /**
@@ -578,15 +591,7 @@ export async function checkAndUpdate(force = false): Promise<{
   state.error = null;
 
   // Refresh GH_TOKEN from config in case user just saved it
-  try {
-    const token = getConfig().GITHUB_TOKEN;
-    if (token) {
-      if (!process.env.GH_TOKEN) process.env.GH_TOKEN = token;
-      if (!process.env.GITHUB_TOKEN) process.env.GITHUB_TOKEN = token;
-    }
-  } catch {
-    // config not ready
-  }
+  seedGitHubToken();
 
   try {
     return isPackaged ? await checkPackagedUpdate() : await checkDevUpdate(force);
