@@ -1,4 +1,5 @@
-# Build Windows installer via GitHub Actions
+# Build the Windows installer via GitHub Actions and publish a GitHub Release
+# (installer + latest.yml) when a version tag (v*) is pushed.
 name: Build Windows
 
 on:
@@ -6,8 +7,9 @@ on:
   push:
     tags: ["v*"] # auto-trigger on version tags
 
+# contents: write is required to create/update GitHub Releases when publishing
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-win:
@@ -111,12 +113,25 @@ jobs:
         run: bash scripts/write-version.sh
         shell: bash
 
-      - name: Install electron & build
+      - name: Install electron & build (publish release on tag builds)
+        shell: bash
+        env:
+          # The built-in GITHUB_TOKEN has contents: write (see permissions block),
+          # which is enough for electron-builder to create the GitHub Release and
+          # upload the installer + latest.yml on the same private repo.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cd electron
           npm ci
           npm run build
-          npx electron-builder --win --publish never
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            # Tag build → create/update the GitHub Release and upload the
+            # installer + latest.yml (electron-updater requires latest.yml).
+            npx electron-builder --win --publish always
+          else
+            # Manual dispatch → build only (no release).
+            npx electron-builder --win --publish never
+          fi
 
       - name: Audit npm production dependencies
         run: |
