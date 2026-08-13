@@ -31,6 +31,8 @@ interface Props {
   disabled?: boolean;
   initialSkipSteps?: string[];
   refreshTrigger?: number;
+  /** Navigate to Config → Services (shown when the provider's credentials aren't configured). */
+  onOpenConfigServices?: () => void;
 }
 
 const PROVIDERS: Array<{ id: Provider; label: string }> = [
@@ -38,12 +40,14 @@ const PROVIDERS: Array<{ id: Provider; label: string }> = [
   { id: "zoom", label: "Zoom" },
 ];
 
-export default function MeetingsPanel({ onTranscribe, uploading, disabled, initialSkipSteps, refreshTrigger }: Props) {
+export default function MeetingsPanel({ onTranscribe, uploading, disabled, initialSkipSteps, refreshTrigger, onOpenConfigServices }: Props) {
   // Persisted so the panel reopens on the last-used provider (cleared on submit via App.clearScope("newForm")).
   const [provider, setProvider] = useUiStateValue<Provider>("newForm.meetings.provider", "teams");
 
   const [connected, setConnected] = useState<{ teams: boolean; zoom: boolean }>({ teams: false, zoom: false });
   const [connectedUser, setConnectedUser] = useState<{ teams: string; zoom: string }>({ teams: "", zoom: "" });
+  // Whether the provider's app credentials (Client ID / Secret) are present — used to prompt setup in Config → Services.
+  const [configured, setConfigured] = useState<{ teams: boolean; zoom: boolean }>({ teams: false, zoom: false });
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
 
@@ -71,6 +75,10 @@ export default function MeetingsPanel({ onTranscribe, uploading, disabled, initi
         zoom: !!(cfg?.ZOOM_REFRESH_TOKEN || "").trim(),
       });
       setConnectedUser({ teams: (cfg?.MS_USER || "").trim(), zoom: (cfg?.ZOOM_USER || "").trim() });
+      setConfigured({
+        teams: !!(cfg?.MS_CLIENT_ID || "").trim(),
+        zoom: !!(cfg?.ZOOM_CLIENT_ID || "").trim() && !!(cfg?.ZOOM_CLIENT_SECRET || "").trim(),
+      });
     });
     return () => {
       cancelled = true;
@@ -204,6 +212,23 @@ export default function MeetingsPanel({ onTranscribe, uploading, disabled, initi
           </button>
         ))}
       </div>
+
+      {/* Setup hint when the selected provider's credentials aren't configured yet */}
+      {!isConnected && !configured[provider] && (
+        <div className="meetings-setup-hint">
+          <Icon name="info" size="13" color="accent" />
+          <span>
+            {provider === "teams"
+              ? "Teams isn't configured yet — add your Teams Client ID in Config → Services, then connect."
+              : "Zoom isn't configured yet — add your Zoom Client ID + Secret in Config → Services, then connect."}
+          </span>
+          {onOpenConfigServices && (
+            <button className="config-update-status-btn" onClick={onOpenConfigServices} type="button">
+              <Icon name="settings" size="12" /> Go to Config → Services
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="meetings-connect-row">
         {isConnected ? (

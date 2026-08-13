@@ -2,34 +2,34 @@
 
 Welcome! This guide walks you through everything you need to know to use Transcription Agent, from your first upload to reviewing results and sending summaries.
 
-> ## ⭐ Special Section — Recording Meeting Audio with Windows' Built-In Tools
->
-> **You don't need any of this for the app's System Recording tab.** On Windows the
-> app captures system audio itself (WASAPI loopback) — no drivers, no Stereo Mix, no
-> Sound Recorder. Just open **New Transcription → System Recording → Start Recording**.
->
-> Prefer to record with Windows' own tools instead? You can capture meeting audio with
-> the built-in **Sound Recorder** app, then upload the file via the **Upload** tab. This
-> requires the legacy **Stereo Mix** device:
->
-> **Enable Stereo Mix (classic Sound Control Panel)**
-> 1. Right-click the speaker/volume icon in the taskbar → **Sound settings**.
-> 2. Scroll to the bottom → **More sound settings** (opens the classic Sound dialog).
-> 3. Open the **Recording** tab → right-click empty space in the device list → **Show Disabled Devices**.
-> 4. Right-click the newly revealed **Stereo Mix** device → **Enable**.
-> 5. Right-click **Stereo Mix** again → **Properties** → **Levels** tab → set the volume to **80–100%** and ensure it is not muted → **OK**.
->
-> **Record with Sound Recorder**
-> 1. Open **Sound Recorder** from the Start menu.
-> 2. In the bottom-left input-device dropdown, change from your microphone to **Stereo Mix**.
-> 3. Keep your master system volume at a clear level (50–100%) and make sure Zoom/Teams is playing through your default speakers/headphones.
-> 4. Click the red **Record** button to capture, then **Save**, and upload the audio file in the app's **Upload** tab.
->
-> **Caveats:** Stereo Mix only ships on older/Realtek-style audio drivers — many modern
-> laptops and USB audio devices don't have it, and the Sound Recorder app may still hide
-> it even when enabled. The Snipping Tool screen recorder (newer builds) can capture
-> system audio but produces a **video** file, not audio-only. When in doubt, use the app's
-> own **System Recording** tab — it needs none of this.
+## ⭐ Pre Setup — Recording Meeting Audio with Windows' Built-In Tools
+
+**You don't need any of this for the app's System Recording tab.** On Windows the
+app captures system audio itself (WASAPI loopback) — no drivers, no Stereo Mix, no
+Sound Recorder. Just open **New Transcription → System Recording → Start Recording**.
+
+Prefer to record with Windows' own tools instead? You can capture meeting audio with
+the built-in **Sound Recorder** app, then upload the file via the **Upload** tab. This
+requires the legacy **Stereo Mix** device:
+
+**Enable Stereo Mix (classic Sound Control Panel)**
+1. Right-click the speaker/volume icon in the taskbar → **Sound settings**.
+2. Scroll to the bottom → **More sound settings** (opens the classic Sound dialog).
+3. Open the **Recording** tab → right-click empty space in the device list → **Show Disabled Devices**.
+4. Right-click the newly revealed **Stereo Mix** device → **Enable**.
+5. Right-click **Stereo Mix** again → **Properties** → **Levels** tab → set the volume to **80–100%** and ensure it is not muted → **OK**.
+
+**Record with Sound Recorder**
+1. Open **Sound Recorder** from the Start menu.
+2. In the bottom-left input-device dropdown, change from your microphone to **Stereo Mix**.
+3. Keep your master system volume at a clear level (50–100%) and make sure Zoom/Teams is playing through your default speakers/headphones.
+4. Click the red **Record** button to capture, then **Save**, and upload the audio file in the app's **Upload** tab.
+
+**Caveats:** Stereo Mix only ships on older/Realtek-style audio drivers — many modern
+laptops and USB audio devices don't have it, and the Sound Recorder app may still hide
+it even when enabled. The Snipping Tool screen recorder (newer builds) can capture
+system audio but produces a **video** file, not audio-only. When in doubt, use the app's
+own **System Recording** tab — it needs none of this.
 
 ---
 

@@ -819,6 +819,20 @@ export default function App() {
     [jobId, api, statusHook],
   );
 
+  // Navigate to Config → Services (used by the Teams/Zoom New Job tab when credentials aren't configured).
+  // Mirrors the sidebar Config button: if the developer-section warning hasn't been accepted yet, show the
+  // confirm dialog first — Proceed lands on Config → Services, Cancel stays put.
+  const openConfigServices = useCallback(() => {
+    setUiState("config.section", "Services");
+    setShowNewForm(false);
+    setShowHistory(false);
+    if (sessionStorage.getItem("dev_warning_accepted")) {
+      setSidebarView("config");
+    } else {
+      setDevWarningModal("config");
+    }
+  }, [setUiState]);
+
   // Handle upload submit
   const handleUpload = async (
     file: File,
@@ -1402,6 +1416,7 @@ export default function App() {
                           disabled={isJobRunning}
                           initialSkipSteps={defaultSkipSteps}
                           refreshTrigger={newFormRefreshTrigger}
+                          onOpenConfigServices={openConfigServices}
                         />
                       </div>
                     ) : (

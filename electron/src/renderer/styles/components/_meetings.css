@@ -68,6 +68,78 @@
   color: var(--orange);
 }
 
+/* ── Teams/Zoom setup hint (credentials not configured → Config → Services) ── */
+.meetings-setup-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-hover);
+  color: var(--text-muted);
+  font-size: var(--fs-12);
+  margin-bottom: 12px;
+}
+
+.meetings-setup-hint .config-update-status-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ── System Recording setup guidance (macOS BlackHole / Windows source) ── */
+.capture-status-banner--setup {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.capture-banner-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.capture-banner-head .config-update-status-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.capture-setup-details {
+  margin-top: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: var(--fs-12);
+}
+
+.capture-setup-summary {
+  cursor: pointer;
+  font-weight: 500;
+  color: var(--accent);
+  user-select: none;
+}
+
+.capture-setup-steps {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.capture-setup-steps li::marker {
+  color: var(--accent);
+}
+
 .capture-source-row {
   display: flex;
   flex-direction: column;

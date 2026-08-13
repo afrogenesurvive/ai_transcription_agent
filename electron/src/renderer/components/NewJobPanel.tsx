@@ -39,6 +39,8 @@ interface Props {
   disabled?: boolean;
   initialSkipSteps?: string[];
   refreshTrigger?: number;
+  /** Navigate to Config → Services (used when Teams/Zoom credentials aren't configured). */
+  onOpenConfigServices?: () => void;
 }
 
 const TABS: Array<{ id: NewJobTab; label: string; icon: string; hint: string }> = [
@@ -48,7 +50,7 @@ const TABS: Array<{ id: NewJobTab; label: string; icon: string; hint: string }> 
 ];
 
 export default function NewJobPanel(props: Props) {
-  const { file, onFileChange, onUpload, onUploadByPath, uploading, disabled, initialSkipSteps, refreshTrigger } = props;
+  const { file, onFileChange, onUpload, onUploadByPath, uploading, disabled, initialSkipSteps, refreshTrigger, onOpenConfigServices } = props;
   // Persisted so the panel reopens on the last-used tab (cleared on submit via App.clearScope("newForm")).
   const [tab, setTab] = useUiStateValue<NewJobTab>("newForm.tab", "upload");
 
@@ -101,6 +103,7 @@ export default function NewJobPanel(props: Props) {
           disabled={disabled}
           initialSkipSteps={initialSkipSteps}
           refreshTrigger={refreshTrigger}
+          onOpenConfigServices={onOpenConfigServices}
         />
       </div>
     </div>
