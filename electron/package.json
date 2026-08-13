@@ -165,6 +165,7 @@
     },
     "nsis": {
       "oneClick": false,
+      "differentialPackage": false,
       "allowToChangeInstallationDirectory": false,
       "deleteAppDataOnUninstall": false,
       "include": "build/installer.nsh",
