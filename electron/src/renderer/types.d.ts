@@ -132,6 +132,54 @@ export interface GmailAuthResult {
   error?: string;
 }
 
+/** Result of a meeting-provider OAuth flow (Teams / Zoom). */
+export interface MeetingAuthResult {
+  ok: boolean;
+  refreshToken?: string;
+  accessToken?: string;
+  clientId?: string;
+  clientSecret?: string;
+  user?: string;
+  error?: string;
+}
+
+/** An attendee of a meeting pulled from Teams / Zoom. */
+export interface MeetingAttendee {
+  name: string;
+  email: string;
+}
+
+/** A meeting listed by a provider (with cloud-recording availability). */
+export interface MeetingInfo {
+  id: string;
+  title: string;
+  startTime: string | null;
+  hasRecording: boolean;
+  provider: "teams" | "zoom";
+}
+
+/** Result of fetching + downloading a meeting's cloud recording. */
+export interface MeetingRecordingResult {
+  filePath: string;
+  title: string;
+  attendees: MeetingAttendee[];
+}
+
+/** A capturable screen source (Windows loopback capture). */
+export interface CaptureSource {
+  id: string;
+  name: string;
+}
+
+/** System-audio capture capability for the current platform. */
+export interface CaptureDeviceStatus {
+  platform: "win32" | "darwin" | "other";
+  blackholeInstalled: boolean;
+  ffmpegAvailable: boolean;
+  windowsLoopbackAvailable: boolean;
+  hint?: string;
+}
+
 export interface ElectronAPI {
   selectAudioFile: () => Promise<string | null>;
   getBackendStatus: () => Promise<{
@@ -172,6 +220,27 @@ export interface ElectronAPI {
   startGmailOAuth: (clientId?: string, clientSecret?: string) => Promise<GmailAuthResult>;
   cancelGmailOAuth: () => Promise<{ ok: boolean }>;
   validateGmailOAuth: () => Promise<GmailAuthResult>;
+
+  // ── Microsoft Teams meetings ──
+  teamsConnect: () => Promise<MeetingAuthResult>;
+  teamsCancel: () => Promise<{ ok: boolean }>;
+  teamsValidate: () => Promise<{ ok: boolean; user?: string; error?: string }>;
+  teamsList: () => Promise<{ ok: boolean; meetings?: MeetingInfo[]; error?: string }>;
+  teamsFetchRecording: (meetingId: string) => Promise<MeetingRecordingResult & { ok: boolean; error?: string }>;
+
+  // ── Zoom meetings ──
+  zoomConnect: () => Promise<MeetingAuthResult>;
+  zoomCancel: () => Promise<{ ok: boolean }>;
+  zoomValidate: () => Promise<{ ok: boolean; user?: string; error?: string }>;
+  zoomList: () => Promise<{ ok: boolean; meetings?: MeetingInfo[]; error?: string }>;
+  zoomFetchRecording: (meetingId: string) => Promise<MeetingRecordingResult & { ok: boolean; error?: string }>;
+
+  // ── System audio capture ──
+  captureSources: () => Promise<CaptureSource[]>;
+  captureDevice: () => Promise<CaptureDeviceStatus>;
+  captureStart: () => Promise<{ ok: boolean; filePath?: string; error?: string }>;
+  captureStop: () => Promise<{ ok: boolean; filePath?: string; error?: string }>;
+  captureSave: (data: Uint8Array) => Promise<{ ok: boolean; filePath?: string; error?: string }>;
   getActiveJobs: () => Promise<Array<{ job_id: string; status: string; progress: number; title: string }>>;
   getRunningBotJobs: () => Promise<Array<{ job_id: string; status: string }>>;
   onNotification: (cb: (msg: string) => void) => () => void;

@@ -74,6 +74,7 @@ async def upload_audio(
     attendee_emails: str = Form("[]"),
     email_recipients: str = Form("[]"),
     event_type: str = Form("internal"),
+    source: str = Form("upload"),
     skip_steps: str = Form(""),
 ):
     # Reject new uploads while ML pipeline jobs or review-gated jobs exist
@@ -100,6 +101,7 @@ async def upload_audio(
         "attendeeEmails": parsed_attendee_emails,
         "email_recipients": parsed_emails,
         "event_type": event_type,
+        "source": source,
         "skip_steps": parsed_skip,
     }
     try:
@@ -124,6 +126,7 @@ async def upload_audio(
             "audio_url": temp_path if os.path.exists(temp_path) else None,
             "audio_size_bytes": len(content),
             "event_type": event_type,
+            "source": source,
             "result": "pending",
             "config_snapshot": json.dumps(config_snapshot),
         })
@@ -167,6 +170,7 @@ async def upload_audio_by_path(req: UploadByPathRequest):
         "attendeeEmails": req.attendee_emails,
         "email_recipients": req.email_recipients,
         "event_type": req.event_type,
+        "source": req.source,
         "skip_steps": skip_steps,
     }
     try:
@@ -189,6 +193,7 @@ async def upload_audio_by_path(req: UploadByPathRequest):
             "audio_url": file_path,
             "audio_size_bytes": file_size,
             "event_type": req.event_type,
+            "source": req.source,
             "result": "pending",
             "config_snapshot": json.dumps(config_snapshot),
         })

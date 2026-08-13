@@ -15,7 +15,7 @@
  */
 
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import UploadPanel from "./components/UploadPanel";
+import NewJobPanel from "./components/NewJobPanel";
 import PipelineProgress from "./components/ProgressPanel";
 import ResultsViewer from "./components/ResultsViewer";
 import StatusBar from "./components/StatusBar";
@@ -835,7 +835,7 @@ export default function App() {
       const result: any = await api.uploadAudio(file, title, attendees, emailRecipients, skipSteps, attendeeEmails);
       console.log("Upload result", result);
       setJobId(result.job_id);
-      setJobMetadata({ title, originalFilename: file.name, attendees, attendeeEmails: attendeeEmails || [] });
+      setJobMetadata({ title, originalFilename: file.name, attendees, attendeeEmails: attendeeEmails || [], source: "upload" });
       setTranscript(null);
       setView("processing");
       setShowNewForm(false);
@@ -867,6 +867,7 @@ export default function App() {
     emailRecipients?: string[];
     skipSteps?: string[];
     attendeeEmails?: string[];
+    source?: string;
   }) => {
     setUploading(true);
     setLoadingMessage("Uploading audio file…");
@@ -879,6 +880,7 @@ export default function App() {
         originalFilename: fileName,
         attendees: params.attendees,
         attendeeEmails: params.attendeeEmails || [],
+        source: params.source || "upload",
       });
       setTranscript(null);
       setView("processing");
@@ -1391,7 +1393,7 @@ export default function App() {
                   <>
                     {showNewForm ? (
                       <div className="upload-panel-full">
-                        <UploadPanel
+                        <NewJobPanel
                           file={formFile}
                           onFileChange={setFormFile}
                           onUpload={handleUpload}

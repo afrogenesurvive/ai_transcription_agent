@@ -239,6 +239,7 @@ async function dispatch(tool, args) {
         attendees: args.attendees || [],
         attendee_emails: args.attendeeEmails || [],
         event_type: args.eventType || "internal",
+        source: args.source || "upload",
         skip_steps: args.skipSteps || args.skip_steps || undefined,
       });
 

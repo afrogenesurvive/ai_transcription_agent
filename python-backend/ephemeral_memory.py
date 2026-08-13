@@ -257,6 +257,7 @@ class EphemeralMemory:
                 delivery_attempted       INTEGER DEFAULT 0,
                 delivery_results         TEXT DEFAULT '[]',
                 event_type              TEXT DEFAULT 'internal',
+                source                  TEXT DEFAULT 'upload',
                 whisper_model           TEXT DEFAULT 'medium',
                 diarization_available   INTEGER DEFAULT 0,
                 device                  TEXT DEFAULT 'mps',
@@ -399,6 +400,12 @@ class EphemeralMemory:
                 print(f"[ephemeral] Migration: added `original_filename` column to jobs table")
             except Exception as e:
                 print(f"[ephemeral] ⚠️  Migration failed to add original_filename: {e}")
+        if "source" not in jobs_cols:
+            try:
+                conn.execute("ALTER TABLE jobs ADD COLUMN source TEXT DEFAULT 'upload'")
+                print(f"[ephemeral] Migration: added `source` column to jobs table")
+            except Exception as e:
+                print(f"[ephemeral] ⚠️  Migration failed to add source: {e}")
 
         # Check for events table (added in 0.4.10 — queue migration)
         existing_tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
@@ -449,7 +456,7 @@ class EphemeralMemory:
             "total_prompt_tokens", "total_completion_tokens", "total_tokens",
             "llm_provider", "llm_model", "input_cost", "output_cost", "total_cost",
             "delivery_attempted", "delivery_results",
-            "event_type", "whisper_model", "diarization_available", "device",
+            "event_type", "source", "whisper_model", "diarization_available", "device",
             "config_snapshot",
             "completed_at",
         }

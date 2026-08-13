@@ -19,6 +19,7 @@ class UploadByPathRequest(BaseModel):
     attendee_emails: List[str] = Field(default_factory=list, description="Emails aligned positionally with attendees")
     email_recipients: List[str] = Field(default_factory=list, description="Per-job email recipients for delivery")
     event_type: str = "internal"
+    source: str = Field(default="upload", description="Where the audio came from: upload | capture | zoom | teams")
     skip_steps: Optional[List[str]] = Field(default=None, description="Tool names to skip in the agent pipeline. Defaults to skipping analysis and delivery.")
 
 

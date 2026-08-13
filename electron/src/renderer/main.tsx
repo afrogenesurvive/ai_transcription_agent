@@ -10,6 +10,7 @@ import "./styles/_scrollbar-tooltips.css";
 
 /* ── Component styles ── */
 import "./styles/components/_upload-panel.css";
+import "./styles/components/_meetings.css";
 import "./styles/components/_pipeline-progress.css";
 import "./styles/components/_transcript-panel.css";
 import "./styles/components/_notifications.css";
