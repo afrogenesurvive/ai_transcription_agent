@@ -8,6 +8,7 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { LogEntry, LogFileInfo } from "./logger";
 import type { GmailAuthResult } from "./gmailOAuth";
+import type { MeetingInfo, MeetingAttendee, MeetingRecordingResult, MeetingAuthResult, CaptureSource, CaptureDeviceStatus } from "./meetings/types";
 
 contextBridge.exposeInMainWorld("electronAPI", {
   // ── File dialogs ──
@@ -63,6 +64,29 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("gmail:auth:start", { clientId, clientSecret }),
   cancelGmailOAuth: (): Promise<{ ok: boolean }> => ipcRenderer.invoke("gmail:auth:cancel"),
   validateGmailOAuth: (): Promise<GmailAuthResult> => ipcRenderer.invoke("gmail:auth:validate"),
+
+  // ── Microsoft Teams meetings ──
+  teamsConnect: (): Promise<MeetingAuthResult> => ipcRenderer.invoke("meetings:teams:connect"),
+  teamsCancel: (): Promise<{ ok: boolean }> => ipcRenderer.invoke("meetings:teams:cancel"),
+  teamsValidate: (): Promise<{ ok: boolean; user?: string; error?: string }> => ipcRenderer.invoke("meetings:teams:validate"),
+  teamsList: (): Promise<{ ok: boolean; meetings?: MeetingInfo[]; error?: string }> => ipcRenderer.invoke("meetings:teams:list"),
+  teamsFetchRecording: (meetingId: string): Promise<MeetingRecordingResult & { ok: boolean; error?: string }> =>
+    ipcRenderer.invoke("meetings:teams:recording", meetingId),
+
+  // ── Zoom meetings ──
+  zoomConnect: (): Promise<MeetingAuthResult> => ipcRenderer.invoke("meetings:zoom:connect"),
+  zoomCancel: (): Promise<{ ok: boolean }> => ipcRenderer.invoke("meetings:zoom:cancel"),
+  zoomValidate: (): Promise<{ ok: boolean; user?: string; error?: string }> => ipcRenderer.invoke("meetings:zoom:validate"),
+  zoomList: (): Promise<{ ok: boolean; meetings?: MeetingInfo[]; error?: string }> => ipcRenderer.invoke("meetings:zoom:list"),
+  zoomFetchRecording: (meetingId: string): Promise<MeetingRecordingResult & { ok: boolean; error?: string }> =>
+    ipcRenderer.invoke("meetings:zoom:recording", meetingId),
+
+  // ── System audio capture ──
+  captureSources: (): Promise<CaptureSource[]> => ipcRenderer.invoke("capture:sources"),
+  captureDevice: (): Promise<CaptureDeviceStatus> => ipcRenderer.invoke("capture:device"),
+  captureStart: (): Promise<{ ok: boolean; filePath?: string; error?: string }> => ipcRenderer.invoke("capture:start"),
+  captureStop: (): Promise<{ ok: boolean; filePath?: string; error?: string }> => ipcRenderer.invoke("capture:stop"),
+  captureSave: (data: Uint8Array): Promise<{ ok: boolean; filePath?: string; error?: string }> => ipcRenderer.invoke("capture:save", data),
 
   // ── Job status ──
   getActiveJobs: (): Promise<Array<{ job_id: string; status: string; progress: number; title: string }>> => ipcRenderer.invoke("jobs:getActive"),

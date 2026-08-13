@@ -84,6 +84,8 @@ interface Props {
     originalFilename?: string;
     attendees?: string[];
     event_type?: string;
+    /** Where the audio came from: upload | capture | zoom | teams. */
+    source?: string;
     /** Tool names excluded from the agent pipeline for this job (from status metadata). */
     skip_steps?: string[];
   };
@@ -130,6 +132,14 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** Human labels for the audio-source provenance tag. */
+const SOURCE_LABELS: Record<string, string> = {
+  upload: "File upload",
+  capture: "System recording",
+  teams: "Microsoft Teams",
+  zoom: "Zoom",
+};
+
 /* ── Tab: Audio ── */
 
 function AudioTab({ jobId, metadata }: { jobId: string; metadata?: Props["metadata"] }) {
@@ -164,6 +174,11 @@ function AudioTab({ jobId, metadata }: { jobId: string; metadata?: Props["metada
             <Icon name="file" size="12" color="muted" /> {metadata.originalFilename}
           </span>
         )}
+        {metadata?.source && (
+          <span className="rv-audio-source">
+            <Icon name="label" size="12" color="accent" /> Source: {SOURCE_LABELS[metadata.source] || metadata.source}
+          </span>
+        )}
       </div>
 
       <div className="rv-audio-player-wrapper">
@@ -195,6 +210,11 @@ function AudioTab({ jobId, metadata }: { jobId: string; metadata?: Props["metada
           Audio stream URL: <code className="rv-code">{audioUrl}</code>
         </p>
         {metadata?.attendees && metadata.attendees.length > 0 && <p className="rv-muted">Attendees: {metadata.attendees.join(", ")}</p>}
+        {metadata?.source && (
+          <p className="rv-muted">
+            Source: <strong>{SOURCE_LABELS[metadata.source] || metadata.source}</strong>
+          </p>
+        )}
       </div>
     </div>
   );
@@ -1892,29 +1912,26 @@ function PipelineTab({
 
       {/* Pipeline stepper */}
       <div className="pp-stepper">
-        {typeof startedAtMs === "number" &&
-          Number.isFinite(startedAtMs) &&
-          typeof finishedAtMs === "number" &&
-          Number.isFinite(finishedAtMs) && (
-            <>
-              <div className="pp-step pp-step--time">
-                <div className="pp-step-dot pp-step-dot--time">
-                  <Icon name="schedule" size="12" />
-                </div>
-                <div className="pp-step-content">
-                  <span className="pp-step-icon">
-                    <Icon name="schedule" size="14" />
-                  </span>
-                  <div className="pp-step-text">
-                    <span className="pp-step-label">Total Time</span>
-                    <span className="pp-step-desc">This job finished</span>
-                  </div>
-                  <span className="pp-time-value">{formatElapsedHMS(finishedAtMs - startedAtMs)}</span>
-                </div>
+        {typeof startedAtMs === "number" && Number.isFinite(startedAtMs) && typeof finishedAtMs === "number" && Number.isFinite(finishedAtMs) && (
+          <>
+            <div className="pp-step pp-step--time">
+              <div className="pp-step-dot pp-step-dot--time">
+                <Icon name="schedule" size="12" />
               </div>
-              <div className="pp-time-divider" />
-            </>
-          )}
+              <div className="pp-step-content">
+                <span className="pp-step-icon">
+                  <Icon name="schedule" size="14" />
+                </span>
+                <div className="pp-step-text">
+                  <span className="pp-step-label">Total Time</span>
+                  <span className="pp-step-desc">This job finished</span>
+                </div>
+                <span className="pp-time-value">{formatElapsedHMS(finishedAtMs - startedAtMs)}</span>
+              </div>
+            </div>
+            <div className="pp-time-divider" />
+          </>
+        )}
         {PIPELINE.map((stage) => {
           const state = getStageState(stage, status, isFailed, isComplete, maxReached);
           const waiting = state === "active" && WAITING_LABEL[status] != null;
@@ -2557,8 +2574,8 @@ function DeliveryTab({ jobId, metadata }: { jobId: string; metadata?: Props["met
     <div className="rv-delivery-disabled-note" role="status">
       <Icon name="warning" size="16" color="orange" />
       <span>
-        <strong>Delivery step disabled</strong> — the agent instructions had the delivery
-        step turned off for this job, so no delivery emails were sent.
+        <strong>Delivery step disabled</strong> — the agent instructions had the delivery step turned off for this job, so no delivery emails were
+        sent.
       </span>
     </div>
   ) : null;
@@ -3300,7 +3317,15 @@ export default function ResultsViewer({
 
       {/* Tab content */}
       <div className="rv-body">
-        {activeTab === "pipeline" && <PipelineTab status={jobStatus || "unknown"} progress={jobProgress ?? 0} error={jobError} startedAtMs={startedAtMs} finishedAtMs={finishedAtMs} />}
+        {activeTab === "pipeline" && (
+          <PipelineTab
+            status={jobStatus || "unknown"}
+            progress={jobProgress ?? 0}
+            error={jobError}
+            startedAtMs={startedAtMs}
+            finishedAtMs={finishedAtMs}
+          />
+        )}
         {activeTab === "audio" && <AudioTab jobId={jobId} metadata={metadata} />}
         {activeTab === "transcript" && <TranscriptTab segments={segments} />}
         {activeTab === "summary" && (

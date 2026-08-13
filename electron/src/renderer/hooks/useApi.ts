@@ -60,6 +60,7 @@ export function useApi() {
       formData.append("attendee_emails", JSON.stringify(attendeeEmails || []));
       formData.append("email_recipients", JSON.stringify(emailRecipients));
       formData.append("event_type", "internal");
+      formData.append("source", "upload");
       formData.append("skip_steps", JSON.stringify(skipSteps));
 
       const res = await fetch(`${BRIDGE_URL}/transcribe/upload`, { method: "POST", body: formData });
@@ -87,6 +88,7 @@ export function useApi() {
       emailRecipients?: string[];
       skipSteps?: string[];
       attendeeEmails?: string[];
+      source?: string;
     }) => {
       const res = await fetch(`${BRIDGE_URL}/transcribe/upload_by_path`, {
         method: "POST",
@@ -98,6 +100,7 @@ export function useApi() {
           attendee_emails: params.attendeeEmails || [],
           email_recipients: params.emailRecipients || [],
           event_type: "internal",
+          source: params.source || "upload",
           skip_steps: params.skipSteps || [],
         }),
       });

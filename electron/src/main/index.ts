@@ -16,6 +16,8 @@ import path from "path";
 import pidusage from "pidusage";
 import { registerExportHandlers } from "./exporter";
 import { registerGmailOAuthIpc } from "./gmailOAuth";
+import { registerMeetingsIpc } from "./meetings/index";
+import { stopAllCapture } from "./meetings/capture";
 import { playAlertSound } from "./alert-sound";
 
 // Set app name before anything else — macOS menu bar and Windows taskbar
@@ -3011,6 +3013,7 @@ registerExportHandlers(() => mainWindow);
 // ── Gmail OAuth IPC handlers ("Connect with Google") ──
 
 registerGmailOAuthIpc();
+registerMeetingsIpc();
 
 // ── App Lifecycle ──
 
@@ -3228,6 +3231,7 @@ app.on("before-quit", (event) => {
     // app.exit(0) terminates the process. stopAllSync() sends SIGKILL
     // immediately on Unix (taskkill /F on Windows) so children can't survive.
     stopAllSync();
+    stopAllCapture();
   }
 
   // Only force-terminate when we preventDefault'd above (user-confirmed quit).

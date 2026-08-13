@@ -11,6 +11,8 @@ Transcription Agent is a full-stack desktop application that automatically trans
 | Feature                      | Description                                                                                                 |
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------- |
 | **Automatic Transcription**  | Upload MP3, WAV, M4A, FLAC, OGG, or WebM audio — get a full speaker-labeled transcript                      |
+| **Live System Recording**    | Record a meeting straight from system audio (Windows: built-in loopback, no driver; macOS: BlackHole)       |
+| **Teams / Zoom Integration** | Connect your work Microsoft account or Zoom to pull meeting recordings + attendees and transcribe in-app    |
 | **Speaker Identification**   | Uses voiceprint matching to recognize and label known speakers across meetings                              |
 | **Smart Summaries**          | Executive summary, key decisions, discussion points, and action items — no need to re-listen                |
 | **Semantic Memory**          | ChromaDB-powered vector search across past meetings — find related discussions instantly                    |
@@ -42,8 +44,8 @@ graph LR
     L --> M[Deliver via Email]
 ```
 
-1. **Record your meeting** using Zoom, Teams, or any recording tool
-2. **Upload the audio file** via drag-and-drop or file picker
+1. **Record your meeting** using Zoom, Teams, or any recording tool — or use the app's **System Recording** tab to capture meeting audio live (Windows: built-in system audio; macOS: BlackHole)
+2. **Upload the audio file** via drag-and-drop, or pull a meeting from the **Teams/Zoom** tab (connect your Microsoft/Zoom account, pick a meeting, attendees are imported automatically)
 3. **The ML pipeline processes the audio** — diarization detects who spoke when, ASR converts speech to text, voiceprints match known speakers
 4. **The LLM pipeline refines, summarizes, and analyzes** — filler words removed, PII redacted, structured summary generated
 5. **Review the results** — browse the transcript, read the summary, grab action items

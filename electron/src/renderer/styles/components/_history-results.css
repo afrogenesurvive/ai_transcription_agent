@@ -508,6 +508,17 @@
   padding-left: 28px;
 }
 
+.rv-audio-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-11);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
 .rv-audio-player-wrapper {
   background: var(--surface);
   border: 1px solid var(--border);

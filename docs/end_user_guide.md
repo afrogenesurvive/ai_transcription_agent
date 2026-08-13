@@ -2,6 +2,35 @@
 
 Welcome! This guide walks you through everything you need to know to use Transcription Agent, from your first upload to reviewing results and sending summaries.
 
+> ## ⭐ Special Section — Recording Meeting Audio with Windows' Built-In Tools
+>
+> **You don't need any of this for the app's System Recording tab.** On Windows the
+> app captures system audio itself (WASAPI loopback) — no drivers, no Stereo Mix, no
+> Sound Recorder. Just open **New Transcription → System Recording → Start Recording**.
+>
+> Prefer to record with Windows' own tools instead? You can capture meeting audio with
+> the built-in **Sound Recorder** app, then upload the file via the **Upload** tab. This
+> requires the legacy **Stereo Mix** device:
+>
+> **Enable Stereo Mix (classic Sound Control Panel)**
+> 1. Right-click the speaker/volume icon in the taskbar → **Sound settings**.
+> 2. Scroll to the bottom → **More sound settings** (opens the classic Sound dialog).
+> 3. Open the **Recording** tab → right-click empty space in the device list → **Show Disabled Devices**.
+> 4. Right-click the newly revealed **Stereo Mix** device → **Enable**.
+> 5. Right-click **Stereo Mix** again → **Properties** → **Levels** tab → set the volume to **80–100%** and ensure it is not muted → **OK**.
+>
+> **Record with Sound Recorder**
+> 1. Open **Sound Recorder** from the Start menu.
+> 2. In the bottom-left input-device dropdown, change from your microphone to **Stereo Mix**.
+> 3. Keep your master system volume at a clear level (50–100%) and make sure Zoom/Teams is playing through your default speakers/headphones.
+> 4. Click the red **Record** button to capture, then **Save**, and upload the audio file in the app's **Upload** tab.
+>
+> **Caveats:** Stereo Mix only ships on older/Realtek-style audio drivers — many modern
+> laptops and USB audio devices don't have it, and the Sound Recorder app may still hide
+> it even when enabled. The Snipping Tool screen recorder (newer builds) can capture
+> system audio but produces a **video** file, not audio-only. When in doubt, use the app's
+> own **System Recording** tab — it needs none of this.
+
 ---
 
 ## 📖 Table of Contents
@@ -164,6 +193,30 @@ Maximum file size: **500 MB**
 > - A "Bot / Test Job" badge appears in the pipeline header
 > - Settings are locked until the bot job completes
 > - You can cancel all bot jobs with a single "Stop" button
+
+### Three Ways to Start a Job
+
+The New Job form has **three tabs** — every one feeds the same transcription pipeline:
+
+| Tab                  | What it does                                                               |
+| -------------------- | -------------------------------------------------------------------------- |
+| **Upload**           | Upload a recorded audio file (the classic flow above).                     |
+| **System Recording** | Record meeting audio live from your computer's system audio.               |
+| **Teams/Zoom**       | Pull a meeting's cloud recording + attendees from Microsoft Teams or Zoom. |
+
+**System Recording**
+
+- **Windows** — uses the built-in system-audio capture (no driver, no video). Click **Start Recording**, play your meeting, then **Stop**. The audio is saved and transcribed.
+- **macOS** — requires the free **BlackHole** driver (see [Meetings Integrations](meetings_integrations.md)); the tab shows setup guidance if BlackHole isn't detected.
+
+**Teams / Zoom**
+
+- Connect your Microsoft (work/school) or Zoom account with the in-app **Connect** button (web consent, like Google).
+- **Refresh** to list meetings (Zoom shows meetings with cloud recordings from the last 30 days).
+- Pick a meeting → **Fetch Recording & Attendees** → attendees are pre-filled → **Start Transcription**.
+- See [Meetings Integrations](meetings_integrations.md) for app-registration setup (client IDs/secrets).
+
+The **Source** of a job's audio — _File upload_, _System recording_, _Microsoft Teams_, or _Zoom_ — is shown in the results **Audio tab**.
 
 ---
 
@@ -398,7 +451,7 @@ Shows per-destination delivery results with success/failure status for each conf
 
 ### 🎧 Audio Tab
 
-An audio player lets you listen to the original recording. The **original filename** of the uploaded file is displayed below the meeting title so you can easily identify the source audio file.
+An audio player lets you listen to the original recording. The **original filename** of the uploaded file is displayed below the meeting title so you can easily identify the source audio file. A **Source** badge shows how the audio got in — File upload, System recording, Microsoft Teams, or Zoom.
 
 ### 🖥️ Developer Tab
 

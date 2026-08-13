@@ -33,6 +33,15 @@ export interface AppConfig {
   GMAIL_CLIENT_SECRET: string;
   GMAIL_REFRESH_TOKEN: string;
   GMAIL_USER: string;
+  /** Microsoft Teams meeting integration (Entra ID, public client — no secret; work/school accounts) */
+  MS_CLIENT_ID: string;
+  MS_REFRESH_TOKEN: string;
+  MS_USER: string;
+  /** Zoom meeting integration (Marketplace OAuth app — client secret required) */
+  ZOOM_CLIENT_ID: string;
+  ZOOM_CLIENT_SECRET: string;
+  ZOOM_REFRESH_TOKEN: string;
+  ZOOM_USER: string;
   /** Trello delivery credentials */
   TRELLO_KEY: string;
   TRELLO_TOKEN: string;
@@ -136,6 +145,13 @@ const DEFAULTS: AppConfig = {
   GMAIL_CLIENT_SECRET: "",
   GMAIL_REFRESH_TOKEN: "",
   GMAIL_USER: "",
+  MS_CLIENT_ID: "",
+  MS_REFRESH_TOKEN: "",
+  MS_USER: "",
+  ZOOM_CLIENT_ID: "",
+  ZOOM_CLIENT_SECRET: "",
+  ZOOM_REFRESH_TOKEN: "",
+  ZOOM_USER: "",
   TRELLO_KEY: "",
   TRELLO_TOKEN: "",
   HUGGING_FACE_TOKEN: "",

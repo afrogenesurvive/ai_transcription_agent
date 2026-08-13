@@ -41,6 +41,13 @@ interface ConfigValues {
   GMAIL_CLIENT_SECRET: string;
   GMAIL_REFRESH_TOKEN: string;
   GMAIL_USER: string;
+  MS_CLIENT_ID: string;
+  MS_REFRESH_TOKEN: string;
+  MS_USER: string;
+  ZOOM_CLIENT_ID: string;
+  ZOOM_CLIENT_SECRET: string;
+  ZOOM_REFRESH_TOKEN: string;
+  ZOOM_USER: string;
   TRELLO_KEY: string;
   TRELLO_TOKEN: string;
   DSMON_INSTANCE_ID: string;
@@ -112,6 +119,13 @@ const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secre
   { key: "GMAIL_CLIENT_SECRET", label: "Gmail Client Secret", required: false, secret: true, section: "Services" },
   { key: "GMAIL_REFRESH_TOKEN", label: "Gmail Refresh Token", required: false, secret: true, section: "Services" },
   { key: "GMAIL_USER", label: "Gmail User Email", required: false, secret: false, section: "Services" },
+  { key: "MS_CLIENT_ID", label: "Teams Client ID", required: false, secret: true, section: "Services" },
+  { key: "MS_REFRESH_TOKEN", label: "Teams Refresh Token", required: false, secret: true, section: "Services" },
+  { key: "MS_USER", label: "Teams User", required: false, secret: false, section: "Services" },
+  { key: "ZOOM_CLIENT_ID", label: "Zoom Client ID", required: false, secret: true, section: "Services" },
+  { key: "ZOOM_CLIENT_SECRET", label: "Zoom Client Secret", required: false, secret: true, section: "Services" },
+  { key: "ZOOM_REFRESH_TOKEN", label: "Zoom Refresh Token", required: false, secret: true, section: "Services" },
+  { key: "ZOOM_USER", label: "Zoom User", required: false, secret: false, section: "Services" },
   { key: "TRELLO_KEY", label: "Trello API Key", required: false, secret: true, section: "Services" },
   { key: "TRELLO_TOKEN", label: "Trello Token", required: false, secret: true, section: "Services" },
   { key: "DSMON_INSTANCE_ID", label: "DS-mon Instance ID", required: false, secret: false, section: "Usage Tracking" },
@@ -166,6 +180,13 @@ function loadConfigValues(cfg: Record<string, { value: string; source: string }>
     GMAIL_CLIENT_SECRET: cfg.GMAIL_CLIENT_SECRET?.value || "",
     GMAIL_REFRESH_TOKEN: cfg.GMAIL_REFRESH_TOKEN?.value || "",
     GMAIL_USER: cfg.GMAIL_USER?.value || "",
+    MS_CLIENT_ID: cfg.MS_CLIENT_ID?.value || "",
+    MS_REFRESH_TOKEN: cfg.MS_REFRESH_TOKEN?.value || "",
+    MS_USER: cfg.MS_USER?.value || "",
+    ZOOM_CLIENT_ID: cfg.ZOOM_CLIENT_ID?.value || "",
+    ZOOM_CLIENT_SECRET: cfg.ZOOM_CLIENT_SECRET?.value || "",
+    ZOOM_REFRESH_TOKEN: cfg.ZOOM_REFRESH_TOKEN?.value || "",
+    ZOOM_USER: cfg.ZOOM_USER?.value || "",
     TRELLO_KEY: cfg.TRELLO_KEY?.value || "",
     TRELLO_TOKEN: cfg.TRELLO_TOKEN?.value || "",
     DSMON_INSTANCE_ID: cfg.DSMON_INSTANCE_ID?.value || "",
