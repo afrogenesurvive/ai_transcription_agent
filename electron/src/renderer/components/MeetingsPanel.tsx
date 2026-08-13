@@ -8,6 +8,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useUiStateValue } from "../hooks/useUiState";
 import Icon from "./Icon";
 import Tooltip from "./Tooltip";
 import JobFormFields, { type AttendeeEntry, type JobFormFieldsHandle } from "./JobFormFields";
@@ -38,7 +39,8 @@ const PROVIDERS: Array<{ id: Provider; label: string }> = [
 ];
 
 export default function MeetingsPanel({ onTranscribe, uploading, disabled, initialSkipSteps, refreshTrigger }: Props) {
-  const [provider, setProvider] = useState<Provider>("teams");
+  // Persisted so the panel reopens on the last-used provider (cleared on submit via App.clearScope("newForm")).
+  const [provider, setProvider] = useUiStateValue<Provider>("newForm.meetings.provider", "teams");
 
   const [connected, setConnected] = useState<{ teams: boolean; zoom: boolean }>({ teams: false, zoom: false });
   const [connectedUser, setConnectedUser] = useState<{ teams: string; zoom: string }>({ teams: "", zoom: "" });
@@ -212,6 +214,20 @@ export default function MeetingsPanel({ onTranscribe, uploading, disabled, initi
             <button className="config-update-status-btn" onClick={connect} disabled={connecting || disabled} type="button">
               {connecting ? "Connecting…" : "Reconnect"}
             </button>
+            {connecting && (
+              <button
+                className="config-update-status-btn"
+                onClick={() => {
+                  if (provider === "teams") window.electronAPI?.teamsCancel();
+                  else window.electronAPI?.zoomCancel();
+                  setConnecting(false);
+                  setConnectError("Authorization cancelled.");
+                }}
+                title="Cancel authorization"
+                type="button">
+                <Icon name="close" size="14" /> Cancel
+              </button>
+            )}
           </>
         ) : (
           <>
@@ -235,6 +251,20 @@ export default function MeetingsPanel({ onTranscribe, uploading, disabled, initi
                 </>
               )}
             </button>
+            {connecting && (
+              <button
+                className="config-update-status-btn"
+                onClick={() => {
+                  if (provider === "teams") window.electronAPI?.teamsCancel();
+                  else window.electronAPI?.zoomCancel();
+                  setConnecting(false);
+                  setConnectError("Authorization cancelled.");
+                }}
+                title="Cancel authorization"
+                type="button">
+                <Icon name="close" size="14" /> Cancel
+              </button>
+            )}
           </>
         )}
       </div>

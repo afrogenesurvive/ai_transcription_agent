@@ -225,9 +225,79 @@ export interface AgentConfigInitResult {
 }
 
 /**
+ * Recursively add keys from `next` (new shipped defaults) into `prev` (the user's
+ * live file) that are MISSING — never overwrite an existing user value.
+ *
+ * - Objects: new keys are added; existing keys recurse so nested additions merge.
+ * - Arrays of named objects (e.g. tools.json): items are matched by `name` and only
+ *   new-default items not present in the live file are appended; the user's existing
+ *   items (and any edits to them) are preserved.
+ * - Other arrays / scalars: the user's value wins (never clobber).
+ */
+function mergeJsonMissing(prev: any, next: any): any {
+  if (prev === undefined || prev === null) return structuredClone(next);
+  if (Array.isArray(next)) {
+    if (!Array.isArray(prev)) return structuredClone(next);
+    // Named-item array (tools.json) — merge by `name`.
+    if (next.some((n) => n && typeof n === "object" && typeof n.name === "string")) {
+      const existingNames = new Set<string>();
+      for (const item of prev) if (item && typeof item.name === "string") existingNames.add(item.name);
+      const merged = [...prev];
+      for (const item of next) {
+        if (item && typeof item.name === "string" && !existingNames.has(item.name)) {
+          merged.push(structuredClone(item));
+          console.log(`[backend] agent-config: added missing tool "${item.name}"`);
+        }
+      }
+      return merged;
+    }
+    return prev; // unnamed arrays — user's ordering/edits win
+  }
+  if (typeof next === "object" && next !== null) {
+    if (typeof prev !== "object" || prev === null) return structuredClone(next);
+    const out: any = { ...prev };
+    for (const key of Object.keys(next)) {
+      if (key in prev) {
+        out[key] = mergeJsonMissing(prev[key], next[key]);
+      } else {
+        out[key] = structuredClone(next[key]);
+        console.log(`[backend] agent-config: added missing key "${key}"`);
+      }
+    }
+    return out;
+  }
+  return prev; // scalars — user value wins
+}
+
+/**
+ * After the shipped `.defaults/` snapshot is refreshed on an app-version change,
+ * merge any NEW default properties into the user's live agent-config files
+ * (missing-keys-only), so existing users pick up new tools/steps without losing
+ * their customizations. system-prompt.md is intentionally left untouched — the
+ * user's custom prompt wins (the `.defaults/` fallback still covers restore).
+ */
+function mergeAgentDefaultsIntoLive(destDir: string, srcDefaults: string): void {
+  for (const name of ["tools.json", "pipeline.json"]) {
+    const livePath = path.join(destDir, name);
+    const srcPath = path.join(srcDefaults, name);
+    if (!fs.existsSync(livePath) || !fs.existsSync(srcPath)) continue; // no live file / no new defaults
+    try {
+      const live = JSON.parse(fs.readFileSync(livePath, "utf8"));
+      const next = JSON.parse(fs.readFileSync(srcPath, "utf8"));
+      const merged = mergeJsonMissing(live, next);
+      fs.writeFileSync(livePath, JSON.stringify(merged, null, 2), "utf8");
+      console.log(`[backend] Merged missing defaults into agent-config/${name}`);
+    } catch (err: any) {
+      console.warn(`[backend] Could not merge agent-config/${name}: ${err.message}`);
+    }
+  }
+}
+
+/**
  * Refresh {destDir}/.defaults/ from the bundled source when the app version
  * changes, so "restore agent defaults" yields the CURRENT shipped defaults
  * (not the ones frozen at install time). Stamps .defaults/version.json.
+ * Also merges missing new defaults into the live files (missing-keys-only).
  * No-op on first install (initAgentConfigDir seeds below) or when versions match.
  */
 function refreshAgentDefaultsIfVersionChanged(destDir: string): void {
@@ -254,6 +324,8 @@ function refreshAgentDefaultsIfVersionChanged(destDir: string): void {
       const d = path.join(destDefaults, name);
       if (fs.existsSync(s)) fs.copyFileSync(s, d);
     }
+    // Fold new-default properties into the user's live files (missing-keys-only).
+    mergeAgentDefaultsIntoLive(destDir, srcDefaults);
     fs.writeFileSync(versionFile, JSON.stringify({ version: app.getVersion() }, null, 2), "utf8");
     console.log(`[backend] Refreshed agent-config .defaults/ for version ${app.getVersion()}`);
   } catch (err: any) {

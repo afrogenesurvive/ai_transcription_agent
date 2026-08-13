@@ -7,7 +7,8 @@
  * UploadPanel unchanged.
  */
 
-import React, { useState } from "react";
+import React from "react";
+import { useUiStateValue } from "../hooks/useUiState";
 import UploadPanel from "./UploadPanel";
 import SystemRecordingPanel from "./SystemRecordingPanel";
 import MeetingsPanel from "./MeetingsPanel";
@@ -48,7 +49,8 @@ const TABS: Array<{ id: NewJobTab; label: string; icon: string; hint: string }> 
 
 export default function NewJobPanel(props: Props) {
   const { file, onFileChange, onUpload, onUploadByPath, uploading, disabled, initialSkipSteps, refreshTrigger } = props;
-  const [tab, setTab] = useState<NewJobTab>("upload");
+  // Persisted so the panel reopens on the last-used tab (cleared on submit via App.clearScope("newForm")).
+  const [tab, setTab] = useUiStateValue<NewJobTab>("newForm.tab", "upload");
 
   return (
     <div className={`panel upload-panel ${disabled ? "upload-panel--disabled" : ""}`}>

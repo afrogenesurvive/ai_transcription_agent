@@ -343,6 +343,7 @@ export interface ElectronAPI {
   checkForUpdates: () => Promise<{ updateAvailable: boolean; details: string | null; error: string | null }>;
   setAutoUpdateEnabled: (enabled: boolean) => Promise<{ success: boolean }>;
   downloadUpdate: () => Promise<{ success: boolean; error: string | null }>;
+  cancelUpdateDownload: () => Promise<{ ok: boolean }>;
   installUpdate: () => Promise<{ success: boolean }>;
 
   // ── DeepSeek API Credit Balance ──

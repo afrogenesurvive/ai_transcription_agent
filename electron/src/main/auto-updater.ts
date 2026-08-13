@@ -568,6 +568,19 @@ async function downloadPackagedUpdate(): Promise<{ success: boolean; error: stri
   }
 }
 
+/** Abort the in-app download UX.
+ *
+ * NOTE: electron-updater exposes no API to abort an in-flight transfer, so the
+ * download may continue in the background. This only clears the progress UI and
+ * stops the renderer from polling it; when the transfer finishes the
+ * "update-downloaded" event still fires and the app surfaces "Ready to install".
+ */
+export function cancelDownload(): void {
+  if (state.downloadProgress === null && !state.updateDownloaded) return;
+  state.downloadProgress = null;
+  updateLog("info", "Download cancelled (UI) — transfer may continue in the background");
+}
+
 function installPackagedUpdate(): void {
   if (!autoUpdater || !state.updateDownloaded) return;
   updateLog("info", "Installing update and restarting...");
@@ -656,6 +669,10 @@ export function registerAutoUpdateIpc(): void {
     return { success: true };
   });
   ipcMain.handle("auto-update:download", async () => await downloadUpdate());
+  ipcMain.handle("auto-update:cancel", () => {
+    cancelDownload();
+    return { ok: true };
+  });
   ipcMain.handle("auto-update:install", async () => {
     installUpdate();
     return { success: true };

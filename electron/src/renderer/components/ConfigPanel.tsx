@@ -463,6 +463,12 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
   const [gmailAuthPending, setGmailAuthPending] = useState(false);
   const [gmailAuthFeedback, setGmailAuthFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
+  // ── Teams / Zoom OAuth state (Config → Services connect rows) ──
+  const [teamsAuthPending, setTeamsAuthPending] = useState(false);
+  const [teamsAuthFeedback, setTeamsAuthFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [zoomAuthPending, setZoomAuthPending] = useState(false);
+  const [zoomAuthFeedback, setZoomAuthFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
   // Poll tunnel status every 5s when usage tracking is enabled
   useEffect(() => {
     if (values.USAGE_TRACKING_ENABLED !== "true") return;
@@ -967,10 +973,74 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
     }
   }, [values, handleChange]);
 
-  // Cancel any pending Gmail OAuth flow when the panel closes.
+  /** Run the in-app Teams OAuth flow and fill the Teams fields. */
+  const connectTeams = useCallback(async () => {
+    setTeamsAuthPending(true);
+    setTeamsAuthFeedback(null);
+    try {
+      const res = await window.electronAPI?.teamsConnect();
+      if (res?.ok) {
+        handleChange("MS_CLIENT_ID", res.clientId ?? "");
+        handleChange("MS_REFRESH_TOKEN", res.refreshToken ?? "");
+        if (res.user) handleChange("MS_USER", res.user);
+        try {
+          await window.electronAPI?.saveConfig({
+            MS_CLIENT_ID: res.clientId ?? "",
+            MS_REFRESH_TOKEN: res.refreshToken ?? "",
+            MS_USER: res.user ?? "",
+          });
+          setTeamsAuthFeedback({ type: "ok", text: res.user ? `Microsoft Teams connected: ${res.user}` : "Microsoft Teams connected." });
+        } catch {
+          setTeamsAuthFeedback({ type: "err", text: "Teams connected, but saving failed — click Save to apply." });
+        }
+      } else {
+        setTeamsAuthFeedback({ type: "err", text: res?.error || "Teams authorization failed or was cancelled — try again." });
+      }
+    } catch {
+      setTeamsAuthFeedback({ type: "err", text: "Teams authorization failed — try again." });
+    } finally {
+      setTeamsAuthPending(false);
+    }
+  }, [handleChange]);
+
+  /** Run the in-app Zoom OAuth flow and fill the Zoom fields. */
+  const connectZoom = useCallback(async () => {
+    setZoomAuthPending(true);
+    setZoomAuthFeedback(null);
+    try {
+      const res = await window.electronAPI?.zoomConnect();
+      if (res?.ok) {
+        handleChange("ZOOM_CLIENT_ID", res.clientId ?? "");
+        handleChange("ZOOM_CLIENT_SECRET", res.clientSecret ?? "");
+        handleChange("ZOOM_REFRESH_TOKEN", res.refreshToken ?? "");
+        if (res.user) handleChange("ZOOM_USER", res.user);
+        try {
+          await window.electronAPI?.saveConfig({
+            ZOOM_CLIENT_ID: res.clientId ?? "",
+            ZOOM_CLIENT_SECRET: res.clientSecret ?? "",
+            ZOOM_REFRESH_TOKEN: res.refreshToken ?? "",
+            ZOOM_USER: res.user ?? "",
+          });
+          setZoomAuthFeedback({ type: "ok", text: res.user ? `Zoom connected: ${res.user}` : "Zoom connected." });
+        } catch {
+          setZoomAuthFeedback({ type: "err", text: "Zoom connected, but saving failed — click Save to apply." });
+        }
+      } else {
+        setZoomAuthFeedback({ type: "err", text: res?.error || "Zoom authorization failed or was cancelled — try again." });
+      }
+    } catch {
+      setZoomAuthFeedback({ type: "err", text: "Zoom authorization failed — try again." });
+    } finally {
+      setZoomAuthPending(false);
+    }
+  }, [handleChange]);
+
+  // Cancel any pending Gmail/Teams/Zoom OAuth flow when the panel closes.
   useEffect(() => {
     return () => {
       window.electronAPI?.cancelGmailOAuth();
+      window.electronAPI?.teamsCancel();
+      window.electronAPI?.zoomCancel();
     };
   }, []);
 
@@ -2475,6 +2545,19 @@ The system provides existing memory context at the start of each pipeline run. U
                                 </>
                               )}
                             </button>
+                            {gmailAuthPending && (
+                              <button
+                                className="config-update-status-btn"
+                                onClick={() => {
+                                  window.electronAPI?.cancelGmailOAuth();
+                                  setGmailAuthPending(false);
+                                  setGmailAuthFeedback({ type: "err", text: "Google authorization cancelled." });
+                                }}
+                                title="Cancel Google authorization"
+                                type="button">
+                                <Icon name="close" size="14" /> Cancel
+                              </button>
+                            )}
                             {!(values.GMAIL_CLIENT_ID || "").trim() || !(values.GMAIL_CLIENT_SECRET || "").trim() ? (
                               <span className="gmail-connect-hint">
                                 Import your provided config file (or enter your Client ID &amp; Secret) to enable Google Connect.
@@ -2496,6 +2579,130 @@ The system provides existing memory context at the start of each pipeline run. U
                                     value={values[field.key] || ""}
                                     onChange={(e) => handleChange(field.key, e.target.value)}
                                     placeholder={field.label.includes("Email") ? "you@gmail.com" : "Optional"}
+                                    disabled={activeJobs.length > 0}
+                                  />
+                                  {field.secret && (
+                                    <button
+                                      className="config-visibility-toggle"
+                                      onClick={() => toggleVisible(field.key)}
+                                      title={visibleKeys.has(field.key) ? "Hide value" : "Show value"}
+                                      type="button"
+                                      tabIndex={-1}>
+                                      {visibleKeys.has(field.key) ? <Icon name="visibility" size="14" /> : <Icon name="visibility_off" size="14" />}
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                        </div>
+                      </details>
+
+                      {/* ── Microsoft Teams accordion section ── */}
+                      <details className="delivery-config-details">
+                        <summary className="delivery-config-summary">
+                          <Icon name="videocam" size="14" color="accent" /> Microsoft Teams
+                        </summary>
+                        <div className="delivery-config-body">
+                          <p className="config-field-hint">
+                            Pull Teams online meetings + cloud recordings (work/school accounts). Set the Client ID, then connect your Microsoft
+                            account.
+                          </p>
+                          <ProviderConnectRow
+                            label="Connect Microsoft Teams"
+                            pending={teamsAuthPending}
+                            disabled={activeJobs.length > 0}
+                            onConnect={connectTeams}
+                            onCancel={() => {
+                              window.electronAPI?.teamsCancel();
+                              setTeamsAuthPending(false);
+                              setTeamsAuthFeedback({ type: "err", text: "Teams authorization cancelled." });
+                            }}
+                            feedback={teamsAuthFeedback}
+                          />
+                          <CredentialSteps
+                            portalUrl="https://entra.microsoft.com"
+                            portalLabel="Open Microsoft Entra admin center"
+                            steps={[
+                              "Go to the Microsoft Entra admin center → App registrations → New registration.",
+                              "Name it and choose 'Accounts in this organizational directory only' (work/school) — Teams cloud recordings need a work/school account.",
+                              "Platform → Add a platform → 'Mobile and desktop applications' → redirect URI http://localhost (native/public client — no client secret).",
+                              "API permissions (delegated): User.Read, Calendars.Read, OnlineMeetings.Read, Files.Read.All.",
+                              "Copy the Application (client) ID into the Teams Client ID field below.",
+                            ]}
+                          />
+                          {fields
+                            .filter((f) => ["MS_CLIENT_ID", "MS_REFRESH_TOKEN", "MS_USER"].includes(f.key as string))
+                            .map((field) => (
+                              <div key={field.key} className="config-field">
+                                <label className="config-label">{field.label}</label>
+                                <div className="config-input-row">
+                                  <input
+                                    className="config-input"
+                                    type={field.secret && !visibleKeys.has(field.key) ? "password" : "text"}
+                                    value={values[field.key] || ""}
+                                    onChange={(e) => handleChange(field.key, e.target.value)}
+                                    placeholder="Optional"
+                                    disabled={activeJobs.length > 0}
+                                  />
+                                  {field.secret && (
+                                    <button
+                                      className="config-visibility-toggle"
+                                      onClick={() => toggleVisible(field.key)}
+                                      title={visibleKeys.has(field.key) ? "Hide value" : "Show value"}
+                                      type="button"
+                                      tabIndex={-1}>
+                                      {visibleKeys.has(field.key) ? <Icon name="visibility" size="14" /> : <Icon name="visibility_off" size="14" />}
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                        </div>
+                      </details>
+
+                      {/* ── Zoom accordion section ── */}
+                      <details className="delivery-config-details">
+                        <summary className="delivery-config-summary">
+                          <Icon name="videocam" size="14" color="accent" /> Zoom
+                        </summary>
+                        <div className="delivery-config-body">
+                          <p className="config-field-hint">
+                            Pull Zoom meetings with cloud recordings. Set the Client ID + Secret, then connect your Zoom account.
+                          </p>
+                          <ProviderConnectRow
+                            label="Connect Zoom"
+                            pending={zoomAuthPending}
+                            disabled={activeJobs.length > 0}
+                            onConnect={connectZoom}
+                            onCancel={() => {
+                              window.electronAPI?.zoomCancel();
+                              setZoomAuthPending(false);
+                              setZoomAuthFeedback({ type: "err", text: "Zoom authorization cancelled." });
+                            }}
+                            feedback={zoomAuthFeedback}
+                          />
+                          <CredentialSteps
+                            portalUrl="https://marketplace.zoom.us"
+                            portalLabel="Open Zoom Marketplace"
+                            steps={[
+                              "Go to the Zoom Marketplace → Build App → OAuth (general purpose).",
+                              "Redirect URL for OAuth: http://localhost (also add http://localhost:PORT if your app uses a fixed port).",
+                              "Scopes: meeting:read, recording:read, user:read.",
+                              "Copy the Client ID and Client Secret into the Zoom fields below.",
+                            ]}
+                          />
+                          {fields
+                            .filter((f) => ["ZOOM_CLIENT_ID", "ZOOM_CLIENT_SECRET", "ZOOM_REFRESH_TOKEN", "ZOOM_USER"].includes(f.key as string))
+                            .map((field) => (
+                              <div key={field.key} className="config-field">
+                                <label className="config-label">{field.label}</label>
+                                <div className="config-input-row">
+                                  <input
+                                    className="config-input"
+                                    type={field.secret && !visibleKeys.has(field.key) ? "password" : "text"}
+                                    value={values[field.key] || ""}
+                                    onChange={(e) => handleChange(field.key, e.target.value)}
+                                    placeholder="Optional"
                                     disabled={activeJobs.length > 0}
                                   />
                                   {field.secret && (
@@ -3646,11 +3853,85 @@ The system provides existing memory context at the start of each pipeline run. U
   );
 }
 
+/* ── Connect-button row used by the Teams/Zoom Services accordions ──
+   Pending state shows a spinner + a Cancel button so a consent flow that's
+   left open (or whose browser tab was closed) can be aborted immediately
+   instead of hanging until the 10-minute OAuth timeout. */
+
+function ProviderConnectRow({
+  label,
+  pending,
+  disabled,
+  onConnect,
+  onCancel,
+  feedback,
+}: {
+  label: string;
+  pending: boolean;
+  disabled: boolean;
+  onConnect: () => void;
+  onCancel: () => void;
+  feedback: { type: "ok" | "err"; text: string } | null;
+}) {
+  return (
+    <>
+      <div className="gmail-connect-row">
+        <button
+          className="config-update-status-btn config-update-status-btn--accent"
+          onClick={onConnect}
+          disabled={disabled || pending}
+          type="button">
+          {pending ? (
+            <>
+              <span className="updates-spinner updates-spinner--small" /> Waiting for authorization…
+            </>
+          ) : (
+            <>
+              <Icon name="link" size="14" /> {label}
+            </>
+          )}
+        </button>
+        {pending && (
+          <button className="config-update-status-btn" onClick={onCancel} title="Cancel authorization" type="button">
+            <Icon name="close" size="14" /> Cancel
+          </button>
+        )}
+      </div>
+      {feedback && <div className={`gmail-connect-feedback gmail-connect-feedback--${feedback.type}`}>{feedback.text}</div>}
+    </>
+  );
+}
+
+/* ── Collapsible "How to get these credentials" block (Teams/Zoom Services) ── */
+
+function CredentialSteps({ steps, portalUrl, portalLabel }: { steps: string[]; portalUrl: string; portalLabel: string }) {
+  return (
+    <details className="credential-steps">
+      <summary className="credential-steps-summary">
+        <Icon name="help" size="13" color="accent" /> How to get these credentials
+      </summary>
+      <ol className="credential-steps-list">
+        {steps.map((s, i) => (
+          <li key={i}>{s}</li>
+        ))}
+      </ol>
+      <button
+        className="config-update-status-btn"
+        onClick={() => window.electronAPI?.openExternal(portalUrl)}
+        title={`Open ${portalLabel}`}
+        type="button">
+        <Icon name="open_in_new" size="12" /> {portalLabel}
+      </button>
+    </details>
+  );
+}
+
 /* ── Compact update status card for the Auto-Update config section ── */
 
 function UpdateStatusCard() {
   const [status, setStatus] = useState<any>(null);
   const [working, setWorking] = useState(false);
+  const [showDownloadConfirm, setShowDownloadConfirm] = useState(false);
 
   const refresh = useCallback(async () => {
     const s = await window.electronAPI?.getUpdateStatus();
@@ -3724,6 +4005,7 @@ function UpdateStatusCard() {
           : "Up to date";
 
   const versionLabel = status.mode === "packaged" ? `v${status.currentVersion}` : status.currentVersion;
+  const isMac = /Mac/i.test(navigator.userAgent);
 
   return (
     <div className="config-update-status">
@@ -3774,7 +4056,7 @@ function UpdateStatusCard() {
         {status.mode === "packaged" && hasUpdate && (
           <button
             className="config-update-status-btn config-update-status-btn--accent"
-            onClick={handleDownload}
+            onClick={() => setShowDownloadConfirm(true)}
             disabled={working}
             title="Download the available update">
             {working ? (
@@ -3797,6 +4079,57 @@ function UpdateStatusCard() {
           {status.mode === "packaged" ? "Packaged" : "Dev"} · {status.enabled ? "Auto" : "Manual"}
         </span>
       </div>
+
+      {/* macOS unsigned fallback — auto-update may fail to install; link the release. */}
+      {status.error && isMac && (
+        <div className="config-update-status-actions" style={{ marginTop: 8 }}>
+          <button
+            className="config-update-status-btn"
+            onClick={() => window.electronAPI?.openExternal("https://github.com/afrogenesurvive/ai_transcription_agent/releases/latest")}
+            title="Open the latest GitHub release to download manually">
+            <Icon name="download" size="12" /> Download manually (macOS)
+          </button>
+        </div>
+      )}
+
+      {/* ── Download confirmation ── */}
+      {showDownloadConfirm && (
+        <div className="confirm-overlay" onClick={() => setShowDownloadConfirm(false)}>
+          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3 className="confirm-dialog-title">
+              <Icon name="download" size="16" color="accent" /> Download Update
+            </h3>
+            <p className="confirm-dialog-text">
+              Download version <strong>{status.updateAvailable}</strong> now? The new version downloads in the background; you can install it
+              (Restart &amp; Install) once the download finishes.
+            </p>
+            <div className="confirm-dialog-actions">
+              <button className="btn-secondary" onClick={() => setShowDownloadConfirm(false)}>
+                Cancel
+              </button>
+              <button
+                className="btn-primary"
+                onClick={() => {
+                  setShowDownloadConfirm(false);
+                  handleDownload();
+                }}>
+                Download
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Download progress modal ── */}
+      <LoadingModal
+        visible={status.downloadProgress !== null}
+        message="Downloading update…"
+        progress={status.downloadProgress}
+        onCancel={async () => {
+          await window.electronAPI?.cancelUpdateDownload();
+          refresh();
+        }}
+      />
     </div>
   );
 }

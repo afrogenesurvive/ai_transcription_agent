@@ -77,3 +77,38 @@
 .gmail-connect-feedback--err {
   color: var(--red, #f85149);
 }
+
+/* ── "How to get these credentials" (Teams/Zoom Services accordions) ── */
+
+.credential-steps {
+  margin: 4px 0 14px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: var(--fs-12);
+}
+
+.credential-steps-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  color: var(--accent);
+  user-select: none;
+}
+
+.credential-steps-list {
+  margin: 8px 0 10px;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.credential-steps-list li::marker {
+  color: var(--accent);
+}

@@ -218,6 +218,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   checkForUpdates: (): Promise<{ updateAvailable: boolean; details: string | null; error: string | null }> => ipcRenderer.invoke("auto-update:check"),
   setAutoUpdateEnabled: (enabled: boolean): Promise<{ success: boolean }> => ipcRenderer.invoke("auto-update:setEnabled", enabled),
   downloadUpdate: (): Promise<{ success: boolean; error: string | null }> => ipcRenderer.invoke("auto-update:download"),
+  cancelUpdateDownload: (): Promise<{ ok: boolean }> => ipcRenderer.invoke("auto-update:cancel"),
   installUpdate: (): Promise<{ success: boolean }> => ipcRenderer.invoke("auto-update:install"),
 
   // ── Native Notifications ──

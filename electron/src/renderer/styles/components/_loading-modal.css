@@ -58,6 +58,50 @@
   animation: lm-spin 1s linear infinite;
 }
 
+.lm-message {
+  margin: 0;
+  font-size: var(--fs-13);
+  color: var(--text);
+  text-align: center;
+  max-width: 90%;
+}
+
+/* ── Progress bar (used by update download) ── */
+
+.lm-progress-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 80%;
+}
+
+.lm-progress-track {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--bg, rgba(128, 128, 128, 0.25));
+  overflow: hidden;
+}
+
+.lm-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.2s ease-out;
+}
+
+.lm-progress-pct {
+  font-size: var(--fs-12);
+  color: var(--text-muted);
+}
+
+.lm-card .config-update-status-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 @keyframes lm-spin {
   from {
     transform: rotate(0deg);
