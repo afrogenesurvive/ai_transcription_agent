@@ -293,14 +293,56 @@ export default function SystemRecordingPanel({ onTranscribe, uploading, disabled
       {device && isWin && (
         <div className="capture-status-banner">
           <Icon name="check_circle" size="14" color="accent" />
-          <span>{device.hint || "Uses the built-in Windows system-audio capture."}</span>
+          <span>
+            {device.hint ||
+              "Uses the built-in Windows system-audio capture (WASAPI loopback) — no driver or Stereo Mix needed. Whatever your computer is playing (both sides of a Teams/Zoom call) is recorded."}
+          </span>
+        </div>
+      )}
+      {device && isWin && sources.length === 0 && (
+        <div className="capture-status-banner capture-status-banner--warn">
+          <Icon name="info" size="14" color="accent" />
+          <span>
+            No screen source detected — Windows captures audio via a display loopback. Make sure at least one screen is available
+            (Settings → System → Display), then switch tabs and back to refresh.
+          </span>
         </div>
       )}
 
       {device && isMac && !device.blackholeInstalled && (
-        <div className="capture-status-banner capture-status-banner--warn">
-          <Icon name="warning" size="14" color="orange" />
-          <span>{device.hint || "Install the free BlackHole driver to record system audio on macOS."}</span>
+        <div className="capture-status-banner capture-status-banner--warn capture-status-banner--setup">
+          <div className="capture-banner-head">
+            <Icon name="warning" size="14" color="orange" />
+            <span>BlackHole not detected — system-audio capture is unavailable on macOS.</span>
+            <button
+              className="config-update-status-btn"
+              onClick={() => window.electronAPI?.openExternal("https://github.com/ExistentialAudio/BlackHole")}
+              type="button">
+              <Icon name="download" size="12" /> Download BlackHole
+            </button>
+          </div>
+          <details className="capture-setup-details">
+            <summary className="capture-setup-summary">How to set up BlackHole (step by step)</summary>
+            <ol className="capture-setup-steps">
+              <li>
+                Install the free <strong>BlackHole 2ch</strong> virtual audio driver from the link above (or <code>brew install blackhole-2ch</code>).
+              </li>
+              <li>
+                Open <strong>Audio MIDI Setup</strong> (in <code>/Applications/Utilities/</code>).
+              </li>
+              <li>
+                Click <strong>+</strong> (bottom-left) → <strong>Create Multi-Output Device</strong>.
+              </li>
+              <li>
+                Add <strong>BlackHole 2ch</strong> <em>and</em> your speakers/headphones to the Multi-Output Device.
+              </li>
+              <li>
+                Set it as the <strong>default output</strong> (System Settings → Sound → Output) — audio goes to BlackHole (capture){" "}
+                <em>and</em> your speakers (so you can still hear).
+              </li>
+              <li>Return here and click <strong>Start Recording</strong>.</li>
+            </ol>
+          </details>
         </div>
       )}
       {device && isMac && device.blackholeInstalled && (
