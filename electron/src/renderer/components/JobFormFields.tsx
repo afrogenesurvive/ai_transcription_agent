@@ -725,6 +725,19 @@ const JobFormFields = forwardRef<JobFormFieldsHandle, JobFormFieldsProps>(functi
                     </>
                   )}
                 </button>
+                  {gmailAuthPending && (
+                    <button
+                      className="config-update-status-btn"
+                      onClick={() => {
+                        window.electronAPI?.cancelGmailOAuth();
+                        setGmailAuthPending(false);
+                        setGmailAuthFeedback({ type: "err", text: "Google authorization cancelled." });
+                      }}
+                      title="Cancel Google authorization"
+                      type="button">
+                      <Icon name="close" size="14" /> Cancel
+                    </button>
+                  )}
               </>
             ) : gmailConnected ? (
               <>
@@ -743,6 +756,19 @@ const JobFormFields = forwardRef<JobFormFieldsHandle, JobFormFieldsProps>(functi
                     <>Reconnect</>
                   )}
                 </button>
+                  {gmailAuthPending && (
+                    <button
+                      className="config-update-status-btn"
+                      onClick={() => {
+                        window.electronAPI?.cancelGmailOAuth();
+                        setGmailAuthPending(false);
+                        setGmailAuthFeedback({ type: "err", text: "Google authorization cancelled." });
+                      }}
+                      title="Cancel Google authorization"
+                      type="button">
+                      <Icon name="close" size="14" /> Cancel
+                    </button>
+                  )}
               </>
             ) : (
               <>
@@ -763,6 +789,19 @@ const JobFormFields = forwardRef<JobFormFieldsHandle, JobFormFieldsProps>(functi
                     </>
                   )}
                 </button>
+                  {gmailAuthPending && (
+                    <button
+                      className="config-update-status-btn"
+                      onClick={() => {
+                        window.electronAPI?.cancelGmailOAuth();
+                        setGmailAuthPending(false);
+                        setGmailAuthFeedback({ type: "err", text: "Google authorization cancelled." });
+                      }}
+                      title="Cancel Google authorization"
+                      type="button">
+                      <Icon name="close" size="14" /> Cancel
+                    </button>
+                  )}
               </>
             )}
           </div>

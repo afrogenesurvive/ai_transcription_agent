@@ -13,6 +13,7 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { useUiStateValue } from "../hooks/useUiState";
 import Icon from "./Icon";
 import Tooltip from "./Tooltip";
 import JobFormFields, { type AttendeeEntry, type JobFormFieldsHandle } from "./JobFormFields";
@@ -44,7 +45,8 @@ function formatElapsed(totalSeconds: number): string {
 export default function SystemRecordingPanel({ onTranscribe, uploading, disabled, initialSkipSteps, refreshTrigger }: Props) {
   const [device, setDevice] = useState<CaptureDeviceStatus | null>(null);
   const [sources, setSources] = useState<CaptureSource[]>([]);
-  const [selectedSourceId, setSelectedSourceId] = useState<string>("");
+  // Persisted so the panel reopens on the last-selected capture source (validated against the fetched list below).
+  const [selectedSourceId, setSelectedSourceId] = useUiStateValue<string>("newForm.recording.source", "");
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
   const [filePath, setFilePath] = useState<string | null>(null);
@@ -85,7 +87,8 @@ export default function SystemRecordingPanel({ onTranscribe, uploading, disabled
         const srcs = (await window.electronAPI?.captureSources()) || [];
         if (!cancelled) {
           setSources(srcs);
-          setSelectedSourceId(srcs[0]?.id ?? "");
+          // Keep the persisted source only if it still exists in the fresh list; otherwise fall back to the first.
+          setSelectedSourceId((prev) => (srcs.some((s) => s.id === prev) ? prev : srcs[0]?.id ?? ""));
         }
       }
     })();

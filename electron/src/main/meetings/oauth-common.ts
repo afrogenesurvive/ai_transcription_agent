@@ -32,6 +32,13 @@ export interface OAuthFlowOptions {
   clientId: string;
   /** Client secret (Zoom). Omit for public clients (Teams PKCE). */
   clientSecret?: string;
+  /**
+   * Host used in the loopback redirect URI advertised to the provider.
+   * Defaults to "localhost". Azure (Teams) and Zoom validate the redirect
+   * URI strictly, so "127.0.0.1" often fails (AADSTS50011 / invalid_redirect_uri)
+   * while "localhost" matches a registered "http://localhost" redirect.
+   */
+  redirectHost?: string;
   /** Enable PKCE (S256) — required by Microsoft; optional elsewhere. */
   usePkce?: boolean;
   authorizeUrl: string;
@@ -78,6 +85,7 @@ export async function runOAuthFlow(opts: OAuthFlowOptions): Promise<OAuthFlowRes
 
   const state = crypto.randomBytes(16).toString("hex");
   const codeVerifier = opts.usePkce ? base64Url(crypto.randomBytes(32)) : "";
+  const redirectHost = (opts.redirectHost || "localhost").trim() || "localhost";
 
   return new Promise<OAuthFlowResult>((resolve) => {
     let flowRef: PendingFlow | null = null;
@@ -130,7 +138,7 @@ export async function runOAuthFlow(opts: OAuthFlowOptions): Promise<OAuthFlowRes
         settle({ ok: false, error: `${opts.provider} authorization returned no code.` });
         return;
       }
-      const redirectUri = `http://127.0.0.1:${port}/`;
+      const redirectUri = `http://${redirectHost}:${port}/`;
       exchangeCode(opts, code, redirectUri, codeVerifier)
         .then(settle)
         .catch((err) => settle({ ok: false, error: err?.message || `Failed to exchange authorization code.` }));
@@ -147,7 +155,7 @@ export async function runOAuthFlow(opts: OAuthFlowOptions): Promise<OAuthFlowRes
         settle({ ok: false, error: "Could not open a local redirect port." });
         return;
       }
-      const redirectUri = `http://127.0.0.1:${addr.port}/`;
+      const redirectUri = `http://${redirectHost}:${addr.port}/`;
       const params = new URLSearchParams({
         client_id: opts.clientId,
         redirect_uri: redirectUri,

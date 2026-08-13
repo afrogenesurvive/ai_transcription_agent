@@ -1603,6 +1603,7 @@ function PerformanceTab() {
 function UpdatesTab() {
   const [status, setStatus] = useState<any>(null);
   const [working, setWorking] = useState(false);
+  const [showDownloadConfirm, setShowDownloadConfirm] = useState(false);
 
   const refresh = useCallback(async () => {
     const s = await window.electronAPI?.getUpdateStatus();
@@ -1691,6 +1692,7 @@ function UpdatesTab() {
     );
 
   const currentLabel = status.mode === "packaged" ? `v${status.currentVersion}` : `branch: ${status.currentVersion}`;
+  const isMac = /Mac/i.test(navigator.userAgent);
 
   return (
     <div className="updates-container">
@@ -1773,6 +1775,15 @@ function UpdatesTab() {
           </div>
         )}
 
+        {/* macOS unsigned fallback — auto-update may fail to install; link the release. */}
+        {status.error && isMac && (
+          <button
+            className="updates-btn"
+            onClick={() => window.electronAPI?.openExternal("https://github.com/afrogenesurvive/ai_transcription_agent/releases/latest")}>
+            <Icon name="download" size="14" /> Download manually (macOS)
+          </button>
+        )}
+
         {/* ── Action buttons ── */}
         <div className="updates-actions">
           <button className="updates-btn updates-btn--primary" onClick={handleCheck} disabled={working || status.checking}>
@@ -1788,7 +1799,7 @@ function UpdatesTab() {
           </button>
 
           {status.mode === "packaged" && hasUpdate && (
-            <button className="updates-btn updates-btn--primary" onClick={handleDownload} disabled={working}>
+            <button className="updates-btn updates-btn--primary" onClick={() => setShowDownloadConfirm(true)} disabled={working}>
               {working ? (
                 <>
                   <span className="updates-spinner updates-spinner--small" /> Downloading…
@@ -1855,6 +1866,45 @@ function UpdatesTab() {
           )}
         </div>
       </details>
+
+      {/* ── Download confirmation ── */}
+      {showDownloadConfirm && (
+        <div className="confirm-overlay" onClick={() => setShowDownloadConfirm(false)}>
+          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3 className="confirm-dialog-title">
+              <Icon name="download" size="16" color="accent" /> Download Update
+            </h3>
+            <p className="confirm-dialog-text">
+              Download version <strong>{status.updateAvailable}</strong> now? The new version downloads in the background; you can install it
+              (Restart &amp; Install) once the download finishes.
+            </p>
+            <div className="confirm-dialog-actions">
+              <button className="btn-secondary" onClick={() => setShowDownloadConfirm(false)}>
+                Cancel
+              </button>
+              <button
+                className="btn-primary"
+                onClick={() => {
+                  setShowDownloadConfirm(false);
+                  handleDownload();
+                }}>
+                Download
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Download progress modal ── */}
+      <LoadingModal
+        visible={status.downloadProgress !== null}
+        message="Downloading update…"
+        progress={status.downloadProgress}
+        onCancel={async () => {
+          await window.electronAPI?.cancelUpdateDownload();
+          refresh();
+        }}
+      />
     </div>
   );
 }

@@ -165,7 +165,7 @@ npm run electron:dev
 | [Development Setup](docs/dev_setup_installation.md)                          | Step-by-step dev setup, build instructions, troubleshooting                        |
 | [API Endpoints](docs/api_endpoints.md)                                       | Full API reference for Python backend and bridge server                            |
 | [Testing Checklist](docs/testing_checklist.md)                               | Manual and automated test cases for all features                                   |
-| [Windows Install/Uninstall/Update](docs/windows_install_uninstall_update.md) | Installer behavior, update mechanism, uninstall process                            |
+| [Install/Uninstall/Update (Windows & macOS)](docs/windows_install_uninstall_update.md) | Installer behavior, update mechanism, uninstall process                            |
 | [End User Guide](docs/end_user_guide.md)                                     | Non-technical guide for using the app — upload, pipeline, results, troubleshooting |
 
 ---

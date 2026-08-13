@@ -1,6 +1,26 @@
-# Build the Windows installer via GitHub Actions and publish a GitHub Release
-# (installer + latest.yml) when a version tag (v*) is pushed.
-name: Build Windows
+# Build Windows + macOS in a SINGLE workflow and publish a GitHub Release when a
+# version tag (v*) is pushed. A runner matrix builds all three targets in
+# parallel: Windows x64 (windows-latest), macOS arm64 (macos-14-large), and
+# macOS x64 (macos-13).
+#
+# Release assets (all published to the same GitHub Release on a v* tag):
+#   - Windows: Transcription-Agent-<ver>.exe + latest.yml
+#   - macOS:   Transcription-Agent-<ver>-<arch>.dmg +
+#              Transcription-Agent-<ver>-<arch>.zip + latest-mac.yml
+#
+# The macOS build produces the `Transcription Agent.app` bundle, which is
+# packaged into BOTH the .dmg (user-facing installer) and the .zip (the
+# auto-update artifact — the .app compressed). A standalone .app is not
+# published separately (it lives inside both archives).
+#
+# macOS is intentionally UNSIGNED and NOT notarized — no Apple Developer
+# account, certificate, or secrets required. Consequences:
+#   - Users bypass Gatekeeper once (right-click → Open, or System Settings →
+#     Privacy & Security → "Open Anyway").
+#   - macOS in-app auto-update is best-effort (electron-updater generally needs
+#     a signed app); when it fails the app shows a "Download manually (macOS)"
+#     link to the Release.
+name: Build Win + Mac
 
 on:
   workflow_dispatch: # manual trigger from GitHub UI
@@ -12,8 +32,25 @@ permissions:
   contents: write
 
 jobs:
-  build-win:
-    runs-on: windows-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows
+            os: windows-latest
+            electron_target: --win
+            mac_extra: ""
+          - name: mac-arm64
+            os: macos-14-large # Apple Silicon — requires larger runners enabled
+            electron_target: --mac --arm64
+            mac_extra: --config.mac.notarize=false
+          - name: mac-x64
+            os: macos-13
+            electron_target: --mac --x64
+            mac_extra: --config.mac.notarize=false
+
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -28,10 +65,11 @@ jobs:
           python-version: "3.11"
 
       - name: Install Python dependencies
+        shell: bash
         run: |
           cd python-backend
           python -m venv venv
-          venv\Scripts\activate
+          if [[ "${{ runner.os }}" == "Windows" ]]; then source venv/Scripts/activate; else source venv/bin/activate; fi
           python -m pip install --upgrade pip setuptools
           pip install -r requirements.txt
           pip install faster-whisper
@@ -41,29 +79,28 @@ jobs:
         shell: bash
         run: |
           cd python-backend
-          source venv/Scripts/activate
+          if [[ "${{ runner.os }}" == "Windows" ]]; then source venv/Scripts/activate; else source venv/bin/activate; fi
           pip install pip-audit
           # --ignore-vuln whitelists the documented accepted-risk ML stack:
           #   torch 2.8.0 (pinned for pyannote/torchaudio compat — see win-crossover-unicode-fix.md),
           #   transformers 4.57.6 / lightning / chromadb (fixes need major bumps not yet compatible).
-          # New CVEs outside this list fail the build.
           pip-audit --ignore-vuln PYSEC-2026-311 --ignore-vuln PYSEC-2026-3624 \
             --ignore-vuln PYSEC-2025-194 --ignore-vuln PYSEC-2025-203 --ignore-vuln PYSEC-2025-204 --ignore-vuln PYSEC-2025-206 \
             --ignore-vuln PYSEC-2026-139 --ignore-vuln PYSEC-2026-2286 --ignore-vuln CVE-2025-2999 --ignore-vuln CVE-2025-3001 \
             --ignore-vuln PYSEC-2025-217 --ignore-vuln PYSEC-2026-2288 --ignore-vuln PYSEC-2026-2289 --ignore-vuln PYSEC-2026-2290
 
-      - name: Build Python backend (Windows)
+      - name: Build Python backend (host arch)
         shell: bash
         run: |
           cd python-backend
-          source venv/Scripts/activate
+          if [[ "${{ runner.os }}" == "Windows" ]]; then source venv/Scripts/activate; else source venv/bin/activate; fi
           # --collect-all for lightning_fabric / pytorch_lightning / pyannote.audio bundles the
           # ML packages' DATA files (e.g. lightning_fabric/version.info) — without them,
           # `import pyannote.audio` crashes with FileNotFoundError (diarization unavailable).
           # chromadb: --collect-all bundles the importlib-resolved rust API impl
           # (chromadb.api.rust.RustBindingsAPI) + telemetry + the native chromadb_rust_bindings
           # extension, which a bare --hidden-import "chromadb" missed → "No module named
-          # 'chromadb.api.rust'" on save-context in the packaged Windows app.
+          # 'chromadb.api.rust'" on save-context in the packaged app.
           pyinstaller --onedir --name main --distpath ../dist-resources/python-backend --workpath build/pyinstaller --specpath build \
             --hidden-import "uvicorn" --hidden-import "uvicorn.logging" --hidden-import "uvicorn.loops" --hidden-import "uvicorn.loops.auto" \
             --hidden-import "uvicorn.protocols" --hidden-import "uvicorn.protocols.http" --hidden-import "uvicorn.protocols.http.httptools_impl" \
@@ -96,6 +133,7 @@ jobs:
           rm -rf build
 
       - name: Bundle ffmpeg for Windows (avoids end-user download)
+        if: runner.os == 'Windows'
         shell: bash
         run: |
           mkdir -p dist-resources/ffmpeg
@@ -103,6 +141,14 @@ jobs:
           unzip -o ffmpeg.zip
           cp ffmpeg-*-essentials_build/bin/ffmpeg.exe dist-resources/ffmpeg/ffmpeg.exe
           rm -rf ffmpeg-*-essentials_build ffmpeg.zip
+
+      - name: Bundle ffmpeg for macOS (avoids end-user download)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p dist-resources/ffmpeg
+          brew install ffmpeg
+          cp "$(command -v ffmpeg)" dist-resources/ffmpeg/ffmpeg
 
       - name: Build bridge-server & agent-runner deps
         run: |
@@ -118,19 +164,22 @@ jobs:
         env:
           # The built-in GITHUB_TOKEN has contents: write (see permissions block),
           # which is enough for electron-builder to create the GitHub Release and
-          # upload the installer + latest.yml on the same private repo.
+          # upload all platform assets on the same private repo.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cd electron
           npm ci
           npm run build
+          # macOS is unsigned by design — no Developer ID cert / notary secrets.
+          if [[ "${{ matrix.name }}" == mac-* ]]; then
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+          fi
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            # Tag build → create/update the GitHub Release and upload the
-            # installer + latest.yml (electron-updater requires latest.yml).
-            npx electron-builder --win --publish always
+            # Tag build → create/update the GitHub Release and upload assets.
+            npx electron-builder ${{ matrix.electron_target }} ${{ matrix.mac_extra }} --publish always
           else
             # Manual dispatch → build only (no release).
-            npx electron-builder --win --publish never
+            npx electron-builder ${{ matrix.electron_target }} ${{ matrix.mac_extra }} --publish never
           fi
 
       - name: Audit npm production dependencies
@@ -138,9 +187,3 @@ jobs:
           cd electron && npm audit --omit=dev; cd ..
           cd agent-runner && npm audit --omit=dev; cd ..
           cd bridge-server && npm audit --omit=dev; cd ..
-
-      - name: Upload installer artifact
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: Transcription-Agent-Windows
-          path: electron/dist/*.exe
