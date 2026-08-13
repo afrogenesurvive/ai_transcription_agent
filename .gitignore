@@ -35,6 +35,8 @@ logs/
 # ── Build output & local data ──
 /safe/
 dist/
+# Generated build resources (Python backend + ffmpeg; produced by CI and build-python-backend.sh, not committed)
+dist-resources/
 
 # ── Transcription Agent Service (self-contained, gitignored) ──
 transcription-agent/

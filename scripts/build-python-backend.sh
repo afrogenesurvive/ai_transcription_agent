@@ -45,14 +45,20 @@ esac
 
 # Windows venvs use Scripts/ + Lib/; Unix venvs use bin/ + lib/python3*/.
 # Note: --add-data uses a path separator of ';' on Windows and ':' on Unix.
+# NOTE: VENV_SPEECHBRAIN_DIR must be ABSOLUTE. PyInstaller resolves relative
+# paths in --add-data against the spec directory (--specpath = build/), not the
+# CWD — so a relative "venv/..." would be looked up at "build/venv/..." and fail
+# ("Unable to find ... when adding binary and data files"). Windows CI builds the
+# backend with its own inline pyinstaller invocation (see build-win.yml), so this
+# script only affects local/other-platform builds.
 if [ "$IS_WIN" = true ]; then
   VENV_PYTHON="venv/Scripts/python.exe"
-  VENV_SPEECHBRAIN_DIR="venv/Lib/site-packages/speechbrain"
+  VENV_SPEECHBRAIN_DIR="$ROOT/python-backend/venv/Lib/site-packages/speechbrain"
   ADD_DATA_SEP=";"
   BINARY_NAME="main.exe"
 else
   VENV_PYTHON="venv/bin/python3"
-  VENV_SPEECHBRAIN_DIR="venv/lib/python3*/site-packages/speechbrain"
+  VENV_SPEECHBRAIN_DIR="$ROOT/python-backend/venv/lib/python3*/site-packages/speechbrain"
   ADD_DATA_SEP=":"
   BINARY_NAME="main"
 fi
