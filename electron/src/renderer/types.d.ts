@@ -372,6 +372,7 @@ export interface ElectronAPI {
   // ── Shell & File system ──
   openPath: (filePath: string) => Promise<{ success: boolean; error?: string }>;
   fileExists: (filePath: string) => Promise<boolean>;
+  readFileBytes: (filePath: string) => Promise<{ ok: boolean; data?: Uint8Array; error?: string }>;
   runInTerminal: (params: { command: string; cwd?: string }) => Promise<{ success: boolean; error?: string }>;
 
   // ── Playwright Testing ──

@@ -278,6 +278,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // ── Shell & File system ──
   openPath: (filePath: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke("shell:openPath", filePath),
   fileExists: (filePath: string): Promise<boolean> => ipcRenderer.invoke("fs:fileExists", filePath),
+  readFileBytes: (filePath: string): Promise<{ ok: boolean; data?: Uint8Array; error?: string }> =>
+    ipcRenderer.invoke("fs:readFileBytes", filePath),
   runInTerminal: (params: { command: string; cwd?: string }): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke("shell:runInTerminal", params),
 

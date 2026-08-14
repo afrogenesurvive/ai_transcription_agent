@@ -670,6 +670,15 @@ ipcMain.handle("fs:fileExists", async (_event, filePath: string) => {
   }
 });
 
+ipcMain.handle("fs:readFileBytes", async (_event, filePath: string) => {
+  try {
+    const data = await fs.promises.readFile(filePath);
+    return { ok: true, data: new Uint8Array(data) };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Could not read file." };
+  }
+});
+
 ipcMain.handle("backend:status", async () => {
   // Check all three services with individual timeouts
   let python = false;
