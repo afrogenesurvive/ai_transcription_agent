@@ -126,13 +126,24 @@ export function startFfmpegCapture(): Promise<{ ok: boolean; filePath?: string; 
       return;
     }
     const filePath = path.join(capturesDir(), `meeting-${Date.now()}.m4a`);
-    const args = ["-f", "avfoundation", "-i", "BlackHole 2ch", "-c:a", "aac", "-y", filePath];
+    // avfoundation inputs are "<video>:<audio>". A bare device name with no
+    // colon is treated as a VIDEO device (ffmpeg fails with "Video device not
+    // found"), so audio-only capture from BlackHole must use ":BlackHole 2ch"
+    // — empty video slot, named audio device.
+    const args = ["-f", "avfoundation", "-i", ":BlackHole 2ch", "-c:a", "aac", "-y", filePath];
     addLog("main", "info", `[capture] starting ffmpeg → ${filePath}`);
 
     const proc = spawn(resolveFfmpeg(), args, { stdio: ["ignore", "ignore", "pipe"] });
+    // Accumulate ffmpeg's stderr so we can surface the real failure reason
+    // (e.g. macOS mic-permission denial, device-open error) instead of a
+    // generic "exited immediately" message.
+    let errOut = "";
     proc.stderr?.on("data", (d) => {
-      const text = d.toString().trim();
-      if (text) addLog("main", "debug", `[capture:ffmpeg] ${text}`);
+      const text = d.toString();
+      if (text.trim()) {
+        errOut += text;
+        addLog("main", "debug", `[capture:ffmpeg] ${text.trim()}`);
+      }
     });
     proc.on("error", (err) => {
       ffmpegProc = null;
@@ -152,7 +163,10 @@ export function startFfmpegCapture(): Promise<{ ok: boolean; filePath?: string; 
     // Give ffmpeg a moment to fail fast on a bad device name before declaring success.
     setTimeout(() => {
       if (proc.exitCode !== null) {
-        resolve({ ok: false, error: "ffmpeg exited immediately — is the BlackHole device available?" });
+        const lastLine = errOut.trim().split(/\r?\n/).pop() || "";
+        const detail = lastLine ? `Capture failed: ${lastLine}` : "ffmpeg exited immediately — is the BlackHole device available?";
+        addLog("main", "error", `[capture] ${detail}`);
+        resolve({ ok: false, error: detail });
         return;
       }
       resolve({ ok: true, filePath });

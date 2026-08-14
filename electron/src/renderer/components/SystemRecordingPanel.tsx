@@ -49,6 +49,7 @@ export default function SystemRecordingPanel({ onTranscribe, uploading, disabled
   const [selectedSourceId, setSelectedSourceId] = useUiStateValue<string>("newForm.recording.source", "");
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [checking, setChecking] = useState(false);
   const [filePath, setFilePath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
@@ -76,25 +77,31 @@ export default function SystemRecordingPanel({ onTranscribe, uploading, disabled
     recordingRef.current = recording;
   }, [recording]);
 
-  // Detect platform capture capability on mount.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
+  // Re-run capture-capability detection (BlackHole on macOS, screen sources on
+  // Windows). Used on mount and from the manual "Refresh" button so users don't
+  // have to switch views after installing BlackHole or connecting audio devices.
+  const refreshDetection = useCallback(async () => {
+    setChecking(true);
+    try {
       const dev = await window.electronAPI?.captureDevice();
-      if (cancelled) return;
       setDevice(dev ?? null);
       if (dev?.platform === "win32") {
         const srcs = (await window.electronAPI?.captureSources()) || [];
-        if (!cancelled) {
-          setSources(srcs);
-          // Keep the persisted source only if it still exists in the fresh list; otherwise fall back to the first.
-          setSelectedSourceId((prev) => (srcs.some((s) => s.id === prev) ? prev : srcs[0]?.id ?? ""));
-        }
+        setSources(srcs);
+        // Keep the persisted source only if it still exists in the fresh list; otherwise fall back to the first.
+        setSelectedSourceId((prev) => (srcs.some((s) => s.id === prev) ? prev : (srcs[0]?.id ?? "")));
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    } catch {
+      setError("Could not re-check capture support. Please try again.");
+    } finally {
+      setChecking(false);
+    }
+  }, [setSelectedSourceId]);
+
+  // Detect platform capture capability on mount (and when refreshTrigger changes).
+  useEffect(() => {
+    refreshDetection();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshTrigger]);
 
   // Elapsed timer while recording.
@@ -303,8 +310,8 @@ export default function SystemRecordingPanel({ onTranscribe, uploading, disabled
         <div className="capture-status-banner capture-status-banner--warn">
           <Icon name="info" size="14" color="accent" />
           <span>
-            No screen source detected — Windows captures audio via a display loopback. Make sure at least one screen is available
-            (Settings → System → Display), then switch tabs and back to refresh.
+            No screen source detected — Windows captures audio via a display loopback. Make sure at least one screen is available (Settings → System →
+            Display), then switch tabs and back to refresh.
           </span>
         </div>
       )}
@@ -337,10 +344,12 @@ export default function SystemRecordingPanel({ onTranscribe, uploading, disabled
                 Add <strong>BlackHole 2ch</strong> <em>and</em> your speakers/headphones to the Multi-Output Device.
               </li>
               <li>
-                Set it as the <strong>default output</strong> (System Settings → Sound → Output) — audio goes to BlackHole (capture){" "}
-                <em>and</em> your speakers (so you can still hear).
+                Set it as the <strong>default output</strong> (System Settings → Sound → Output) — audio goes to BlackHole (capture) <em>and</em> your
+                speakers (so you can still hear).
               </li>
-              <li>Return here and click <strong>Start Recording</strong>.</li>
+              <li>
+                Return here and click <strong>Start Recording</strong>.
+              </li>
             </ol>
           </details>
         </div>
@@ -366,6 +375,15 @@ export default function SystemRecordingPanel({ onTranscribe, uploading, disabled
       )}
 
       <div className="capture-controls">
+        <button
+          className="btn-primary"
+          onClick={refreshDetection}
+          disabled={recording || busy || checking || disabled}
+          title="Re-check capture support (BlackHole / audio devices)"
+          type="button">
+          {checking ? <span className="updates-spinner updates-spinner--small" /> : <Icon name="refresh" size="14" />}
+          {checking ? "Checking…" : "Refresh"}
+        </button>
         {!recording ? (
           <button className="btn-primary" onClick={handleStart} disabled={!canStart} title={canStart ? "Start recording system audio" : undefined}>
             {busy ? (

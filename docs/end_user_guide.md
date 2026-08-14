@@ -86,12 +86,6 @@ Everything runs on your computer. Your audio and transcripts stay private unless
 
 The app has a clean, centered layout:
 
-<p align="center">
-  <img src="screenshots/user-guide/01.png" alt="Main window showing the sidebar, header, and status bar" width="680"/>
-  <br/>
-  <em>1. Header · 2. Config (⚙️) · 3. Appearance (🎨) · 4. Status bar</em>
-</p>
-
 **Sidebar buttons** on the left (drag the right edge to resize):
 
 | Button         | Icon | Action                                                                              |
@@ -147,7 +141,7 @@ Maximum file size: **500 MB**
 ### How to Upload
 
 <p align="center">
-  <img src="screenshots/user-guide/03.png" alt="Upload form with the drag-and-drop zone, meeting title field, and Start button" width="680"/>
+  <img src="screenshots/user-guide/new_job_upload_001.png" alt="Upload form with the drag-and-drop zone, meeting title field, and Start button" width="680"/>
   <br/>
   <em>1. Drag & drop zone · 2. Meeting title · 3. Start button</em>
 </p>
@@ -157,12 +151,6 @@ Maximum file size: **500 MB**
 3. **Add attendees** — type names and email addresses of people in the meeting.
 
    **Attendee Autocomplete:** As you type a name, the app suggests previously used attendees from past meetings (saved to local storage, capped at 50 entries). Suggestions also include registered attendees from the backend with existing voiceprints. Click a suggestion to fill both name and email at once.
-
-   <p align="center">
-     <img src="screenshots/user-guide/08.png" alt="The attendee field showing autocomplete suggestions" width="680"/>
-     <br/>
-     <em>1. Attendees field · 2. Autocomplete suggestions</em>
-   </p>
 
    **Email validation:** Each attendee must have a valid email address. The app checks the format before adding them to the list.
 
@@ -207,13 +195,13 @@ The New Job form has **three tabs** — every one feeds the same transcription p
 **System Recording**
 
 <p align="center">
-  <img src="screenshots/user-guide/06.png" alt="The System Recording tab of the New Job form" width="680"/>
+  <img src="screenshots/user-guide/new_job_sys_recording_001.png" alt="The System Recording tab of the New Job form" width="680"/>
   <br/>
   <em>1. System Recording tab · 2. Start Recording control</em>
 </p>
 
 - **Windows** — uses the built-in system-audio capture (no driver, no video). Click **Start Recording**, play your meeting, then **Stop**. The audio is saved and transcribed.
-- **macOS** — requires the free **BlackHole** driver (see [Meetings Integrations](meetings_integrations.md)); the tab shows setup guidance if BlackHole isn't detected.
+- **macOS** — requires the free **BlackHole** driver (see [Meetings Integrations](meetings_integrations.md)); the tab shows setup guidance if BlackHole isn't detected. After installing BlackHole (or plugging in an audio device), click **Refresh** in the tab to re-check capture support without switching views.
 
 **Teams / Zoom**
 
@@ -221,12 +209,6 @@ The New Job form has **three tabs** — every one feeds the same transcription p
 - **Refresh** to list meetings (Zoom shows meetings with cloud recordings from the last 30 days).
 - Pick a meeting → **Fetch Recording & Attendees** → attendees are pre-filled → **Start Transcription**.
 - See [Meetings Integrations](meetings_integrations.md) for app-registration setup (client IDs/secrets).
-
-<p align="center">
-  <img src="screenshots/user-guide/37.png" alt="The Teams/Zoom tab of the New Job form with the Connect button and meeting list" width="680"/>
-  <br/>
-  <em>1. Teams/Zoom tab · 2. Connect account · 3. Meeting list</em>
-</p>
 
 The **Source** of a job's audio — _File upload_, _System recording_, _Microsoft Teams_, or _Zoom_ — is shown in the results **Audio tab**.
 
@@ -248,7 +230,7 @@ The **progress bar** at the top fills from left to right and shows the percentag
 Below the stepper, a **Mini Live Log** shows the last few log entries from the backend in real-time, color-coded by source (blue for Python, green for Bridge, yellow for Agent). Click the header to collapse or expand it.
 
 <p align="center">
-  <img src="screenshots/user-guide/11.png" alt="Pipeline progress tracker with stage stepper, progress bar, and mini live log" width="680"/>
+  <img src="screenshots/user-guide/current_job_progress_001.png" alt="Pipeline progress tracker with stage stepper, progress bar, and mini live log" width="680"/>
   <br/>
   <em>1. Stage stepper · 2. Progress bar · 3. Mini live log</em>
 </p>
@@ -261,12 +243,6 @@ Your audio file is being copied to the app's storage.
 
 The app prepares the transcription system and loads AI models.
 
-<p align="center">
-  <img src="screenshots/user-guide/40.png" alt="The setup / getting-ready modal shown while the app prepares transcription" width="680"/>
-  <br/>
-  <em>1. Setup / getting-ready modal</em>
-</p>
-
 ### 3. 👥 Identifying Speakers
 
 The app listens for different voices and figures out when each person speaks. It can distinguish between different people but doesn't know their names yet.
@@ -278,7 +254,7 @@ If the app has heard a speaker before (from a previous meeting), it automaticall
 **If speaker labeling is needed:** If the number of detected speakers doesn't match the number of attendees you entered, the pipeline pauses. A popup appears with:
 
 <p align="center">
-  <img src="screenshots/user-guide/09.png" alt="The speaker-labeling popup with audio clips and name/email fields" width="680"/>
+  <img src="screenshots/user-guide/speaker_labelling_modal_001.png" alt="The speaker-labeling popup with audio clips and name/email fields" width="680"/>
   <br/>
   <em>1. Speaker clips · 2. Name & email fields · 3. Confirm / Skip</em>
 </p>
@@ -361,12 +337,6 @@ The results viewer's **Delivery** tab shows per-destination success/failure stat
 
 ### Stopping a Job
 
-<p align="center">
-  <img src="screenshots/user-guide/39.png" alt="The Current view while a job is running through the pipeline" width="680"/>
-  <br/>
-  <em>1. Running pipeline in the Current view</em>
-</p>
-
 While the pipeline is running, a **Stop Processing** button appears below the stepper. Clicking it opens a confirmation dialog:
 
 > **"Are you sure you want to stop processing? The partial results will be preserved."**
@@ -380,7 +350,7 @@ Confirm to cancel the job. The results viewer opens showing whatever was complet
 Approval Gates allow you to review and approve (or reject) the pipeline output at key stages before it proceeds further. They are **optional** — enable them in **Settings → Config → Pipeline** section by toggling the checkboxes.
 
 <p align="center">
-  <img src="screenshots/user-guide/13.png" alt="A review-gate modal for approving the pipeline output before it continues" width="680"/>
+  <img src="screenshots/user-guide/delivery_review_001.png" alt="A review-gate modal for approving the pipeline output before it continues" width="680"/>
   <br/>
   <em>1. Review content · 2. Approve button</em>
 </p>
@@ -418,7 +388,7 @@ Shows a summary of all pipeline stages with checkmarks for completed steps.
 ### 📝 Transcript Tab
 
 <p align="center">
-  <img src="screenshots/user-guide/18.png" alt="The Transcript tab showing the speaker-labeled conversation" width="680"/>
+  <img src="screenshots/user-guide/current_results_transcript_001.png" alt="The Transcript tab showing the speaker-labeled conversation" width="680"/>
   <br/>
   <em>1. Transcript tab · 2. Speaker-labeled transcript</em>
 </p>
@@ -432,7 +402,7 @@ The full speaker-labeled transcript with:
 ### 📋 Summary Tab
 
 <p align="center">
-  <img src="screenshots/user-guide/19.png" alt="The Summary tab with the structured meeting summary" width="680"/>
+  <img src="screenshots/user-guide/current_results_summary_001.png" alt="The Summary tab with the structured meeting summary" width="680"/>
   <br/>
   <em>1. Summary tab · 2. Summary content</em>
 </p>
@@ -457,7 +427,7 @@ Export buttons (**PDF** / **Word**) appear in the toolbar at the top of this tab
 ### 📊 Analysis Tab
 
 <p align="center">
-  <img src="screenshots/user-guide/20.png" alt="The Analysis tab with topics, sentiment, and key entities" width="680"/>
+  <img src="screenshots/user-guide/history_results_analysis_001.png" alt="The Analysis tab with topics, sentiment, and key entities" width="680"/>
   <br/>
   <em>1. Analysis content</em>
 </p>
@@ -481,7 +451,7 @@ Export buttons (**PDF** / **Word**) appear in the toolbar at the top of this tab
 ### 👥 Attendees Tab
 
 <p align="center">
-  <img src="screenshots/user-guide/21.png" alt="The Attendees tab showing per-meeting attendee cards" width="680"/>
+  <img src="screenshots/user-guide/history_results_attendees_001.png" alt="The Attendees tab showing per-meeting attendee cards" width="680"/>
   <br/>
   <em>1. Attendee information</em>
 </p>
@@ -505,7 +475,7 @@ This helps you quickly see who the system can automatically identify in future m
 ### 📬 Delivery Tab
 
 <p align="center">
-  <img src="screenshots/user-guide/22.png" alt="The Delivery tab showing per-destination delivery results" width="680"/>
+  <img src="screenshots/user-guide/history_results_delivery_001.png" alt="The Delivery tab showing per-destination delivery results" width="680"/>
   <br/>
   <em>1. Delivery results</em>
 </p>
@@ -583,8 +553,6 @@ Click **Export PDF** or **Export Word** in the toolbar at the top of the Summary
 
 ---
 
-T8210P3421270A30
-
 ## Managing Past Meetings
 
 ### Viewing History
@@ -594,7 +562,7 @@ T8210P3421270A30
 3. Click any meeting to load its results in the right column
 
 <p align="center">
-  <img src="screenshots/user-guide/25.png" alt="The History panel listing past meetings" width="680"/>
+  <img src="screenshots/user-guide/history_001.png" alt="The History panel listing past meetings" width="680"/>
   <br/>
   <em>1. Past meetings list</em>
 </p>
@@ -626,7 +594,7 @@ The history panel has a **drag-to-resize** handle on its right edge — click an
 Each category shows the disk size and the file path on disk.
 
 <p align="center">
-  <img src="screenshots/user-guide/27.png" alt="Storage view with the disk-usage breakdown" width="680"/>
+  <img src="screenshots/user-guide/storage_usage_001.png" alt="Storage view with the disk-usage breakdown" width="680"/>
   <br/>
   <em>1. Disk usage breakdown</em>
 </p>
@@ -656,7 +624,7 @@ The Config panel has three tabs at the top: **Config**, **Agent**, and **Logging
 ### Config Tab
 
 <p align="center">
-  <img src="screenshots/user-guide/29.png" alt="The Settings / Config panel" width="680"/>
+  <img src="screenshots/user-guide/config_llm_provider_001.png" alt="The Settings / Config panel" width="680"/>
   <br/>
   <em>1. Configuration panel</em>
 </p>
@@ -743,6 +711,12 @@ Default settings for delivery:
 - Manual **Check for Updates** button
 - When an update is available: **Download** button (packaged mode) with progress %, then **Install & Restart**
 
+<p align="center">
+  <img src="screenshots/user-guide/config_llm_updates_001.png" alt="The Auto-Update section in Settings" width="680"/>
+  <br/>
+  <em>Auto-Update section in Settings</em>
+</p>
+
 #### Export / Import
 
 - **📤 Export Config** — saves all settings (including agent instructions) to a `.json` file via the native save dialog
@@ -798,7 +772,7 @@ Click the **�️ Dev** button in the sidebar to open the developer panel. A co
 The Dev panel has the following tabs:
 
 <p align="center">
-  <img src="screenshots/user-guide/36.png" alt="The Dev Tools panel" width="680"/>
+  <img src="screenshots/user-guide/dev_database_001.png" alt="The Dev Tools panel" width="680"/>
   <br/>
   <em>1. Developer tools</em>
 </p>
@@ -867,6 +841,12 @@ Check for and install app updates:
 
 Buttons: **Check for Updates**, **Download** (packaged mode only, with progress %), **Restart & Install**
 
+<p align="center">
+  <img src="screenshots/user-guide/dev_updates_001.png" alt="The Updates tab in Dev Tools" width="680"/>
+  <br/>
+  <em>Updates tab in Dev Tools</em>
+</p>
+
 ### Log Files Tab
 
 Browse on-disk log files from both the primary (userData) and mirror (dev storage) directories:
@@ -926,7 +906,7 @@ When bot jobs or pipeline jobs are running, a **Stop** button appears in the Dev
 Click the **🎨 Appearance** button in the sidebar to customize the look and feel of the app. All changes are saved automatically — no save button needed.
 
 <p align="center">
-  <img src="screenshots/user-guide/34.png" alt="Appearance settings for theme, accent color, font size, and sidebar width" width="680"/>
+  <img src="screenshots/user-guide/appearance_001.png" alt="Appearance settings for theme, accent color, font size, and sidebar width" width="680"/>
   <br/>
   <em>1. Theme · 2. Accent color · 3. Font size · 4. Sidebar width</em>
 </p>

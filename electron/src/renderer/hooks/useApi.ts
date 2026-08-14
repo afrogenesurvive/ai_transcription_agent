@@ -42,6 +42,28 @@ async function bridgeCall(tool: string, args: Record<string, unknown> = {}) {
   return res.json();
 }
 
+/**
+ * POST a multipart audio upload to the bridge's /transcribe/upload proxy.
+ * Streams the file bytes so the Python backend never needs to read a local
+ * filesystem path (works on macOS, Windows, and packaged/remote backends).
+ */
+async function postAudioUpload(formData: FormData): Promise<{ job_id: string; status: string }> {
+  const res = await fetch(`${BRIDGE_URL}/transcribe/upload`, { method: "POST", body: formData });
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => "");
+    let cleanMsg = errBody;
+    try {
+      const parsed = JSON.parse(errBody);
+      if (parsed.detail) cleanMsg = typeof parsed.detail === "string" ? parsed.detail : JSON.stringify(parsed.detail);
+      else if (parsed.error) cleanMsg = parsed.error;
+    } catch {
+      /* not JSON — use raw text */
+    }
+    throw new Error(cleanMsg);
+  }
+  return res.json() as Promise<{ job_id: string; status: string }>;
+}
+
 export function useApi() {
   return {
     /** Upload an audio file (via bridge server to avoid CORS issues) */
@@ -62,25 +84,18 @@ export function useApi() {
       formData.append("event_type", "internal");
       formData.append("source", "upload");
       formData.append("skip_steps", JSON.stringify(skipSteps));
-
-      const res = await fetch(`${BRIDGE_URL}/transcribe/upload`, { method: "POST", body: formData });
-      if (!res.ok) {
-        const errBody = await res.text().catch(() => "");
-        // Try to extract a clean detail message from Python's HTTPException JSON
-        let cleanMsg = errBody;
-        try {
-          const parsed = JSON.parse(errBody);
-          if (parsed.detail) cleanMsg = parsed.detail;
-          else if (parsed.error) cleanMsg = parsed.error;
-        } catch {
-          /* not JSON — use raw text */
-        }
-        throw new Error(cleanMsg);
-      }
-      return res.json() as Promise<{ job_id: string; status: string }>;
+      return postAudioUpload(formData);
     },
 
-    /** Upload an audio file by local filesystem path (used for the persisted New-form file). */
+    /**
+     * Upload an on-disk audio file (System Recording captures, Teams/Zoom
+     * downloads, persisted New-form files) by streaming its bytes as a multipart
+     * upload. We deliberately do NOT reference the local filesystem path for the
+     * backend: the Python process can't read the Electron app's private
+     * Application Support/captures dir (macOS TCC), which made the old
+     * /transcribe/upload_by_path approach fail with "File not found". Streaming
+     * bytes works on macOS and Windows alike.
+     */
     uploadAudioByPath: async (params: {
       filePath: string;
       title: string;
@@ -90,33 +105,25 @@ export function useApi() {
       attendeeEmails?: string[];
       source?: string;
     }) => {
-      const res = await fetch(`${BRIDGE_URL}/transcribe/upload_by_path`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          file_path: params.filePath,
-          title: params.title,
-          attendees: params.attendees,
-          attendee_emails: params.attendeeEmails || [],
-          email_recipients: params.emailRecipients || [],
-          event_type: "internal",
-          source: params.source || "upload",
-          skip_steps: params.skipSteps || [],
-        }),
-      });
-      if (!res.ok) {
-        const errBody = await res.text().catch(() => "");
-        let cleanMsg = errBody;
-        try {
-          const parsed = JSON.parse(errBody);
-          if (parsed.detail) cleanMsg = typeof parsed.detail === "string" ? parsed.detail : JSON.stringify(parsed.detail);
-          else if (parsed.error) cleanMsg = parsed.error;
-        } catch {
-          /* not JSON — use raw text */
-        }
-        throw new Error(cleanMsg);
+      const read = await window.electronAPI?.readFileBytes(params.filePath);
+      if (!read?.ok || !read.data) {
+        throw new Error(read?.error || "Could not read the audio file.");
       }
-      return res.json() as Promise<{ job_id: string; status: string; file_path?: string }>;
+      const fileName = params.filePath.split(/[\\/]/).pop() || "recording";
+      const ext = fileName.includes(".") ? fileName.split(".").pop()!.toLowerCase() : "";
+      const mime =
+        ext === "webm" ? "audio/webm" : ext === "mp3" ? "audio/mpeg" : ext === "wav" ? "audio/wav" : "audio/mp4";
+      const file = new File([read.data], fileName, { type: mime });
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("title", params.title);
+      formData.append("attendees", JSON.stringify(params.attendees));
+      formData.append("attendee_emails", JSON.stringify(params.attendeeEmails || []));
+      formData.append("email_recipients", JSON.stringify(params.emailRecipients || []));
+      formData.append("event_type", "internal");
+      formData.append("source", params.source || "upload");
+      formData.append("skip_steps", JSON.stringify(params.skipSteps || []));
+      return postAudioUpload(formData);
     },
 
     /** Poll job status */
