@@ -113,7 +113,9 @@ export function useApi() {
       const ext = fileName.includes(".") ? fileName.split(".").pop()!.toLowerCase() : "";
       const mime =
         ext === "webm" ? "audio/webm" : ext === "mp3" ? "audio/mpeg" : ext === "wav" ? "audio/wav" : "audio/mp4";
-      const file = new File([read.data], fileName, { type: mime });
+      // read.data is a Uint8Array crossing the IPC boundary; slice() returns a
+      // Uint8Array<ArrayBuffer>, which TS accepts as a BlobPart for File/Blob.
+      const file = new File([read.data.slice()], fileName, { type: mime });
       const formData = new FormData();
       formData.append("file", file);
       formData.append("title", params.title);
