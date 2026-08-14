@@ -78,6 +78,11 @@ agent-config/.restart-flag
 .vscode/
 .idea/
 *.swp
+
+# ── User-guide screenshot working copies ──
+# Derived from docs/safe/user_guide_raw_screenshots/*.png by scripts/annotate_screenshots.py
+# (downscaled with sips -Z 1400). Only the final annotated PNGs in docs/screenshots/user-guide/ are committed.
+docs/screenshots/user-guide/raw/
 *.swo
 *~
 .DS_Store
@@ -105,6 +110,9 @@ assets/private
 .cloudflared-url
 .github/prompts
 
-# Only the root safe/ (local build data) stays ignored. docs/safe/ is tracked —
-# it holds project docs served by the DevPanel Guide tab.
+# Root safe/ (local build data) AND docs/safe/ (full internal docs) are ignored —
+# neither ships to the public repo. docs/safe/ holds the full/sensitive versions;
+# root docs/ keeps redacted public versions. docs/safe/ is bundled into the app
+# (extraResources) and served in-app by the DevPanel Guide tab, not committed.
 /safe/
+docs/safe/

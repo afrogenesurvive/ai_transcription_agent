@@ -18,11 +18,15 @@ interface Props {
   initialIndex?: number;
   /** Called whenever the active TOC page changes (for ui-state persistence). */
   onIndexChange?: (index: number) => void;
+  /** Show images in the rendered markdown. Defaults to the USER_GUIDE_IMAGES_ENABLED config. */
+  imagesEnabled?: boolean;
 }
 
-export default function DocViewer({ markdown, emptyMessage, initialIndex, onIndexChange }: Props) {
+export default function DocViewer({ markdown, emptyMessage, initialIndex, onIndexChange, imagesEnabled: imagesEnabledProp }: Props) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
+  // Whether to render images (from the prop, else from the USER_GUIDE_IMAGES_ENABLED config).
+  const [imagesEnabled, setImagesEnabled] = useState<boolean>(imagesEnabledProp !== undefined ? imagesEnabledProp : true);
   const contentRef = useRef<HTMLDivElement>(null);
   const appliedInitialRef = useRef(false);
   // Keep the latest onIndexChange without re-binding effects that depend on it.
@@ -53,16 +57,37 @@ export default function DocViewer({ markdown, emptyMessage, initialIndex, onInde
     }
   }, [searchQuery]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Read the USER_GUIDE_IMAGES_ENABLED config when the caller didn't pass an explicit value.
+  useEffect(() => {
+    if (imagesEnabledProp !== undefined) {
+      setImagesEnabled(imagesEnabledProp);
+      return;
+    }
+    let cancelled = false;
+    window.electronAPI
+      ?.getConfig()
+      .then((cfg) => {
+        if (cancelled) return;
+        setImagesEnabled((cfg.USER_GUIDE_IMAGES_ENABLED ?? "true") !== "false");
+      })
+      .catch(() => {
+        if (!cancelled) setImagesEnabled(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [imagesEnabledProp]);
+
   const renderedHtml = useMemo(() => {
     if (pages.length === 0) return "";
-    let html = renderMarkdown(pages[currentIndex].content);
+    let html = renderMarkdown(pages[currentIndex].content, { imagesEnabled, imgBaseUrl: "app-doc://" });
     if (searchQuery.trim()) {
       const escaped = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const re = new RegExp(`(${escaped})`, "gi");
       html = html.replace(re, '<mark class="guide-search-hl">$1</mark>');
     }
     return html;
-  }, [pages, currentIndex, searchQuery]);
+  }, [pages, currentIndex, searchQuery, imagesEnabled]);
 
   const goTo = useCallback((idx: number) => {
     userNavigatedRef.current = true;

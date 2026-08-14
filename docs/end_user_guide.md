@@ -13,6 +13,7 @@ the built-in **Sound Recorder** app, then upload the file via the **Upload** tab
 requires the legacy **Stereo Mix** device:
 
 **Enable Stereo Mix (classic Sound Control Panel)**
+
 1. Right-click the speaker/volume icon in the taskbar → **Sound settings**.
 2. Scroll to the bottom → **More sound settings** (opens the classic Sound dialog).
 3. Open the **Recording** tab → right-click empty space in the device list → **Show Disabled Devices**.
@@ -20,6 +21,7 @@ requires the legacy **Stereo Mix** device:
 5. Right-click **Stereo Mix** again → **Properties** → **Levels** tab → set the volume to **80–100%** and ensure it is not muted → **OK**.
 
 **Record with Sound Recorder**
+
 1. Open **Sound Recorder** from the Start menu.
 2. In the bottom-left input-device dropdown, change from your microphone to **Stereo Mix**.
 3. Keep your master system volume at a clear level (50–100%) and make sure Zoom/Teams is playing through your default speakers/headphones.
@@ -84,25 +86,11 @@ Everything runs on your computer. Your audio and transcripts stay private unless
 
 The app has a clean, centered layout:
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│  Header: 🎙️ Transcription Agent      [● Job Running · a1b2c3d4]  │
-├──────┬───────────────────────────────────────────────────────────┤
-│ ←Sbdr│              Main Content Area                           │
-│      │  📁 Upload Form       │  📝 Results Viewer (tabbed)       │
-│  ➕  │  (drag audio, set     │  Pipeline · Transcript · Summary  │
-│  🏠  │   title, add attendees│  Analysis · Attendees · Delivery  │
-│  📋  │   with autocomplete)  │  Audio · Developer 🖥️             │
-│  💾  │                       │                                   │
-│  🛠️  │  📊 Pipeline Progress │                                   │
-│  ⚙️  │  (stepper, progress   │                                   │
-│  🎨  │   bar, mini live log) │                                   │
-│  ℹ️  │                       │                                   │
-├──────┴───────────────────────────────────────────────────────────┤
-│ Status Bar  🟢Config 🟢Diar 🟢Py 🟢Bridge 🟢Agent 🟢Ollama 💰$12.34 │
-│  ⚙️ 📋 💾 🖥️                                                │
-└──────────────────────────────────────────────────────────────────┘
-```
+<p align="center">
+  <img src="screenshots/user-guide/01.png" alt="Main window showing the sidebar, header, and status bar" width="680"/>
+  <br/>
+  <em>1. Header · 2. Config (⚙️) · 3. Appearance (🎨) · 4. Status bar</em>
+</p>
 
 **Sidebar buttons** on the left (drag the right edge to resize):
 
@@ -158,11 +146,23 @@ Maximum file size: **500 MB**
 
 ### How to Upload
 
+<p align="center">
+  <img src="screenshots/user-guide/03.png" alt="Upload form with the drag-and-drop zone, meeting title field, and Start button" width="680"/>
+  <br/>
+  <em>1. Drag & drop zone · 2. Meeting title · 3. Start button</em>
+</p>
+
 1. **Drag and drop** an audio file onto the upload area, **or** click to browse. The app auto-fills the meeting title from the filename.
 2. **Give your meeting a title** — this helps find it later.
 3. **Add attendees** — type names and email addresses of people in the meeting.
 
    **Attendee Autocomplete:** As you type a name, the app suggests previously used attendees from past meetings (saved to local storage, capped at 50 entries). Suggestions also include registered attendees from the backend with existing voiceprints. Click a suggestion to fill both name and email at once.
+
+   <p align="center">
+     <img src="screenshots/user-guide/08.png" alt="The attendee field showing autocomplete suggestions" width="680"/>
+     <br/>
+     <em>1. Attendees field · 2. Autocomplete suggestions</em>
+   </p>
 
    **Email validation:** Each attendee must have a valid email address. The app checks the format before adding them to the list.
 
@@ -206,6 +206,12 @@ The New Job form has **three tabs** — every one feeds the same transcription p
 
 **System Recording**
 
+<p align="center">
+  <img src="screenshots/user-guide/06.png" alt="The System Recording tab of the New Job form" width="680"/>
+  <br/>
+  <em>1. System Recording tab · 2. Start Recording control</em>
+</p>
+
 - **Windows** — uses the built-in system-audio capture (no driver, no video). Click **Start Recording**, play your meeting, then **Stop**. The audio is saved and transcribed.
 - **macOS** — requires the free **BlackHole** driver (see [Meetings Integrations](meetings_integrations.md)); the tab shows setup guidance if BlackHole isn't detected.
 
@@ -215,6 +221,12 @@ The New Job form has **three tabs** — every one feeds the same transcription p
 - **Refresh** to list meetings (Zoom shows meetings with cloud recordings from the last 30 days).
 - Pick a meeting → **Fetch Recording & Attendees** → attendees are pre-filled → **Start Transcription**.
 - See [Meetings Integrations](meetings_integrations.md) for app-registration setup (client IDs/secrets).
+
+<p align="center">
+  <img src="screenshots/user-guide/37.png" alt="The Teams/Zoom tab of the New Job form with the Connect button and meeting list" width="680"/>
+  <br/>
+  <em>1. Teams/Zoom tab · 2. Connect account · 3. Meeting list</em>
+</p>
 
 The **Source** of a job's audio — _File upload_, _System recording_, _Microsoft Teams_, or _Zoom_ — is shown in the results **Audio tab**.
 
@@ -235,6 +247,12 @@ The **progress bar** at the top fills from left to right and shows the percentag
 
 Below the stepper, a **Mini Live Log** shows the last few log entries from the backend in real-time, color-coded by source (blue for Python, green for Bridge, yellow for Agent). Click the header to collapse or expand it.
 
+<p align="center">
+  <img src="screenshots/user-guide/11.png" alt="Pipeline progress tracker with stage stepper, progress bar, and mini live log" width="680"/>
+  <br/>
+  <em>1. Stage stepper · 2. Progress bar · 3. Mini live log</em>
+</p>
+
 ### 1. 📤 Uploading
 
 Your audio file is being copied to the app's storage.
@@ -242,6 +260,12 @@ Your audio file is being copied to the app's storage.
 ### 2. 🔧 Getting Ready
 
 The app prepares the transcription system and loads AI models.
+
+<p align="center">
+  <img src="screenshots/user-guide/40.png" alt="The setup / getting-ready modal shown while the app prepares transcription" width="680"/>
+  <br/>
+  <em>1. Setup / getting-ready modal</em>
+</p>
 
 ### 3. 👥 Identifying Speakers
 
@@ -252,6 +276,12 @@ The app listens for different voices and figures out when each person speaks. It
 If the app has heard a speaker before (from a previous meeting), it automatically labels them by name. New speakers get temporary labels like "Speaker 1", "Speaker 2".
 
 **If speaker labeling is needed:** If the number of detected speakers doesn't match the number of attendees you entered, the pipeline pauses. A popup appears with:
+
+<p align="center">
+  <img src="screenshots/user-guide/09.png" alt="The speaker-labeling popup with audio clips and name/email fields" width="680"/>
+  <br/>
+  <em>1. Speaker clips · 2. Name & email fields · 3. Confirm / Skip</em>
+</p>
 
 - **Audio clips** for each detected speaker — click the play button to hear a sample of their longest speech segment before assigning a name. Only one clip plays at a time.
 - **Name and email input fields** — email is required and validated for proper format
@@ -331,6 +361,12 @@ The results viewer's **Delivery** tab shows per-destination success/failure stat
 
 ### Stopping a Job
 
+<p align="center">
+  <img src="screenshots/user-guide/39.png" alt="The Current view while a job is running through the pipeline" width="680"/>
+  <br/>
+  <em>1. Running pipeline in the Current view</em>
+</p>
+
 While the pipeline is running, a **Stop Processing** button appears below the stepper. Clicking it opens a confirmation dialog:
 
 > **"Are you sure you want to stop processing? The partial results will be preserved."**
@@ -342,6 +378,12 @@ Confirm to cancel the job. The results viewer opens showing whatever was complet
 ## Approval Gates
 
 Approval Gates allow you to review and approve (or reject) the pipeline output at key stages before it proceeds further. They are **optional** — enable them in **Settings → Config → Pipeline** section by toggling the checkboxes.
+
+<p align="center">
+  <img src="screenshots/user-guide/13.png" alt="A review-gate modal for approving the pipeline output before it continues" width="680"/>
+  <br/>
+  <em>1. Review content · 2. Approve button</em>
+</p>
 
 ### Gate 1: Raw Transcript Review
 
@@ -375,6 +417,12 @@ Shows a summary of all pipeline stages with checkmarks for completed steps.
 
 ### 📝 Transcript Tab
 
+<p align="center">
+  <img src="screenshots/user-guide/18.png" alt="The Transcript tab showing the speaker-labeled conversation" width="680"/>
+  <br/>
+  <em>1. Transcript tab · 2. Speaker-labeled transcript</em>
+</p>
+
 The full speaker-labeled transcript with:
 
 - **Color-coded speakers** — each person has a different color
@@ -382,6 +430,12 @@ The full speaker-labeled transcript with:
 - Scroll through the entire conversation
 
 ### 📋 Summary Tab
+
+<p align="center">
+  <img src="screenshots/user-guide/19.png" alt="The Summary tab with the structured meeting summary" width="680"/>
+  <br/>
+  <em>1. Summary tab · 2. Summary content</em>
+</p>
 
 A structured summary with:
 
@@ -402,6 +456,12 @@ Export buttons (**PDF** / **Word**) appear in the toolbar at the top of this tab
 
 ### 📊 Analysis Tab
 
+<p align="center">
+  <img src="screenshots/user-guide/20.png" alt="The Analysis tab with topics, sentiment, and key entities" width="680"/>
+  <br/>
+  <em>1. Analysis content</em>
+</p>
+
 AI-generated analysis including:
 
 - **Topics** — main subjects discussed (shown as tags)
@@ -420,6 +480,12 @@ Export buttons (**PDF** / **Word**) appear in the toolbar at the top of this tab
 
 ### 👥 Attendees Tab
 
+<p align="center">
+  <img src="screenshots/user-guide/21.png" alt="The Attendees tab showing per-meeting attendee cards" width="680"/>
+  <br/>
+  <em>1. Attendee information</em>
+</p>
+
 Shows per-job attendee information with voiceprint enrollment status, playable voice samples, and delivery cross-reference:
 
 - **Summary cards** — total attendees, voiceprint-matched count, registered-only count
@@ -437,6 +503,12 @@ Shows per-job attendee information with voiceprint enrollment status, playable v
 This helps you quickly see who the system can automatically identify in future meetings based on previously stored voiceprints.
 
 ### 📬 Delivery Tab
+
+<p align="center">
+  <img src="screenshots/user-guide/22.png" alt="The Delivery tab showing per-destination delivery results" width="680"/>
+  <br/>
+  <em>1. Delivery results</em>
+</p>
 
 Shows per-destination delivery results with success/failure status for each configured delivery method:
 
@@ -521,6 +593,12 @@ T8210P3421270A30
 2. The left column switches to a scrollable list of past meetings (sorted by date, most recent first)
 3. Click any meeting to load its results in the right column
 
+<p align="center">
+  <img src="screenshots/user-guide/25.png" alt="The History panel listing past meetings" width="680"/>
+  <br/>
+  <em>1. Past meetings list</em>
+</p>
+
 The History panel shows:
 
 - **Status icon** — visual indicator per status (📤 Uploaded, 🔧 Initializing, 👥 Diarization, 🎤 Transcribing, ✅ Completed, ❌ Failed, ⚠️ Corrupted)
@@ -547,6 +625,12 @@ The history panel has a **drag-to-resize** handle on its right edge — click an
 
 Each category shows the disk size and the file path on disk.
 
+<p align="center">
+  <img src="screenshots/user-guide/27.png" alt="Storage view with the disk-usage breakdown" width="680"/>
+  <br/>
+  <em>1. Disk usage breakdown</em>
+</p>
+
 **Developer Section** (collapsible) — for clearing data:
 
 | Action                        | Description                                                     |
@@ -570,6 +654,12 @@ The Config panel has three tabs at the top: **Config**, **Agent**, and **Logging
 > **Note:** When a transcription job is actively running, all configuration fields are disabled and the action buttons (Export / Import / Clear, plus the Cloudflare Tunnel Start / Stop in Usage Tracking) are greyed out. A banner at the top shows "⛔ Cannot edit — N job(s) running." Wait for the job to complete before making changes.
 
 ### Config Tab
+
+<p align="center">
+  <img src="screenshots/user-guide/29.png" alt="The Settings / Config panel" width="680"/>
+  <br/>
+  <em>1. Configuration panel</em>
+</p>
 
 #### LLM Provider Section
 
@@ -648,7 +738,7 @@ Default settings for delivery:
 
 #### Auto-Update Section
 
-- **GitHub PAT** — only needed if the repository is private
+- **Update source** — served from GitHub Releases (no PAT needed for public releases)
 - Shows current version and checks for updates (auto-check every 12 hours in both dev and packaged modes)
 - Manual **Check for Updates** button
 - When an update is available: **Download** button (packaged mode) with progress %, then **Install & Restart**
@@ -706,6 +796,12 @@ The Testing tab is located in **Dev Tools → Testing** — see the [Dev Tools �
 Click the **�️ Dev** button in the sidebar to open the developer panel. A confirmation dialog appears the first time — click **Proceed** to continue.
 
 The Dev panel has the following tabs:
+
+<p align="center">
+  <img src="screenshots/user-guide/36.png" alt="The Dev Tools panel" width="680"/>
+  <br/>
+  <em>1. Developer tools</em>
+</p>
 
 ### Live Logs Tab
 
@@ -828,6 +924,12 @@ When bot jobs or pipeline jobs are running, a **Stop** button appears in the Dev
 ## Appearance Settings
 
 Click the **🎨 Appearance** button in the sidebar to customize the look and feel of the app. All changes are saved automatically — no save button needed.
+
+<p align="center">
+  <img src="screenshots/user-guide/34.png" alt="Appearance settings for theme, accent color, font size, and sidebar width" width="680"/>
+  <br/>
+  <em>1. Theme · 2. Accent color · 3. Font size · 4. Sidebar width</em>
+</p>
 
 ### Theme
 
@@ -1071,32 +1173,10 @@ C:\Program Files\Transcription Agent\
 
 ### User Data
 
-```
-%APPDATA%\Transcription Agent\
-```
-
-Typically resolves to:
-
-```
-C:\Users\<YourUsername>\AppData\Roaming\Transcription Agent\
-```
-
-| Path                          | Contents                                                      |
-| ----------------------------- | ------------------------------------------------------------- |
-| `config.json`                 | UI-saved configuration values                                 |
-| `storage\`                    | All job data (transcripts, audio, status, embeddings)         |
-| `storage\<job_id>\`           | Per-job directory (status.json, transcript.json, audio, logs) |
-| `storage\chroma\`             | ChromaDB vector store (semantic memory)                       |
-| `storage\ephemeral_memory.db` | SQLite DB (action items, contacts, budgets, decisions)        |
-| `storage\voiceprints.db`      | SQLite DB (enrolled speaker voiceprints)                      |
-| `storage\logs\`               | Agent runner JSONL logs                                       |
-| `storage\uploads\`            | Temp upload directory (cleaned after processing)              |
-| `storage\test-bot-log.jsonl`  | Test bot run logs                                             |
-| `logs\`                       | Electron main process logs                                    |
-| `queue\`                      | Pipeline job queue files                                      |
-| `bin\ffmpeg.exe`              | Auto-downloaded ffmpeg binary                                 |
-| `.ollama-auto-installed`      | Sentinel (Ollama was auto-installed)                          |
-| `.ffmpeg-auto-installed`      | Sentinel (ffmpeg was auto-installed)                          |
+All user data (configuration, job data, transcripts, voiceprints, vector store,
+logs, ffmpeg) is stored under the platform's standard per-user application-data
+directory, resolved at runtime by the app. (Exact paths are not published in
+this guide.)
 
 ### Ollama (if auto-installed)
 
@@ -1116,8 +1196,8 @@ C:\Program Files\Ollama\
 :: App install (run as Administrator)
 rmdir /s "C:\Program Files\Transcription Agent"
 
-:: User data
-rmdir /s "%APPDATA%\Transcription Agent"
+:: User data (per-user app-data directory)
+rmdir /s "<per-user app-data directory>"
 
 :: Ollama (if auto-installed)
 rmdir /s "%LOCALAPPDATA%\Programs\Ollama"
