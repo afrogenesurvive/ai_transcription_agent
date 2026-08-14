@@ -44,22 +44,18 @@ case "$(uname -s)" in
 esac
 
 # Windows venvs use Scripts/ + Lib/; Unix venvs use bin/ + lib/python3*/.
-# Note: --add-data uses a path separator of ';' on Windows and ':' on Unix.
-# NOTE: VENV_SPEECHBRAIN_DIR must be ABSOLUTE. PyInstaller resolves relative
-# paths in --add-data against the spec directory (--specpath = build/), not the
-# CWD — so a relative "venv/..." would be looked up at "build/venv/..." and fail
-# ("Unable to find ... when adding binary and data files"). Windows CI builds the
-# backend with its own inline pyinstaller invocation (see build-win.yml), so this
-# script only affects local/other-platform builds.
+# NOTE: speechbrain is bundled with `--collect-all "speechbrain"` (NOT --add-data):
+# speechbrain lazy-imports submodules (speechbrain.lobes.*) and PyInstaller's static
+# analysis can't see them. A bare --add-data glob produced a double-nested
+# `_internal/speechbrain/speechbrain/` layout and omitted `lobes/`, which made
+# `import speechbrain.lobes` fail with [Errno 2] at runtime (pyannote diarization
+# unavailable). --collect-all bundles the package + its data/binaries/submodules in
+# the correct flat layout — the same approach Windows CI uses (see build-win.yml).
 if [ "$IS_WIN" = true ]; then
   VENV_PYTHON="venv/Scripts/python.exe"
-  VENV_SPEECHBRAIN_DIR="$ROOT/python-backend/venv/Lib/site-packages/speechbrain"
-  ADD_DATA_SEP=";"
   BINARY_NAME="main.exe"
 else
   VENV_PYTHON="venv/bin/python3"
-  VENV_SPEECHBRAIN_DIR="$ROOT/python-backend/venv/lib/python3*/site-packages/speechbrain"
-  ADD_DATA_SEP=":"
   BINARY_NAME="main"
 fi
 
@@ -99,10 +95,11 @@ mkdir -p "$OUTDIR"
 # Hidden imports are needed because PyInstaller's static analysis can't
 # always detect dynamically imported modules.
 #
-# --collect-all for lightning_fabric / pytorch_lightning / pyannote.audio is required:
-# those packages read DATA files at import time (e.g. lightning_fabric/version.info) and
-# dynamically import submodules. Without it, `import pyannote.audio` raises
-# FileNotFoundError in the packaged backend (diarization reported unavailable).
+# --collect-all for lightning_fabric / pytorch_lightning / pyannote.audio / speechbrain
+# is required: those packages read DATA files at import time (e.g.
+# lightning_fabric/version.info) and dynamically import submodules (e.g.
+# speechbrain.lobes.*). Without it, `import pyannote.audio` raises FileNotFoundError
+# in the packaged backend (diarization reported unavailable).
 
 echo "   🔨 Running PyInstaller (this may take a few minutes)..."
 echo ""
@@ -113,7 +110,6 @@ echo ""
   --distpath "$OUTDIR" \
   --workpath "$ROOT/python-backend/build/pyinstaller" \
   --specpath "$ROOT/python-backend/build" \
-  --add-data "${VENV_SPEECHBRAIN_DIR}${ADD_DATA_SEP}speechbrain" \
   --hidden-import "uvicorn" \
   --hidden-import "uvicorn.logging" \
   --hidden-import "uvicorn.loops" \
@@ -178,6 +174,7 @@ echo ""
   --collect-all "lightning_fabric" \
   --collect-all "pytorch_lightning" \
   --collect-all "pyannote.audio" \
+  --collect-all "speechbrain" \
   main.py 2>&1
 
 echo ""
