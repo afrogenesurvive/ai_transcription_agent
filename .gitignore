@@ -116,3 +116,7 @@ assets/private
 # (extraResources) and served in-app by the DevPanel Guide tab, not committed.
 /safe/
 docs/safe/
+
+# Changelogs are rebuilt each save_progress (docs/safe/CHANGELOG.md -> redacted
+# docs/CHANGELOG.md) and are not committed to the repo.
+docs/CHANGELOG.md
