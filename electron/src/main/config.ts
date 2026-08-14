@@ -133,6 +133,8 @@ export interface AppConfig {
   DIARIZATION_MAX_SPEAKERS: string;
   /** Diarization subprocess timeout floor (minutes); auto-scaled to audio length */
   DIARIZATION_TIMEOUT_MINUTES: string;
+  /** Show images in the in-app User Guide / Dev Guide (DocViewer renderer) */
+  USER_GUIDE_IMAGES_ENABLED: string;
 }
 
 const DEFAULTS: AppConfig = {
@@ -198,6 +200,7 @@ const DEFAULTS: AppConfig = {
   DIARIZATION_CLUSTERING_THRESHOLD: "0.0",
   DIARIZATION_MAX_SPEAKERS: "0",
   DIARIZATION_TIMEOUT_MINUTES: "60",
+  USER_GUIDE_IMAGES_ENABLED: "true",
 };
 
 /** Keys the UI considers "required" before the pipeline can run. */
@@ -302,6 +305,7 @@ export function restoreUserConfigDefaults(): AppConfig {
     if (defaults[key] !== undefined) clean[key] = defaults[key];
   }
   fs.writeFileSync(userConfigPath, JSON.stringify(clean, null, 2), "utf8");
+  syncConfigToEnv();
   return getConfig();
 }
 
@@ -320,6 +324,7 @@ export function setUserConfigDefaults(): AppConfig {
   const userVals = parseUserConfig();
   const snapshot = { ...DEFAULTS, ...userVals, [USER_CONFIG_DEFAULTS_VERSION_KEY]: app.getVersion() };
   fs.writeFileSync(userConfigDefaultsPath, JSON.stringify(snapshot, null, 2), "utf8");
+  syncConfigToEnv();
   return getConfig();
 }
 
@@ -402,6 +407,7 @@ export function clearConfig(): AppConfig {
   invalidateConfigCache();
   ensureUserDataDir();
   fs.writeFileSync(userConfigPath, "{}", "utf8");
+  syncConfigToEnv();
   return getConfig();
 }
 
@@ -427,6 +433,7 @@ export function saveConfig(values: Partial<AppConfig>): AppConfig {
   }
 
   fs.writeFileSync(userConfigPath, JSON.stringify(merged, null, 2), "utf8");
+  syncConfigToEnv();
   return getConfig();
 }
 
@@ -453,7 +460,58 @@ export function replaceConfig(values: Partial<AppConfig>): AppConfig {
   }
 
   fs.writeFileSync(userConfigPath, JSON.stringify(clean, null, 2), "utf8");
+  syncConfigToEnv();
   return getConfig();
+}
+
+/**
+ * Ensure every known config key is present in the app's .env file(s).
+ *
+ * Reads the current effective config and appends any DEFAULTS key that is
+ * missing from the target .env file (repo-root `.env` in dev, `userData/.env`
+ * when packaged, plus `python-backend/.env` in dev). Existing lines — user
+ * comments, unrelated vars, secrets — are preserved verbatim; this is purely
+ * additive so a fresh reader of the .env sees the full configuration.
+ * Best-effort: failures are swallowed (the .env is optional).
+ */
+export function syncConfigToEnv(): void {
+  try {
+    const rootDir = app.isPackaged ? app.getPath("userData") : path.join(app.getAppPath(), "..");
+    const envPaths: string[] = [path.join(rootDir, ".env")];
+    if (!app.isPackaged) {
+      envPaths.push(path.join(rootDir, "python-backend", ".env"));
+    }
+
+    const config = getConfig();
+
+    for (const envPath of envPaths) {
+      let content = "";
+      const existingKeys = new Set<string>();
+      if (fs.existsSync(envPath)) {
+        content = fs.readFileSync(envPath, "utf8");
+        for (const line of content.split("\n")) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith("#")) continue;
+          const eq = trimmed.indexOf("=");
+          if (eq === -1) continue;
+          existingKeys.add(trimmed.slice(0, eq).trim());
+        }
+      }
+
+      const missing = (Object.keys(DEFAULTS) as (keyof AppConfig)[]).filter((k) => !existingKeys.has(k));
+      if (missing.length === 0) continue;
+
+      const lines: string[] = [];
+      if (content && !content.endsWith("\n")) lines.push("");
+      lines.push("", "# ── Synced from app config (config.json) ──");
+      for (const key of missing) {
+        lines.push(`${key}=${config[key] ?? ""}`);
+      }
+      fs.writeFileSync(envPath, content + lines.join("\n") + "\n", "utf8");
+    }
+  } catch {
+    // Non-fatal — .env sync is best-effort
+  }
 }
 
 /** Check if all required config values are present. */

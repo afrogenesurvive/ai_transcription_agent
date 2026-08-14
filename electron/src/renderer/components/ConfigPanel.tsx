@@ -83,6 +83,7 @@ interface ConfigValues {
   DELIVERY_EMAIL_SUBJECT: string;
   DELIVERY_EMAIL_ADDITIONAL_CONTENT: string;
   DELIVERY_DRIVE_FOLDER: string;
+  USER_GUIDE_IMAGES_ENABLED: string;
 }
 
 interface AgentConfig {
@@ -224,6 +225,7 @@ function loadConfigValues(cfg: Record<string, { value: string; source: string }>
     PLAYWRIGHT_AUDIO_FILE_PATH: cfg.PLAYWRIGHT_AUDIO_FILE_PATH?.value || "",
     PLAYWRIGHT_TITLE_TEMPLATE: cfg.PLAYWRIGHT_TITLE_TEMPLATE?.value || "test {autoNum}",
     PLAYWRIGHT_GENERIC_NAMES: cfg.PLAYWRIGHT_GENERIC_NAMES?.value || "",
+    USER_GUIDE_IMAGES_ENABLED: cfg.USER_GUIDE_IMAGES_ENABLED?.value || "true",
   };
 }
 
@@ -1404,6 +1406,63 @@ The system provides existing memory context at the start of each pipeline run. U
       setRestoringDefaults(false);
     }
   }, []);
+
+  /**
+   * Shared footer action buttons (Save Configuration / Restore Defaults /
+   * Save as Defaults), used identically by the config, logging, UI and agent
+   * tabs so every tab exposes the same set of actions on the left.
+   */
+  const renderConfigFooterButtons = (opts: {
+    onSave: () => void;
+    saveTitle: string;
+    openRestore: () => void;
+    restoreTitle: string;
+    restoreRunning: boolean;
+    restoreRunningLabel: string;
+    restoreLabel: string;
+  }) => (
+    <>
+      <Tooltip content={opts.saveTitle}>
+        <button className="config-save-btn" onClick={opts.onSave} disabled={saving || saved} title={opts.saveTitle}>
+          {saving ? "Saving…" : saved ? "Saved ✓" : "Save Configuration"}
+        </button>
+      </Tooltip>
+      <Tooltip content={opts.restoreTitle}>
+        <button
+          className="config-restore-btn"
+          onClick={opts.openRestore}
+          disabled={saving || opts.restoreRunning || activeJobs.length > 0}
+          title={opts.restoreTitle}>
+          {opts.restoreRunning ? (
+            <span>
+              <Icon name="sync" size="14" /> {opts.restoreRunningLabel}
+            </span>
+          ) : (
+            <span>
+              <Icon name="restore" size="14" /> {opts.restoreLabel}
+            </span>
+          )}
+        </button>
+      </Tooltip>
+      <Tooltip content="Save the current user + agent configuration as the new defaults (overwrites the shipped snapshot)">
+        <button
+          className="config-restore-btn"
+          onClick={() => setShowSaveDefaultsConfirm(true)}
+          disabled={saving || savingDefaults || activeJobs.length > 0}
+          title="Save the current user + agent config as the new defaults">
+          {savingDefaults ? (
+            <span>
+              <Icon name="sync" size="14" /> Saving...
+            </span>
+          ) : (
+            <span>
+              <Icon name="save" size="14" /> Save as Defaults
+            </span>
+          )}
+        </button>
+      </Tooltip>
+    </>
+  );
 
   // Group fields by section
   const sections = new Map<string, typeof FIELDS>();
@@ -3501,26 +3560,56 @@ The system provides existing memory context at the start of each pipeline run. U
 
         {/* ── TAB 4: UI State ── */}
         {activeTab === "ui" && (
-          <div className="config-section">
-            <h3 className="config-section-title">
-              <Icon name="tune" size="16" color="accent" /> UI State
-            </h3>
-            <p className="config-field-hint">
-              The app remembers your view state — panel tabs, filters, selections, and the New-form draft — in <code>userData/ui-state.json</code>.
-              This is separate from your configuration: it does not affect API keys, providers, delivery settings, or any saved data. Clearing it
-              resets every panel to its defaults immediately (no restart needed).
-            </p>
-            <div className="config-field" style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 10 }}>
-              <button
-                className="config-io-btn config-io-btn--danger"
-                onClick={() => setShowClearUiStateConfirm(true)}
-                disabled={clearingUiState}
-                title="Clear all saved UI state (tabs, filters, selections, New-form draft)">
-                {clearingUiState ? <Icon name="sync" size="14" /> : <Icon name="delete_sweep" size="14" />} Clear all UI state
-              </button>
-              {uiStateResult && <span className="config-success">{uiStateResult}</span>}
+          <>
+            <div className="config-section">
+              <h3 className="config-section-title">
+                <Icon name="tune" size="16" color="accent" /> UI State
+              </h3>
+              <p className="config-field-hint">
+                The app remembers your view state — panel tabs, filters, selections, and the New-form draft — in <code>userData/ui-state.json</code>.
+                This is separate from your configuration: it does not affect API keys, providers, delivery settings, or any saved data. Clearing it
+                resets every panel to its defaults immediately (no restart needed).
+              </p>
+              <div className="config-field" style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 10 }}>
+                <button
+                  className="config-io-btn config-io-btn--danger"
+                  onClick={() => setShowClearUiStateConfirm(true)}
+                  disabled={clearingUiState}
+                  title="Clear all saved UI state (tabs, filters, selections, New-form draft)">
+                  {clearingUiState ? <Icon name="sync" size="14" /> : <Icon name="delete_sweep" size="14" />} Clear all UI state
+                </button>
+                {uiStateResult && <span className="config-success">{uiStateResult}</span>}
+              </div>
             </div>
-          </div>
+
+            <div className="config-section">
+              <h3 className="config-section-title">
+                <Icon name="book" size="16" color="accent" /> Documentation
+              </h3>
+              <p className="config-field-hint">
+                The in-app <strong>User Guide</strong> (About → Guide) and <strong>Dev Guide</strong> (Dev → Guide) render the markdown docs from{" "}
+                <code>docs/</code>. Turn screenshots off here for a lighter, faster, more data-conscious view.
+              </p>
+              <div className="config-field">
+                <label className="config-label">Show images in guides</label>
+                <label className="config-toggle">
+                  <input
+                    type="checkbox"
+                    checked={values.USER_GUIDE_IMAGES_ENABLED === "true"}
+                    onChange={(e) => handleChange("USER_GUIDE_IMAGES_ENABLED", e.target.checked ? "true" : "false")}
+                  />
+                  <span className="config-toggle-slider" />
+                  <span className="config-toggle-label">
+                    {values.USER_GUIDE_IMAGES_ENABLED === "true" ? "Screenshots shown in guides" : "Screenshots hidden in guides"}
+                  </span>
+                </label>
+                <p className="config-field-hint" style={{ marginTop: 4 }}>
+                  When enabled, annotated screenshots display inline in the User Guide and Dev Guide. When disabled, image blocks are omitted. This is
+                  a display-only preference — it never touches your configuration or data.
+                </p>
+              </div>
+            </div>
+          </>
         )}
       </div>
 
@@ -3556,45 +3645,15 @@ The system provides existing memory context at the start of each pipeline run. U
                 </span>
               ) : (
                 <div className="config-footer-actions">
-                  <Tooltip content="Save all API keys, provider settings, and delivery config to disk">
-                    <button className="config-save-btn" onClick={handleSave} disabled={saving || saved} title="Save all configuration values to disk">
-                      {saving ? "Saving…" : saved ? "Saved ✓" : "Save Configuration"}
-                    </button>
-                  </Tooltip>
-                  <Tooltip content="Restore user configuration to the shipped defaults — all API keys and settings revert to factory values">
-                    <button
-                      className="config-restore-btn"
-                      onClick={() => setShowRestoreUserDefaultsConfirm(true)}
-                      disabled={saving || restoringUserDefaults || activeJobs.length > 0}
-                      title="Restore the factory-default user config (API keys, provider settings, delivery config)">
-                      {restoringUserDefaults ? (
-                        <span>
-                          <Icon name="sync" size="14" /> Restoring...
-                        </span>
-                      ) : (
-                        <span>
-                          <Icon name="restore" size="14" /> Restore Defaults
-                        </span>
-                      )}
-                    </button>
-                  </Tooltip>
-                  <Tooltip content="Save the current user + agent configuration as the new defaults (overwrites the shipped snapshot)">
-                    <button
-                      className="config-restore-btn"
-                      onClick={() => setShowSaveDefaultsConfirm(true)}
-                      disabled={saving || savingDefaults || activeJobs.length > 0}
-                      title="Save the current user + agent config as the new defaults">
-                      {savingDefaults ? (
-                        <span>
-                          <Icon name="sync" size="14" /> Saving...
-                        </span>
-                      ) : (
-                        <span>
-                          <Icon name="save" size="14" /> Save as Defaults
-                        </span>
-                      )}
-                    </button>
-                  </Tooltip>
+                  {renderConfigFooterButtons({
+                    onSave: handleSave,
+                    saveTitle: "Save all API keys, provider settings, and delivery config to disk",
+                    openRestore: () => setShowRestoreUserDefaultsConfirm(true),
+                    restoreTitle: "Restore the factory-default user config (API keys, provider settings, delivery config)",
+                    restoreRunning: restoringUserDefaults,
+                    restoreRunningLabel: "Restoring...",
+                    restoreLabel: "Restore Defaults",
+                  })}
                 </div>
               )}
             </>
@@ -3608,11 +3667,40 @@ The system provides existing memory context at the start of each pipeline run. U
                   for completion.
                 </span>
               ) : (
-                <Tooltip content="Save log source filters, levels, and rotation settings">
-                  <button className="config-save-btn" onClick={handleSave} disabled={saving || saved} title="Save logging configuration">
-                    {saving ? "Saving…" : saved ? "Saved ✓" : "Save Configuration"}
-                  </button>
-                </Tooltip>
+                <div className="config-footer-actions">
+                  {renderConfigFooterButtons({
+                    onSave: handleSave,
+                    saveTitle: "Save log source filters, levels, and rotation settings",
+                    openRestore: () => setShowRestoreUserDefaultsConfirm(true),
+                    restoreTitle: "Restore the factory-default user config (API keys, provider settings, delivery config)",
+                    restoreRunning: restoringUserDefaults,
+                    restoreRunningLabel: "Restoring...",
+                    restoreLabel: "Restore Defaults",
+                  })}
+                </div>
+              )}
+            </>
+          )}
+
+          {activeTab === "ui" && (
+            <>
+              {activeJobs.length > 0 ? (
+                <span className="config-footer-hint">
+                  <Icon name="block" color="red" size="14" /> Cannot save — {activeJobs.length} job{activeJobs.length > 1 ? "s" : ""} running. Wait
+                  for completion.
+                </span>
+              ) : (
+                <div className="config-footer-actions">
+                  {renderConfigFooterButtons({
+                    onSave: handleSave,
+                    saveTitle: "Save UI / documentation display preferences",
+                    openRestore: () => setShowRestoreUserDefaultsConfirm(true),
+                    restoreTitle: "Restore the factory-default user config (API keys, provider settings, delivery config)",
+                    restoreRunning: restoringUserDefaults,
+                    restoreRunningLabel: "Restoring...",
+                    restoreLabel: "Restore Defaults",
+                  })}
+                </div>
               )}
             </>
           )}
@@ -3648,38 +3736,22 @@ The system provides existing memory context at the start of each pipeline run. U
                       </>
                     )}
                   </span>
-                  <button
-                    className="config-save-btn"
-                    onClick={handleSaveAgentConfig}
-                    disabled={saving || saved}
-                    title={
+                  {renderConfigFooterButtons({
+                    onSave: handleSaveAgentConfig,
+                    saveTitle:
                       agentSubTab === "pipeline-steps"
                         ? "Regenerate system prompt and hints from step order"
                         : agentSubTab === "system-prompt"
                           ? "Save system prompt (preserves your edits)"
                           : agentSubTab === "pipeline-hints"
                             ? "Save pipeline hints (preserves your edits)"
-                            : "Save pipeline constants"
-                    }>
-                    {saving ? "Saving..." : saved && !restartNeeded ? "Saved" : "Save"}
-                  </button>
-                  <Tooltip content="Reset agent configuration to factory defaults — tools, pipeline steps, and system prompt">
-                    <button
-                      className="config-restore-btn"
-                      onClick={() => setShowRestoreDefaultsConfirm(true)}
-                      disabled={saving || restoringDefaults || activeJobs.length > 0}
-                      title="Restore the original shipped agent configs (tools, pipeline, system prompt)">
-                      {restoringDefaults ? (
-                        <span>
-                          <Icon name="sync" size="14" /> Restoring...
-                        </span>
-                      ) : (
-                        <span>
-                          <Icon name="restore" size="14" /> Restore Defaults
-                        </span>
-                      )}
-                    </button>
-                  </Tooltip>
+                            : "Save pipeline constants",
+                    openRestore: () => setShowRestoreDefaultsConfirm(true),
+                    restoreTitle: "Restore the original shipped agent configs (tools, pipeline, system prompt)",
+                    restoreRunning: restoringDefaults,
+                    restoreRunningLabel: "Restoring...",
+                    restoreLabel: "Restore Defaults",
+                  })}
                   {restartNeeded && (
                     <Tooltip content="Restart the agent runner service to apply the updated configuration">
                       <button className="config-restart-btn" onClick={handleRestartAgent} title="Restart the agent runner to apply new configuration">

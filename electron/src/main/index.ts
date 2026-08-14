@@ -11,7 +11,7 @@
 
 import fs from "fs";
 import { spawn, execSync, execFile } from "child_process";
-import { app, BrowserWindow, Tray, Menu, nativeImage, Notification, ipcMain, dialog, shell } from "electron";
+import { app, BrowserWindow, Tray, Menu, nativeImage, Notification, ipcMain, dialog, shell, protocol } from "electron";
 import path from "path";
 import pidusage from "pidusage";
 import { registerExportHandlers } from "./exporter";
@@ -154,6 +154,14 @@ app.on("second-instance", () => {
     // .env is optional — silently ignore if missing or unreadable
   }
 })();
+
+// ── Custom scheme for in-app docs (images in the User Guide / Dev Guide) ──
+// Registers app-doc:// so <img src="app-doc://screenshots/user-guide/….png">
+// resolves to a file under the docs directory in both dev and packaged mode.
+protocol.registerSchemesAsPrivileged([
+  { scheme: "app-doc", privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
+]);
+
 import {
   startAll,
   startPythonBackend,
@@ -193,9 +201,17 @@ import {
   readUserConfigDefaults,
   restoreUserConfigDefaults,
   setUserConfigDefaults,
+  syncConfigToEnv,
   saveAgentConfigToDisk,
 } from "./config";
 import { getUiState, saveUiState } from "./ui-state";
+
+// Ensure every known config key is represented in the .env file(s) so a fresh
+// reader (or a subprocess that reads .env directly) sees the full configuration.
+// Must run AFTER the imports above — TypeScript emits the CommonJS `require()`
+// at the import's position, so calling it earlier would throw a TDZ
+// ReferenceError ("Cannot access 'config_1' before initialization").
+syncConfigToEnv();
 
 // ── Enable Electron/Chromium logging (debug aid) ──
 // When LOG_CHROMIUM is enabled (ConfigPanel > Logging, or LOG_CHROMIUM=1 via .env),
@@ -799,12 +815,12 @@ ipcMain.handle("app:guide", () => {
   return "";
 });
 
-/** Load an arbitrary doc file from the docs/ (or docs/safe/) directory. */
+/** Load an arbitrary doc file from the docs/safe/ (full) or docs/ (redacted) directory. */
 ipcMain.handle("app:doc", (_event, filename: string) => {
-  // Search docs/ first, then docs/safe/ — safe docs are served by the DevPanel
-  // Guide tab too (e.g. usage-tracking-plan.md). Both are bundled via
-  // extraResources → resources/docs/ in packaged builds.
-  const docRoots = ["docs", "docs/safe"];
+  // Search docs/safe/ FIRST — it holds the full internal versions (the DevPanel
+  // Guide tab serves these). docs/ holds redacted public versions and is the
+  // fallback. Both are bundled via extraResources → resources/docs/ in packaged builds.
+  const docRoots = ["docs/safe", "docs"];
   const docPath = (() => {
     const candidates: string[] = [];
     for (const root of docRoots) {
@@ -3033,10 +3049,77 @@ const unsubscribeLogs = subscribe((entry) => {
   }
 });
 
+// ── app-doc:// protocol — serve files under the docs directory ──
+// Used by the in-app User Guide / Dev Guide so their <img> tags resolve to the
+// bundled (or repo) screenshots. Path traversal is blocked.
+
+const DOC_MIME_TYPES: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+  ".md": "text/markdown",
+  ".json": "application/json",
+  ".txt": "text/plain",
+  ".html": "text/html",
+};
+
+/** Resolve the docs directory (dev: repo docs/; packaged: resources/docs). */
+function resolveDocsRoot(): string {
+  const candidates = [
+    path.join(__dirname, "..", "..", "..", "docs"),
+    path.join(app.getAppPath(), "..", "docs"),
+  ];
+  if (app.isPackaged) {
+    candidates.unshift(path.join(process.resourcesPath, "..", "docs"));
+    candidates.unshift(path.join(process.resourcesPath, "docs"));
+  }
+  for (const p of candidates) {
+    try {
+      if (fs.statSync(p).isDirectory()) return p;
+    } catch {
+      // try next candidate
+    }
+  }
+  return path.join(app.getAppPath(), "..", "docs");
+}
+
+/** Register the app-doc:// handler (must run inside app.whenReady). */
+function registerDocsProtocol(): void {
+  protocol.handle("app-doc", async (request) => {
+    try {
+      const url = new URL(request.url);
+      // For a standard scheme, app-doc://screenshots/… parses with "screenshots"
+      // as the host — reconstruct the relative path from host + pathname so both
+      // that form and app-doc:///… work.
+      const rel = decodeURIComponent((url.hostname ? url.hostname + url.pathname : url.pathname).replace(/^\/+/, ""));
+      if (!rel) return new Response("Not found", { status: 404 });
+
+      const docsRoot = path.resolve(resolveDocsRoot());
+      const filePath = path.resolve(docsRoot, rel);
+      if (!filePath.startsWith(docsRoot + path.sep)) {
+        return new Response("Forbidden", { status: 403 });
+      }
+
+      const data = await fs.promises.readFile(filePath);
+      const ext = path.extname(filePath).toLowerCase();
+      return new Response(data, { headers: { "Content-Type": DOC_MIME_TYPES[ext] || "application/octet-stream" } });
+    } catch {
+      return new Response("Not found", { status: 404 });
+    }
+  });
+}
+
 app.whenReady().then(async () => {
   // If this instance failed to acquire the single-instance lock, do nothing —
   // we've already called app.quit() above.
   if (!gotTheLock) return;
+
+  // Serve docs images to the renderer (in-app User Guide / Dev Guide).
+  registerDocsProtocol();
 
   // ── Notification platform setup ──
   // Windows: bind AppUserModelId so toast notifications appear correctly

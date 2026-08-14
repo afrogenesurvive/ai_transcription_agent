@@ -24,9 +24,46 @@ export function slugify(text: string): string {
  *
  * Heading IDs are slugified so TOC links and internal anchors work.
  */
-export function renderMarkdown(md: string): string {
+export function renderMarkdown(md: string, opts?: { imagesEnabled?: boolean; imgBaseUrl?: string }): string {
+  const imagesEnabled = opts?.imagesEnabled !== false;
+
+  // Resolve a (possibly relative) image src to an absolute URL. The in-app
+  // guides use app-doc:// so bundled docs/screenshots can be loaded; plain
+  // http(s)/data/file/… srcs are left untouched.
+  const resolveSrc = (src: string): string => {
+    if (!opts?.imgBaseUrl) return src;
+    if (/^(https?:|data:|file:|app-doc:|blob:|about:)/i.test(src)) return src;
+    return opts.imgBaseUrl + src;
+  };
+
+  // Protect image content so the HTML escaping below can't mangle it. Covers:
+  //   - Whole <p ...>...</p> blocks containing an <img> (the centered figure +
+  //     caption pattern used in end_user_guide.md)
+  //   - Standalone <img ... /> tags
+  //   - Markdown image syntax: ![alt](url)
+  // When images are disabled the placeholders become empty, so the whole figure
+  // (image + caption) is omitted from the rendered output.
+  const protectedBlocks: string[] = [];
+  let html = md;
+
+  html = html.replace(/<p\b[^>]*>[\s\S]*?<img\b[^>]*>[\s\S]*?<\/p>/gi, (block) => {
+    if (!imagesEnabled) return "";
+    protectedBlocks.push(block.replace(/\bsrc="([^"]*)"/gi, (m, s) => `src="${resolveSrc(s)}"`));
+    return `\n@@UGIMG${protectedBlocks.length - 1}@@\n`;
+  });
+  html = html.replace(/<img\b[^>]*\/?>/gi, (tag) => {
+    if (!imagesEnabled) return "";
+    protectedBlocks.push(tag.replace(/\bsrc="([^"]*)"/gi, (m, s) => `src="${resolveSrc(s)}"`));
+    return `@@UGIMG${protectedBlocks.length - 1}@@`;
+  });
+  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, src) => {
+    if (!imagesEnabled) return "";
+    protectedBlocks.push(`<img src="${resolveSrc(src)}" alt="${alt}" />`);
+    return `@@UGIMG${protectedBlocks.length - 1}@@`;
+  });
+
   // Escape HTML entities first
-  let html = md.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  html = html.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
   // Horizontal rules
   html = html.replace(/^---+/gm, "<hr />");
@@ -87,13 +124,35 @@ export function renderMarkdown(md: string): string {
     return `<h1 id="${slugify(t)}">${t}</h1>`;
   });
 
-  // Unordered lists
-  html = html.replace(/^- (.+)$/gm, "<li>$1</li>");
-  html = html.replace(/((?:<li>.*?<\/li>\n?)+)/g, "<ul>$1</ul>");
-
-  // Ordered lists
-  html = html.replace(/^\d+\. (.+)$/gm, "<li>$1</li>");
-  html = html.replace(/((?:<li>.*?<\/li>\n?)+)(?!\s*<\/?[uo]l>)/g, "<ol>$1</ol>");
+  // Lists — handled in a single pass with distinct markers so unordered and
+  // ordered lists never re-wrap each other (previously nested <ul>/<ol>).
+  {
+    const lines = html.split("\n");
+    const out: string[] = [];
+    let listType: "ul" | "ol" | null = null;
+    for (const line of lines) {
+      const ulMatch = line.match(/^-\s+(.*)$/);
+      const olMatch = line.match(/^\d+\.\s+(.*)$/);
+      if (ulMatch || olMatch) {
+        const type = ulMatch ? "ul" : "ol";
+        const text = ulMatch ? ulMatch[1] : (olMatch as RegExpMatchArray)[1];
+        if (listType !== type) {
+          if (listType) out.push(`</${listType}>`);
+          out.push(`<${type}>`);
+          listType = type;
+        }
+        out.push(`<li>${text}</li>`);
+      } else {
+        if (listType) {
+          out.push(`</${listType}>`);
+          listType = null;
+        }
+        out.push(line);
+      }
+    }
+    if (listType) out.push(`</${listType}>`);
+    html = out.join("\n");
+  }
 
   // Paragraphs — wrap orphan text
   const lines = html.split("\n");
@@ -105,7 +164,11 @@ export function renderMarkdown(md: string): string {
       wrapped.push("");
       continue;
     }
-    if (/^<(h[1-4]|ul|ol|li|table|tr|td|th|pre|code|blockquote|hr|div)/.test(trimmed) || trimmed.startsWith("---")) {
+    if (
+      /^<\/?(h[1-4]|ul|ol|li|table|tr|td|th|pre|code|blockquote|hr|div)/.test(trimmed) ||
+      trimmed.startsWith("@@UGIMG") ||
+      trimmed.startsWith("---")
+    ) {
       wrapped.push(trimmed);
       inBlock = trimmed.startsWith("<pre") || trimmed.startsWith("<table") || trimmed.startsWith("<blockquote");
       continue;
@@ -118,6 +181,9 @@ export function renderMarkdown(md: string): string {
     wrapped.push(`<p>${trimmed}</p>`);
   }
   html = wrapped.join("\n");
+
+  // Restore protected image blocks last (raw HTML, already safe)
+  html = html.replace(/@@UGIMG(\d+)@@/g, (_, i) => protectedBlocks[Number(i)] ?? "");
 
   return html;
 }

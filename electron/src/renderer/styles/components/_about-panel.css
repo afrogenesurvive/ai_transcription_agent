@@ -214,6 +214,8 @@
 
 .about-md-content img {
   max-width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   margin: 8px 0;
 }

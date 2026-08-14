@@ -1,0 +1,177 @@
+{
+  "style": {
+    "accent": "#2F6FED",
+    "highlight_fill_alpha": 0.18,
+    "border_width": 3,
+    "highlight_radius": 10,
+    "arrow_color": "#E03131",
+    "arrow_width": 5,
+    "badge_bg": "#2F6FED",
+    "badge_fg": "#FFFFFF",
+    "badge_radius": 22,
+    "bubble_bg": "#FFFFFF",
+    "bubble_border": "#2F6FED",
+    "bubble_text_color": "#1F2328",
+    "font_size": 26,
+    "bubble_font_size": 24
+  },
+  "images": [
+    {
+      "source": "docs/screenshots/user-guide/raw/01.png",
+      "output": "docs/screenshots/user-guide/01.png",
+      "callouts": [
+        { "type": "callout", "n": 1, "target": [250, 54], "badge": [430, 54] },
+        { "type": "callout", "n": 2, "target": [55, 342], "badge": [165, 300] },
+        { "type": "callout", "n": 3, "target": [55, 389], "badge": [165, 435] },
+        { "type": "callout", "n": 4, "box": [110, 815, 630, 46], "badge": [790, 840] }
+      ]
+    },
+    {
+      "source": "docs/screenshots/user-guide/raw/03.png",
+      "output": "docs/screenshots/user-guide/03.png",
+      "callouts": [
+        {
+          "type": "callout",
+          "n": 1,
+          "box": [440, 195, 700, 135],
+          "text": "Drag & drop audio files here",
+          "text_at": [455, 130],
+          "target": [560, 200]
+        },
+        { "type": "callout", "n": 2, "box": [440, 370, 700, 60] },
+        { "type": "callout", "n": 3, "box": [900, 560, 240, 55] }
+      ]
+    },
+    {
+      "source": "docs/screenshots/user-guide/raw/11.png",
+      "output": "docs/screenshots/user-guide/11.png",
+      "callouts": [
+        { "type": "callout", "n": 1, "box": [150, 155, 1100, 45], "badge": [1290, 177] },
+        { "type": "callout", "n": 2, "box": [150, 220, 1100, 400], "badge": [1290, 420] },
+        { "type": "callout", "n": 3, "box": [150, 640, 1100, 135], "badge": [1290, 700] }
+      ]
+    },
+    {
+      "source": "docs/screenshots/user-guide/raw/18.png",
+      "output": "docs/screenshots/user-guide/18.png",
+      "callouts": [
+        { "type": "callout", "n": 1, "box": [255, 147, 130, 42], "badge": [405, 168] },
+        { "type": "callout", "n": 2, "box": [130, 215, 1240, 540], "badge": [1390, 480] }
+      ]
+    },
+    {
+      "source": "docs/screenshots/user-guide/raw/19.png",
+      "output": "docs/screenshots/user-guide/19.png",
+      "callouts": [
+        { "type": "callout", "n": 1, "box": [395, 147, 135, 42], "badge": [550, 168] },
+        { "type": "callout", "n": 2, "box": [130, 215, 1240, 540], "badge": [1390, 480] }
+      ]
+    },
+    {
+      "source": "docs/screenshots/user-guide/raw/25.png",
+      "output": "docs/screenshots/user-guide/25.png",
+      "callouts": [{ "type": "callout", "n": 1, "box": [130, 180, 1240, 520], "badge": [1390, 440] }]
+    },
+    {
+      "source": "docs/screenshots/user-guide/raw/34.png",
+      "output": "docs/screenshots/user-guide/34.png",
+      "callouts": [
+        { "type": "callout", "n": 1, "box": [130, 190, 1140, 90], "badge": [330, 235] },
+        { "type": "callout", "n": 2, "box": [130, 310, 1140, 90], "badge": [330, 355] },
+        { "type": "callout", "n": 3, "box": [130, 430, 1140, 90], "badge": [330, 475] },
+        { "type": "callout", "n": 4, "box": [130, 550, 1140, 90], "badge": [330, 595] }
+      ]
+    },
+    {
+      "source": "docs/screenshots/user-guide/raw/06.png",
+      "output": "docs/screenshots/user-guide/06.png",
+      "callouts": [
+        { "type": "callout", "n": 1, "box": [265, 147, 220, 42], "badge": [505, 168] },
+        { "type": "callout", "n": 2, "box": [430, 380, 600, 180], "badge": [1055, 470] }
+      ]
+    },
+    {
+      "source": "docs/screenshots/user-guide/raw/13.png",
+      "output": "docs/screenshots/user-guide/13.png",
+      "callouts": [
+        { "type": "callout", "n": 1, "box": [280, 150, 840, 510], "badge": [330, 300] },
+        { "type": "callout", "n": 2, "box": [520, 615, 320, 60], "badge": [880, 645] }
+      ]
+    },
+    {
+      "source": "docs/screenshots/user-guide/raw/20.png",
+      "output": "docs/screenshots/user-guide/20.png",
+      "callouts": [
+        { "type": "callout", "n": 1, "box": [540, 147, 125, 42], "badge": [685, 168] },
+        { "type": "callout", "n": 2, "box": [130, 215, 1240, 540], "badge": [1390, 480] }
+      ]
+    },
+    {
+      "source": "docs/screenshots/user-guide/raw/21.png",
+      "output": "docs/screenshots/user-guide/21.png",
+      "callouts": [
+        { "type": "callout", "n": 1, "box": [675, 147, 140, 42], "badge": [835, 168] },
+        { "type": "callout", "n": 2, "box": [130, 215, 1240, 540], "badge": [1390, 480] }
+      ]
+    },
+    {
+      "source": "docs/screenshots/user-guide/raw/22.png",
+      "output": "docs/screenshots/user-guide/22.png",
+      "callouts": [
+        { "type": "callout", "n": 1, "box": [825, 147, 135, 42], "badge": [980, 168] },
+        { "type": "callout", "n": 2, "box": [130, 215, 1240, 540], "badge": [1390, 480] }
+      ]
+    },
+    {
+      "source": "docs/screenshots/user-guide/raw/09.png",
+      "output": "docs/screenshots/user-guide/09.png",
+      "callouts": [
+        { "type": "callout", "n": 1, "box": [280, 210, 840, 260], "badge": [330, 340] },
+        { "type": "callout", "n": 2, "box": [280, 480, 840, 130], "badge": [330, 545] },
+        { "type": "callout", "n": 3, "box": [280, 630, 840, 70], "badge": [330, 665] }
+      ]
+    },
+    {
+      "source": "docs/screenshots/user-guide/raw/08.png",
+      "output": "docs/screenshots/user-guide/08.png",
+      "callouts": [
+        { "type": "callout", "n": 1, "box": [440, 310, 700, 70], "badge": [1160, 345] },
+        { "type": "callout", "n": 2, "box": [440, 390, 700, 140], "badge": [1160, 460] }
+      ]
+    },
+    {
+      "source": "docs/screenshots/user-guide/raw/27.png",
+      "output": "docs/screenshots/user-guide/27.png",
+      "callouts": [{ "type": "callout", "n": 1, "box": [130, 180, 1240, 560], "badge": [1390, 460] }]
+    },
+    {
+      "source": "docs/screenshots/user-guide/raw/29.png",
+      "output": "docs/screenshots/user-guide/29.png",
+      "callouts": [{ "type": "callout", "n": 1, "box": [130, 180, 1240, 560], "badge": [1390, 460] }]
+    },
+    {
+      "source": "docs/screenshots/user-guide/raw/36.png",
+      "output": "docs/screenshots/user-guide/36.png",
+      "callouts": [{ "type": "callout", "n": 1, "box": [130, 180, 1240, 560], "badge": [1390, 460] }]
+    },
+    {
+      "source": "docs/screenshots/user-guide/raw/37.png",
+      "output": "docs/screenshots/user-guide/37.png",
+      "callouts": [
+        { "type": "callout", "n": 1, "box": [500, 147, 230, 42], "badge": [750, 168] },
+        { "type": "callout", "n": 2, "box": [440, 215, 300, 55], "badge": [760, 243] },
+        { "type": "callout", "n": 3, "box": [440, 300, 600, 250], "badge": [1060, 425] }
+      ]
+    },
+    {
+      "source": "docs/screenshots/user-guide/raw/39.png",
+      "output": "docs/screenshots/user-guide/39.png",
+      "callouts": [{ "type": "callout", "n": 1, "box": [130, 200, 1240, 520], "badge": [1390, 460] }]
+    },
+    {
+      "source": "docs/screenshots/user-guide/raw/40.png",
+      "output": "docs/screenshots/user-guide/40.png",
+      "callouts": [{ "type": "callout", "n": 1, "box": [300, 200, 800, 380], "badge": [350, 400] }]
+    }
+  ]
+}
