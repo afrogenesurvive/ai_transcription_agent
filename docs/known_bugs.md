@@ -377,3 +377,40 @@ chromadb~=1.4.1
 | Component              | Affected Versions   | Platforms                   |
 | ---------------------- | ------------------- | --------------------------- |
 | chromadb Rust bindings | 1.5.0 through 1.5.9 | all (macOS, Windows, Linux) |
+
+## Windows/CrossOver: "Clear All Data" reports "Cleared with failures: semantic" — ChromaDB data survives
+
+### Symptom
+
+- In **Storage → Developer**, **Clear All Data** returns `Cleared with failures: semantic`.
+- Job history, ephemeral memory, and voiceprint databases are removed, but the ChromaDB semantic memory directory (`storage/chroma/`) is **not** deleted — `storage/chroma/chroma.sqlite3` (and any collections) remain.
+- The standalone **Clear Semantic DB** button fails the same way.
+- Works on macOS dev; reproduces only under Windows/CrossOver.
+
+### Root Cause
+
+`DELETE /storage/semantic` (`python-backend/routes/storage.py` → `clear_semantic_memory()`) deleted the ChromaDB directory in the wrong order:
+
+1. It only dropped the in-memory collection reference (`services.semantic_memory._collection = None`) — this does **not** close the underlying ChromaDB client.
+2. ChromaDB keeps a process-global `System` singleton (`SharedSystemClient._identifier_to_system`, keyed by directory path) whose `PersistentClient` holds **open SQLite handles** to `storage/chroma/chroma.sqlite3`.
+3. The old code called `shutil.rmtree(chroma_dir)` **before** evicting/stopping that cached `System`. On Windows/CrossOver, deleting a file that is still open raises `PermissionError: [WinError 5] Access is denied`, so `rmtree` failed and the route returned HTTP 500 → the bridge aggregated it as `Cleared with failures: semantic`.
+4. macOS allows unlinking open files, so the bug was silent in dev and only surfaced under CrossOver/Windows.
+
+This was the only clear leg lacking a "close before remove" step — the ephemeral route already calls `close_all()` before deleting its SQLite DBs, which is why jobs/ephemeral/voiceprints cleared fine.
+
+### Fix (applied)
+
+`clear_semantic_memory()` now, in order:
+
+1. **Evicts and stops the cached ChromaDB `System` first** (`SharedSystemClient._identifier_to_system.pop(chroma_dir, ...)` + `stale.stop()`) so it releases the SQLite file handles **before** deletion.
+2. Sets a new `SemanticMemory._clearing` flag (checked by `_ensure_loaded()`) so a concurrent DevPanel search or `save_context` can't recreate a client against the directory mid-delete.
+3. Drops the collection reference, then runs `shutil.rmtree()` with a small retry loop to survive transient antivirus/Defender file locks.
+4. **Cosmetic-failure guard:** if the directory is already gone despite an exception (e.g. only the eviction cleanup failed), it reports success instead of a misleading failure.
+
+`_ensure_loaded()` raises a clear "being cleared — try again in a moment" error while the flag is set, so callers fail fast with a useful message instead of a confusing `AttributeError` on a `None` collection.
+
+### Affected Versions
+
+| Component                  | Affected Versions               | Platforms                          |
+| -------------------------- | ------------------------------- | ---------------------------------- |
+| `DELETE /storage/semantic` | 0.8.10 and earlier (fixed next) | Windows, CrossOver (Windows apps on macOS) |
