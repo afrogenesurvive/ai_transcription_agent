@@ -94,12 +94,22 @@ class SemanticMemory:
         self._collection = None
         self._embedder = None
         self._tokenizer = None
+        # Set while a Clear Semantic Memory operation is deleting the ChromaDB
+        # directory. _ensure_loaded() checks this so a concurrent request
+        # (DevPanel search, save_context from a finishing job) can't recreate a
+        # PersistentClient against the directory mid-delete — on Windows that
+        # re-opens chroma.sqlite3 and makes rmtree() fail with PermissionError.
+        self._clearing = False
 
     # ── Lazy init (first use loads the model) ──
 
     def _ensure_loaded(self):
         if self._collection is not None:
             return
+        if self._clearing:
+            raise RuntimeError(
+                "Semantic memory (ChromaDB) is being cleared — try again in a moment"
+            )
         import chromadb
         from chromadb.config import Settings
 

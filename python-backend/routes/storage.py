@@ -7,6 +7,7 @@ pipeline state via the shared ``state`` singleton from pipeline_state.py.
 
 import os
 import shutil
+import time
 
 from fastapi import APIRouter, HTTPException
 
@@ -155,27 +156,62 @@ async def clear_semantic_memory():
         return {"deleted": False, "message": "No ChromaDB data found"}
 
     try:
-        # Clear in-memory collection reference first
+        # Guard against a concurrent _ensure_loaded() (DevPanel search,
+        # save_context from a finishing job) recreating a PersistentClient
+        # against the directory mid-delete — on Windows that re-opens
+        # chroma.sqlite3 and makes rmtree() fail with PermissionError.
         if services.semantic_memory:
-            services.semantic_memory._collection = None
+            services.semantic_memory._clearing = True
 
-        shutil.rmtree(chroma_dir)
-        print(f"[api] DELETE /storage/semantic → removed ChromaDB data")
-
-        # Evict the stale ChromaDB System singleton so the next
-        # _ensure_loaded() creates a fresh PersistentClient against the
-        # empty directory instead of returning the cached System with
-        # the old in-memory data still present.
+        # 1. Fully close/evict ChromaDB's cached System BEFORE deleting.
+        #    ChromaDB keeps a process-global System (SharedSystemClient) with
+        #    open SQLite handles to chroma.sqlite3. The old code only dropped
+        #    _collection (which doesn't close the client) and evicted the
+        #    System AFTER rmtree — so on Windows/CrossOver the delete failed
+        #    with "Access is denied" while the file was open (macOS silently
+        #    allows unlinking open files, which is why this only surfaced under
+        #    CrossOver). Mirror the ephemeral route's close-before-remove.
         from chromadb.api.shared_system_client import SharedSystemClient
         stale = SharedSystemClient._identifier_to_system.pop(chroma_dir, None)
         if stale is not None:
-            stale.stop()
-            print(f"[api] DELETE /storage/semantic → evicted cached ChromaDB System")
+            try:
+                stale.stop()
+                print(f"[api] DELETE /storage/semantic → stopped + evicted cached ChromaDB System")
+            except Exception as e:
+                print(f"[api] DELETE /storage/semantic → warning stopping System: {e}")
+
+        # 2. Drop the in-memory collection reference (after the system is closed)
+        if services.semantic_memory:
+            services.semantic_memory._collection = None
+
+        # 3. Delete the directory — retry to survive transient AV/Defender
+        #    locks that can still briefly hold a file open on Windows.
+        for attempt in range(3):
+            try:
+                shutil.rmtree(chroma_dir)
+                break
+            except Exception as e:
+                if attempt == 2:
+                    raise
+                print(f"[api] DELETE /storage/semantic → rmtree attempt {attempt + 1} failed ({e}); retrying…")
+                time.sleep(0.3)
+        print(f"[api] DELETE /storage/semantic → removed ChromaDB data")
 
         return {"deleted": True, "message": "Semantic memory (ChromaDB) cleared successfully"}
     except Exception as e:
+        # Cosmetic-failure guard: if the directory is already gone the data WAS
+        # cleared — report success rather than a misleading "cleared with
+        # failures" (e.g. when only the System-eviction cleanup above failed).
+        if not os.path.exists(chroma_dir):
+            print(f"[api] DELETE /storage/semantic → dir gone despite error ({e}); treating as cleared")
+            return {"deleted": True, "message": "Semantic memory (ChromaDB) cleared (directory already removed)"}
         print(f"[api] DELETE /storage/semantic → error: {e}")
         raise HTTPException(500, f"Failed to clear semantic memory: {e}")
+    finally:
+        # Re-enable lazy loading so the next use re-creates a fresh client
+        # against the now-empty directory.
+        if services.semantic_memory:
+            services.semantic_memory._clearing = False
 
 
 # ── Clear Ephemeral Memory + Voiceprint Data ──
