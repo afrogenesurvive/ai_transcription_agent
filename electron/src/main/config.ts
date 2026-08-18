@@ -391,6 +391,13 @@ function writeUserConfigRaw(contents: string): void {
   } else {
     fs.writeFileSync(userConfigPath, contents, "utf8");
   }
+  // Always keep a plaintext recovery copy so a license change / corruption can
+  // always be recovered via restore-backup or the on-activation auto-restore.
+  try {
+    fs.writeFileSync(`${userConfigPath}.bak`, contents, "utf8");
+  } catch {
+    // non-fatal — the encrypted copy is authoritative
+  }
 }
 
 /**

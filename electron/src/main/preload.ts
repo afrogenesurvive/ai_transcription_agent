@@ -144,7 +144,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   exportConfig: (): Promise<{ success: boolean; filePath?: string; error?: string; cancelled?: boolean; warnings?: string[] }> =>
     ipcRenderer.invoke("config:export"),
   clearConfig: (): Promise<{ success: boolean; error?: string; blocked?: boolean }> => ipcRenderer.invoke("config:clear"),
-  importConfig: (): Promise<{
+  importConfig: (options?: { preferJson?: boolean }): Promise<{
     success: boolean;
     filePath?: string;
     error?: string;
@@ -153,7 +153,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     agentConfigImported?: boolean;
     defaultsImported?: boolean;
     userDefaultsImported?: boolean;
-  }> => ipcRenderer.invoke("config:import"),
+  }> => ipcRenderer.invoke("config:import", options),
   getDefaultUserConfig: (): Promise<{ success: boolean; defaults: Record<string, string>; error?: string }> => ipcRenderer.invoke("config:defaults"),
   restoreDefaultUserConfig: (): Promise<{ success: boolean; error?: string; blocked?: boolean }> => ipcRenderer.invoke("config:restore-defaults"),
   setDefaultConfig: (): Promise<{ success: boolean; agentDefaultsSaved?: boolean; error?: string; warnings?: string[] }> =>

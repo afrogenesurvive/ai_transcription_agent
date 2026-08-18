@@ -501,6 +501,16 @@
   line-height: 1.4;
 }
 
+/* Corrupt/undecryptable config: hint + one-click re-import. */
+.ssb-license-corrupt {
+  margin-top: 8px;
+  max-width: 460px;
+}
+
+.ssb-license-corrupt .ssb-license-hint {
+  margin: 0 0 8px;
+}
+
 /* Inline license key entry (banner overlay blocks About → License). */
 .ssb-license-entry {
   display: flex;

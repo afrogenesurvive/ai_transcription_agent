@@ -143,6 +143,16 @@ Licenses are issued per seat and may be **time-limited** or **unlimited** — th
 
 Your configuration (API keys, delivery credentials) is stored **encrypted on disk** once a license is active, and config **exports are saved as encrypted `.gpg` files** (decryptable only with your license key). Your license key is required to open your config.
 
+### Config recovery after a key change
+
+Your config is encrypted with the license key that was active when it was saved. If you switch to a different key and the app reports it "can't be decrypted with this license":
+
+- The app **automatically restores from its built-in backup** when one is available.
+- Otherwise, **re-import a plaintext `.json` config export** (Config → Import). A `.gpg` file only opens with the license key that created it.
+- A plaintext backup is kept with every config change, so your settings can always be recovered after a key change.
+
+Deactivating a license now asks for confirmation, because it makes your encrypted config unreadable until you re-enter the same key or re-import a config.
+
 ### Lost or expired key?
 
 If your license expires, the app returns to locked mode — activate a new key in **About → License** to continue. If you need a replacement, contact whoever issued your license.

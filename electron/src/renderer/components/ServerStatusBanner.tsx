@@ -8,7 +8,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useServiceStatus, SERVICES, SERVICE_LABELS, type ServiceName } from "../hooks/serviceStatusContext";
-import type { ConfigIntegrity } from "../types";
+import type { ConfigIntegrity, LicenseStatus } from "../types";
 import Icon from "./Icon";
 
 const SERVICE_ICONS: Record<string, string> = {
@@ -57,6 +57,7 @@ export default function ServerStatusBanner({
   const [activating, setActivating] = useState(false);
   const [licenseSuccess, setLicenseSuccess] = useState<string | null>(null);
   const [configIntegrity, setConfigIntegrity] = useState<ConfigIntegrity | null>(null);
+  const [licenseStatus, setLicenseStatus] = useState<LicenseStatus | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasTriggeredCheck = useRef(false);
   const initialMount = useRef(true);
@@ -85,6 +86,7 @@ export default function ServerStatusBanner({
         licensedRef.current = isLicensed;
         if (!cancelled) {
           setLicensed(isLicensed);
+          setLicenseStatus(p?.status ?? null);
           setConfigIntegrity(p?.configIntegrity ?? null);
         }
       });
@@ -182,7 +184,7 @@ export default function ServerStatusBanner({
   const handleImportConfig = useCallback(async () => {
     setRestarting((prev) => ({ ...prev, _import: true }));
     setBannerError(null);
-    const result = await window.electronAPI?.importConfig();
+    const result = await window.electronAPI?.importConfig({ preferJson: true });
     setRestarting((prev) => ({ ...prev, _import: false }));
     if (result?.success) {
       const cfg = await window.electronAPI?.checkConfig();
@@ -335,12 +337,26 @@ export default function ServerStatusBanner({
               </button>
             )}
             {configMissing && configIntegrity?.configGpg === "corrupt" && licensed === true && (
-              <p className="ssb-license-hint">
-                <Icon name="restore" size="12" /> A config file exists but can't be decrypted with this license — re-import it (Config &rarr; Import) or restore the backup (About &rarr; License).
-              </p>
+              <div className="ssb-license-corrupt">
+                <p className="ssb-license-hint">
+                  <Icon name="restore" size="12" /> A config file exists but can't be decrypted with this license. Re-import a plaintext .json export (a .gpg is locked to the key that exported it).
+                </p>
+                <button className="ssb-import-config-btn" onClick={handleImportConfig} disabled={restarting._import}>
+                  <Icon name="download" size="14" /> Re-import Config
+                </button>
+              </div>
             )}
             {licensed === false && (
-              <div className="ssb-license-entry">
+              <>
+                {(licenseStatus?.status === "invalid" || licenseStatus?.status === "expired") && (
+                  <p className="ssb-license-hint">
+                    <Icon name="warning" size="12" />{" "}
+                    {licenseStatus.status === "expired"
+                      ? "This license has expired — enter a new key."
+                      : `${licenseReasonText(licenseStatus.reason)} — enter a new key.`}
+                  </p>
+                )}
+                <div className="ssb-license-entry">
                 <input
                   className="ssb-license-input"
                   type="text"
@@ -354,7 +370,8 @@ export default function ServerStatusBanner({
                 <button className="ssb-license-activate-btn" onClick={handleActivateLicense} disabled={activating || !licenseInput.trim()}>
                   <Icon name="key" size="14" /> {activating ? "Activating…" : "Activate"}
                 </button>
-              </div>
+                </div>
+              </>
             )}
             {licensed === false && configIntegrity?.configGpg === "missing" && configIntegrity.backupExists && (
               <p className="ssb-license-hint">
