@@ -123,6 +123,32 @@ The sidebar can be **dragged wider or narrower** by clicking and dragging the re
 
 ---
 
+## License
+
+Transcription Agent is a licensed desktop app. Until an active license is entered, the app runs in **locked mode**:
+
+- You can **fill in the New Job form** (choose an audio file, title, attendees…), but you **cannot submit** it.
+- The **About panel** (including the **License** tab) stays fully accessible.
+- Everything else — Settings, History, Storage, Developer tools — is locked until you activate.
+
+### Activating your license
+
+1. Open the **About** panel (sidebar) → **License** tab.
+2. Paste the license key you were issued and click **Activate License**.
+3. When it succeeds, the app unlocks and you can submit jobs and use all features.
+
+Licenses are issued per seat and may be **time-limited** or **unlimited** — the License tab shows your status (Active / Expired / Unlimited) and which seat the key belongs to.
+
+### Config security
+
+Your configuration (API keys, delivery credentials) is stored **encrypted on disk** once a license is active, and config **exports are saved as encrypted `.gpg` files** (decryptable only with your license key). Your license key is required to open your config.
+
+### Lost or expired key?
+
+If your license expires, the app returns to locked mode — activate a new key in **About → License** to continue. If you need a replacement, contact whoever issued your license.
+
+---
+
 ## Uploading Audio
 
 ### Supported File Types

@@ -111,6 +111,25 @@ export interface ConfigValueSource {
   source: "user_config" | "default" | "environment";
 }
 
+// ── License (per-seat, offline verification) ──
+export type LicenseStatus =
+  | { status: "unlicensed" }
+  | { status: "active"; sub: string; kid: string; exp: number; installedAt?: number }
+  | { status: "expired"; sub: string; kid: string; exp: number; installedAt?: number }
+  | { status: "invalid"; reason: string };
+
+export interface ConfigIntegrity {
+  licenseKeyFile: "present" | "missing";
+  configGpg: "present" | "missing" | "corrupt";
+  backupExists: boolean;
+}
+
+export interface LicenseStatusPayload {
+  status: LicenseStatus;
+  safeStorageAvailable: boolean;
+  configIntegrity: ConfigIntegrity;
+}
+
 export interface StorageUsage {
   logs: { bytes: number; human: string; path?: string | null };
   history: { bytes: number; human: string; job_count: number; path?: string | null };
@@ -269,6 +288,24 @@ export interface ElectronAPI {
   getDefaultUserConfig: () => Promise<{ success: boolean; defaults: Record<string, string>; error?: string }>;
   restoreDefaultUserConfig: () => Promise<{ success: boolean; error?: string; blocked?: boolean }>;
   setDefaultConfig: () => Promise<{ success: boolean; agentDefaultsSaved?: boolean; error?: string; warnings?: string[] }>;
+
+  // ── License ──
+  getLicenseStatus: () => Promise<LicenseStatusPayload>;
+  activateLicense: (
+    key: string,
+  ) => Promise<{
+    success: boolean;
+    reason?: string;
+    migration?: { migrated: boolean; backupPath?: string };
+    safeStorageAvailable?: boolean;
+    status?: LicenseStatus;
+  }>;
+  deactivateLicense: () => Promise<{ success: boolean; safeStorageAvailable?: boolean; status?: LicenseStatus }>;
+  reKeyLicense: (
+    newKey: string,
+  ) => Promise<{ success: boolean; reason?: string; error?: string; safeStorageAvailable?: boolean; status?: LicenseStatus }>;
+  getBridgeToken: () => Promise<{ token: string } | { error: string }>;
+  restoreConfigFromBackup: () => Promise<{ ok: boolean; error?: string }>;
   getAgentConfig: () => Promise<{ tools?: any; pipeline?: any; systemPrompt?: string; error?: string }>;
   saveAgentConfig: (config: { tools?: any; pipeline?: any; systemPrompt?: string }) => Promise<{ success?: boolean; error?: string }>;
   restartAgent: () => Promise<{ success?: boolean; error?: string }>;

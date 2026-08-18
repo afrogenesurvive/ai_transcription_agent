@@ -45,6 +45,8 @@ interface Props {
   }) => void;
   uploading: boolean;
   disabled?: boolean;
+  /** Why the panel is disabled (for an accurate notice): "job" or "license". */
+  disabledReason?: "job" | "license";
   /** Initial set of tool names to skip, derived from disabled pipeline steps in agent config. */
   initialSkipSteps?: string[];
   /** Bumped by App each time the New Job panel is opened — UploadPanel re-checks
@@ -101,7 +103,17 @@ const DEFAULT_SKIP_STEPS = [
   "create_trello_action_items",
 ];
 
-export default function UploadPanel({ file, onFileChange, onUpload, onUploadByPath, uploading, disabled, initialSkipSteps, refreshTrigger }: Props) {
+export default function UploadPanel({
+  file,
+  onFileChange,
+  onUpload,
+  onUploadByPath,
+  uploading,
+  disabled,
+  disabledReason,
+  initialSkipSteps,
+  refreshTrigger,
+}: Props) {
   const [dragOver, setDragOver] = useState(false);
   // ── Persisted New-form draft (rule 8a) — restored across restarts, cleared on job start ──
   const [title, setTitle] = useUiStateValue<string>("newForm.title", "");
@@ -660,7 +672,10 @@ export default function UploadPanel({ file, onFileChange, onUpload, onUploadByPa
       </Tooltip>
       {disabled && (
         <p className="upload-disabled-notice">
-          <Icon name="hourglass_top" size="12" /> A job is currently running. Start a new transcription after it finishes.
+          <Icon name="hourglass_top" size="12" />
+          {disabledReason === "license"
+            ? "A license is required to start a new transcription. Activate one in About → License."
+            : "A job is currently running. Start a new transcription after it finishes."}
         </p>
       )}
 

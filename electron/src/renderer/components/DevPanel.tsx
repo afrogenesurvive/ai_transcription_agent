@@ -1875,8 +1875,8 @@ function UpdatesTab() {
               <Icon name="download" size="16" color="accent" /> Download Update
             </h3>
             <p className="confirm-dialog-text">
-              Download version <strong>{status.updateAvailable}</strong> now? The new version downloads in the background; you can install it
-              (Restart &amp; Install) once the download finishes.
+              Download version <strong>{status.updateAvailable}</strong> now? The new version downloads in the background; you can install it (Restart
+              &amp; Install) once the download finishes.
             </p>
             <div className="confirm-dialog-actions">
               <button className="btn-secondary" onClick={() => setShowDownloadConfirm(false)}>
@@ -3984,6 +3984,7 @@ const DOC_FILES = [
   { id: "dev_setup_installation", label: "Dev Setup", file: "dev_setup_installation.md" },
   { id: "electron_architecture", label: "Electron Architecture", file: "electron_architecture.md" },
   { id: "known_bugs", label: "Known Bugs", file: "known_bugs.md" },
+  { id: "licensing", label: "Licensing", file: "licensing.md" },
   { id: "system_overview", label: "System Overview", file: "system_overview.md" },
   { id: "ui_state_persistence", label: "UI State Persistence", file: "ui_state_persistence.md" },
   { id: "testing_checklist", label: "Testing Checklist", file: "testing_checklist.md" },
@@ -4185,7 +4186,8 @@ export default function DevPanel({ onClose }: Props) {
       {activeTab === "testing" && (
         <>
           {/* Sub-tab bar — styled like config-section-tabs */}
-          <div style={{ display: "flex", gap: 0, borderBottom: "1px solid var(--border)", background: "var(--bg)", flexShrink: 0, padding: "0 16px" }}>
+          <div
+            style={{ display: "flex", gap: 0, borderBottom: "1px solid var(--border)", background: "var(--bg)", flexShrink: 0, padding: "0 16px" }}>
             <span className="config-section-tab config-section-tab--readonly" style={{ cursor: "not-allowed" }}>
               <Icon name="smartphone" size="12" /> Frontend
             </span>

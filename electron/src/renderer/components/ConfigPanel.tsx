@@ -671,7 +671,7 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
       const result = await window.electronAPI?.exportConfig();
       if (result?.success) {
         const warn = result.warnings?.length ? ` (${result.warnings.length} warning(s): ${result.warnings.join("; ")})` : "";
-        setExportResult(`Exported to ${result.filePath}${warn}`);
+        setExportResult(`Exported (encrypted .gpg, decryptable with your license key) to ${result.filePath}${warn}`);
       } else if (result?.cancelled) {
         setExportResult(null);
       } else {
@@ -1477,21 +1477,21 @@ The system provides existing memory context at the start of each pipeline run. U
       {/* Header: action buttons only */}
       <div className="config-header">
         <div className="config-io-buttons">
-          <Tooltip content="Save current configuration to a JSON file for backup or transfer">
+          <Tooltip content="Save configuration to an encrypted .gpg file (OpenPGP, decryptable with your license key)">
             <button
               className="config-io-btn"
               onClick={handleExport}
               disabled={exporting || activeJobs.length > 0}
-              title="Export configuration to a JSON file">
+              title="Export configuration to an encrypted .gpg file">
               {exporting ? <Icon name="sync" size="14" /> : <Icon name="upload" size="14" />} Export
             </button>
           </Tooltip>
-          <Tooltip content="Load configuration from a previously exported JSON file">
+          <Tooltip content="Load configuration from an encrypted .gpg file (or legacy JSON)">
             <button
               className={`config-io-btn ${!configOk ? "config-io-btn--import-highlight" : ""}`}
               onClick={handleImport}
               disabled={importing || activeJobs.length > 0}
-              title="Import configuration from a JSON file">
+              title="Import configuration from an encrypted .gpg file">
               {importing ? <Icon name="sync" size="14" /> : <Icon name="download" size="14" />} Import
             </button>
           </Tooltip>
@@ -4172,8 +4172,8 @@ function UpdateStatusCard() {
               <Icon name="download" size="16" color="accent" /> Download Update
             </h3>
             <p className="confirm-dialog-text">
-              Download version <strong>{status.updateAvailable}</strong> now? The new version downloads in the background; you can install it
-              (Restart &amp; Install) once the download finishes.
+              Download version <strong>{status.updateAvailable}</strong> now? The new version downloads in the background; you can install it (Restart
+              &amp; Install) once the download finishes.
             </p>
             <div className="confirm-dialog-actions">
               <button className="btn-secondary" onClick={() => setShowDownloadConfirm(false)}>

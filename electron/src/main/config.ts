@@ -16,6 +16,8 @@
 import fs from "fs";
 import path from "path";
 import { app } from "electron";
+import { isLicensed, readStoredLicenseKey } from "./license";
+import { writeEncryptedFileAtRest, readEncryptedFileAtRest, migratePlaintextConfig } from "./config-encryption";
 
 export interface AppConfig {
   /** DeepSeek API key (required for LLM) */
@@ -209,7 +211,30 @@ export const REQUIRED_CONFIG_KEYS: (keyof AppConfig)[] = ["DEEPSEEK_API_KEY"];
 /** All known config keys (from the hardcoded DEFAULTS object). Used to validate imported data. */
 export const CONFIG_KEYS: (keyof AppConfig)[] = Object.keys(DEFAULTS) as (keyof AppConfig)[];
 
+/** Config keys holding secrets — never persisted to the plaintext config.defaults.json snapshot. */
+export const SECRET_CONFIG_KEYS: (keyof AppConfig)[] = [
+  "DEEPSEEK_API_KEY",
+  "GMAIL_CLIENT_ID",
+  "GMAIL_CLIENT_SECRET",
+  "GMAIL_REFRESH_TOKEN",
+  "GMAIL_USER",
+  "MS_CLIENT_ID",
+  "MS_REFRESH_TOKEN",
+  "MS_USER",
+  "ZOOM_CLIENT_ID",
+  "ZOOM_CLIENT_SECRET",
+  "ZOOM_REFRESH_TOKEN",
+  "ZOOM_USER",
+  "TRELLO_KEY",
+  "TRELLO_TOKEN",
+  "HUGGING_FACE_TOKEN",
+  "GITHUB_TOKEN",
+  "DSMON_PUSH_TOKEN",
+  "CLOUDFLARED_TUNNEL_TOKEN",
+];
+
 let userConfigPath: string;
+let userConfigGpgPath: string;
 let userConfigDefaultsPath: string;
 let cachedConfig: AppConfig | null = null;
 
@@ -217,6 +242,7 @@ function ensureUserDataDir(): void {
   const dir = app.getPath("userData");
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   userConfigPath = path.join(dir, "config.json");
+  userConfigGpgPath = path.join(dir, "config.json.gpg");
   userConfigDefaultsPath = path.join(dir, "config.defaults.json");
   ensureUserConfigDefaults();
 }
@@ -260,15 +286,15 @@ function ensureUserConfigDefaults(): void {
 
     // First launch — merge DEFAULTS with any already-saved user values so the
     // snapshot captures the full picture of what was originally shipped.
+    // Secrets are scrubbed so the plaintext defaults snapshot never holds them.
     const existing: Partial<AppConfig> = {};
-    if (fs.existsSync(userConfigPath)) {
-      try {
-        const raw = fs.readFileSync(userConfigPath, "utf8");
-        Object.assign(existing, JSON.parse(raw));
-      } catch {
-        // ignore parse errors
-      }
+    try {
+      const raw = readUserConfigRaw();
+      if (raw) Object.assign(existing, JSON.parse(raw));
+    } catch {
+      // ignore parse errors
     }
+    for (const key of SECRET_CONFIG_KEYS) existing[key] = "";
     const snapshot = { ...DEFAULTS, ...existing, [USER_CONFIG_DEFAULTS_VERSION_KEY]: app.getVersion() };
     fs.writeFileSync(userConfigDefaultsPath, JSON.stringify(snapshot, null, 2), "utf8");
   } catch {
@@ -322,18 +348,152 @@ export function restoreUserConfigDefaults(): AppConfig {
 export function setUserConfigDefaults(): AppConfig {
   ensureUserDataDir();
   const userVals = parseUserConfig();
-  const snapshot = { ...DEFAULTS, ...userVals, [USER_CONFIG_DEFAULTS_VERSION_KEY]: app.getVersion() };
+  const snapshot = { ...DEFAULTS, ...userVals, [USER_CONFIG_DEFAULTS_VERSION_KEY]: app.getVersion() } as Record<string, string>;
+  for (const key of SECRET_CONFIG_KEYS) snapshot[key] = "";
   fs.writeFileSync(userConfigDefaultsPath, JSON.stringify(snapshot, null, 2), "utf8");
   syncConfigToEnv();
   return getConfig();
 }
 
-/** Read the user config file from app.getPath("userData")/config.json. */
+/** The active license key used to encrypt/decrypt the at-rest config, if licensed. */
+function getActiveLicenseKey(): string | null {
+  return isLicensed() ? readStoredLicenseKey() : null;
+}
+
+/**
+ * Read the raw user-config JSON string.
+ * When licensed this decrypts config.json.gpg (falling back to a legacy
+ * plaintext config.json if present). When unlicensed the user config is
+ * deliberately not read (locked mode runs on defaults only).
+ */
+export function readUserConfigRaw(): string | null {
+  if (!userConfigPath) ensureUserDataDir();
+  const key = getActiveLicenseKey();
+  if (key && fs.existsSync(userConfigGpgPath)) {
+    try {
+      return readEncryptedFileAtRest(userConfigGpgPath, key);
+    } catch {
+      // wrong key / corrupt — fall back to plaintext below
+    }
+  }
+  if (fs.existsSync(userConfigPath)) {
+    return fs.readFileSync(userConfigPath, "utf8");
+  }
+  return null;
+}
+
+/** Write the user-config JSON string (encrypted at-rest when licensed). */
+function writeUserConfigRaw(contents: string): void {
+  if (!userConfigPath) ensureUserDataDir();
+  const key = getActiveLicenseKey();
+  if (key) {
+    writeEncryptedFileAtRest(userConfigGpgPath, contents, key);
+  } else {
+    fs.writeFileSync(userConfigPath, contents, "utf8");
+  }
+}
+
+/**
+ * Migrate a legacy plaintext config.json → config.json.gpg.
+ * Called after first license activation. Keeps config.json.bak until verified.
+ */
+export function migrateConfigToEncrypted(): { migrated: boolean; backupPath?: string } {
+  ensureUserDataDir();
+  const key = getActiveLicenseKey();
+  if (!key) return { migrated: false };
+  // Only auto-restore from backup when there is NO encrypted config yet — i.e.
+  // a genuinely deleted config.json.gpg. If the .gpg already exists, never
+  // resurrect a plaintext copy (that would leak secrets next to the encrypted one).
+  if (!fs.existsSync(userConfigGpgPath) && !fs.existsSync(userConfigPath) && fs.existsSync(`${userConfigPath}.bak`)) {
+    try {
+      const raw = fs.readFileSync(`${userConfigPath}.bak`, "utf8");
+      JSON.parse(raw); // sanity check
+      fs.writeFileSync(userConfigPath, raw, "utf8");
+    } catch {
+      // ignore — leave a broken backup alone
+    }
+  }
+  return migratePlaintextConfig(userConfigPath, userConfigGpgPath, key);
+}
+
+/** On-disk config integrity, for recovery UI (never silently default). */
+export interface ConfigIntegrity {
+  configGpg: "present" | "missing" | "corrupt";
+  backupExists: boolean;
+}
+
+export function getConfigIntegrity(): ConfigIntegrity {
+  ensureUserDataDir();
+  const gpgExists = fs.existsSync(userConfigGpgPath);
+  const backupExists = fs.existsSync(`${userConfigPath}.bak`);
+  let configGpg: ConfigIntegrity["configGpg"] = "missing";
+  if (gpgExists) {
+    const key = getActiveLicenseKey();
+    if (key) {
+      try {
+        readEncryptedFileAtRest(userConfigGpgPath, key);
+        configGpg = "present";
+      } catch {
+        configGpg = "corrupt";
+      }
+    } else {
+      // Present but can't be verified without a license — report as present.
+      configGpg = "present";
+    }
+  }
+  return { configGpg, backupExists };
+}
+
+/**
+ * Restore the config from config.json.bak (re-encrypts under the active license
+ * key when licensed, otherwise stages a plaintext config.json for migration).
+ */
+export function restoreConfigFromBackup(): { ok: boolean; error?: string } {
+  ensureUserDataDir();
+  const backupPath = `${userConfigPath}.bak`;
+  if (!fs.existsSync(backupPath)) return { ok: false, error: "No config backup found." };
+  try {
+    const raw = fs.readFileSync(backupPath, "utf8");
+    JSON.parse(raw); // sanity check
+    writeUserConfigRaw(raw);
+    invalidateConfigCache();
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || "Could not restore the config backup." };
+  }
+}
+
+/**
+ * Re-encrypt the at-rest config under a NEW license key (master rotation /
+ * re-issued seat key). Requires the old key (still stored) to decrypt first.
+ */
+export function reKeyConfig(newKey: string, oldKeyOverride?: string): { ok: boolean; error?: string } {
+  ensureUserDataDir();
+  const oldKey = oldKeyOverride || getActiveLicenseKey();
+  if (fs.existsSync(userConfigGpgPath)) {
+    if (!oldKey) return { ok: false, error: "No previous license key available to decrypt the existing config." };
+    try {
+      const plaintext = readEncryptedFileAtRest(userConfigGpgPath, oldKey);
+      writeEncryptedFileAtRest(userConfigGpgPath, plaintext, newKey);
+    } catch {
+      return { ok: false, error: "Could not decrypt the existing config with the old license key." };
+    }
+  }
+  // If a legacy plaintext config.json still exists, migrate it under the new key.
+  if (fs.existsSync(userConfigPath)) {
+    migratePlaintextConfig(userConfigPath, userConfigGpgPath, newKey);
+  }
+  return { ok: true };
+}
+
+/** Read the user config file from app.getPath("userData")/config.json (or config.json.gpg when licensed). */
 function parseUserConfig(): Partial<AppConfig> {
   try {
     if (!userConfigPath) ensureUserDataDir();
-    if (!fs.existsSync(userConfigPath)) return {};
-    const raw = fs.readFileSync(userConfigPath, "utf8");
+    // Locked mode (no license): defaults only — user config is never read.
+    if (!isLicensed()) return {};
+    const raw = readUserConfigRaw();
+    if (!raw) return {};
     const data = JSON.parse(raw);
     // Only pick known keys
     const result: Partial<AppConfig> = {};
@@ -406,7 +566,7 @@ export function invalidateConfigCache(): void {
 export function clearConfig(): AppConfig {
   invalidateConfigCache();
   ensureUserDataDir();
-  fs.writeFileSync(userConfigPath, "{}", "utf8");
+  writeUserConfigRaw("{}");
   syncConfigToEnv();
   return getConfig();
 }
@@ -419,9 +579,8 @@ export function saveConfig(values: Partial<AppConfig>): AppConfig {
   // Read existing user config to merge
   let existing: Partial<AppConfig> = {};
   try {
-    if (fs.existsSync(userConfigPath)) {
-      existing = JSON.parse(fs.readFileSync(userConfigPath, "utf8"));
-    }
+    const raw = readUserConfigRaw();
+    if (raw) existing = JSON.parse(raw);
   } catch {
     // ignore
   }
@@ -432,7 +591,7 @@ export function saveConfig(values: Partial<AppConfig>): AppConfig {
     if (merged[key] === "") delete merged[key];
   }
 
-  fs.writeFileSync(userConfigPath, JSON.stringify(merged, null, 2), "utf8");
+  writeUserConfigRaw(JSON.stringify(merged, null, 2));
   syncConfigToEnv();
   return getConfig();
 }
@@ -459,7 +618,7 @@ export function replaceConfig(values: Partial<AppConfig>): AppConfig {
     clean[key] = v;
   }
 
-  fs.writeFileSync(userConfigPath, JSON.stringify(clean, null, 2), "utf8");
+  writeUserConfigRaw(JSON.stringify(clean, null, 2));
   syncConfigToEnv();
   return getConfig();
 }

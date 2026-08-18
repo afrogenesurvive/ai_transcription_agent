@@ -159,6 +159,54 @@ contextBridge.exposeInMainWorld("electronAPI", {
   setDefaultConfig: (): Promise<{ success: boolean; agentDefaultsSaved?: boolean; error?: string; warnings?: string[] }> =>
     ipcRenderer.invoke("config:set-defaults"),
 
+  // ── License (per-seat, offline verification) ──
+  getLicenseStatus: (): Promise<{
+    status:
+      | { status: "unlicensed" }
+      | { status: "active"; sub: string; kid: string; exp: number; installedAt?: number }
+      | { status: "expired"; sub: string; kid: string; exp: number; installedAt?: number }
+      | { status: "invalid"; reason: string };
+    safeStorageAvailable: boolean;
+    configIntegrity: { licenseKeyFile: "present" | "missing"; configGpg: "present" | "missing" | "corrupt"; backupExists: boolean };
+  }> => ipcRenderer.invoke("license:get-status"),
+  activateLicense: (
+    key: string,
+  ): Promise<{
+    success: boolean;
+    reason?: string;
+    migration?: { migrated: boolean; backupPath?: string };
+    safeStorageAvailable?: boolean;
+    status?:
+      | { status: "unlicensed" }
+      | { status: "active"; sub: string; kid: string; exp: number; installedAt?: number }
+      | { status: "expired"; sub: string; kid: string; exp: number; installedAt?: number }
+      | { status: "invalid"; reason: string };
+  }> => ipcRenderer.invoke("license:activate", key),
+  deactivateLicense: (): Promise<{
+    success: boolean;
+    safeStorageAvailable?: boolean;
+    status?:
+      | { status: "unlicensed" }
+      | { status: "active"; sub: string; kid: string; exp: number; installedAt?: number }
+      | { status: "expired"; sub: string; kid: string; exp: number; installedAt?: number }
+      | { status: "invalid"; reason: string };
+  }> => ipcRenderer.invoke("license:deactivate"),
+  reKeyLicense: (
+    newKey: string,
+  ): Promise<{
+    success: boolean;
+    reason?: string;
+    error?: string;
+    safeStorageAvailable?: boolean;
+    status?:
+      | { status: "unlicensed" }
+      | { status: "active"; sub: string; kid: string; exp: number; installedAt?: number }
+      | { status: "expired"; sub: string; kid: string; exp: number; installedAt?: number }
+      | { status: "invalid"; reason: string };
+  }> => ipcRenderer.invoke("license:re-key", newKey),
+  getBridgeToken: (): Promise<{ token: string } | { error: string }> => ipcRenderer.invoke("license:get-bridge-token"),
+  restoreConfigFromBackup: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke("config:restore-backup"),
+
   // ── UI State (userData/ui-state.json — renderer is the single writer) ──
   getUiState: (): Promise<Record<string, any>> => ipcRenderer.invoke("ui-state:get"),
   saveUiState: (state: Record<string, any>): Promise<boolean> => ipcRenderer.invoke("ui-state:save", state),
@@ -278,8 +326,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // ── Shell & File system ──
   openPath: (filePath: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke("shell:openPath", filePath),
   fileExists: (filePath: string): Promise<boolean> => ipcRenderer.invoke("fs:fileExists", filePath),
-  readFileBytes: (filePath: string): Promise<{ ok: boolean; data?: Uint8Array; error?: string }> =>
-    ipcRenderer.invoke("fs:readFileBytes", filePath),
+  readFileBytes: (filePath: string): Promise<{ ok: boolean; data?: Uint8Array; error?: string }> => ipcRenderer.invoke("fs:readFileBytes", filePath),
   runInTerminal: (params: { command: string; cwd?: string }): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke("shell:runInTerminal", params),
 

@@ -10,6 +10,7 @@
  */
 
 import fs from "fs";
+import crypto from "crypto";
 import { spawn, execSync, execFile } from "child_process";
 import { app, BrowserWindow, Tray, Menu, nativeImage, Notification, ipcMain, dialog, shell, protocol } from "electron";
 import path from "path";
@@ -158,9 +159,7 @@ app.on("second-instance", () => {
 // ── Custom scheme for in-app docs (images in the User Guide / Dev Guide) ──
 // Registers app-doc:// so <img src="app-doc://screenshots/user-guide/….png">
 // resolves to a file under the docs directory in both dev and packaged mode.
-protocol.registerSchemesAsPrivileged([
-  { scheme: "app-doc", privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
-]);
+protocol.registerSchemesAsPrivileged([{ scheme: "app-doc", privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
 
 import {
   startAll,
@@ -203,8 +202,26 @@ import {
   setUserConfigDefaults,
   syncConfigToEnv,
   saveAgentConfigToDisk,
+  migrateConfigToEncrypted,
+  reKeyConfig,
+  invalidateConfigCache,
+  getConfigIntegrity,
+  restoreConfigFromBackup,
+  readUserConfigRaw,
 } from "./config";
 import { getUiState, saveUiState } from "./ui-state";
+import {
+  getLicenseStatusPayload,
+  activateLicense,
+  deactivateLicense,
+  readStoredLicenseKey,
+  verifyLicenseKey,
+  LICENSE_KEY_RE,
+  logLicenseFlow,
+  logCurrentLicenseStatus,
+  getLicenseKeyFileStatus,
+} from "./license";
+import { encryptOpenPgpText, decryptOpenPgpText } from "./config-encryption";
 
 // Ensure every known config key is represented in the .env file(s) so a fresh
 // reader (or a subprocess that reads .env directly) sees the full configuration.
@@ -1321,6 +1338,136 @@ ipcMain.handle("api:checkDeepSeekBalance", async () => {
   }
 });
 
+// ── License IPC ──
+
+ipcMain.handle("license:get-status", () => {
+  return {
+    ...getLicenseStatusPayload(),
+    configIntegrity: {
+      ...getConfigIntegrity(),
+      licenseKeyFile: getLicenseKeyFileStatus(),
+    },
+  };
+});
+
+ipcMain.handle("license:activate", (_event, key: string) => {
+  // Capture the current key BEFORE activation overwrites it. If config.json.gpg
+  // already exists (encrypted under the previous key), re-key it to the new
+  // license — otherwise switching licenses makes the config unreadable and the
+  // app reports "config missing" even though the file is present.
+  const oldKey = readStoredLicenseKey();
+  const res = activateLicense(key);
+  if (res.ok) {
+    // activateLicense() persisted the key first; now migrate any legacy
+    // plaintext config.json → config.json.gpg under the newly stored key.
+    const migration = migrateConfigToEncrypted();
+    logLicenseFlow("info", "config.migrated", { migrated: migration.migrated });
+    if (oldKey && oldKey !== key) {
+      const rekey = reKeyConfig(key, oldKey);
+      if (rekey.ok) {
+        logLicenseFlow("info", "config.rekeyed", {});
+      } else {
+        logLicenseFlow("warn", "config.rekey.failed", { error: rekey.error });
+      }
+    }
+    invalidateConfigCache(); // re-read (decrypted) config after unlock
+    return { success: true, migration, ...getLicenseStatusPayload() };
+  }
+  return { success: false, reason: res.reason };
+});
+
+ipcMain.handle("license:deactivate", () => {
+  deactivateLicense();
+  invalidateConfigCache();
+  return { success: true, ...getLicenseStatusPayload() };
+});
+
+ipcMain.handle("license:re-key", (_event, newKey: string) => {
+  const res = verifyLicenseKey(newKey);
+  if (!res.ok) {
+    logLicenseFlow("warn", "rekey.failed", { reason: res.reason });
+    return { success: false, reason: res.reason };
+  }
+  const rekey = reKeyConfig(newKey);
+  if (!rekey.ok) {
+    logLicenseFlow("error", "rekey.failed", { error: rekey.error });
+    return { success: false, error: rekey.error };
+  }
+  activateLicense(newKey);
+  invalidateConfigCache();
+  logLicenseFlow("info", "rekeyed", { sub: res.claims.sub, kid: res.claims.kid, exp: res.claims.exp });
+  return { success: true, ...getLicenseStatusPayload() };
+});
+
+// ── Bridge license challenge/response (job submission enforcement) ──
+// The renderer fetches a short-lived session token from the bridge via this
+// IPC and attaches it as X-License-Token on job-creation requests. The seat
+// private key never leaves the main process (signing happens here).
+
+let bridgeTokenCache: { token: string; expiresAt: number } | null = null;
+const BRIDGE_TOKEN_TTL_MS = 11 * 60 * 60 * 1000; // reuse a token until ~1h before expiry
+
+async function getBridgeLicenseToken(): Promise<{ token: string } | { error: string }> {
+  if (bridgeTokenCache && Date.now() < bridgeTokenCache.expiresAt) {
+    return { token: bridgeTokenCache.token };
+  }
+  const key = readStoredLicenseKey();
+  if (!key) return { error: "No active license." };
+  const m = LICENSE_KEY_RE.exec(key);
+  if (!m) return { error: "Invalid stored license key." };
+  const [, certB64, sigB64, privB64] = m;
+  try {
+    logLicenseFlow("info", "bridge.challenge.requested");
+    const challengeRes = await fetch("http://127.0.0.1:5010/license/challenge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cert: certB64, sig: sigB64 }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!challengeRes.ok) {
+      logLicenseFlow("warn", "bridge.challenge.rejected", { status: challengeRes.status });
+      return { error: `Bridge license challenge failed (${challengeRes.status}).` };
+    }
+    logLicenseFlow("info", "bridge.challenge.ok");
+    const challenge = await challengeRes.json();
+    const nonceBytes = Buffer.from(challenge.nonce, "base64url");
+    const cert = JSON.parse(Buffer.from(certB64, "base64url").toString("utf8"));
+    const seatPriv = crypto.createPrivateKey({ key: { kty: "OKP", crv: "Ed25519", x: cert.pub, d: privB64 }, format: "jwk" });
+    const sig = crypto.sign(null, nonceBytes, seatPriv);
+
+    const respondRes = await fetch("http://127.0.0.1:5010/license/respond", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ challenge_id: challenge.challenge_id, sig: Buffer.from(sig).toString("base64url") }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!respondRes.ok) {
+      logLicenseFlow("warn", "bridge.respond.rejected", { status: respondRes.status });
+      return { error: `Bridge license response failed (${respondRes.status}).` };
+    }
+    const respond = await respondRes.json();
+    bridgeTokenCache = { token: respond.token, expiresAt: Date.now() + BRIDGE_TOKEN_TTL_MS };
+    logLicenseFlow("info", "bridge.token.issued", { sub: respond.sub, kid: respond.kid });
+    return { token: respond.token };
+  } catch (err: any) {
+    logLicenseFlow("warn", "bridge.challenge.error", { error: err.message });
+    return { error: `License challenge error: ${err.message}` };
+  }
+}
+
+ipcMain.handle("license:get-bridge-token", async () => getBridgeLicenseToken());
+
+ipcMain.handle("config:restore-backup", () => {
+  addLog("main", "info", "[config] restore-from-backup requested");
+  const res = restoreConfigFromBackup();
+  if (res.ok) {
+    logLicenseFlow("info", "config.restored_from_backup");
+  } else {
+    logLicenseFlow("warn", "config.restore_backup.failed", { error: res.error });
+  }
+  return res;
+});
+
 // ── Config Export / Import / Clear IPC ──
 
 ipcMain.handle("config:clear", async () => {
@@ -1384,13 +1531,15 @@ ipcMain.handle("config:clear", async () => {
 ipcMain.handle("config:export", async () => {
   addLog("main", "info", "[config] export requested");
   try {
-    // Read user config file
-    const userDataPath = app.getPath("userData");
-    const configPath = path.join(userDataPath, "config.json");
+    // Read the user config via the config manager (handles the encrypted at-rest
+    // config.json.gpg when licensed). Directly reading the plaintext config.json
+    // would export an EMPTY userConfig once the config is encrypted.
     let userConfig: Record<string, any> = {};
-    if (fs.existsSync(configPath)) {
-      const raw = fs.readFileSync(configPath, "utf8");
-      userConfig = JSON.parse(raw);
+    try {
+      const raw = readUserConfigRaw();
+      if (raw) userConfig = JSON.parse(raw);
+    } catch (err: any) {
+      addLog("main", "warn", `[config] Failed to read user config for export: ${err.message}`);
     }
 
     // Read user config defaults snapshot
@@ -1432,11 +1581,20 @@ ipcMain.handle("config:export", async () => {
       defaultsConfig,
     };
 
+    // Licensed-only: the license key both unlocks the app and decrypts the config.
+    const licenseKey = readStoredLicenseKey();
+    if (!licenseKey) {
+      return { success: false, error: "Exporting configuration requires an active license." };
+    }
+
     // Show save dialog
     const result = await dialog.showSaveDialog(mainWindow!, {
       title: "Export Configuration",
-      defaultPath: path.join(app.getPath("documents"), `transcription-agent-config-${new Date().toISOString().slice(0, 10)}.json`),
-      filters: [{ name: "JSON Config", extensions: ["json"] }],
+      defaultPath: path.join(app.getPath("documents"), `transcription-agent-config-${new Date().toISOString().slice(0, 10)}.gpg`),
+      filters: [
+        { name: "Encrypted Config", extensions: ["gpg"] },
+        { name: "JSON Config", extensions: ["json"] },
+      ],
     });
 
     if (result.canceled || !result.filePath) {
@@ -1444,8 +1602,12 @@ ipcMain.handle("config:export", async () => {
       return { success: false, cancelled: true };
     }
 
-    fs.writeFileSync(result.filePath, JSON.stringify(exportData, null, 2), "utf8");
-    addLog("main", "info", `Config exported to ${result.filePath}`);
+    // Encrypt the whole bundle with OpenPGP (gpg-compatible), passphrase = license key.
+    const plaintext = JSON.stringify(exportData, null, 2);
+    const armored = await encryptOpenPgpText(plaintext, licenseKey);
+    fs.writeFileSync(result.filePath, armored, "utf8");
+    addLog("main", "info", `Config exported (encrypted) to ${result.filePath}`);
+    logLicenseFlow("info", "config.export.encrypted", { filePath: result.filePath });
     return { success: true, filePath: result.filePath, warnings };
   } catch (err: any) {
     addLog("main", "error", `Config export failed: ${err.message}`);
@@ -1456,6 +1618,12 @@ ipcMain.handle("config:export", async () => {
 ipcMain.handle("config:import", async () => {
   addLog("main", "info", "[config] import requested");
   try {
+    // Licensed-only import: decrypting an exported config requires the license key.
+    const licenseKey = readStoredLicenseKey();
+    if (!licenseKey) {
+      return { success: false, error: "Importing configuration requires an active license. Activate a license in About → License first." };
+    }
+
     // Check for active jobs before allowing import
     let hasActiveJobs = false;
     try {
@@ -1480,10 +1648,19 @@ ipcMain.handle("config:import", async () => {
       addLog("main", "debug", "Active job check skipped — backend not reachable");
     }
 
-    // Show open dialog
+    // Show open dialog — accept both encrypted .gpg (OpenPGP, the current export
+    // format) and legacy plaintext .json. Shared by Config → Import and the
+    // ServerStatusBanner's Import Config (both use config:import).
     const result = await dialog.showOpenDialog(mainWindow!, {
       title: "Import Configuration",
-      filters: [{ name: "JSON Config", extensions: ["json"] }],
+      // IMPORTANT: on macOS the FIRST filter group is the active default in the
+      // open dialog, and any file that doesn't match it is greyed out. Keep
+      // .gpg + .json together so both encrypted exports and plaintext JSON
+      // configs are selectable without switching the filter dropdown.
+      filters: [
+        { name: "Config Files", extensions: ["gpg", "json"] },
+        { name: "All Files", extensions: ["*"] },
+      ],
       properties: ["openFile"],
     });
 
@@ -1493,8 +1670,18 @@ ipcMain.handle("config:import", async () => {
     }
 
     const filePath = result.filePaths[0];
-    const raw = fs.readFileSync(filePath, "utf8");
+    let raw = fs.readFileSync(filePath, "utf8");
+    // Exported configs are OpenPGP-encrypted (.gpg); decrypt with the license key.
+    if (raw.trim().startsWith("-----BEGIN PGP MESSAGE-----")) {
+      try {
+        raw = await decryptOpenPgpText(raw.trim(), licenseKey);
+      } catch (err: any) {
+        addLog("main", "error", `[config] import decrypt failed: ${err.message}`);
+        return { success: false, error: "Could not decrypt the config file with the active license key." };
+      }
+    }
     const importData = JSON.parse(raw);
+    logLicenseFlow("info", "config.import.decrypted");
 
     // Validate format
     if (!importData.version || !importData.userConfig) {
@@ -1675,18 +1862,68 @@ ipcMain.handle("config:import", async () => {
     // Reset all services so they pick up the new config. Runs AFTER the user /
     // agent / defaults writes above so the restarted runner loads the imported
     // agent instructions (the bridge save path doesn't touch the restart flag).
-    try {
-      await restartAll();
-      addLog("main", "info", "All services restarted after config import");
-    } catch (err: any) {
-      addLog("main", "error", `Failed to restart all services: ${err.message}`);
-      // Fall back to starting services individually
-      try {
-        await startAll();
-        addLog("main", "info", "Services started after config import (fallback)");
-      } catch (err2: any) {
-        addLog("main", "error", `Failed to start services: ${err2.message}`);
+    //
+    // GUARD: don't force a restart while the backend is still cold-starting —
+    // a restart mid-start races and can leave :5001 unready ("process exited
+    // before becoming ready", see startup-error.log). Wait (bounded) for the
+    // backend to become ready, then restart cleanly; if it never becomes ready,
+    // skip the forced restart and let changes apply on the next app start.
+    const waitForBackendReady = async (timeoutMs: number): Promise<boolean> => {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        try {
+          const res = await fetch("http://127.0.0.1:5001/health", { signal: AbortSignal.timeout(2000) });
+          if (res.ok) return true;
+        } catch {
+          // not ready yet — keep waiting
+        }
+        await new Promise((r) => setTimeout(r, 2000));
       }
+      return false;
+    };
+
+    let backendReady = false;
+    try {
+      const res = await fetch("http://127.0.0.1:5001/health", { signal: AbortSignal.timeout(2000) });
+      backendReady = res.ok;
+    } catch {
+      backendReady = false;
+    }
+
+    if (!backendReady) {
+      addLog("main", "warn", "[config] Backend not ready — waiting for it to finish starting before restarting the Python backend");
+      backendReady = await waitForBackendReady(60_000);
+    }
+
+    // Always restart the Node services (agent runner + bridge) so they pick up
+    // the imported config/env immediately. They don't conflict with a
+    // cold-starting Python backend, and the agent may have crashed at launch
+    // (e.g. missing API key) — it must not be left stale by a deferred restart.
+    try {
+      await restartAgentRunner();
+      addLog("main", "info", "Agent runner restarted after config import");
+    } catch (err: any) {
+      addLog("main", "error", `Failed to restart agent runner: ${err.message}`);
+    }
+    try {
+      await restartBridgeServer();
+      addLog("main", "info", "Bridge restarted after config import");
+    } catch (err: any) {
+      addLog("main", "error", `Failed to restart bridge: ${err.message}`);
+    }
+
+    // Python backend: only restart once it's ready (bounded). If it never
+    // becomes ready, skip its forced restart — backend-manager respawns it on
+    // the next lifecycle with a fresh getChildEnv(), so it picks up config then.
+    if (backendReady) {
+      try {
+        await restartPythonBackend();
+        addLog("main", "info", "Python backend restarted after config import");
+      } catch (err: any) {
+        addLog("main", "error", `Failed to restart Python backend: ${err.message}`);
+      }
+    } else {
+      addLog("main", "warn", "[config] Python backend not ready in time — skipping its forced restart; it will pick up config on its next start");
     }
 
     return { success: true, agentConfigImported, defaultsImported, userDefaultsImported, filePath };
@@ -3078,10 +3315,7 @@ const DOC_MIME_TYPES: Record<string, string> = {
 
 /** Resolve the docs directory (dev: repo docs/; packaged: resources/docs). */
 function resolveDocsRoot(): string {
-  const candidates = [
-    path.join(__dirname, "..", "..", "..", "docs"),
-    path.join(app.getAppPath(), "..", "docs"),
-  ];
+  const candidates = [path.join(__dirname, "..", "..", "..", "docs"), path.join(app.getAppPath(), "..", "docs")];
   if (app.isPackaged) {
     candidates.unshift(path.join(process.resourcesPath, "..", "docs"));
     candidates.unshift(path.join(process.resourcesPath, "docs"));
@@ -3140,6 +3374,17 @@ app.whenReady().then(async () => {
   // Create window first (so user sees something while backend starts)
   createWindow();
   createTray();
+
+  // Record the initial license state (censored) to the live log + license.log.
+  logCurrentLicenseStatus();
+
+  // Detect missing/corrupt config so the user is informed (never silent defaults).
+  const integrity = getConfigIntegrity();
+  if (integrity.configGpg === "missing") {
+    logLicenseFlow("warn", "config.integrity.missing", { backup: integrity.backupExists });
+  } else if (integrity.configGpg === "corrupt") {
+    logLicenseFlow("warn", "config.integrity.undecryptable");
+  }
 
   // macOS 10.14+: trigger the system's one-time notification permission dialog.
   // Without this, the user must manually enable notifications in System Settings.

@@ -38,6 +38,9 @@ sentence-transformers~=5.1
 # Utility
 python-dotenv~=1.2.2
 
+# License verification (Ed25519 seat certs + challenge-response) — see license.py
+cryptography~=45.0
+
 # ── Transitive security pins (pip-audit 2026-08-08) ──
 # Force patched versions of transitive deps that pip-audit flagged. These are
 # safe patch/minor bumps; they do not affect the ML stack (torch 2.8 / pyannote
