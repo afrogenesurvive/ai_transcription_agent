@@ -8,6 +8,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useServiceStatus, SERVICES, SERVICE_LABELS, type ServiceName } from "../hooks/serviceStatusContext";
+import type { ConfigIntegrity } from "../types";
 import Icon from "./Icon";
 
 const SERVICE_ICONS: Record<string, string> = {
@@ -19,13 +20,18 @@ const SERVICE_ICONS: Record<string, string> = {
 
 const COUNTDOWN_SECONDS = 25;
 
-export default function ServerStatusBanner({ onConfigImported }: { onConfigImported?: () => void }) {
+export default function ServerStatusBanner({
+  onConfigImported,
+  onLicenseActivated,
+}: {
+  onConfigImported?: () => void;
+  onLicenseActivated?: () => void;
+}) {
   const {
     services,
     diarizationOk,
     diarizationError,
     diarizationModel,
-    hfTokenConfigured,
     diarizationStatus,
     diarizationProgress,
     ollamaOk,
@@ -42,9 +48,15 @@ export default function ServerStatusBanner({ onConfigImported }: { onConfigImpor
   const [countdownActive, setCountdownActive] = useState(true);
   const [visible, setVisible] = useState(true);
   const [configMissing, setConfigMissing] = useState(false);
-  // No Hugging Face token configured — importing a config that contains the token
-  // is the setup-path fix, so the Import Config button should appear in this case too.
-  const needsToken = hfTokenConfigured === false;
+  // License state: on a fresh/unlicensed run the user cannot import config
+  // (import is licensed-only), so the banner must guide them to Activate License.
+  const [licensed, setLicensed] = useState<boolean | null>(null);
+  const [bannerError, setBannerError] = useState<string | null>(null);
+  // Inline license key entry (the banner overlay blocks About → License).
+  const [licenseInput, setLicenseInput] = useState("");
+  const [activating, setActivating] = useState(false);
+  const [licenseSuccess, setLicenseSuccess] = useState<string | null>(null);
+  const [configIntegrity, setConfigIntegrity] = useState<ConfigIntegrity | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasTriggeredCheck = useRef(false);
   const initialMount = useRef(true);
@@ -60,6 +72,48 @@ export default function ServerStatusBanner({ onConfigImported }: { onConfigImpor
       cancelled = true;
     };
   }, []);
+
+  // Load license state and re-poll while the banner is up, so activating a
+  // license in About → License updates the banner without a restart. Stops
+  // polling once a license is active.
+  const licensedRef = useRef(false);
+  useEffect(() => {
+    let cancelled = false;
+    const check = () => {
+      window.electronAPI?.getLicenseStatus().then((p) => {
+        const isLicensed = p?.status?.status === "active";
+        licensedRef.current = isLicensed;
+        if (!cancelled) {
+          setLicensed(isLicensed);
+          setConfigIntegrity(p?.configIntegrity ?? null);
+        }
+      });
+    };
+    check();
+    const id = setInterval(() => {
+      if (licensedRef.current) {
+        clearInterval(id);
+        return;
+      }
+      check();
+    }, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
+  // When a license becomes active (user just activated in About → License),
+  // re-check config + servers so the banner can clear without waiting for the
+  // 25s countdown.
+  const wasLicensedRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (licensed === true && wasLicensedRef.current === false) {
+      window.electronAPI?.checkConfig().then((r) => setConfigMissing(!r.ok));
+      onCheckServers();
+    }
+    wasLicensedRef.current = licensed;
+  }, [licensed, onCheckServers]);
 
   // Countdown timer: 25 → 0, then trigger auto-check.
   // The interval updater must be PURE — React invokes updater functions during
@@ -127,6 +181,7 @@ export default function ServerStatusBanner({ onConfigImported }: { onConfigImpor
   // main process imports and then restarts all services (config:import).
   const handleImportConfig = useCallback(async () => {
     setRestarting((prev) => ({ ...prev, _import: true }));
+    setBannerError(null);
     const result = await window.electronAPI?.importConfig();
     setRestarting((prev) => ({ ...prev, _import: false }));
     if (result?.success) {
@@ -134,12 +189,65 @@ export default function ServerStatusBanner({ onConfigImported }: { onConfigImpor
       setConfigMissing(!cfg?.ok);
       onCheckServers();
       onConfigImported?.();
+    } else if (result?.error) {
+      // Surface the failure (e.g. import blocked without a license) instead of
+      // failing silently.
+      setBannerError(result.error);
     }
   }, [onCheckServers, onConfigImported]);
+
+  // Inline license activation (the banner overlay blocks About → License, so
+  // the key entry lives here). Wired to the same license:activate IPC the
+  // About → License tab uses.
+  const handleActivateLicense = useCallback(async () => {
+    const key = licenseInput.trim();
+    if (!key || activating) return;
+    setActivating(true);
+    setBannerError(null);
+    const res = await window.electronAPI?.activateLicense(key);
+    setActivating(false);
+    if (res?.success) {
+      setLicenseInput("");
+      setBannerError(null);
+      setLicenseSuccess("License activated — services starting…");
+      window.setTimeout(() => setLicenseSuccess(null), 4000);
+      // Tell App to refresh its license state so the UI unlocks immediately
+      // (gating is driven by App, not this banner).
+      onLicenseActivated?.();
+      // licensed state flips via the polling effect; refresh config + services
+      // so the banner can clear.
+      window.electronAPI?.checkConfig().then((r) => setConfigMissing(!r.ok));
+      onCheckServers();
+      onConfigImported?.();
+    } else {
+      setBannerError(licenseReasonText(res?.reason));
+    }
+  }, [licenseInput, activating, onLicenseActivated, onCheckServers, onConfigImported]);
+
+  function licenseReasonText(reason?: string): string {
+    const map: Record<string, string> = {
+      malformed: "That doesn't look like a valid license key.",
+      malformed_cert: "The key payload is unreadable.",
+      app_mismatch: "This key was not issued for this application.",
+      unknown_kid: "This key was signed by an unknown issuer.",
+      revoked_kid: "This key's issuer has been revoked.",
+      revoked_seat: "This license key has been revoked.",
+      retired_kid: "This key's issuer has been retired — request a new key.",
+      bad_signature: "The key signature is invalid.",
+      bad_seat_key: "The key's seat key is unreadable.",
+      key_mismatch: "The key doesn't match its seat certificate.",
+      expired: "This license has expired — enter a new key.",
+    };
+    return reason ? map[reason] || `Invalid key (${reason}).` : "Unknown error.";
+  }
 
   const handleCloseApp = useCallback(async () => {
     await window.electronAPI?.closeApp();
   }, []);
+
+  // Dismiss the overlay so the user can reach the underlying UI (e.g. Config to
+  // fix missing keys) even while services are down. Re-shows on next check/start.
+  const handleDismiss = useCallback(() => setVisible(false), []);
 
   type ItemInfo = { name: string; label: string; icon: string; status: boolean | null };
   const allItems: ItemInfo[] = [];
@@ -178,6 +286,9 @@ export default function ServerStatusBanner({ onConfigImported }: { onConfigImpor
   return (
     <div className="ssb-overlay">
       <div className="ssb-card ssb-card--popover">
+        <button className="ssb-dismiss-btn" onClick={handleDismiss} title="Dismiss — continue using the app">
+          <Icon name="close" size="14" />
+        </button>
         {/* Spinner header with circular progress tied to countdown */}
         <div className="ssb-header ssb-header--center">
           <div className="ssb-spinner-wrap">
@@ -214,19 +325,44 @@ export default function ServerStatusBanner({ onConfigImported }: { onConfigImpor
           </div>
           <div className="ssb-header-text">
             <h2 className="ssb-title">Setting Up&hellip;</h2>
-            {(configMissing || needsToken) && (
+            {configMissing && configIntegrity?.configGpg === "missing" && licensed === true && (
               <button
                 className="ssb-import-config-btn"
                 onClick={handleImportConfig}
                 disabled={restarting._import}
-                title={
-                  needsToken && !configMissing
-                    ? "No Hugging Face token configured — import a config that includes one, then services restart automatically"
-                    : "First install? Select a config file, then services restart automatically"
-                }>
+                title="First install? Select a config file, then services restart automatically">
                 <Icon name="download" size="14" /> Import Config
               </button>
             )}
+            {configMissing && configIntegrity?.configGpg === "corrupt" && licensed === true && (
+              <p className="ssb-license-hint">
+                <Icon name="restore" size="12" /> A config file exists but can't be decrypted with this license — re-import it (Config &rarr; Import) or restore the backup (About &rarr; License).
+              </p>
+            )}
+            {licensed === false && (
+              <div className="ssb-license-entry">
+                <input
+                  className="ssb-license-input"
+                  type="text"
+                  placeholder="Paste your license key (TA1.…)"
+                  value={licenseInput}
+                  onChange={(e) => setLicenseInput(e.target.value)}
+                  spellCheck={false}
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                />
+                <button className="ssb-license-activate-btn" onClick={handleActivateLicense} disabled={activating || !licenseInput.trim()}>
+                  <Icon name="key" size="14" /> {activating ? "Activating…" : "Activate"}
+                </button>
+              </div>
+            )}
+            {licensed === false && configIntegrity?.configGpg === "missing" && configIntegrity.backupExists && (
+              <p className="ssb-license-hint">
+                <Icon name="restore" size="12" /> A config backup was found — it will be restored after activation.
+              </p>
+            )}
+            {licenseSuccess && <p className="ssb-license-success">{licenseSuccess}</p>}
+            {bannerError && <p className="ssb-import-error">{bannerError}</p>}
             {countdownDone && (
               <div className="ssb-retry-actions">
                 <button className="ssb-retry-btn" onClick={handleRestartAll} disabled={anyBusy}>

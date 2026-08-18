@@ -56,6 +56,7 @@ import patches  # noqa: F401  (monkey-patches speechbrain + torchaudio + pyannot
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from config import config
 
@@ -72,9 +73,15 @@ from routes.memory import router as memory_router
 from routes.queue import router as queue_router
 from routes.agent import router as agent_router
 from routes.system import router as system_router
+from license import router as license_router, license_gate_middleware
 
 
 app = FastAPI(title="Meeting Transcription Backend", version="1.0.0", lifespan=lifespan)
+
+# License gate runs inner-most so CORS (added after) stays outermost and applies
+# headers to gated 403 responses too. Job-execution endpoints require a valid
+# X-License-Token issued by POST /license/challenge + /license/respond.
+app.add_middleware(BaseHTTPMiddleware, dispatch=license_gate_middleware)
 
 # Allow cross-origin requests from the Electron renderer (Vite dev server on :5173)
 app.add_middleware(
@@ -97,6 +104,7 @@ app.include_router(gates_router)
 app.include_router(memory_router)
 app.include_router(queue_router)
 app.include_router(agent_router)
+app.include_router(license_router)
 
 
 if __name__ == "__main__":

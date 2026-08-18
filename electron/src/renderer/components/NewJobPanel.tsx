@@ -37,6 +37,8 @@ interface Props {
   onUploadByPath: (params: NewJobSubmitParams) => void;
   uploading: boolean;
   disabled?: boolean;
+  /** Why the panel is disabled (for an accurate notice): "job" = job running, "license" = no active license. */
+  disabledReason?: "job" | "license";
   initialSkipSteps?: string[];
   refreshTrigger?: number;
   /** Navigate to Config → Services (used when Teams/Zoom credentials aren't configured). */
@@ -50,7 +52,18 @@ const TABS: Array<{ id: NewJobTab; label: string; icon: string; hint: string }> 
 ];
 
 export default function NewJobPanel(props: Props) {
-  const { file, onFileChange, onUpload, onUploadByPath, uploading, disabled, initialSkipSteps, refreshTrigger, onOpenConfigServices } = props;
+  const {
+    file,
+    onFileChange,
+    onUpload,
+    onUploadByPath,
+    uploading,
+    disabled,
+    disabledReason,
+    initialSkipSteps,
+    refreshTrigger,
+    onOpenConfigServices,
+  } = props;
   // Persisted so the panel reopens on the last-used tab (cleared on submit via App.clearScope("newForm")).
   const [tab, setTab] = useUiStateValue<NewJobTab>("newForm.tab", "upload");
 
@@ -81,6 +94,7 @@ export default function NewJobPanel(props: Props) {
           onUploadByPath={onUploadByPath}
           uploading={uploading}
           disabled={disabled}
+          disabledReason={disabledReason}
           initialSkipSteps={initialSkipSteps}
           refreshTrigger={refreshTrigger}
         />

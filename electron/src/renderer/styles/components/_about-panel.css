@@ -492,3 +492,200 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ── About — License tab ── */
+
+.about-license {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 16px;
+  max-width: 640px;
+}
+
+.about-license-desc {
+  font-size: var(--fs-13);
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.about-license-warn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-12);
+  color: var(--warn, #d29922);
+  background: color-mix(in srgb, var(--warn, #d29922) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn, #d29922) 40%, transparent);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  margin: 0;
+}
+
+.about-license-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-13);
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.about-license-status--unlicensed {
+  border-color: color-mix(in srgb, var(--text-muted) 40%, transparent);
+  color: var(--text-muted);
+}
+
+.about-license-status--active {
+  border-color: color-mix(in srgb, var(--ok, #3fb950) 50%, transparent);
+  color: var(--ok, #3fb950);
+}
+
+.about-license-status--expired {
+  border-color: color-mix(in srgb, var(--warn, #d29922) 50%, transparent);
+  color: var(--warn, #d29922);
+}
+
+.about-license-status--invalid {
+  border-color: color-mix(in srgb, var(--danger, #f85149) 50%, transparent);
+  color: var(--danger, #f85149);
+}
+
+.about-license-status strong {
+  font-weight: 600;
+}
+
+.about-license-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.about-license-input {
+  width: 100%;
+  resize: vertical;
+  font-family: var(--font-mono, monospace);
+  font-size: var(--fs-12);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+
+.about-license-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.about-license-btn {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--accent);
+  color: var(--on-accent, #000);
+  border: none;
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: var(--fs-13);
+  font-family: var(--font);
+  transition: opacity 0.15s;
+}
+
+.about-license-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.about-license-btn--danger {
+  background: var(--danger, #f85149);
+  color: #fff;
+}
+
+.about-license-msg {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: var(--fs-12);
+  margin: 0;
+}
+
+.about-license-msg--ok {
+  color: var(--ok, #3fb950);
+}
+
+.about-license-msg--err {
+  color: var(--danger, #f85149);
+}
+
+.about-license-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.about-license-hint {
+  font-size: var(--fs-12);
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ── Config recovery (accidental deletion / wrong-key protection) ── */
+
+.about-license-recovery {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--warn, #d29922) 45%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--warn, #d29922) 8%, transparent);
+}
+
+.about-license-recovery-msg {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: var(--fs-12);
+  color: var(--text);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* ── Locked-mode placeholder panel (gated sidebar views) ── */
+
+.license-required-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+  max-width: 560px;
+}
+
+.license-required-panel p {
+  color: var(--text-muted);
+  font-size: var(--fs-13);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.license-required-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--accent);
+  color: var(--on-accent, #000);
+  border: none;
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: var(--fs-13);
+  font-family: var(--font);
+}

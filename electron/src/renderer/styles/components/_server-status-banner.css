@@ -25,10 +25,36 @@
 }
 
 .ssb-card--popover {
+  position: relative;
   max-height: 90vh;
   overflow-y: auto;
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.4);
   animation: ssb-scalein 0.2s ease-out;
+}
+
+/* Dismiss (top-right) — lets the user reach the underlying UI while services
+ * are still settling. */
+.ssb-dismiss-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: var(--fs-14);
+  z-index: 2;
+}
+
+.ssb-dismiss-btn:hover {
+  color: var(--text);
+  background: var(--surface-hover);
 }
 
 @keyframes ssb-scalein {
@@ -446,6 +472,80 @@
 }
 
 .ssb-import-config-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Import/activation error surfaced in the banner (no silent failures). */
+.ssb-import-error {
+  margin: 8px 0 0;
+  font-size: var(--fs-12);
+  color: var(--danger, #f85149);
+  line-height: 1.4;
+  max-width: 420px;
+}
+
+/* Activation success feedback (brief, green). */
+.ssb-license-success {
+  margin: 8px 0 0;
+  font-size: var(--fs-12);
+  color: var(--ok, #3fb950);
+  line-height: 1.4;
+}
+
+/* Config-backup hint under the banner key entry. */
+.ssb-license-hint {
+  margin: 8px 0 0;
+  font-size: var(--fs-12);
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* Inline license key entry (banner overlay blocks About → License). */
+.ssb-license-entry {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+  max-width: 460px;
+}
+
+.ssb-license-input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono, monospace);
+  font-size: var(--fs-12);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+.ssb-license-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.ssb-license-activate-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: var(--fs-12);
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--on-accent, #000);
+  white-space: nowrap;
+  transition:
+    background 0.15s,
+    opacity 0.15s;
+}
+
+.ssb-license-activate-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }

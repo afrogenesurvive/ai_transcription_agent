@@ -48,7 +48,15 @@ async function bridgeCall(tool: string, args: Record<string, unknown> = {}) {
  * filesystem path (works on macOS, Windows, and packaged/remote backends).
  */
 async function postAudioUpload(formData: FormData): Promise<{ job_id: string; status: string }> {
-  const res = await fetch(`${BRIDGE_URL}/transcribe/upload`, { method: "POST", body: formData });
+  // Attach the bridge license session token (job-creation endpoints are gated).
+  const headers: Record<string, string> = {};
+  try {
+    const tok = await window.electronAPI?.getBridgeToken();
+    if (tok && "token" in tok && tok.token) headers["X-License-Token"] = tok.token;
+  } catch {
+    // No token → the bridge will reject with 403 (defense in depth).
+  }
+  const res = await fetch(`${BRIDGE_URL}/transcribe/upload`, { method: "POST", body: formData, headers });
   if (!res.ok) {
     const errBody = await res.text().catch(() => "");
     let cleanMsg = errBody;
@@ -111,8 +119,7 @@ export function useApi() {
       }
       const fileName = params.filePath.split(/[\\/]/).pop() || "recording";
       const ext = fileName.includes(".") ? fileName.split(".").pop()!.toLowerCase() : "";
-      const mime =
-        ext === "webm" ? "audio/webm" : ext === "mp3" ? "audio/mpeg" : ext === "wav" ? "audio/wav" : "audio/mp4";
+      const mime = ext === "webm" ? "audio/webm" : ext === "mp3" ? "audio/mpeg" : ext === "wav" ? "audio/wav" : "audio/mp4";
       // read.data is a Uint8Array crossing the IPC boundary; slice() returns a
       // Uint8Array<ArrayBuffer>, which TS accepts as a BlobPart for File/Blob.
       const file = new File([read.data.slice()], fileName, { type: mime });

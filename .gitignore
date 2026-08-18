@@ -13,6 +13,9 @@ venv/
 # Environment
 .env
 
+# License master keys (maintainer-only, NEVER commit — see scripts/license.mjs)
+dev-keys/
+
 
 # ── Node.js ──
 node_modules/

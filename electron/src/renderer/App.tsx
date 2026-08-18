@@ -39,7 +39,7 @@ import { ServiceStatusProvider } from "./hooks/serviceStatusContext";
 import { useUiState, useUiStateValue } from "./hooks/useUiState";
 import { loadAndApplyAppearance } from "./appearance";
 import { formatElapsedHMS } from "./utils/timeFormat";
-import type { JobStatus } from "./types";
+import type { JobStatus, LicenseStatusPayload } from "./types";
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
 
@@ -78,6 +78,9 @@ export default function App() {
   const [devWarningModal, setDevWarningModal] = useState<SidebarView | null>(null);
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
   const [configOk, setConfigOk] = useState(true);
+  // Per-seat license status — drives locked-mode gating (New Job form viewable
+  // but not submittable; About accessible; everything else gated until licensed).
+  const [licenseStatus, setLicenseStatus] = useState<LicenseStatusPayload | null>(null);
   const [ollamaRequired, setOllamaRequired] = useState(false);
   // Job-status polling safety cap (ms), driven by PIPELINE_TIMEOUT_MINUTES from
   // config so the UI never gives up before the backend's own pipeline timeout.
@@ -124,6 +127,15 @@ export default function App() {
 
   // ── Pipeline-step-derived skip steps for new job form ──
   const [defaultSkipSteps, setDefaultSkipSteps] = useState<string[]>([]);
+
+  // Load license status on mount + a refresh for post-activation updates.
+  useEffect(() => {
+    window.electronAPI?.getLicenseStatus().then((p) => setLicenseStatus(p));
+  }, []);
+  const licensed = licenseStatus?.status?.status === "active";
+  const refreshLicenseStatus = useCallback(() => {
+    window.electronAPI?.getLicenseStatus().then((p) => setLicenseStatus(p));
+  }, []);
 
   // When the new job form opens, fetch agent config pipeline steps so the
   // UploadPanel checkboxes reflect which steps are disabled in the ConfigPanel.
@@ -1274,6 +1286,10 @@ export default function App() {
               <button
                 className={`sidebar-btn ${showHistory && sidebarView === "current" ? "sidebar-btn--active" : ""}`}
                 onClick={() => {
+                  if (!licensed) {
+                    notify("History requires an active license — activate one in About → License.");
+                    return;
+                  }
                   // Toggling History closed keeps the selection (rule 3b) — it
                   // only renders while History is open.
                   setSidebarView("current");
@@ -1393,11 +1409,19 @@ export default function App() {
 
           <main className="app-main">
             {/* ── Dev view: always interactive (logs help debug startup) ── */}
-            {sidebarView === "dev" && <DevPanel onClose={() => setSidebarView("current")} />}
+            {sidebarView === "dev" &&
+              (licensed ? (
+                <DevPanel onClose={() => setSidebarView("current")} />
+              ) : (
+                <LicenseRequiredPanel onOpenLicense={() => setSidebarView("about")} />
+              ))}
 
             {/* ── Server status popover overlay ── */}
             {sidebarView !== "dev" && (
-              <ServerStatusBanner onConfigImported={() => window.electronAPI?.checkConfig().then((r) => setConfigOk(r.ok))} />
+              <ServerStatusBanner
+                onConfigImported={() => window.electronAPI?.checkConfig().then((r) => setConfigOk(r.ok))}
+                onLicenseActivated={refreshLicenseStatus}
+              />
             )}
 
             {/* ── Normal content (always visible behind popover) ── */}
@@ -1413,7 +1437,8 @@ export default function App() {
                           onUpload={handleUpload}
                           onUploadByPath={handleUploadByPath}
                           uploading={uploading}
-                          disabled={isJobRunning}
+                          disabled={isJobRunning || !licensed}
+                          disabledReason={!licensed ? "license" : isJobRunning ? "job" : undefined}
                           initialSkipSteps={defaultSkipSteps}
                           refreshTrigger={newFormRefreshTrigger}
                           onOpenConfigServices={openConfigServices}
@@ -1594,31 +1619,42 @@ export default function App() {
                   </>
                 )}
 
-                {sidebarView === "storage" && (
-                  <StoragePanel
-                    onClose={() => setSidebarView("current")}
-                    onNotify={notify}
-                    refreshTrigger={storageRefreshTrigger}
-                    onDevAccessRequest={() => setDevWarningModal("storage")}
-                    devAccessSignal={devAccessSignal}
-                    onStorageCleared={handleStorageCleared}
-                  />
-                )}
+                {sidebarView === "storage" &&
+                  (licensed ? (
+                    <StoragePanel
+                      onClose={() => setSidebarView("current")}
+                      onNotify={notify}
+                      refreshTrigger={storageRefreshTrigger}
+                      onDevAccessRequest={() => setDevWarningModal("storage")}
+                      devAccessSignal={devAccessSignal}
+                      onStorageCleared={handleStorageCleared}
+                    />
+                  ) : (
+                    <LicenseRequiredPanel onOpenLicense={() => setSidebarView("about")} />
+                  ))}
 
-                {sidebarView === "config" && (
-                  <ConfigPanel
-                    key="config-panel"
-                    configOk={configOk}
-                    onClose={() => {
-                      setSidebarView("current");
-                      window.electronAPI?.checkConfig().then((r) => setConfigOk(r.ok));
-                    }}
-                  />
-                )}
+                {sidebarView === "config" &&
+                  (licensed ? (
+                    <ConfigPanel
+                      key="config-panel"
+                      configOk={configOk}
+                      onClose={() => {
+                        setSidebarView("current");
+                        window.electronAPI?.checkConfig().then((r) => setConfigOk(r.ok));
+                      }}
+                    />
+                  ) : (
+                    <LicenseRequiredPanel onOpenLicense={() => setSidebarView("about")} />
+                  ))}
 
-                {sidebarView === "about" && <AboutPanel onClose={() => setSidebarView("current")} />}
+                {sidebarView === "about" && <AboutPanel onClose={() => setSidebarView("current")} onLicensedChange={refreshLicenseStatus} />}
 
-                {sidebarView === "appearance" && <AppearancePanel onClose={() => setSidebarView("current")} />}
+                {sidebarView === "appearance" &&
+                  (licensed ? (
+                    <AppearancePanel onClose={() => setSidebarView("current")} />
+                  ) : (
+                    <LicenseRequiredPanel onOpenLicense={() => setSidebarView("about")} />
+                  ))}
               </>
             )}
           </main>
@@ -1627,5 +1663,23 @@ export default function App() {
         <StatusBar configOk={configOk} onOpenConfig={() => setSidebarView("config")} />
       </div>
     </ServiceStatusProvider>
+  );
+}
+
+/** Locked-mode placeholder shown in place of gated panels until a license is active. */
+function LicenseRequiredPanel({ onOpenLicense }: { onOpenLicense: () => void }) {
+  return (
+    <div className="panel license-required-panel">
+      <h2>
+        <Icon name="lock" size="18" color="accent" /> License Required
+      </h2>
+      <p>
+        This area is locked until a license is activated. You can fill in the New Job form, but job submission and the rest of the app are disabled
+        without an active license.
+      </p>
+      <button className="license-required-btn" onClick={onOpenLicense}>
+        <Icon name="key" size="14" /> Open About → License
+      </button>
+    </div>
   );
 }
