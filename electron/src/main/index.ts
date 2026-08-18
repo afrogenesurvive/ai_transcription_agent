@@ -1370,8 +1370,22 @@ ipcMain.handle("license:activate", (_event, key: string) => {
         logLicenseFlow("warn", "config.rekey.failed", { error: rekey.error });
       }
     }
+    // If the stored config still can't be decrypted under the new key (e.g. the
+    // previous key was deactivated, so no re-key was possible) and a plaintext
+    // backup exists, restore it so the new key unlocks the config automatically.
+    let restoredFromBackup = false;
+    const integrity = getConfigIntegrity();
+    if (integrity.configGpg === "corrupt" && integrity.backupExists) {
+      const restored = restoreConfigFromBackup();
+      if (restored.ok) {
+        restoredFromBackup = true;
+        logLicenseFlow("info", "config.restored_from_backup", {});
+      } else {
+        logLicenseFlow("warn", "config.restore_backup.failed", { error: restored.error });
+      }
+    }
     invalidateConfigCache(); // re-read (decrypted) config after unlock
-    return { success: true, migration, ...getLicenseStatusPayload() };
+    return { success: true, migration, restoredFromBackup, ...getLicenseStatusPayload() };
   }
   return { success: false, reason: res.reason };
 });
@@ -1615,7 +1629,7 @@ ipcMain.handle("config:export", async () => {
   }
 });
 
-ipcMain.handle("config:import", async () => {
+ipcMain.handle("config:import", async (_event, options?: { preferJson?: boolean }) => {
   addLog("main", "info", "[config] import requested");
   try {
     // Licensed-only import: decrypting an exported config requires the license key.
@@ -1651,16 +1665,26 @@ ipcMain.handle("config:import", async () => {
     // Show open dialog — accept both encrypted .gpg (OpenPGP, the current export
     // format) and legacy plaintext .json. Shared by Config → Import and the
     // ServerStatusBanner's Import Config (both use config:import).
+    // Show open dialog — accept both encrypted .gpg (OpenPGP, the current export
+    // format) and legacy plaintext .json. When recovering an undecryptable
+    // config (preferJson), default the picker to .json because a .gpg is
+    // passphrase-locked to the key that exported it.
+    const filters: Electron.FileFilter[] = options?.preferJson
+      ? [
+          { name: "JSON Config", extensions: ["json"] },
+          { name: "Config Files", extensions: ["gpg", "json"] },
+          { name: "All Files", extensions: ["*"] },
+        ]
+      : [
+          // IMPORTANT: on macOS the FIRST filter group is the active default in
+          // the open dialog, and any file that doesn't match it is greyed out.
+          // Keep .gpg + .json together so both are selectable without switching.
+          { name: "Config Files", extensions: ["gpg", "json"] },
+          { name: "All Files", extensions: ["*"] },
+        ];
     const result = await dialog.showOpenDialog(mainWindow!, {
       title: "Import Configuration",
-      // IMPORTANT: on macOS the FIRST filter group is the active default in the
-      // open dialog, and any file that doesn't match it is greyed out. Keep
-      // .gpg + .json together so both encrypted exports and plaintext JSON
-      // configs are selectable without switching the filter dropdown.
-      filters: [
-        { name: "Config Files", extensions: ["gpg", "json"] },
-        { name: "All Files", extensions: ["*"] },
-      ],
+      filters,
       properties: ["openFile"],
     });
 
@@ -1677,7 +1701,11 @@ ipcMain.handle("config:import", async () => {
         raw = await decryptOpenPgpText(raw.trim(), licenseKey);
       } catch (err: any) {
         addLog("main", "error", `[config] import decrypt failed: ${err.message}`);
-        return { success: false, error: "Could not decrypt the config file with the active license key." };
+        return {
+          success: false,
+          error:
+            "This .gpg config was encrypted with a different license key and can't be opened with the active one. Import a plaintext .json export instead, or activate the license key that created this file.",
+        };
       }
     }
     const importData = JSON.parse(raw);

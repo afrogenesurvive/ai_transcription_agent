@@ -162,6 +162,7 @@ function LicenseTab({ onLicensedChange }: { onLicensedChange?: () => void }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [integrity, setIntegrity] = useState<ConfigIntegrity | null>(null);
+  const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
 
   const refresh = useCallback(() => {
     window.electronAPI?.getLicenseStatus().then((p) => {
@@ -185,7 +186,11 @@ function LicenseTab({ onLicensedChange }: { onLicensedChange?: () => void }) {
       if (res?.success) {
         setMessage({
           kind: "ok",
-          text: res.migration?.migrated ? "License activated. Your existing config was migrated to encrypted storage." : "License activated.",
+          text: res.migration?.migrated
+            ? "License activated. Your existing config was migrated to encrypted storage."
+            : res.restoredFromBackup
+              ? "License activated. Your config was restored from backup and re-encrypted."
+              : "License activated.",
         });
         setKeyInput("");
         refresh();
@@ -232,6 +237,27 @@ function LicenseTab({ onLicensedChange }: { onLicensedChange?: () => void }) {
     setBusy(false);
   };
 
+  const reimport = async () => {
+    if (busy) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const res = await window.electronAPI?.importConfig({ preferJson: true });
+      if (res?.success) {
+        setMessage({ kind: "ok", text: "Config imported and re-encrypted under the active license." });
+        refresh();
+        onLicensedChange?.();
+      } else if (res?.cancelled) {
+        setMessage(null);
+      } else {
+        setMessage({ kind: "err", text: res?.error || "Import failed." });
+      }
+    } catch (err: any) {
+      setMessage({ kind: "err", text: `Import error: ${err?.message || err}` });
+    }
+    setBusy(false);
+  };
+
   const statusKind = status?.status ?? "unlicensed";
   const active = statusKind === "active";
 
@@ -263,7 +289,11 @@ function LicenseTab({ onLicensedChange }: { onLicensedChange?: () => void }) {
               Expired (was seat <strong>{status.sub}</strong>, {formatExpiry(status.exp)}) — enter a new key
             </>
           )}
-          {status?.status === "invalid" && <>Invalid stored key ({status.reason}) — re-enter a valid key</>}
+          {status?.status === "invalid" && (
+            <>
+              Stored key is invalid — {humanizeLicenseReason(status.reason)}. Enter a valid key below.
+            </>
+          )}
         </span>
       </div>
 
@@ -306,17 +336,49 @@ function LicenseTab({ onLicensedChange }: { onLicensedChange?: () => void }) {
       {integrity?.configGpg === "corrupt" && (
         <div className="about-license-recovery">
           <p className="about-license-recovery-msg">
-            <Icon name="warning" size="14" /> Your config file was encrypted with a different license key — enter that key to restore access.
+            <Icon name="warning" size="14" /> Your config file was encrypted with a different license key — enter that key to restore access, or re-import a plaintext .json export under this key.
           </p>
+          <button className="about-license-btn" onClick={reimport} disabled={busy}>
+            <Icon name="download" size="14" /> Re-import Config
+          </button>
         </div>
       )}
 
       {active && (
         <div className="about-license-actions">
-          <button className="about-license-btn about-license-btn--danger" onClick={deactivate} disabled={busy}>
+          <button className="about-license-btn about-license-btn--danger" onClick={() => setShowDeactivateConfirm(true)} disabled={busy}>
             <Icon name="logout" size="14" /> Deactivate
           </button>
           <p className="about-license-hint">Deactivating keeps your encrypted config; you'll need the same key to re-open it.</p>
+        </div>
+      )}
+
+      {showDeactivateConfirm && (
+        <div className="confirm-overlay" onClick={() => setShowDeactivateConfirm(false)}>
+          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3 className="confirm-dialog-title">
+              <Icon name="warning" size="16" color="red" /> Deactivate license?
+            </h3>
+            <p className="confirm-dialog-text">
+              Deactivating removes this key from the app and locks it until another key is activated. Your encrypted config becomes
+              unreadable — you'll need to re-enter <strong>this same key</strong> to open it again, or re-import a config after activating a
+              new key.
+            </p>
+            <div className="confirm-dialog-actions">
+              <button className="btn-secondary" onClick={() => setShowDeactivateConfirm(false)}>
+                Cancel
+              </button>
+              <button
+                className="btn-danger"
+                onClick={() => {
+                  setShowDeactivateConfirm(false);
+                  deactivate();
+                }}
+                disabled={busy}>
+                Yes, Deactivate
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -275,7 +275,7 @@ export interface ElectronAPI {
   getConfigWithSources: () => Promise<Record<string, ConfigValueSource>>;
   exportConfig: () => Promise<{ success: boolean; filePath?: string; error?: string; cancelled?: boolean; warnings?: string[] }>;
   clearConfig: () => Promise<{ success: boolean; error?: string; blocked?: boolean }>;
-  importConfig: () => Promise<{
+  importConfig: (options?: { preferJson?: boolean }) => Promise<{
     success: boolean;
     filePath?: string;
     error?: string;
@@ -297,6 +297,7 @@ export interface ElectronAPI {
     success: boolean;
     reason?: string;
     migration?: { migrated: boolean; backupPath?: string };
+    restoredFromBackup?: boolean;
     safeStorageAvailable?: boolean;
     status?: LicenseStatus;
   }>;
