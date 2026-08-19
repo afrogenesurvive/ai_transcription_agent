@@ -252,9 +252,10 @@ test("02 - upload panel with file picker", async () => {
 // SCREENSHOT 03: Configuration Panel — LLM Provider Section
 // ════════════════════════════════════════════════════════════════
 // Shows: The Config tab with the LLM Provider section visible —
-//        DeepSeek/Ollama radio buttons, API key fields, Hugging Face
-//        token, Whisper model size selector, temperature, pipeline
-//        timeout, and keep-models-warm toggle.
+//        API/Ollama radio buttons, nested DeepSeek/OpenAI/Anthropic
+//        selector, API key + model fields, Hugging Face token, Whisper
+//        model size selector, temperature, pipeline timeout, and
+//        keep-models-warm toggle.
 // Guide section: "Settings & Configuration — Config Tab — LLM Provider Section"
 // Add to guide as: ![LLM Provider Settings](screenshots/03-config-panel.png)
 test("03 - configuration panel", async () => {
@@ -919,8 +920,9 @@ test("28 - dev tools performance tab", async () => {
 // ════════════════════════════════════════════════════════════════
 // SCREENSHOT 29: Dev Tools — Usage Tab
 // ════════════════════════════════════════════════════════════════
-// Shows: The Dev Tools Usage tab — DeepSeek API credit balance and
-//        LLM token usage/cost across jobs.
+// Shows: The Dev Tools Usage tab — per-provider sub-tabs (All/DeepSeek/
+//        OpenAI/Anthropic/Ollama), credit balance or "usage can't be
+//        tracked" badge, and LLM token usage/cost across jobs.
 // Guide section: "Dev Tools — Usage Tab"
 // Add to guide as: ![Dev Usage](screenshots/29-dev-usage.png)
 test("29 - dev tools usage tab", async () => {

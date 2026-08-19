@@ -25,7 +25,9 @@ const INJECTION_PATTERNS = [
 /** Sensitive data patterns — things to redact from API responses */
 const SENSITIVE_PATTERNS = [
   /\b(?:[A-Za-z0-9+/]{40,}={0,2})\b/g, // Base64 blobs (tokens, keys)
-  /\b(?:sk-[A-Za-z0-9]{20,})\b/g, // OpenAI/DeepSeek keys
+  /\b(?:sk-[A-Za-z0-9]{20,})\b/g, // OpenAI/DeepSeek keys (plain)
+  /\b(?:sk-ant-[A-Za-z0-9_-]{20,})\b/g, // Anthropic keys (sk-ant-…)
+  /\b(?:sk-proj-[A-Za-z0-9_-]{20,})\b/g, // OpenAI project keys (sk-proj-…)
   /\b(?:ghp_|gho_|ghu_|ghs_|ghr_)[A-Za-z0-9]{36,}\b/g, // GitHub tokens
   /\b(?:xox[abpors]-)[A-Za-z0-9-]{24,}\b/g, // Slack tokens
   /\b(?:[A-Za-z0-9+/]{40,}==)\b/g, // More base64

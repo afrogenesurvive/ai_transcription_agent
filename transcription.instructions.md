@@ -17,7 +17,7 @@ All three together: `npm run transcribe:all`
 - **ML pipeline** → `python-backend/main.py` → `_run_pipeline()` triggers diarization → ASR → voiceprint matching
 - **Agent loop** → `agent-runner/index.js` → `processEvent()` reads queue, calls LLM, executes tool
 - **Tool handlers** → `agent-runner/tool-executor.js` → bridge calls + Gmail/Trello/Drive direct APIs
-- **LLM client** → `agent-runner/model-client.js` → DeepSeek V4 or Ollama
+- **LLM client** → `agent-runner/model-client.js` → DeepSeek / OpenAI / Anthropic / Ollama
 - **System prompt** → `agent-config/system-prompt.md` → editable without touching code
 - **Sanitization** → `agent-runner/sanitize.js` → Tier 1 mandatory + Tier 2 optional
 

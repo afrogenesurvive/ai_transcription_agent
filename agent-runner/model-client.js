@@ -1,8 +1,13 @@
 /**
- * Model Client — calls DeepSeek V4 or Ollama with function calling
+ * Model Client — calls DeepSeek V4, OpenAI, Anthropic, or Ollama with function calling
  *
- * LLM_PROVIDER=deepseek (default, requires DEEPSEEK_API_KEY)
- * LLM_PROVIDER=ollama   (uses OLLAMA_BASE_URL + OLLAMA_MODEL)
+ * LLM_PROVIDER=deepseek  (default, requires DEEPSEEK_API_KEY)
+ * LLM_PROVIDER=openai    (requires OPENAI_API_KEY)
+ * LLM_PROVIDER=anthropic (requires ANTHROPIC_API_KEY; Messages API + tool_use)
+ * LLM_PROVIDER=ollama    (uses OLLAMA_BASE_URL + OLLAMA_MODEL)
+ *
+ * The effective provider is flattened from the app's two-level config
+ * (LLM_PROVIDER=api + API_PROVIDER) by getChildEnv() before this module loads.
  *
  * When using Ollama, a periodic health check is started to monitor the
  * Ollama server and log its status. The health check interval is controlled
@@ -12,6 +17,7 @@
 import path from "path";
 import fs from "fs";
 import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import { fileURLToPath } from "url";
 import { SYSTEM_PROMPT_TEMPLATE } from "./agent-config.js";
 
@@ -96,6 +102,18 @@ function createClient() {
       baseURL: `${OLLAMA_BASE_URL}/v1`,
     });
   }
+  if (PROVIDER === "openai") {
+    return new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY || "",
+      baseURL: process.env.OPENAI_BASE_URL || undefined,
+    });
+  }
+  if (PROVIDER === "anthropic") {
+    return new Anthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY || "",
+      baseURL: process.env.ANTHROPIC_BASE_URL || undefined,
+    });
+  }
   return new OpenAI({
     apiKey: process.env.DEEPSEEK_API_KEY || "",
     baseURL: "https://api.deepseek.com",
@@ -113,10 +131,23 @@ function getModel() {
     }
     return model;
   }
-  return process.env.API_AGENT_MODEL || "deepseek-v4-flash";
+  if (PROVIDER === "openai") return process.env.OPENAI_MODEL || process.env.API_AGENT_MODEL || "gpt-4o";
+  if (PROVIDER === "anthropic") return process.env.ANTHROPIC_MODEL || process.env.API_AGENT_MODEL || "claude-sonnet-4-5";
+  return process.env.DEEPSEEK_MODEL || process.env.API_AGENT_MODEL || "deepseek-v4-flash";
 }
 
-const client = createClient();
+let client = null;
+
+/**
+ * Lazily construct the provider client. Deferred until the first LLM call so
+ * a missing API key surfaces as the friendly key-guard error in callModel()
+ * rather than a startup crash (the OpenAI SDK validates credentials at construction).
+ */
+function getClient() {
+  if (!client) client = createClient();
+  return client;
+}
+
 const MODEL = getModel();
 
 // Start health check on module load if using Ollama
@@ -138,8 +169,16 @@ function mapTools(defs) {
 }
 
 export async function callModel(context, toolDefs, systemMessageOverride) {
+  // Provider-scoped key guard — the runner restarts after config changes, so
+  // the effective provider (flattened by getChildEnv) is authoritative here.
   if (PROVIDER === "deepseek" && !process.env.DEEPSEEK_API_KEY) {
     throw new Error("DEEPSEEK_API_KEY not set — configure it in Config or .env");
+  }
+  if (PROVIDER === "openai" && !process.env.OPENAI_API_KEY) {
+    throw new Error("OPENAI_API_KEY not set — configure it in Config or .env");
+  }
+  if (PROVIDER === "anthropic" && !process.env.ANTHROPIC_API_KEY) {
+    throw new Error("ANTHROPIC_API_KEY not set — configure it in Config or .env");
   }
 
   // Check Ollama health before each call to fail fast instead of retrying 3 times
@@ -153,8 +192,6 @@ export async function callModel(context, toolDefs, systemMessageOverride) {
     }
   }
 
-  const tools = mapTools(toolDefs);
-
   // Use the pre-rendered system prompt if provided (with skipped sections
   // already stripped), otherwise fall back to the cached template.
   const systemMessage =
@@ -163,60 +200,124 @@ export async function callModel(context, toolDefs, systemMessageOverride) {
   if (process.env.LOG_LLM_DATA === "true") {
     console.log(`🤖 [MODEL] Calling ${PROVIDER}/${MODEL}... w/`, context);
   } else {
-    console.log(`🤖 [MODEL] Calling ${PROVIDER}/${MODEL} (context: ${context.length} chars, ${tools?.length || 0} tools)`);
+    console.log(`🤖 [MODEL] Calling ${PROVIDER}/${MODEL} (context: ${context.length} chars, ${toolDefs?.length || 0} tools)`);
   }
 
   try {
-    // Ollama-specific parameters (num_ctx is forwarded by Ollama's /v1 endpoint)
-    const ollamaParams = PROVIDER === "ollama" ? { num_ctx: getNumCtx() } : {};
-
-    const response = await client.chat.completions.create({
-      model: MODEL,
-      messages: [
-        { role: "system", content: systemMessage },
-        { role: "user", content: context },
-      ],
-      tools,
-      tool_choice: "auto",
-      temperature: parseFloat(process.env.LLM_TEMPERATURE || "0.1"),
-      stream: false,
-      ...ollamaParams,
-    });
-
-    const choice = response.choices?.[0];
-    const usage = response.usage || null;
-
-    // Only log usage & full message content when LLM data logging is explicitly enabled
-    if (process.env.LOG_LLM_DATA === "true") {
-      console.log(`📊 [MODEL] Raw API — usage: ${JSON.stringify(usage)}`);
-      console.log(`📊 [MODEL] Raw API — messages: ${JSON.stringify(response.choices?.[0]?.message)}`);
+    if (PROVIDER === "anthropic") {
+      return await callAnthropic(context, toolDefs, systemMessage);
     }
-
-    const message = choice?.message;
-    const toolCall = message?.tool_calls?.[0];
-
-    // Some providers (DeepSeek) return tool_calls alongside empty content.
-    // If there IS a tool_call, process it even when content is empty.
-    if (!toolCall) {
-      // Only bail if there's genuinely no tool_call AND no content
-      if (!message?.content || message.content.trim().length === 0) {
-        console.log(`\u26a0\ufe0f  [MODEL] No tool call in response — returning null`);
-        return null;
-      }
-      console.log(`\u26a0\ufe0f  [MODEL] Content-only response (no tool call) — returning null`);
-      return null;
-    }
-
-    let args;
-    try {
-      args = JSON.parse(toolCall.function.arguments);
-    } catch {
-      return null;
-    }
-
-    return { name: toolCall.function.name, arguments: args, usage };
+    return await callOpenAiCompatible(context, toolDefs, systemMessage);
   } catch (err) {
     console.error(`❌ [MODEL] ${err.message}`);
     throw err;
   }
+}
+
+/**
+ * Anthropic Messages API path — different request/response shape from OpenAI.
+ * Tools use `input_schema` and responses surface tool calls as content blocks
+ * of type `tool_use` (stop_reason === "tool_use").
+ */
+async function callAnthropic(context, toolDefs, systemMessage) {
+  const tools = toolDefs.map((t) => ({
+    name: t.name,
+    description: t.description,
+    input_schema: t.inputSchema,
+  }));
+
+  const response = await getClient().messages.create({
+    model: MODEL,
+    system: systemMessage,
+    messages: [{ role: "user", content: context }],
+    tools,
+    tool_choice: { type: "auto" },
+    max_tokens: parseInt(process.env.ANTHROPIC_MAX_TOKENS || "4096", 10),
+    temperature: parseFloat(process.env.LLM_TEMPERATURE || "0.1"),
+  });
+
+  if (process.env.LOG_LLM_DATA === "true") {
+    console.log(`📊 [MODEL] Raw API — usage: ${JSON.stringify(response.usage)}`);
+    console.log(`📊 [MODEL] Raw API — messages: ${JSON.stringify(response.content)}`);
+  }
+
+  const toolUse = (response.content || []).find((b) => b && b.type === "tool_use");
+
+  // Normalize Anthropic usage to the OpenAI-compatible shape so per-job token
+  // totals (Usage tab) work identically across providers.
+  const usage = response.usage
+    ? {
+        prompt_tokens: response.usage.input_tokens || 0,
+        completion_tokens: response.usage.output_tokens || 0,
+        total_tokens: (response.usage.input_tokens || 0) + (response.usage.output_tokens || 0),
+        prompt_tokens_details: { cached_tokens: response.usage.cache_read_input_tokens || 0 },
+        completion_tokens_details: { reasoning_tokens: 0 },
+      }
+    : null;
+
+  if (!toolUse || response.stop_reason !== "tool_use") {
+    console.log(`\u26a0\ufe0f  [MODEL] No tool call in Anthropic response — returning null`);
+    return null;
+  }
+
+  return { name: toolUse.name, arguments: toolUse.input || {}, usage };
+}
+
+/** OpenAI-compatible path — shared by deepseek, openai, and ollama. */
+async function callOpenAiCompatible(context, toolDefs, systemMessage) {
+  const tools = mapTools(toolDefs);
+
+  // Ollama-specific parameters (num_ctx is forwarded by Ollama's /v1 endpoint)
+  const ollamaParams = PROVIDER === "ollama" ? { num_ctx: getNumCtx() } : {};
+
+  const response = await getClient().chat.completions.create({
+    model: MODEL,
+    messages: [
+      { role: "system", content: systemMessage },
+      { role: "user", content: context },
+    ],
+    tools,
+    tool_choice: "auto",
+    temperature: parseFloat(process.env.LLM_TEMPERATURE || "0.1"),
+    stream: false,
+    ...ollamaParams,
+  });
+
+  const choice = response.choices?.[0];
+  const usage = response.usage || null;
+
+  // Only log usage & full message content when LLM data logging is explicitly enabled
+  if (process.env.LOG_LLM_DATA === "true") {
+    console.log(`📊 [MODEL] Raw API — usage: ${JSON.stringify(usage)}`);
+    console.log(`📊 [MODEL] Raw API — messages: ${JSON.stringify(response.choices?.[0]?.message)}`);
+  }
+
+  const message = choice?.message;
+  const toolCall = message?.tool_calls?.[0];
+
+  // Some providers (DeepSeek) return tool_calls alongside empty content.
+  // If there IS a tool_call, process it even when content is empty.
+  if (!toolCall) {
+    // Only bail if there's genuinely no tool_call AND no content
+    if (!message?.content || message.content.trim().length === 0) {
+      console.log(`\u26a0\ufe0f  [MODEL] No tool call in response — returning null`);
+      return null;
+    }
+    console.log(`\u26a0\ufe0f  [MODEL] Content-only response (no tool call) — returning null`);
+    return null;
+  }
+
+  let args;
+  try {
+    args = JSON.parse(toolCall.function.arguments);
+  } catch {
+    return null;
+  }
+
+  return { name: toolCall.function.name, arguments: args, usage };
+}
+
+/** Current model name — used by the runner for logging / usage attribution. */
+export function getModelName() {
+  return MODEL;
 }

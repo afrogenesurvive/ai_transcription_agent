@@ -18,6 +18,7 @@ import ExportButton from "./ExportButton";
 import { useUiStateValue } from "../hooks/useUiState";
 import { PIPELINE, getStageState, getSubStepState, useMaxReachedStage, WAITING_LABEL } from "./pipelineStages";
 import { formatElapsedHMS } from "../utils/timeFormat";
+import { providerLabel, providerColor, providerMeta } from "../utils/providers";
 import type { TranscriptionSegment, AnalysisData } from "../types";
 
 const BRIDGE_URL = "http://127.0.0.1:5010";
@@ -1799,16 +1800,16 @@ function TokensTab({ jobId }: { jobId: string }) {
           <span className="rv-tokens-card-value">{usage.steps.length}</span>
           <span className="rv-tokens-card-label">LLM Calls</span>
         </div>
-        {/* Cost cards — only if costs data is available */}
-        {usage.costs && (
+        {/* Cost cards — only when cost is actually tracked (DeepSeek) or non-zero */}
+        {usage.costs && (usage.provider === "deepseek" || (usage.costs.total_cost ?? 0) > 0) && (
           <>
             <div className="rv-tokens-card rv-tokens-card--cost">
               <span className="rv-tokens-card-value">${usage.costs.input_cost.toFixed(4)}</span>
-              <span className="rv-tokens-card-label">Input Cost @ $0.25/M</span>
+              <span className="rv-tokens-card-label">Input Cost</span>
             </div>
             <div className="rv-tokens-card rv-tokens-card--cost">
               <span className="rv-tokens-card-value">${usage.costs.output_cost.toFixed(4)}</span>
-              <span className="rv-tokens-card-label">Output Cost @ $1.00/M</span>
+              <span className="rv-tokens-card-label">Output Cost</span>
             </div>
             <div className="rv-tokens-card rv-tokens-card--cost">
               <span className="rv-tokens-card-value" style={{ fontWeight: 700 }}>
@@ -1822,12 +1823,17 @@ function TokensTab({ jobId }: { jobId: string }) {
 
       {/* Model info */}
       <div className="rv-tokens-model-info">
-        {usage.provider === "ollama" && (
+        <span
+          className="rv-tokens-model-badge"
+          style={{ background: `${providerColor(usage.provider)}1f`, color: providerColor(usage.provider), border: `1px solid ${providerColor(usage.provider)}44` }}>
+          <Icon name={providerMeta(usage.provider).isLocal ? "computer" : "cloud"} size="14" color={providerColor(usage.provider)} />{" "}
+          {providerLabel(usage.provider)}
+        </span>
+        {providerMeta(usage.provider).isLocal && (
           <span className="rv-tokens-model-badge rv-tokens-model-badge--local" style={{ background: "rgba(210,153,34,0.15)", color: "#d29922" }}>
             <Icon name="computer" size="14" color="orange" /> Local (no cost)
           </span>
         )}
-        <span className="rv-tokens-model-badge">{usage.provider}</span>
         <code className="rv-code">{usage.model}</code>
         <span className="rv-muted" style={{ marginLeft: "auto" }}>
           Saved {new Date(usage.saved_at).toLocaleString()}
@@ -2948,12 +2954,36 @@ function ConfigTab({ jobId }: { jobId: string }) {
       {/* ── Section 2: LLM & Model Config ── */}
       <ConfigSectionHeader icon="smart_toy" title="LLM &amp; Model Config" />
       <div className="rv-config-grid">
-        <ConfigRow label="LLM Provider" value={snapshot.llm_provider ?? "—"} mono />
+        <ConfigRow
+          label="LLM Provider"
+          value={
+            snapshot.llm_provider ? (
+              <span
+                style={{
+                  display: "inline-block",
+                  padding: "1px 8px",
+                  borderRadius: 4,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "#fff",
+                  background: providerColor(snapshot.llm_provider),
+                }}>
+                {providerLabel(snapshot.llm_provider)}
+              </span>
+            ) : (
+              "—"
+            )
+          }
+        />
         <ConfigRow label="LLM Model" value={snapshot.llm_model ?? "—"} mono />
         {snapshot.llm_temperature && <ConfigRow label="Temperature" value={snapshot.llm_temperature} />}
-        {snapshot.ollama_base_url && <ConfigRow label="Ollama Base URL" value={snapshot.ollama_base_url} mono />}
-        {snapshot.ollama_model && <ConfigRow label="Ollama Model" value={snapshot.ollama_model} mono />}
-        {snapshot.ollama_num_ctx && <ConfigRow label="Ollama Context Window" value={snapshot.ollama_num_ctx} />}
+        {snapshot.llm_provider === "ollama" && snapshot.ollama_base_url && (
+          <ConfigRow label="Ollama Base URL" value={snapshot.ollama_base_url} mono />
+        )}
+        {snapshot.llm_provider === "ollama" && snapshot.ollama_model && <ConfigRow label="Ollama Model" value={snapshot.ollama_model} mono />}
+        {snapshot.llm_provider === "ollama" && snapshot.ollama_num_ctx && (
+          <ConfigRow label="Ollama Context Window" value={snapshot.ollama_num_ctx} />
+        )}
         <ConfigRow label="Whisper Model" value={snapshot.whisper_model_size} mono />
         <ConfigRow label="Diarization Model" value={snapshot.diarization_model} mono />
         <ConfigRow label="Embedding Provider" value={snapshot.embedding_provider} mono />

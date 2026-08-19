@@ -76,7 +76,7 @@ Everything runs on your computer. Your audio and transcripts stay private unless
 2. **Launch the app** — you'll see the Upload screen
 3. **Open Settings** — click the ⚙️ gear icon in the bottom bar
 4. **Enter your API keys:**
-   - **DeepSeek API Key** — this is the AI that processes your transcripts (required)
+   - **API key for your chosen LLM provider** — DeepSeek, OpenAI, or Anthropic (this is the AI that processes your transcripts; required for the cloud API provider)
    - **Hugging Face Token** — needed for speaker identification (get one free at huggingface.co/settings/tokens)
 5. **Close Settings** — the app is ready to use
 
@@ -111,7 +111,7 @@ The sidebar can be **dragged wider or narrower** by clicking and dragging the re
 | **Diarization** dot              | 🟢 green = speaker diarization model available                                                                                  |
 | **Python / Bridge / Agent** dots | 🟢 = service running, 🔴 = stopped, ⚪ = checking                                                                               |
 | **Ollama** dot                   | 🟢 = Ollama server running, 🔴 = offline, ⚪ = not the active provider. Shown dimmed when Ollama is not the active LLM provider |
-| **💰 Balance**                   | DeepSeek credit balance (click to see popover with details)                                                                     |
+| **💰 Balance**                   | Cloud provider credit/usage: DeepSeek shows its balance; OpenAI/Anthropic show a "usage can't be tracked" badge; Ollama shows "Local" |
 | **Per-service controls**         | Click a running service's ■ button to stop it, or ▶ to restart a stopped service                                                |
 | ⚙️ **Settings**                  | Open the configuration panel                                                                                                    |
 | 📋 **History**                   | Browse past meetings                                                                                                            |
@@ -141,7 +141,7 @@ Licenses are issued per seat and may be **time-limited** or **unlimited** — th
 
 ### Config security
 
-Your configuration (API keys, delivery credentials) is stored **encrypted on disk** once a license is active, and config **exports are saved as encrypted `.gpg` files** (decryptable only with your license key). Your license key is required to open your config.
+Your configuration (API keys, delivery credentials) is stored **encrypted on disk** once a license is active. Config **exports default to encrypted `.gpg` files** (decryptable only with your license key), but you can also export a **plain `.json` copy** via the Export mode toggle — this writes your API keys in plaintext and shows a **"Security Risk"** confirmation first. Your license key is required to open your config.
 
 ### Config recovery after a key change
 
@@ -669,12 +669,17 @@ The Config panel has three tabs at the top: **Config**, **Agent**, and **Logging
 
 Choose your AI provider:
 
-- **DeepSeek (API)** — cloud-based, requires an API key. Fast and powerful.
-  - Enter your **DeepSeek API Key** (sk-...)
+- **API (Cloud)** — pick one of three cloud providers:
+  - **DeepSeek** — cloud-based, requires a DeepSeek API key (sk-...)
+  - **OpenAI** — ChatGPT provider, requires an OpenAI API key (sk-...)
+  - **Anthropic** — Claude provider, requires an Anthropic API key (sk-ant-...)
+  - Each provider has its own **Model** field (optional; empty uses the built-in default) and an optional **Base URL** for proxies/gateways.
 - **Ollama (Local)** — runs AI on your computer. No API key needed.
   - **Server status** — a green/red indicator next to the Ollama option shows whether the Ollama server is running
   - **Model management** — click "List Models" to see installed Ollama models with size and modified date. Use the **Pull** button to download new models from the registry. A loading indicator shows pull progress.
   - **Context window**: 32K, 64K, or 128K tokens (larger = can process longer transcripts)
+
+> **Note:** The **Usage** tab (Dev tools) splits token usage by provider. OpenAI and Anthropic have no public usage/balance endpoint, so their tabs show a "usage can't be tracked" badge instead of a credit balance.
 
 **Hugging Face Token** — required for speaker identification. Get one free at huggingface.co
 
@@ -755,7 +760,7 @@ Default settings for delivery:
 
 #### Export / Import
 
-- **📤 Export Config** — saves all settings (including agent instructions) to a `.json` file via the native save dialog
+- **📤 Export Config** — saves all settings (including agent instructions). Choose the mode with the **Encrypted / Plain JSON** toggle: **Encrypted** writes a `.gpg` file (OpenPGP, decryptable with your license key); **Plain JSON** writes a readable `.json` file but **writes your API keys in plaintext** — it asks for a **"Security Risk"** confirmation first.
 - **📥 Import Config** — loads settings from a previously exported `.json` file via the native open dialog. Imports all config values plus agent instructions. Services are restarted after import. Blocked if jobs are still running.
 - **⛔ While a job is running**, Export, Import, and Clear are disabled, as are the Cloudflare Tunnel Start/Stop buttons and the Restore / Save-as-Defaults confirm actions. Wait for the job to finish.
 

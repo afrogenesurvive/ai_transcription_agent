@@ -141,8 +141,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
   saveConfig: (values: Record<string, string>): Promise<Record<string, string>> => ipcRenderer.invoke("config:save", values),
   checkConfig: (): Promise<{ ok: boolean; missing: string[] }> => ipcRenderer.invoke("config:check"),
   getConfigWithSources: (): Promise<Record<string, { value: string; source: string }>> => ipcRenderer.invoke("config:getWithSources"),
-  exportConfig: (): Promise<{ success: boolean; filePath?: string; error?: string; cancelled?: boolean; warnings?: string[] }> =>
-    ipcRenderer.invoke("config:export"),
+  exportConfig: (options?: { mode?: "encrypted" | "plain" }): Promise<{
+    success: boolean;
+    filePath?: string;
+    format?: "encrypted" | "plain";
+    error?: string;
+    cancelled?: boolean;
+    warnings?: string[];
+  }> => ipcRenderer.invoke("config:export", options),
   clearConfig: (): Promise<{ success: boolean; error?: string; blocked?: boolean }> => ipcRenderer.invoke("config:clear"),
   importConfig: (options?: { preferJson?: boolean }): Promise<{
     success: boolean;

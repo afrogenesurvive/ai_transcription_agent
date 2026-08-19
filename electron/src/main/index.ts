@@ -1542,8 +1542,9 @@ ipcMain.handle("config:clear", async () => {
   }
 });
 
-ipcMain.handle("config:export", async () => {
-  addLog("main", "info", "[config] export requested");
+ipcMain.handle("config:export", async (_event, options?: { mode?: "encrypted" | "plain" }) => {
+  const mode: "encrypted" | "plain" = options?.mode === "plain" ? "plain" : "encrypted";
+  addLog("main", "info", `[config] export requested (mode=${mode})`);
   try {
     // Read the user config via the config manager (handles the encrypted at-rest
     // config.json.gpg when licensed). Directly reading the plaintext config.json
@@ -1588,6 +1589,7 @@ ipcMain.handle("config:export", async () => {
 
     const exportData = {
       version: 3,
+      format: mode,
       exportedAt: new Date().toISOString(),
       userConfig,
       userDefaultsConfig,
@@ -1601,13 +1603,15 @@ ipcMain.handle("config:export", async () => {
       return { success: false, error: "Exporting configuration requires an active license." };
     }
 
-    // Show save dialog
+    // Show save dialog — filter defaults to the chosen mode's extension, but the
+    // user can switch between .gpg and .json (the write follows the selected mode).
+    const stamp = new Date().toISOString().slice(0, 10);
     const result = await dialog.showSaveDialog(mainWindow!, {
-      title: "Export Configuration",
-      defaultPath: path.join(app.getPath("documents"), `transcription-agent-config-${new Date().toISOString().slice(0, 10)}.gpg`),
+      title: mode === "plain" ? "Export Configuration (Plain JSON)" : "Export Configuration (Encrypted)",
+      defaultPath: path.join(app.getPath("documents"), `transcription-agent-config-${stamp}.${mode === "plain" ? "json" : "gpg"}`),
       filters: [
-        { name: "Encrypted Config", extensions: ["gpg"] },
-        { name: "JSON Config", extensions: ["json"] },
+        { name: "Encrypted Config (.gpg)", extensions: ["gpg"] },
+        { name: "Plain JSON (.json)", extensions: ["json"] },
       ],
     });
 
@@ -1616,13 +1620,21 @@ ipcMain.handle("config:export", async () => {
       return { success: false, cancelled: true };
     }
 
-    // Encrypt the whole bundle with OpenPGP (gpg-compatible), passphrase = license key.
     const plaintext = JSON.stringify(exportData, null, 2);
-    const armored = await encryptOpenPgpText(plaintext, licenseKey);
-    fs.writeFileSync(result.filePath, armored, "utf8");
-    addLog("main", "info", `Config exported (encrypted) to ${result.filePath}`);
-    logLicenseFlow("info", "config.export.encrypted", { filePath: result.filePath });
-    return { success: true, filePath: result.filePath, warnings };
+    if (mode === "plain") {
+      // Plain JSON — no encryption. Contains API keys in plaintext; the renderer
+      // shows a "Security Risk" confirmation before this path is reached.
+      fs.writeFileSync(result.filePath, plaintext, "utf8");
+      addLog("main", "warn", `Config exported (plain JSON) to ${result.filePath} — contains secrets in plaintext`);
+      logLicenseFlow("info", "config.export.plain", { filePath: result.filePath });
+    } else {
+      // Encrypt the whole bundle with OpenPGP (gpg-compatible), passphrase = license key.
+      const armored = await encryptOpenPgpText(plaintext, licenseKey);
+      fs.writeFileSync(result.filePath, armored, "utf8");
+      addLog("main", "info", `Config exported (encrypted) to ${result.filePath}`);
+      logLicenseFlow("info", "config.export.encrypted", { filePath: result.filePath });
+    }
+    return { success: true, filePath: result.filePath, format: mode, warnings };
   } catch (err: any) {
     addLog("main", "error", `Config export failed: ${err.message}`);
     return { success: false, error: err.message };

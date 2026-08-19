@@ -276,6 +276,19 @@ async def get_job_history():
         pipeline_stage = status.get("status", "unknown")
         pipeline_progress = status.get("progress", 0.0)
         pipeline_error = status.get("error", None)
+        # LLM provider/model used for this job (from usage.json if present)
+        llm_provider = "unknown"
+        llm_model = "unknown"
+        usage_path = os.path.join(entry.path, "usage.json")
+        if os.path.exists(usage_path):
+            try:
+                with open(usage_path) as f:
+                    usage = json.load(f)
+                llm_provider = usage.get("provider", "unknown")
+                llm_model = usage.get("model", "unknown")
+            except (json.JSONDecodeError, IOError):
+                pass
+
         jobs.append({
             "job_id": status.get("job_id", entry.name),
             "status": pipeline_stage,
@@ -286,6 +299,8 @@ async def get_job_history():
             "event_type": metadata.get("event_type", ""),
             "attendees": metadata.get("attendees", []),
             "has_transcript": has_transcript,
+            "llm_provider": llm_provider,
+            "llm_model": llm_model,
             "mtime": mtime,
         })
     jobs.sort(key=lambda j: j["mtime"], reverse=True)
@@ -449,14 +464,14 @@ async def get_delivery_results(job_id: str):
 
 
 @router.get("/transcribe/usage/aggregate")
-async def get_aggregate_usage():
+async def get_aggregate_usage(provider: str = None):
     """Aggregate token usage across all jobs. Scans storage dir for usage.json files."""
     results = []
     totals = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     storage = config.STORAGE_PATH
     if not os.path.isdir(storage):
         print(f"[api] GET /transcribe/usage/aggregate → empty (no storage dir)")
-        return {"jobs": [], "totals": totals, "job_count": 0}
+        return {"jobs": [], "totals": totals, "by_provider": {}, "job_count": 0}
 
     for entry in os.listdir(storage):
         job_dir = os.path.join(storage, entry)
@@ -496,10 +511,51 @@ async def get_aggregate_usage():
         total_costs["total_cost"] += jc.get("total_cost", 0)
     total_costs = {k: round(v, 6) for k, v in total_costs.items()}
 
+    # Group jobs + totals by provider (for the per-provider usage tabs)
+    by_provider: dict = {}
+    for r in results:
+        prov = r.get("provider", "unknown")
+        g = by_provider.setdefault(
+            prov,
+            {
+                "job_count": 0,
+                "totals": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                "costs": {"input_cost": 0.0, "output_cost": 0.0, "total_cost": 0.0},
+            },
+        )
+        g["job_count"] += 1
+        g["totals"]["prompt_tokens"] += r["totals"]["prompt_tokens"]
+        g["totals"]["completion_tokens"] += r["totals"]["completion_tokens"]
+        g["totals"]["total_tokens"] += r["totals"]["total_tokens"]
+        jc = r.get("costs", {})
+        g["costs"]["input_cost"] += jc.get("input_cost", 0)
+        g["costs"]["output_cost"] += jc.get("output_cost", 0)
+        g["costs"]["total_cost"] += jc.get("total_cost", 0)
+    for g in by_provider.values():
+        g["costs"] = {k: round(v, 6) for k, v in g["costs"].items()}
+
+    # Optional per-provider filter — recompute totals/costs for the filtered set
+    if provider:
+        results = [r for r in results if r.get("provider") == provider]
+        totals = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        for r in results:
+            jt = r["totals"]
+            totals["prompt_tokens"] += jt["prompt_tokens"]
+            totals["completion_tokens"] += jt["completion_tokens"]
+            totals["total_tokens"] += jt["total_tokens"]
+        total_costs = {"input_cost": 0.0, "output_cost": 0.0, "total_cost": 0.0}
+        for r in results:
+            jc = r.get("costs", {})
+            total_costs["input_cost"] += jc.get("input_cost", 0)
+            total_costs["output_cost"] += jc.get("output_cost", 0)
+            total_costs["total_cost"] += jc.get("total_cost", 0)
+        total_costs = {k: round(v, 6) for k, v in total_costs.items()}
+        by_provider = {prov: g for prov, g in by_provider.items() if prov == provider}
+
     # Sort by saved_at descending
     results.sort(key=lambda r: r.get("saved_at", ""), reverse=True)
     print(f"[USAGE] Aggregate token usage: {len(results)} jobs, {totals['total_tokens']} total tokens (${total_costs['total_cost']:.4f})")
-    return {"jobs": results, "totals": totals, "costs": total_costs, "job_count": len(results)}
+    return {"jobs": results, "totals": totals, "costs": total_costs, "by_provider": by_provider, "job_count": len(results)}
 
 
 @router.get("/transcribe/usage/{job_id}")

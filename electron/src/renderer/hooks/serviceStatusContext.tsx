@@ -32,6 +32,8 @@ export interface ServiceStatusValue {
   diarizationProgress: number | null;
   ollamaOk: boolean | null;
   ollamaProvider: boolean;
+  /** Effective LLM provider id: deepseek | openai | anthropic | ollama. */
+  llmProvider: string;
   allReady: boolean;
   checking: boolean;
   checkServers: () => Promise<Record<ServiceName, boolean>>;
@@ -79,6 +81,7 @@ export function ServiceStatusProvider({ children, ollamaRequired }: ProviderProp
   const [diarizationProgress, setDiarizationProgress] = useState<number | null>(null);
   const [ollamaOk, setOllamaOk] = useState<boolean | null>(null);
   const [ollamaProvider, setOllamaProvider] = useState(false);
+  const [llmProvider, setLlmProvider] = useState("deepseek");
   const [checking, setChecking] = useState(false);
 
   const allReady = SERVICES.every((s) => services[s] === true) && diarizationOk === true && (!ollamaRequired || ollamaOk === true);
@@ -138,8 +141,14 @@ export function ServiceStatusProvider({ children, ollamaRequired }: ProviderProp
     try {
       const cfg = await window.electronAPI?.getConfig();
       setOllamaProvider(cfg?.LLM_PROVIDER === "ollama");
+      // Effective provider: ollama for local, otherwise the cloud API_PROVIDER.
+      const lp = cfg?.LLM_PROVIDER;
+      const ap = cfg?.API_PROVIDER;
+      const eff = lp === "ollama" ? "ollama" : ap || (lp && lp !== "api" ? lp : "deepseek");
+      setLlmProvider(eff);
     } catch {
       setOllamaProvider(false);
+      setLlmProvider("deepseek");
     }
   }, []);
 
@@ -243,6 +252,7 @@ export function ServiceStatusProvider({ children, ollamaRequired }: ProviderProp
     diarizationProgress,
     ollamaOk,
     ollamaProvider,
+    llmProvider,
     allReady,
     checking,
     checkServers,

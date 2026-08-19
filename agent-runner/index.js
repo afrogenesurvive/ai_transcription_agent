@@ -25,7 +25,7 @@ import os from "os";
 import path from "path";
 import readline from "readline";
 import { fileURLToPath } from "url";
-import { callModel } from "./model-client.js";
+import { callModel, getModelName } from "./model-client.js";
 import { executeToolCall } from "./tool-executor.js";
 import { logAction } from "./logger.js";
 import { claimPendingEvent, completeEvent, failEvent, enqueueEvent, getQueueStats } from "./poller.js";
@@ -258,8 +258,7 @@ async function processEvent(event) {
       // Then overlay Phase B fields (our own config)
       // ── LLM / Agent config ──
       llm_provider: process.env.LLM_PROVIDER || "deepseek",
-      llm_model:
-        process.env.LLM_PROVIDER === "ollama" ? process.env.OLLAMA_MODEL || "llama3.1:8b" : process.env.API_AGENT_MODEL || "deepseek-v4-flash",
+      llm_model: getModelName(),
       ollama_base_url: process.env.OLLAMA_BASE_URL || "",
       ollama_model: process.env.OLLAMA_MODEL || "",
       ollama_num_ctx: process.env.OLLAMA_NUM_CTX || "",
@@ -839,9 +838,12 @@ async function processEvent(event) {
       // ── DS-mon per-call tracking ──
       // Forward usage data to the local buffer for periodic push to the
       // central DS-mon server. No-op when DSMON_PUSH_URL is not set.
-      const llmModel =
-        process.env.LLM_PROVIDER === "ollama" ? process.env.OLLAMA_MODEL || "llama3.1:8b" : process.env.API_AGENT_MODEL || "deepseek-v4-flash";
-      recordCall(decision.usage, llmModel, callLatencyMs, { step, tool: decision.name || "unknown" });
+      // DS-mon usage tracking is DeepSeek-only — other providers' per-call
+      // usage still lands in usage.json (per-job totals) but is never pushed.
+      const llmModel = getModelName();
+      if (process.env.LLM_PROVIDER === "deepseek") {
+        recordCall(decision.usage, llmModel, callLatencyMs, { step, tool: decision.name || "unknown" });
+      }
     } else {
       console.log(`⚠️  [RUNNER] No usage data from LLM at step ${step} — decision.usage is ${JSON.stringify(decision?.usage)}`);
     }
@@ -857,8 +859,7 @@ async function processEvent(event) {
           totalCompletionTokens,
           totalTokens,
           llmProvider: process.env.LLM_PROVIDER || "deepseek",
-          llmModel:
-            process.env.LLM_PROVIDER === "ollama" ? process.env.OLLAMA_MODEL || "llama3.1:8b" : process.env.API_AGENT_MODEL || "deepseek-v4-flash",
+          llmModel: getModelName(),
           pipelineSteps: JSON.stringify([...existingSteps, ...tokenUsage]),
         });
       } catch (upsertErr) {
@@ -1379,11 +1380,12 @@ async function processEvent(event) {
     try {
       // Combine existing steps (from previous retries) with new steps from this run
       const allSteps = [...existingSteps, ...tokenUsage];
-      // DeepSeek V4 Flash pricing (per 1M tokens): input=$0.25, output=$1.00
-      // Ollama is local — no cost but we still track tokens for reference
-      const isOllama = (process.env.LLM_PROVIDER || "deepseek") === "ollama";
-      const INPUT_RATE_PER_1M = isOllama ? 0 : 0.25;
-      const OUTPUT_RATE_PER_1M = isOllama ? 0 : 1.0;
+      // DeepSeek V4 Flash pricing (per 1M tokens): input=$0.25, output=$1.00.
+      // Ollama is local — no cost. OpenAI/Anthropic costs aren't estimated
+      // (usage tracking is DeepSeek-only), so they report $0 for reference.
+      const llmProviderForCost = process.env.LLM_PROVIDER || "deepseek";
+      const INPUT_RATE_PER_1M = llmProviderForCost === "deepseek" ? 0.25 : 0;
+      const OUTPUT_RATE_PER_1M = llmProviderForCost === "deepseek" ? 1.0 : 0;
       const inputCost = (totalPromptTokens / 1_000_000) * INPUT_RATE_PER_1M;
       const outputCost = (totalCompletionTokens / 1_000_000) * OUTPUT_RATE_PER_1M;
 
@@ -1391,7 +1393,7 @@ async function processEvent(event) {
         job_id: jobId,
         title: safeTitle,
         provider: process.env.LLM_PROVIDER || "deepseek",
-        model: process.env.LLM_PROVIDER === "ollama" ? process.env.OLLAMA_MODEL || "llama3.1:8b" : process.env.API_AGENT_MODEL || "deepseek-v4-flash",
+        model: getModelName(),
         steps: allSteps,
         totals: {
           prompt_tokens: totalPromptTokens,
@@ -1700,7 +1702,7 @@ async function mainLoop() {
 // ── Startup ──
 
 const provider = process.env.LLM_PROVIDER || "deepseek";
-const model = provider === "ollama" ? process.env.OLLAMA_MODEL || "llama3.1:8b" : process.env.API_AGENT_MODEL || "deepseek-v4-flash";
+const model = getModelName();
 console.log(`\n${"─".repeat(50)}`);
 console.log(`   🎙️  Transcription Agent Runner`);
 console.log(`   🤖 ${provider} (${model})`);

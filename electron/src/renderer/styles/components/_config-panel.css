@@ -469,6 +469,128 @@
   cursor: not-allowed;
 }
 
+/* ── Config Panel — export split button (inert main + caret menu of direct actions) ── */
+
+.config-export-split {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+
+.config-export-split .config-io-btn {
+  border-radius: 0;
+}
+
+.config-export-split-main {
+  border-top-left-radius: var(--radius) !important;
+  border-bottom-left-radius: var(--radius) !important;
+  cursor: not-allowed;
+}
+
+.config-export-split-caret {
+  border-left: none;
+  border-top-right-radius: var(--radius) !important;
+  border-bottom-right-radius: var(--radius) !important;
+  padding: 5px 6px;
+}
+
+.config-export-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2099;
+}
+
+.config-export-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 190px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 2100;
+  overflow: hidden;
+  animation: confirm-scale-in 0.12s ease;
+}
+
+.config-export-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--text);
+  padding: 9px 12px;
+  font-size: var(--fs-12);
+  font-weight: 500;
+  cursor: pointer;
+  font-family: var(--font);
+  text-align: left;
+  transition: background 0.12s;
+  white-space: nowrap;
+}
+
+.config-export-menu-item:hover {
+  background: var(--surface-hover);
+}
+
+/* ── Config Panel — Security Risk confirm (plain JSON export) ── */
+
+.confirm-dialog--security {
+  border: 2px solid var(--red);
+  background: color-mix(in srgb, var(--surface) 96%, var(--red) 4%);
+  box-shadow:
+    0 0 0 1px var(--red),
+    0 0 24px rgba(248, 81, 73, 0.35),
+    0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.confirm-dialog-security-icon {
+  display: flex;
+  justify-content: center;
+  margin: 0 0 10px;
+  animation: confirm-danger-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes confirm-danger-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.75;
+    transform: scale(1.06);
+  }
+}
+
+.confirm-dialog-title--security {
+  font-size: var(--fs-24);
+  font-weight: 800;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--red);
+  margin: 0 0 14px;
+}
+
+.confirm-dialog-text--security {
+  font-size: var(--fs-15);
+  text-align: center;
+  color: var(--text);
+  line-height: 1.55;
+}
+
+.confirm-dialog-text--security strong {
+  color: var(--red);
+}
+
+.confirm-dialog-actions--center {
+  justify-content: center;
+}
+
 /* ── Config Panel — separator between import/export and clear ── */
 
 .config-separator {

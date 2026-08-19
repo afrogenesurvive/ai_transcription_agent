@@ -26,6 +26,8 @@ import type { PipelineStep, ConfigValueSource } from "../types";
 interface Props {
   onClose: () => void;
   configOk?: boolean;
+  /** Called after any operation that changes the saved config (save/import/clear/restore). */
+  onConfigChanged?: () => void;
 }
 
 type ConfigTab = "config" | "agent" | "logging" | "ui";
@@ -33,7 +35,16 @@ type ConfigTab = "config" | "agent" | "logging" | "ui";
 interface ConfigValues {
   [key: string]: string;
   DEEPSEEK_API_KEY: string;
+  OPENAI_API_KEY: string;
+  ANTHROPIC_API_KEY: string;
   LLM_PROVIDER: string;
+  API_PROVIDER: string;
+  DEEPSEEK_MODEL: string;
+  OPENAI_MODEL: string;
+  ANTHROPIC_MODEL: string;
+  OPENAI_BASE_URL: string;
+  ANTHROPIC_BASE_URL: string;
+  ANTHROPIC_MAX_TOKENS: string;
   OLLAMA_BASE_URL: string;
   OLLAMA_MODEL: string;
   OLLAMA_NUM_CTX: string;
@@ -104,6 +115,14 @@ interface AgentConfig {
 
 const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secret: boolean; section: string }[] = [
   { key: "DEEPSEEK_API_KEY", label: "DeepSeek API Key", required: true, secret: true, section: "LLM Provider" },
+  { key: "OPENAI_API_KEY", label: "OpenAI API Key", required: true, secret: true, section: "LLM Provider" },
+  { key: "ANTHROPIC_API_KEY", label: "Anthropic API Key", required: true, secret: true, section: "LLM Provider" },
+  { key: "DEEPSEEK_MODEL", label: "DeepSeek Model", required: false, secret: false, section: "LLM Provider" },
+  { key: "OPENAI_MODEL", label: "OpenAI Model", required: false, secret: false, section: "LLM Provider" },
+  { key: "ANTHROPIC_MODEL", label: "Anthropic Model", required: false, secret: false, section: "LLM Provider" },
+  { key: "OPENAI_BASE_URL", label: "OpenAI Base URL", required: false, secret: false, section: "LLM Provider" },
+  { key: "ANTHROPIC_BASE_URL", label: "Anthropic Base URL", required: false, secret: false, section: "LLM Provider" },
+  { key: "ANTHROPIC_MAX_TOKENS", label: "Anthropic Max Tokens", required: false, secret: false, section: "LLM Provider" },
   { key: "OLLAMA_BASE_URL", label: "Ollama Base URL", required: false, secret: false, section: "LLM Provider" },
   { key: "OLLAMA_MODEL", label: "Ollama Model", required: false, secret: false, section: "LLM Provider" },
   { key: "OLLAMA_NUM_CTX", label: "Ollama Context Window", required: false, secret: false, section: "LLM Provider" },
@@ -158,15 +177,42 @@ const SOURCE_LABELS: Record<string, string> = {
   default: "Default value",
 };
 
+/** Per-provider field keys for the nested API provider selector. */
+const API_PROVIDER_FIELDS: Record<
+  string,
+  { key: keyof ConfigValues; model: keyof ConfigValues; baseUrl?: keyof ConfigValues; maxTokens?: keyof ConfigValues }
+> = {
+  deepseek: { key: "DEEPSEEK_API_KEY", model: "DEEPSEEK_MODEL" },
+  openai: { key: "OPENAI_API_KEY", model: "OPENAI_MODEL", baseUrl: "OPENAI_BASE_URL" },
+  anthropic: { key: "ANTHROPIC_API_KEY", model: "ANTHROPIC_MODEL", baseUrl: "ANTHROPIC_BASE_URL", maxTokens: "ANTHROPIC_MAX_TOKENS" },
+};
+
 /**
  * Build the full ConfigValues object from getConfigWithSources() output.
  * Centralizes every key so mount/import/clear/restore all reload identically
  * (including keys not rendered in this panel: PERF_METRICS, APPEARANCE, PLAYWRIGHT).
  */
 function loadConfigValues(cfg: Record<string, { value: string; source: string }>): ConfigValues {
+  // Legacy normalization: a cloud provider directly in LLM_PROVIDER (deepseek/openai/anthropic)
+  // becomes the two-level form api + API_PROVIDER.
+  let llmProvider = cfg.LLM_PROVIDER?.value || "api";
+  let apiProvider = cfg.API_PROVIDER?.value || "deepseek";
+  if (["deepseek", "openai", "anthropic"].includes(llmProvider)) {
+    apiProvider = llmProvider;
+    llmProvider = "api";
+  }
   return {
     DEEPSEEK_API_KEY: cfg.DEEPSEEK_API_KEY?.value || "",
-    LLM_PROVIDER: cfg.LLM_PROVIDER?.value || "deepseek",
+    OPENAI_API_KEY: cfg.OPENAI_API_KEY?.value || "",
+    ANTHROPIC_API_KEY: cfg.ANTHROPIC_API_KEY?.value || "",
+    LLM_PROVIDER: llmProvider,
+    API_PROVIDER: apiProvider,
+    DEEPSEEK_MODEL: cfg.DEEPSEEK_MODEL?.value || "",
+    OPENAI_MODEL: cfg.OPENAI_MODEL?.value || "",
+    ANTHROPIC_MODEL: cfg.ANTHROPIC_MODEL?.value || "",
+    OPENAI_BASE_URL: cfg.OPENAI_BASE_URL?.value || "",
+    ANTHROPIC_BASE_URL: cfg.ANTHROPIC_BASE_URL?.value || "",
+    ANTHROPIC_MAX_TOKENS: cfg.ANTHROPIC_MAX_TOKENS?.value || "4096",
     OLLAMA_BASE_URL: cfg.OLLAMA_BASE_URL?.value || "http://127.0.0.1:11434/v1",
     OLLAMA_MODEL: cfg.OLLAMA_MODEL?.value || "",
     OLLAMA_NUM_CTX: cfg.OLLAMA_NUM_CTX?.value || "32768",
@@ -402,7 +448,7 @@ function formatOllamaSize(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
-export default function ConfigPanel({ onClose, configOk }: Props) {
+export default function ConfigPanel({ onClose, configOk, onConfigChanged }: Props) {
   // Persisted Config tab + section selection (rule 6)
   const [activeTab, setActiveTab] = useUiStateValue<ConfigTab>("config.tab", "config");
   const [configSection, setConfigSection] = useUiStateValue<string>("config.section", "LLM Provider");
@@ -664,14 +710,18 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
     feedbackRef.current?.scrollTo({ top: feedbackRef.current.scrollHeight });
   }, [exportResult, importResult, clearResult, restoreUserDefaultsResult, saveDefaultsResult, error, saved]);
 
-  const handleExport = useCallback(async () => {
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showPlainExportConfirm, setShowPlainExportConfirm] = useState(false);
+
+  const doExport = useCallback(async (mode: "encrypted" | "plain") => {
     setExporting(true);
     setExportResult(null);
     try {
-      const result = await window.electronAPI?.exportConfig();
+      const result = await window.electronAPI?.exportConfig({ mode });
       if (result?.success) {
         const warn = result.warnings?.length ? ` (${result.warnings.length} warning(s): ${result.warnings.join("; ")})` : "";
-        setExportResult(`Exported (encrypted .gpg, decryptable with your license key) to ${result.filePath}${warn}`);
+        const label = result.format === "plain" ? "plain JSON" : "encrypted .gpg";
+        setExportResult(`Exported (${label}) to ${result.filePath}${warn}`);
       } else if (result?.cancelled) {
         setExportResult(null);
       } else {
@@ -696,6 +746,7 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
         if (result.userDefaultsImported) parts.push("user defaults");
         const detail = parts.length > 0 ? ` (${parts.join(", ")} included)` : "";
         setImportResult(`Configuration imported successfully${detail}`);
+        onConfigChanged?.();
         // Re-apply appearance settings (theme/accent may have been imported)
         loadAndApplyAppearance().catch(() => {});
         // Reload config values after import
@@ -726,7 +777,7 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
     } finally {
       setImporting(false);
     }
-  }, []);
+  }, [onConfigChanged]);
 
   const handleClearConfig = useCallback(async () => {
     setShowClearConfigConfirm(false);
@@ -742,6 +793,7 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
           setDirtyKeys(new Set());
         });
         setClearResult("Configuration cleared — all values reset to defaults");
+        onConfigChanged?.();
       } else if (result?.blocked) {
         setClearResult(result.error || "Cannot clear: jobs are running");
       } else {
@@ -752,7 +804,7 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
     } finally {
       setClearingConfig(false);
     }
-  }, []);
+  }, [onConfigChanged]);
 
   // ── UI state (persisted view state) — Clear all ──
   const [showClearUiStateConfirm, setShowClearUiStateConfirm] = useState(false);
@@ -787,6 +839,7 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
           setDirtyKeys(new Set());
         });
         setRestoreUserDefaultsResult("User configuration restored to shipped defaults");
+        onConfigChanged?.();
         // Re-apply appearance settings (theme/accent may have been restored)
         loadAndApplyAppearance().catch(() => {});
       } else if (result?.blocked) {
@@ -799,7 +852,7 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
     } finally {
       setRestoringUserDefaults(false);
     }
-  }, []);
+  }, [onConfigChanged]);
 
   const handleSaveDefaults = useCallback(async () => {
     setShowSaveDefaultsConfirm(false);
@@ -1072,12 +1125,13 @@ export default function ConfigPanel({ onClose, configOk }: Props) {
       await window.electronAPI?.saveConfig(payload);
       setDirtyKeys(new Set());
       setSaved(true);
+      onConfigChanged?.();
     } catch {
       setError("Failed to save configuration");
     } finally {
       setSaving(false);
     }
-  }, [values, dirtyKeys]);
+  }, [values, dirtyKeys, onConfigChanged]);
 
   /**
    * Generate the system prompt from the ordered pipeline steps.
@@ -1477,15 +1531,49 @@ The system provides existing memory context at the start of each pipeline run. U
       {/* Header: action buttons only */}
       <div className="config-header">
         <div className="config-io-buttons">
-          <Tooltip content="Save configuration to an encrypted .gpg file (OpenPGP, decryptable with your license key)">
+          {/* Export split button — main button is inert; menu items are direct actions */}
+          <div className="config-export-split">
             <button
-              className="config-io-btn"
-              onClick={handleExport}
-              disabled={exporting || activeJobs.length > 0}
-              title="Export configuration to an encrypted .gpg file">
-              {exporting ? <Icon name="sync" size="14" /> : <Icon name="upload" size="14" />} Export
+              className="config-io-btn config-export-split-main"
+              disabled
+              title="Choose an export mode from the menu">
+              <Icon name="upload" size="14" /> Export
             </button>
-          </Tooltip>
+            <button
+              className="config-io-btn config-export-split-caret"
+              onClick={() => setShowExportMenu((v) => !v)}
+              disabled={exporting || activeJobs.length > 0}
+              title="Choose export mode"
+              aria-haspopup="menu"
+              aria-expanded={showExportMenu}>
+              <Icon name="arrow_drop_down" size="16" />
+            </button>
+            {showExportMenu && (
+              <>
+                <div className="config-export-menu-backdrop" onClick={() => setShowExportMenu(false)} />
+                <div className="config-export-menu" role="menu">
+                  <button
+                    className="config-export-menu-item"
+                    onClick={() => {
+                      setShowExportMenu(false);
+                      doExport("encrypted");
+                    }}
+                    role="menuitem">
+                    <Icon name="lock" size="14" color="accent" /> Encrypted (.gpg)
+                  </button>
+                  <button
+                    className="config-export-menu-item"
+                    onClick={() => {
+                      setShowExportMenu(false);
+                      setShowPlainExportConfirm(true);
+                    }}
+                    role="menuitem">
+                    <Icon name="code" size="14" color="orange" /> Plain JSON (.json)
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
           <Tooltip content="Load configuration from an encrypted .gpg file (or legacy JSON)">
             <button
               className={`config-io-btn ${!configOk ? "config-io-btn--import-highlight" : ""}`}
@@ -1650,17 +1738,17 @@ The system provides existing memory context at the start of each pipeline run. U
                           LLM Provider <span className="config-required">*</span>
                         </label>
                         <div className="config-radio-group">
-                          <label className={`config-radio ${values.LLM_PROVIDER === "deepseek" ? "config-radio--selected" : ""}`}>
+                          <label className={`config-radio ${values.LLM_PROVIDER === "api" ? "config-radio--selected" : ""}`}>
                             <input
                               type="radio"
                               name="llm-provider"
-                              value="deepseek"
-                              checked={values.LLM_PROVIDER === "deepseek"}
-                              onChange={() => handleChange("LLM_PROVIDER", "deepseek")}
+                              value="api"
+                              checked={values.LLM_PROVIDER === "api"}
+                              onChange={() => handleChange("LLM_PROVIDER", "api")}
                               disabled={activeJobs.length > 0}
                             />
-                            <span className="config-radio-label">DeepSeek (API)</span>
-                            <span className="config-radio-desc">Cloud API — requires API key</span>
+                            <span className="config-radio-label">API</span>
+                            <span className="config-radio-desc">Cloud API — DeepSeek / OpenAI / Anthropic</span>
                           </label>
                           <label className={`config-radio ${values.LLM_PROVIDER === "ollama" ? "config-radio--selected" : ""}`}>
                             <input
@@ -1697,46 +1785,144 @@ The system provides existing memory context at the start of each pipeline run. U
                         )}
                       </div>
 
-                      {values.LLM_PROVIDER === "deepseek" &&
-                        fields
-                          .filter((f) => f.key === "DEEPSEEK_API_KEY")
-                          .map((field) => (
-                            <div key={field.key} className="config-field">
-                              <label className="config-label">
-                                {field.label}
-                                {field.required && <span className="config-required"> *</span>}
-                              </label>
-                              <div className="config-input-row">
-                                <input
-                                  className="config-input"
-                                  type={visibleKeys.has(field.key) ? "text" : "password"}
-                                  value={values[field.key] || ""}
-                                  onChange={(e) => handleChange(field.key, e.target.value)}
-                                  placeholder="sk-..."
-                                  disabled={activeJobs.length > 0}
-                                />
-                                <Tooltip
-                                  content={
-                                    visibleKeys.has(field.key) ? "Click to mask the secret value" : "Click to temporarily reveal the secret value"
-                                  }>
-                                  <button
-                                    className="config-visibility-toggle"
-                                    onClick={() => toggleVisible(field.key)}
-                                    title={visibleKeys.has(field.key) ? "Hide the secret value" : "Reveal the secret value"}
-                                    type="button"
-                                    tabIndex={-1}>
-                                    {visibleKeys.has(field.key) ? <Icon name="visibility" size="14" /> : <Icon name="visibility_off" size="14" />}
-                                  </button>
-                                </Tooltip>
-                              </div>
+                      {values.LLM_PROVIDER === "api" && (
+                        <>
+                          {/* Nested cloud provider selector */}
+                          <div className="config-field">
+                            <label className="config-label">
+                              API Provider <span className="config-required">*</span>
+                            </label>
+                            <div className="config-radio-group">
+                              {(["deepseek", "openai", "anthropic"] as const).map((p) => (
+                                <label key={p} className={`config-radio ${values.API_PROVIDER === p ? "config-radio--selected" : ""}`}>
+                                  <input
+                                    type="radio"
+                                    name="api-provider"
+                                    value={p}
+                                    checked={values.API_PROVIDER === p}
+                                    onChange={() => handleChange("API_PROVIDER", p)}
+                                    disabled={activeJobs.length > 0}
+                                  />
+                                  <span className="config-radio-label">{p === "deepseek" ? "DeepSeek" : p === "openai" ? "OpenAI" : "Anthropic"}</span>
+                                  <span className="config-radio-desc">
+                                    {p === "deepseek" ? "Cloud API — requires API key" : p === "openai" ? "ChatGPT — requires API key" : "Claude — requires API key"}
+                                  </span>
+                                </label>
+                              ))}
                             </div>
-                          ))}
+                          </div>
+
+                          {/* Active provider's API key */}
+                          {(() => {
+                            const pf = API_PROVIDER_FIELDS[values.API_PROVIDER || "deepseek"];
+                            return fields
+                              .filter((f) => f.key === pf.key)
+                              .map((field) => (
+                                <div key={field.key} className="config-field">
+                                  <label className="config-label">
+                                    {field.label}
+                                    {field.required && <span className="config-required"> *</span>}
+                                  </label>
+                                  <div className="config-input-row">
+                                    <input
+                                      className="config-input"
+                                      type={visibleKeys.has(field.key) ? "text" : "password"}
+                                      value={values[field.key] || ""}
+                                      onChange={(e) => handleChange(field.key, e.target.value)}
+                                      placeholder="sk-..."
+                                      disabled={activeJobs.length > 0}
+                                    />
+                                    <Tooltip
+                                      content={
+                                        visibleKeys.has(field.key) ? "Click to mask the secret value" : "Click to temporarily reveal the secret value"
+                                      }>
+                                      <button
+                                        className="config-visibility-toggle"
+                                        onClick={() => toggleVisible(field.key)}
+                                        title={visibleKeys.has(field.key) ? "Hide the secret value" : "Reveal the secret value"}
+                                        type="button"
+                                        tabIndex={-1}>
+                                        {visibleKeys.has(field.key) ? <Icon name="visibility" size="14" /> : <Icon name="visibility_off" size="14" />}
+                                      </button>
+                                    </Tooltip>
+                                  </div>
+                                </div>
+                              ));
+                          })()}
+
+                          {/* Model + optional base URL / max tokens */}
+                          {(() => {
+                            const pf = API_PROVIDER_FIELDS[values.API_PROVIDER || "deepseek"];
+                            const modelLabel =
+                              values.API_PROVIDER === "deepseek"
+                                ? "DeepSeek Model"
+                                : values.API_PROVIDER === "openai"
+                                  ? "OpenAI Model"
+                                  : "Anthropic Model";
+                            const modelPlaceholder =
+                              values.API_PROVIDER === "deepseek"
+                                ? "deepseek-v4-flash"
+                                : values.API_PROVIDER === "openai"
+                                  ? "gpt-4o"
+                                  : "claude-sonnet-4-5";
+                            return (
+                              <div className="config-field-row">
+                                <div className="config-field config-field--compact">
+                                  <label className="config-label">{modelLabel}</label>
+                                  <input
+                                    className="config-input"
+                                    type="text"
+                                    value={values[pf.model] || ""}
+                                    onChange={(e) => handleChange(pf.model, e.target.value)}
+                                    placeholder={modelPlaceholder}
+                                    disabled={activeJobs.length > 0}
+                                  />
+                                </div>
+                                {pf.baseUrl && (
+                                  <div className="config-field config-field--compact">
+                                    <label className="config-label">Base URL (optional)</label>
+                                    <input
+                                      className="config-input"
+                                      type="text"
+                                      value={values[pf.baseUrl] || ""}
+                                      onChange={(e) => handleChange(pf.baseUrl, e.target.value)}
+                                      placeholder={values.API_PROVIDER === "openai" ? "https://api.openai.com/v1" : "https://api.anthropic.com"}
+                                      disabled={activeJobs.length > 0}
+                                    />
+                                  </div>
+                                )}
+                                {pf.maxTokens && (
+                                  <div className="config-field config-field--compact">
+                                    <label className="config-label">Max Tokens</label>
+                                    <input
+                                      className="config-input config-input--number"
+                                      type="number"
+                                      min={256}
+                                      value={values[pf.maxTokens] || "4096"}
+                                      onChange={(e) => handleChange(pf.maxTokens, e.target.value)}
+                                      disabled={activeJobs.length > 0}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </>
+                      )}
 
                       {values.LLM_PROVIDER === "ollama" &&
                         fields
                           .filter(
                             (f) =>
                               f.key !== "DEEPSEEK_API_KEY" &&
+                              f.key !== "OPENAI_API_KEY" &&
+                              f.key !== "ANTHROPIC_API_KEY" &&
+                              f.key !== "DEEPSEEK_MODEL" &&
+                              f.key !== "OPENAI_MODEL" &&
+                              f.key !== "ANTHROPIC_MODEL" &&
+                              f.key !== "OPENAI_BASE_URL" &&
+                              f.key !== "ANTHROPIC_BASE_URL" &&
+                              f.key !== "ANTHROPIC_MAX_TOKENS" &&
                               f.key !== "EMBEDDING_PROVIDER" &&
                               f.key !== "OLLAMA_MODEL" &&
                               f.key !== "OLLAMA_NUM_CTX" &&
@@ -3823,6 +4009,37 @@ The system provides existing memory context at the start of each pipeline run. U
               </button>
               <button className="btn-danger" onClick={handleClearConfig} disabled={clearingConfig || activeJobs.length > 0}>
                 {clearingConfig ? "Clearing..." : "Clear All"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Plain JSON Export — Security Risk confirmation ── */}
+      {showPlainExportConfirm && (
+        <div className="confirm-overlay" onClick={() => setShowPlainExportConfirm(false)}>
+          <div className="confirm-dialog confirm-dialog--security" onClick={(e) => e.stopPropagation()}>
+            <div className="confirm-dialog-security-icon">
+              <Icon name="warning" size="40" color="red" filled />
+            </div>
+            <h3 className="confirm-dialog-title confirm-dialog-title--security">Security Risk</h3>
+            <p className="confirm-dialog-text confirm-dialog-text--security">
+              This will write your <strong>API keys</strong> (DeepSeek, OpenAI, Anthropic) and delivery credentials to a{" "}
+              <strong>plain-text JSON file</strong> that anyone with file access can read. <strong>Security Risk:</strong> anyone who obtains
+              this file can use your keys. Prefer the encrypted <strong>.gpg</strong> export unless you specifically need a readable copy.
+            </p>
+            <div className="confirm-dialog-actions confirm-dialog-actions--center">
+              <button className="btn-secondary" onClick={() => setShowPlainExportConfirm(false)}>
+                Cancel
+              </button>
+              <button
+                className="btn-danger"
+                onClick={() => {
+                  setShowPlainExportConfirm(false);
+                  doExport("plain");
+                }}
+                disabled={exporting || activeJobs.length > 0}>
+                {exporting ? "Exporting..." : "Export Plain JSON"}
               </button>
             </div>
           </div>
