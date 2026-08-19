@@ -39,7 +39,13 @@ sentence-transformers~=5.1
 python-dotenv~=1.2.2
 
 # License verification (Ed25519 seat certs + challenge-response) — see license.py
-cryptography~=45.0
+# 46.x = patched for PYSEC-2026-35/36/2141. license.py only uses
+# Ed25519PublicKey.from_public_bytes/.verify + InvalidSignature — stable core,
+# unchanged across major versions, so 45 → 46 is a drop-in.
+# Fixes for PYSEC-2026-3552/3553/3554 + GHSA-537c-gmf6-5ccf need cryptography
+# ≥48/49/50 (major bumps not yet validated against the license flow) — those are
+# whitelisted in build-win.yml with a documented reason.
+cryptography~=46.0
 
 # ── Transitive security pins (pip-audit 2026-08-08) ──
 # Force patched versions of transitive deps that pip-audit flagged. These are
