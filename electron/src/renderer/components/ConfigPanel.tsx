@@ -1885,7 +1885,7 @@ The system provides existing memory context at the start of each pipeline run. U
                                       className="config-input"
                                       type="text"
                                       value={values[pf.baseUrl] || ""}
-                                      onChange={(e) => handleChange(pf.baseUrl, e.target.value)}
+                                      onChange={(e) => handleChange(pf.baseUrl!, e.target.value)}
                                       placeholder={values.API_PROVIDER === "openai" ? "https://api.openai.com/v1" : "https://api.anthropic.com"}
                                       disabled={activeJobs.length > 0}
                                     />
@@ -1899,7 +1899,7 @@ The system provides existing memory context at the start of each pipeline run. U
                                       type="number"
                                       min={256}
                                       value={values[pf.maxTokens] || "4096"}
-                                      onChange={(e) => handleChange(pf.maxTokens, e.target.value)}
+                                      onChange={(e) => handleChange(pf.maxTokens!, e.target.value)}
                                       disabled={activeJobs.length > 0}
                                     />
                                   </div>
