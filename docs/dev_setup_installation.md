@@ -80,8 +80,10 @@ npm install
 Create a `.env` file in the project root:
 
 ```env
-# Required: LLM API Key (if using DeepSeek)
+# Required: LLM API Key for your chosen cloud provider
 DEEPSEEK_API_KEY=sk-your-key-here
+# OPENAI_API_KEY=sk-...
+# ANTHROPIC_API_KEY=sk-ant-...
 
 # Optional: Ollama (local LLM)
 LLM_PROVIDER=ollama

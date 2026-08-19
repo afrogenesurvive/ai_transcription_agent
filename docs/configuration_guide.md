@@ -103,8 +103,17 @@ The UI shows source annotations via `getConfigWithSources()`:
 
 ```typescript
 interface AppConfig {
-  DEEPSEEK_API_KEY: string; // Required for DeepSeek LLM
-  LLM_PROVIDER: string; // "deepseek" | "ollama"
+  DEEPSEEK_API_KEY: string; // Required when API_PROVIDER=deepseek
+  OPENAI_API_KEY: string; // Required when API_PROVIDER=openai
+  ANTHROPIC_API_KEY: string; // Required when API_PROVIDER=anthropic
+  LLM_PROVIDER: string; // "api" | "ollama" (cloud vs local)
+  API_PROVIDER: string; // "deepseek" | "openai" | "anthropic" (when LLM_PROVIDER=api)
+  DEEPSEEK_MODEL: string; // Per-provider model override (empty = built-in default)
+  OPENAI_MODEL: string;
+  ANTHROPIC_MODEL: string;
+  OPENAI_BASE_URL: string; // Optional proxy/gateway override (empty = official)
+  ANTHROPIC_BASE_URL: string;
+  ANTHROPIC_MAX_TOKENS: string; // Default 4096
   OLLAMA_BASE_URL: string; // Ollama endpoint
   OLLAMA_MODEL: string; // Ollama model name
   OLLAMA_NUM_CTX: string; // Context window: 32768|65536|131072
@@ -161,7 +170,7 @@ interface AppConfig {
 | **Save**               | `config:save`             | `saveConfig(values)`          | Merges partial values into `config.json`, strips empty keys, invalidates cache. Restarts agent runner; also restarts the Python backend when any Python-consumed key changes. |
 | **Clear**              | `config:clear`            | `clearConfig()`               | Writes `{}` to `config.json` (all values → defaults). **Guard:** blocks if active jobs. Restarts agent runner + Python backend.                                               |
 | **Restore defaults**   | `config:restore-defaults` | `restoreUserConfigDefaults()` | Copies `config.defaults.json` over `config.json`. **Guard:** blocks if active jobs. Restarts agent runner + Python backend.                                                   |
-| **Check completeness** | `config:check`            | `checkConfig()`               | Returns `{ok, missing[]}`. If LLM_PROVIDER=ollama, DEEPSEEK_API_KEY is not required.                                                                                          |
+| **Check completeness** | `config:check`            | `checkConfig()`               | Returns `{ok, missing[]}`. Requires the active provider's API key (deepseek/openai/anthropic) or `OLLAMA_MODEL` when local.                                                                       |
 
 ### Child Process Environment
 
@@ -386,24 +395,29 @@ ConfigPanel UI
 ### Export Config
 
 ```
-ConfigPanel UI (Export button)
-  → window.electronAPI.exportConfig()
+ConfigPanel UI (Export button + Encrypted/Plain JSON mode toggle)
+  → window.electronAPI.exportConfig({ mode: "encrypted" | "plain" })
     → IPC: config:export
       → Read {userData}/config.json
       → Read {userData}/config.defaults.json
       → [TRY] fetch GET http://127.0.0.1:5010/agent/config
       → [TRY] fetch GET http://127.0.0.1:5010/agent/config/defaults
-      → Prompt save dialog
-      → Write version-3 JSON:
+      → Prompt save dialog (filter defaults to .gpg or .json per mode)
+      → Build version-3 JSON bundle (format = mode):
 
         {
           "version": 3,
+          "format": "encrypted" | "plain",
           "exportedAt": "2026-07-21T...",
           "userConfig": { ... },
           "userDefaultsConfig": { ... },
           "agentConfig": { tools, pipeline, systemPrompt },
           "defaultsConfig": { tools, pipeline, systemPrompt }
         }
+
+      → Encrypted mode: OpenPGP-encrypt the bundle (passphrase = license key) → .gpg
+      → Plain mode: write the bundle as-is (plaintext JSON) → .json
+        (Renderer shows a "Security Risk" confirmation before Plain mode.)
 ```
 
 ### Import Config
@@ -482,7 +496,7 @@ The config system is fully Windows-compatible. All cross-platform concerns are h
 | `config:check`            | —                        | `{ok: boolean, missing: string[]}`                                                                                   | —              |
 | `config:clear`            | —                        | `{success, error?, blocked?}`                                                                                        | ❌ Active jobs |
 | `config:getWithSources`   | —                        | `Record<string, {value, source}>`                                                                                    | —              |
-| `config:export`           | —                        | `{success, filePath?, error?, cancelled?}`                                                                           | —              |
+| `config:export`           | `{mode?: "encrypted"\|"plain"}` | `{success, filePath?, format?: "encrypted"\|"plain", error?, cancelled?, warnings?}`                            | —              |
 | `config:import`           | —                        | `{success, filePath?, error?, cancelled?, blocked?, agentConfigImported?, defaultsImported?, userDefaultsImported?}` | ❌ Active jobs |
 | `config:defaults`         | —                        | `{success, defaults}`                                                                                                | —              |
 | `config:restore-defaults` | —                        | `{success, error?, blocked?}`                                                                                        | ❌ Active jobs |
@@ -504,13 +518,18 @@ The config system is fully Windows-compatible. All cross-platform concerns are h
 
 ### Required Keys
 
-The only required key is `DEEPSEEK_API_KEY` — but only when `LLM_PROVIDER` is `"deepseek"` (the default). If using Ollama, no API key is required, but `OLLAMA_MODEL` must be set — `config:check` reports it as missing otherwise (previously the runner only failed at the first LLM call).
+The required key depends on the active provider: `DEEPSEEK_API_KEY` (deepseek), `OPENAI_API_KEY` (openai), or `ANTHROPIC_API_KEY` (anthropic). If using Ollama, no API key is required, but `OLLAMA_MODEL` must be set — `config:check` reports the active provider's missing key otherwise.
 
 ### Default Values Summary
 
 | Key                            | Default                      | Notes                                                                                                                                                                                      |
 | ------------------------------ | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `LLM_PROVIDER`                 | `"deepseek"`                 | Switch to `"ollama"` for local inference                                                                                                                                                   |
+| `LLM_PROVIDER`                 | `"api"`                     | `"api"` (cloud) or `"ollama"` (local)                                                                                                                                          |
+| `API_PROVIDER`                 | `"deepseek"`                | Cloud provider when `LLM_PROVIDER=api`: deepseek / openai / anthropic                                                                                                            |
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | `""`               | Required for their respective providers                                                                                                                                         |
+| `DEEPSEEK_MODEL` / `OPENAI_MODEL` / `ANTHROPIC_MODEL` | `""` | Per-provider model overrides; empty = built-in default (deepseek-v4-flash, gpt-4o, claude-sonnet-4-5)                                                                             |
+| `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` | `""`              | Optional proxy/gateway base URL override; empty = official endpoint                                                                                                              |
+| `ANTHROPIC_MAX_TOKENS`         | `"4096"`                    | Anthropic max output tokens                                                                                                                                                      |
 | `OLLAMA_BASE_URL`              | `http://127.0.0.1:11434/v1`  | Ollama's OpenAI-compatible endpoint                                                                                                                                                        |
 | `OLLAMA_NUM_CTX`               | `32768`                      | Also valid: `65536`, `131072`                                                                                                                                                              |
 | `WHISPER_MODEL_SIZE`           | `"medium"`                   | Or `"large"` for higher accuracy                                                                                                                                                           |

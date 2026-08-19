@@ -5,6 +5,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import Icon from "./Icon";
 import LoadingModal from "./LoadingModal";
+import { providerLabel, providerColor } from "../utils/providers";
 
 interface JobSummary {
   job_id: string;
@@ -15,6 +16,8 @@ interface JobSummary {
   event_type: string;
   attendees: string[];
   has_transcript: boolean;
+  llm_provider?: string;
+  llm_model?: string;
   mtime: number;
 }
 
@@ -234,6 +237,20 @@ export default function HistoryPanel({ onSelectJob, collapsed, currentJobId, onN
                     </div>
                     <div className="history-panel-item-meta">
                       <span className="history-panel-item-status">{STATUS_LABEL[job.status] || job.status}</span>
+                      {job.llm_provider && (
+                        <span
+                          style={{
+                            display: "inline-block",
+                            padding: "0 6px",
+                            borderRadius: 4,
+                            fontSize: 9,
+                            fontWeight: 600,
+                            color: "#fff",
+                            background: providerColor(job.llm_provider),
+                          }}>
+                          {providerLabel(job.llm_provider)}
+                        </span>
+                      )}
                       <span className="history-panel-item-date">{formatDate(job.mtime)}</span>
                     </div>
                     {job.attendees && job.attendees.length > 0 && <div className="history-panel-item-attendees">{job.attendees.join(", ")}</div>}

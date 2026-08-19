@@ -131,10 +131,12 @@ Audio File ──► Python Backend ──► Diarization (who) ──► ASR (w
 
 ## LLM Providers
 
-| Provider               | Type      | Model                 |
-| ---------------------- | --------- | --------------------- |
-| **DeepSeek** (default) | Cloud API | DeepSeek V4           |
-| **Ollama**             | Local     | qwen3.6 or deepseekv2 |
+| Provider                | Type      | Model                        |
+| ----------------------- | --------- | ---------------------------- |
+| **DeepSeek** (default)  | Cloud API | DeepSeek V4                  |
+| **OpenAI**              | Cloud API | GPT-4o (configurable)        |
+| **Anthropic**           | Cloud API | Claude Sonnet (configurable) |
+| **Ollama**              | Local     | qwen3.6 or deepseekv2        |
 
 ## Voiceprint + Attendee Handling
 

@@ -17,6 +17,7 @@ import LoadingModal from "./LoadingModal";
 import DocViewer from "./DocViewer";
 import GuideErrorBoundary from "./GuideErrorBoundary";
 import { useUiStateValue } from "../hooks/useUiState";
+import { providerLabel, providerColor, LLM_PROVIDER_IDS } from "../utils/providers";
 import type { LogEntry } from "../types";
 
 interface Props {
@@ -1934,11 +1935,30 @@ function UsageTab() {
     }>;
     totals: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
     costs?: { input_cost: number; output_cost: number; total_cost: number };
+    by_provider?: Record<
+      string,
+      {
+        job_count: number;
+        totals: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+        costs?: { input_cost: number; output_cost: number; total_cost: number };
+      }
+    >;
     job_count: number;
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"date" | "tokens">("date");
+  const [usageProvider, setUsageProvider] = useState<string>("all");
+
+  // Per-provider filter for the usage sub-tabs
+  const filteredJobs = aggregate?.jobs
+    ? usageProvider === "all"
+      ? aggregate.jobs
+      : aggregate.jobs.filter((j) => j.provider === usageProvider)
+    : [];
+  const providerAgg = usageProvider !== "all" ? aggregate?.by_provider?.[usageProvider] : undefined;
+  const activeTotals = providerAgg?.totals || (usageProvider === "all" ? aggregate?.totals : undefined);
+  const activeCosts = providerAgg?.costs || (usageProvider === "all" ? aggregate?.costs : undefined);
 
   // Load config for credit poll interval
   useEffect(() => {
@@ -1990,9 +2010,9 @@ function UsageTab() {
     fetchAggregate();
   }, [fetchAggregate]);
 
-  // Sort jobs
-  const sortedJobs = aggregate?.jobs
-    ? [...aggregate.jobs].sort((a, b) => {
+  // Sort filtered jobs
+  const sortedJobs = filteredJobs.length
+    ? [...filteredJobs].sort((a, b) => {
         if (sortBy === "tokens") return b.totals.total_tokens - a.totals.total_tokens;
         return b.saved_at.localeCompare(a.saved_at);
       })
@@ -2030,59 +2050,115 @@ function UsageTab() {
         </div>
       </div>
 
+      {/* Per-provider usage sub-tabs */}
+      <div style={{ display: "flex", gap: 0, borderBottom: "1px solid var(--border)", background: "var(--bg)", flexShrink: 0, padding: "0 16px" }}>
+        <button className={`config-section-tab ${usageProvider === "all" ? "config-section-tab--active" : ""}`} onClick={() => setUsageProvider("all")}>
+          <Icon name="apps" size="12" /> All
+        </button>
+        {LLM_PROVIDER_IDS.map((pid) => (
+          <button
+            key={pid}
+            className={`config-section-tab ${usageProvider === pid ? "config-section-tab--active" : ""}`}
+            onClick={() => setUsageProvider(pid)}>
+            <span
+              style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: providerColor(pid), marginRight: 5 }}
+            />
+            {providerLabel(pid)}
+          </button>
+        ))}
+      </div>
+
       <div className="dev-panel-list" style={{ padding: "12px 16px", fontFamily: "var(--font)" }}>
-        {/* ── Credit Balance Card ── */}
-        <div style={{ marginBottom: 20 }}>
-          <h4
-            style={{
-              fontSize: "var(--fs-12)",
-              fontWeight: 600,
-              color: "var(--text-muted)",
-              textTransform: "uppercase",
-              letterSpacing: 0.4,
-              margin: "0 0 10px",
-            }}>
-            <Icon name="credit_card" size="14" color="accent" /> DeepSeek API Credit Balance
-          </h4>
-          <div className="dev-panel-db-stat-cards" style={{ marginBottom: 0 }}>
-            <div className="dev-panel-db-stat-card" style={{ minWidth: 140 }}>
-              <span className="dev-panel-db-stat-value" style={{ fontSize: "var(--fs-24)" }}>
-                {balance === null ? (
-                  <span style={{ color: "var(--text-muted)", fontSize: "var(--fs-12)" }}>Checking...</span>
-                ) : balance.error ? (
-                  <span style={{ color: "var(--red)", fontSize: "var(--fs-12)" }}>Error</span>
-                ) : (
-                  <>${parseFloat(balance.balance || "0").toFixed(2)}</>
-                )}
-              </span>
-              <span className="dev-panel-db-stat-label">Balance</span>
+        {/* ── Credit Balance Card (provider-aware) ── */}
+        {usageProvider === "openai" || usageProvider === "anthropic" ? (
+          <div style={{ marginBottom: 20, padding: "12px 14px", border: "1px dashed var(--border)", borderRadius: 8, background: "var(--surface)" }}>
+            <h4
+              style={{
+                fontSize: "var(--fs-12)",
+                fontWeight: 600,
+                color: "var(--text-muted)",
+                textTransform: "uppercase",
+                letterSpacing: 0.4,
+                margin: "0 0 8px",
+              }}>
+              <Icon name="credit_off" size="14" color="accent" /> {providerLabel(usageProvider)} Usage
+            </h4>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text-muted)", fontSize: 12 }}>
+              <Icon name="warning" size="14" color="orange" />
+              <span>Usage can't be tracked — {providerLabel(usageProvider)} has no public usage/balance endpoint.</span>
             </div>
-            <div className="dev-panel-db-stat-card" style={{ minWidth: 100 }}>
-              <span className="dev-panel-db-stat-value" style={{ fontSize: "var(--fs-16)" }}>
-                {balance === null ? (
-                  "—"
-                ) : balance.available ? (
-                  <span style={{ color: "var(--green)" }}>
-                    <Icon name="check_circle" size="12" color="green" /> Available
-                  </span>
-                ) : (
-                  <span style={{ color: "var(--red)" }}>
-                    <Icon name="cancel" size="12" color="red" /> Unavailable
-                  </span>
-                )}
-              </span>
-              <span className="dev-panel-db-stat-label">Status</span>
-            </div>
-            {balance?.error && (
-              <div className="dev-panel-db-stat-card" style={{ minWidth: 200, flex: 2 }}>
-                <span className="dev-panel-db-stat-value" style={{ fontSize: "var(--fs-10)", color: "var(--red)", fontWeight: 400 }}>
-                  {balance.error}
-                </span>
-                <span className="dev-panel-db-stat-label">Error</span>
-              </div>
-            )}
           </div>
-        </div>
+        ) : usageProvider === "ollama" ? (
+          <div style={{ marginBottom: 20, padding: "12px 14px", border: "1px dashed var(--border)", borderRadius: 8, background: "var(--surface)" }}>
+            <h4
+              style={{
+                fontSize: "var(--fs-12)",
+                fontWeight: 600,
+                color: "var(--text-muted)",
+                textTransform: "uppercase",
+                letterSpacing: 0.4,
+                margin: "0 0 8px",
+              }}>
+              <Icon name="smart_toy" size="14" color="accent" /> Ollama Usage
+            </h4>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text-muted)", fontSize: 12 }}>
+              <Icon name="check_circle" size="14" color="green" />
+              <span>Local LLM — no cost to track. Per-job token usage is still recorded.</span>
+            </div>
+          </div>
+        ) : (
+          <div style={{ marginBottom: 20 }}>
+            <h4
+              style={{
+                fontSize: "var(--fs-12)",
+                fontWeight: 600,
+                color: "var(--text-muted)",
+                textTransform: "uppercase",
+                letterSpacing: 0.4,
+                margin: "0 0 10px",
+              }}>
+              <Icon name="credit_card" size="14" color="accent" /> DeepSeek API Credit Balance
+            </h4>
+            <div className="dev-panel-db-stat-cards" style={{ marginBottom: 0 }}>
+              <div className="dev-panel-db-stat-card" style={{ minWidth: 140 }}>
+                <span className="dev-panel-db-stat-value" style={{ fontSize: "var(--fs-24)" }}>
+                  {balance === null ? (
+                    <span style={{ color: "var(--text-muted)", fontSize: "var(--fs-12)" }}>Checking...</span>
+                  ) : balance.error ? (
+                    <span style={{ color: "var(--red)", fontSize: "var(--fs-12)" }}>Error</span>
+                  ) : (
+                    <>${parseFloat(balance.balance || "0").toFixed(2)}</>
+                  )}
+                </span>
+                <span className="dev-panel-db-stat-label">Balance</span>
+              </div>
+              <div className="dev-panel-db-stat-card" style={{ minWidth: 100 }}>
+                <span className="dev-panel-db-stat-value" style={{ fontSize: "var(--fs-16)" }}>
+                  {balance === null ? (
+                    "—"
+                  ) : balance.available ? (
+                    <span style={{ color: "var(--green)" }}>
+                      <Icon name="check_circle" size="12" color="green" /> Available
+                    </span>
+                  ) : (
+                    <span style={{ color: "var(--red)" }}>
+                      <Icon name="cancel" size="12" color="red" /> Unavailable
+                    </span>
+                  )}
+                </span>
+                <span className="dev-panel-db-stat-label">Status</span>
+              </div>
+              {balance?.error && (
+                <div className="dev-panel-db-stat-card" style={{ minWidth: 200, flex: 2 }}>
+                  <span className="dev-panel-db-stat-value" style={{ fontSize: "var(--fs-10)", color: "var(--red)", fontWeight: 400 }}>
+                    {balance.error}
+                  </span>
+                  <span className="dev-panel-db-stat-label">Error</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* ── Token Usage ── */}
         <div>
@@ -2111,42 +2187,42 @@ function UsageTab() {
 
           {!loading && !error && aggregate && (
             <>
-              {/* Summary cards */}
+              {/* Summary cards (filtered by the selected provider tab) */}
               <div className="dev-panel-db-stat-cards" style={{ marginBottom: 14 }}>
                 <div className="dev-panel-db-stat-card" style={{ minWidth: 80 }}>
-                  <span className="dev-panel-db-stat-value">{aggregate.job_count}</span>
+                  <span className="dev-panel-db-stat-value">{filteredJobs.length}</span>
                   <span className="dev-panel-db-stat-label">Jobs</span>
                 </div>
                 <div className="dev-panel-db-stat-card" style={{ minWidth: 80 }}>
-                  <span className="dev-panel-db-stat-value">{formatTokenCount(aggregate.totals.total_tokens)}</span>
+                  <span className="dev-panel-db-stat-value">{formatTokenCount(activeTotals?.total_tokens || 0)}</span>
                   <span className="dev-panel-db-stat-label">Total Tokens</span>
                 </div>
                 <div className="dev-panel-db-stat-card" style={{ minWidth: 80 }}>
-                  <span className="dev-panel-db-stat-value">{formatTokenCount(aggregate.totals.prompt_tokens)}</span>
+                  <span className="dev-panel-db-stat-value">{formatTokenCount(activeTotals?.prompt_tokens || 0)}</span>
                   <span className="dev-panel-db-stat-label">Input Tokens</span>
                 </div>
                 <div className="dev-panel-db-stat-card" style={{ minWidth: 80 }}>
-                  <span className="dev-panel-db-stat-value">{formatTokenCount(aggregate.totals.completion_tokens)}</span>
+                  <span className="dev-panel-db-stat-value">{formatTokenCount(activeTotals?.completion_tokens || 0)}</span>
                   <span className="dev-panel-db-stat-label">Output Tokens</span>
                 </div>
                 {/* Cost cards */}
-                {aggregate.costs && (
+                {activeCosts && (
                   <>
                     <div className="dev-panel-db-stat-card" style={{ minWidth: 90, borderLeft: "2px solid #58a6ff" }}>
                       <span className="dev-panel-db-stat-value" style={{ fontSize: "var(--fs-14)" }}>
-                        ${aggregate.costs.input_cost.toFixed(4)}
+                        ${activeCosts.input_cost.toFixed(4)}
                       </span>
                       <span className="dev-panel-db-stat-label">Input Cost</span>
                     </div>
                     <div className="dev-panel-db-stat-card" style={{ minWidth: 90, borderLeft: "2px solid #d29922" }}>
                       <span className="dev-panel-db-stat-value" style={{ fontSize: "var(--fs-14)" }}>
-                        ${aggregate.costs.output_cost.toFixed(4)}
+                        ${activeCosts.output_cost.toFixed(4)}
                       </span>
                       <span className="dev-panel-db-stat-label">Output Cost</span>
                     </div>
                     <div className="dev-panel-db-stat-card" style={{ minWidth: 90, borderLeft: "2px solid #3fb950" }}>
                       <span className="dev-panel-db-stat-value" style={{ fontSize: "var(--fs-16)", fontWeight: 700 }}>
-                        ${aggregate.costs.total_cost.toFixed(4)}
+                        ${activeCosts.total_cost.toFixed(4)}
                       </span>
                       <span className="dev-panel-db-stat-label">Total Cost</span>
                     </div>
@@ -2359,6 +2435,8 @@ function UsageTab() {
                   <thead>
                     <tr style={{ borderBottom: "1px solid var(--border)", color: "var(--text-muted)", fontSize: 10 }}>
                       <th style={{ padding: "4px 8px", textAlign: "left" }}>Job</th>
+                      <th style={{ padding: "4px 8px", textAlign: "left" }}>Provider</th>
+                      <th style={{ padding: "4px 8px", textAlign: "left" }}>Model</th>
                       <th style={{ padding: "4px 8px", textAlign: "right" }}>Input</th>
                       <th style={{ padding: "4px 8px", textAlign: "right" }}>Output</th>
                       <th style={{ padding: "4px 8px", textAlign: "right" }}>Total</th>
@@ -2376,6 +2454,21 @@ function UsageTab() {
                             <span style={{ color: "var(--text-muted)", fontFamily: "monospace", fontSize: 10 }}>{job.job_id.slice(0, 8)}</span>
                             {job.title && <span style={{ marginLeft: 6, color: "var(--text)" }}>{job.title.slice(0, 30)}</span>}
                           </td>
+                          <td style={{ padding: "4px 8px" }}>
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "1px 6px",
+                                borderRadius: 4,
+                                fontSize: 9,
+                                fontWeight: 600,
+                                color: "#fff",
+                                background: providerColor(job.provider),
+                              }}>
+                              {providerLabel(job.provider)}
+                            </span>
+                          </td>
+                          <td style={{ padding: "4px 8px", fontFamily: "monospace", fontSize: 10, color: "var(--text-muted)" }}>{job.model || "—"}</td>
                           <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace" }}>
                             {job.totals.prompt_tokens.toLocaleString()}
                           </td>
@@ -2419,10 +2512,10 @@ function UsageTab() {
 
       <div className="dev-panel-footer">
         <span>Polling every {(pollInterval / 1000).toFixed(0)}s</span>
-        <span>{aggregate?.job_count || 0} job(s) with token data</span>
-        {aggregate?.costs?.total_cost ? (
+        <span>{filteredJobs.length} job(s) with token data</span>
+        {activeCosts?.total_cost ? (
           <span>
-            <Icon name="account_balance_wallet" size="14" color="accent" /> ${aggregate.costs.total_cost.toFixed(4)} total cost
+            <Icon name="account_balance_wallet" size="14" color="accent" /> ${activeCosts.total_cost.toFixed(4)} total cost
           </span>
         ) : null}
       </div>
@@ -4128,7 +4221,7 @@ export default function DevPanel({ onClose }: Props) {
             <Icon name="bolt" size="14" color="accent" /> Performance
           </button>
         </Tooltip>
-        <Tooltip content="View DeepSeek API credit balance and LLM token usage across jobs">
+        <Tooltip content="View LLM credit balance and token usage across jobs">
           <button
             className={`dev-panel-tab ${activeTab === "usage" ? "dev-panel-tab--active" : ""}`}
             onClick={() => setActiveTab("usage")}

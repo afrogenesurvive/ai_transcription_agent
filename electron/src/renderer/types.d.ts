@@ -273,7 +273,14 @@ export interface ElectronAPI {
   saveConfig: (values: Record<string, string>) => Promise<Record<string, string>>;
   checkConfig: () => Promise<{ ok: boolean; missing: string[] }>;
   getConfigWithSources: () => Promise<Record<string, ConfigValueSource>>;
-  exportConfig: () => Promise<{ success: boolean; filePath?: string; error?: string; cancelled?: boolean; warnings?: string[] }>;
+  exportConfig: (options?: { mode?: "encrypted" | "plain" }) => Promise<{
+    success: boolean;
+    filePath?: string;
+    format?: "encrypted" | "plain";
+    error?: string;
+    cancelled?: boolean;
+    warnings?: string[];
+  }>;
   clearConfig: () => Promise<{ success: boolean; error?: string; blocked?: boolean }>;
   importConfig: (options?: { preferJson?: boolean }) => Promise<{
     success: boolean;

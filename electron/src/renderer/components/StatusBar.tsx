@@ -7,6 +7,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import Icon from "./Icon";
 import Tooltip from "./Tooltip";
 import { useServiceStatus, SERVICES, type ServiceName } from "../hooks/serviceStatusContext";
+import { providerLabel, providerColor, providerMeta, LLM_PROVIDER_IDS } from "../utils/providers";
 
 type FeedbackMsg = { text: string; type: "checking" | "success" | "error" } | null;
 type BusyService = string | null; // which service is being acted on, or null
@@ -29,6 +30,7 @@ export default function StatusBar({ configOk, onOpenConfig }: StatusBarProps) {
     diarizationError,
     ollamaOk,
     ollamaProvider,
+    llmProvider,
     checking,
     checkServers: ctxCheckServers,
     restartService: ctxRestartService,
@@ -213,7 +215,7 @@ export default function StatusBar({ configOk, onOpenConfig }: StatusBarProps) {
                 <button className="micro-btn start-btn" onClick={onOpenConfig} disabled={anyBusy} title="Open config to set up API key">
                   <Icon name="settings" size="12" />
                 </button>
-                <Tooltip content="LLM provider not configured — jobs will fail until you add your API key">
+                <Tooltip content="LLM provider not configured — jobs will fail until you add your API key or configure Ollama">
                   <span className="config-warn-badge" title="LLM provider not configured — jobs will fail">
                     <Icon name="warning" size="12" color="orange" />
                   </span>
@@ -224,6 +226,21 @@ export default function StatusBar({ configOk, onOpenConfig }: StatusBarProps) {
                 <Icon name="settings" size="12" />
               </button>
             )}
+          </span>
+          {/* Active LLM provider badge */}
+          <span className="status-item" title={`Active LLM provider: ${providerLabel(llmProvider)}`}>
+            <span
+              style={{
+                display: "inline-block",
+                padding: "1px 7px",
+                borderRadius: 4,
+                fontSize: 10,
+                fontWeight: 600,
+                color: "#fff",
+                background: providerColor(llmProvider),
+              }}>
+              {providerLabel(llmProvider)}
+            </span>
           </span>
           {/* Diarization model status */}
           <Tooltip content={diarizationError || "Status of the speaker diarization model — needed for speaker identification"}>
@@ -330,11 +347,6 @@ export default function StatusBar({ configOk, onOpenConfig }: StatusBarProps) {
               </>
             )}
           </button>
-          {!configOk && (
-            <button className="action-btn config-warn-btn" onClick={onOpenConfig} title="API key required — open config">
-              <Icon name="settings" size="12" /> Config
-            </button>
-          )}
           <div className="credit-btn-wrapper">
             <button
               ref={creditBtnRef}
@@ -343,25 +355,46 @@ export default function StatusBar({ configOk, onOpenConfig }: StatusBarProps) {
                 setShowCreditPopover((v) => !v);
                 pollDeepSeekBalance();
               }}
-              title="Check DeepSeek API credit balance">
+              title="LLM usage by provider">
               <Icon name="account_balance_wallet" size="14" color="accent" />
             </button>
             {showCreditPopover && (
               <div className="credit-popover">
                 <div className="credit-popover-arrow" />
-                {!creditBalance ? (
-                  <span>Checking DeepSeek API credit…</span>
-                ) : creditBalance.error ? (
-                  <>
-                    <span className="credit-popover-label">DeepSeek Credit</span>
-                    <span className="credit-popover-error">{creditBalance.error}</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="credit-popover-label">DeepSeek API Credit</span>
-                    <span className="credit-popover-balance">${creditBalance.balance}</span>
-                  </>
-                )}
+                <span className="credit-popover-label">Usage by provider</span>
+                <div className="credit-usage-list">
+                  {LLM_PROVIDER_IDS.map((pid) => {
+                    const meta = providerMeta(pid);
+                    const isActive = llmProvider === pid;
+                    return (
+                      <div key={pid} className={`credit-usage-row ${isActive ? "credit-usage-row--active" : ""}`}>
+                        <span className="credit-usage-dot" style={{ background: providerColor(pid) }} title={meta.description} />
+                        <span className="credit-usage-provider">{providerLabel(pid)}</span>
+                        <span className="credit-usage-status">
+                          {pid === "deepseek" ? (
+                            !creditBalance ? (
+                              <span className="credit-usage-muted">Checking…</span>
+                            ) : creditBalance.error ? (
+                              <span className="credit-usage-error" title={creditBalance.error}>
+                                Unavailable
+                              </span>
+                            ) : (
+                              <span className="credit-usage-balance">${parseFloat(creditBalance.balance || "0").toFixed(2)}</span>
+                            )
+                          ) : pid === "ollama" ? (
+                            <span className="credit-usage-muted">Local — no cost</span>
+                          ) : (
+                            <span
+                              className="credit-usage-untracked"
+                              title={`${providerLabel(pid)} has no public usage/balance endpoint`}>
+                              <Icon name="credit_off" size="12" color="orange" /> Can't be tracked
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </div>

@@ -197,8 +197,8 @@ python -c "from main import app; print('FastAPI app loaded OK')"
 | 10.5  | Auto-scroll follows new entries              | List scrolls to bottom automatically        |           |
 | 10.6  | Log filters persist across sessions          | After refresh, same filters applied         |           |
 | 10.7  | Performance tab shows CPU/memory charts      | Charts render with real data                |           |
-| 10.8  | Usage tab shows DeepSeek credit balance      | Balance displayed (or "No API key" message) |           |
-| 10.9  | Usage tab shows aggregate token usage        | Per-job breakdown with totals               |           |
+| 10.8  | Usage tab shows credit balance / no-usage badge  | DeepSeek balance shown; OpenAI/Anthropic show "usage can't be tracked" |           |
+| 10.9  | Usage tab shows aggregate token usage            | Per-job breakdown with provider/model columns and totals  |           |
 | 10.10 | Log Files tab lists on-disk log files        | Primary and job log files visible           |           |
 | 10.11 | Testing tab shows test variables from config | Fields pre-filled with config.json values   |           |
 | 10.12 | Edit a test variable and click Run Tests     | Variables saved, Playwright spawns, output  |           |

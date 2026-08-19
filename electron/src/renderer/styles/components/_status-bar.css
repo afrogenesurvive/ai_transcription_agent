@@ -246,3 +246,68 @@
   color: var(--red);
   word-break: break-word;
 }
+
+/* ── Credit popover — per-provider usage list ── */
+
+.credit-usage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.credit-usage-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+
+.credit-usage-row--active {
+  background: rgba(88, 166, 255, 0.08);
+  border-color: var(--accent);
+}
+
+.credit-usage-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.credit-usage-provider {
+  font-size: var(--fs-12);
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+}
+
+.credit-usage-status {
+  font-size: var(--fs-11);
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  white-space: nowrap;
+}
+
+.credit-usage-balance {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.credit-usage-muted {
+  color: var(--text-muted);
+  font-family: var(--font);
+}
+
+.credit-usage-error {
+  color: var(--red);
+}
+
+.credit-usage-untracked {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--orange);
+  font-family: var(--font);
+}

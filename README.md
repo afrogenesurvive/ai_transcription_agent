@@ -108,7 +108,7 @@ The system runs as **four independent services**:
 
 ### LLM Providers
 
-- **DeepSeek** (default) — cloud API, DeepSeek V4
+- **API** (default) — cloud API; choose **DeepSeek**, **OpenAI**, or **Anthropic** in Config
 - **Ollama** — local LLM, supports qwen3.6 and deepseekv2
 
 ---
@@ -221,21 +221,18 @@ Steps can be reordered, enabled/disabled, and customized without touching code.
 
 ### Where Config Lives
 
-| Location                                             | Platform | Contents                              |
-| ---------------------------------------------------- | -------- | ------------------------------------- |
-| `~/Library/Application Support/Transcription Agent/` | macOS    | All user data — config, storage, logs |
-| `%APPDATA%\Transcription Agent\`                     | Windows  | All user data — config, storage, logs |
+All user data (settings, storage, logs, and agent config) lives in the standard per-user application-data directory for your OS — the same location any desktop app uses (`app.getPath("userData")`). The app shows the exact on-disk locations in **Dev tools → Log Files**.
 
-Within that directory:
+What's stored there:
 
-| Path                            | Purpose                                               |
-| ------------------------------- | ----------------------------------------------------- |
-| `config.json`                   | UI-saved settings (API keys, preferences)             |
-| `config.defaults.json`          | Snapshot of shipped defaults (one-click restore)      |
-| `agent-config/pipeline.json`    | Pipeline step definitions (reorder, enable/disable)   |
-| `agent-config/tools.json`       | Tool schemas the LLM can invoke                       |
-| `agent-config/system-prompt.md` | LLM system prompt template                            |
-| `agent-config/.defaults/`       | Shipped defaults for agent config (one-click restore) |
+| Contents                       | Purpose                                                    |
+| ------------------------------ | ---------------------------------------------------------- |
+| User settings                  | UI-saved settings (including your API keys)                |
+| Shipped-defaults snapshot      | One-click restore to factory defaults                      |
+| `agent-config/`                | Pipeline steps, tool schemas, and the LLM system prompt    |
+| `agent-config/.defaults/`      | Shipped defaults for agent config (one-click restore)      |
+
+> **Security note:** once a license is active, your saved settings (including API keys) are stored **encrypted on disk**, and config exports default to encrypted `.gpg` files (decryptable only with your license key).
 
 ### Git Safety
 

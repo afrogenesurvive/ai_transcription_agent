@@ -322,7 +322,7 @@ export default function App() {
     window.electronAPI?.checkConfig().then((result: { ok: boolean; missing: string[] }) => {
       setConfigOk(result.ok);
       if (!result.ok) {
-        const items = result.missing?.length ? result.missing.join(", ") : "DEEPSEEK_API_KEY or Ollama";
+        const items = result.missing?.length ? result.missing.join(", ") : "an API key or Ollama model";
         notify(`Config incomplete: missing ${items}`);
       }
     });
@@ -1642,6 +1642,7 @@ export default function App() {
                         setSidebarView("current");
                         window.electronAPI?.checkConfig().then((r) => setConfigOk(r.ok));
                       }}
+                      onConfigChanged={() => window.electronAPI?.checkConfig().then((r) => setConfigOk(r.ok))}
                     />
                   ) : (
                     <LicenseRequiredPanel onOpenLicense={() => setSidebarView("about")} />

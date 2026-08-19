@@ -60,6 +60,8 @@ function classifyBase64(match) {
 const BLOCKER_PATTERNS = [
   { re: /\bgh[opsur]_[A-Za-z0-9]{20,}\b/g, label: "GitHub token (ghp_/gho_/ghu_/ghs_/ghr_)" },
   { re: /\bsk-[A-Za-z0-9]{20,}\b/g, label: "OpenAI/DeepSeek-style API key (sk-…)" },
+  { re: /\bsk-ant-[A-Za-z0-9_-]{20,}\b/g, label: "Anthropic API key (sk-ant-…)" },
+  { re: /\bsk-proj-[A-Za-z0-9_-]{20,}\b/g, label: "OpenAI project API key (sk-proj-…)" },
   { re: /\bhf_[A-Za-z0-9]{20,}\b/g, label: "HuggingFace token (hf_…)" },
   { re: /\bxox[abpors]-[A-Za-z0-9-]{20,}\b/g, label: "Slack token (xox…-…)" },
   { re: /\bAKIA[0-9A-Z]{16}\b/g, label: "AWS access key ID (AKIA…)" },

@@ -248,6 +248,8 @@ export function useApi() {
           event_type: string;
           attendees: string[];
           has_transcript: boolean;
+          llm_provider?: string;
+          llm_model?: string;
           mtime: number;
         }>;
       }>;

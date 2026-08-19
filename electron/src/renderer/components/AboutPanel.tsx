@@ -355,16 +355,17 @@ function LicenseTab({ onLicensedChange }: { onLicensedChange?: () => void }) {
 
       {showDeactivateConfirm && (
         <div className="confirm-overlay" onClick={() => setShowDeactivateConfirm(false)}>
-          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
-            <h3 className="confirm-dialog-title">
-              <Icon name="warning" size="16" color="red" /> Deactivate license?
-            </h3>
-            <p className="confirm-dialog-text">
-              Deactivating removes this key from the app and locks it until another key is activated. Your encrypted config becomes
-              unreadable — you'll need to re-enter <strong>this same key</strong> to open it again, or re-import a config after activating a
-              new key.
+          <div className="confirm-dialog confirm-dialog--security" onClick={(e) => e.stopPropagation()}>
+            <div className="confirm-dialog-security-icon">
+              <Icon name="warning" size="40" color="red" filled />
+            </div>
+            <h3 className="confirm-dialog-title confirm-dialog-title--security">Security Risk</h3>
+            <p className="confirm-dialog-text confirm-dialog-text--security">
+              Deactivating removes this key from the app and locks it until another key is activated.{" "}
+              <strong>Security Risk:</strong> your encrypted config becomes unreadable — you'll need to re-enter <strong>this same key</strong> to
+              open it again, or re-import a config after activating a new key.
             </p>
-            <div className="confirm-dialog-actions">
+            <div className="confirm-dialog-actions confirm-dialog-actions--center">
               <button className="btn-secondary" onClick={() => setShowDeactivateConfirm(false)}>
                 Cancel
               </button>
@@ -375,7 +376,7 @@ function LicenseTab({ onLicensedChange }: { onLicensedChange?: () => void }) {
                   deactivate();
                 }}
                 disabled={busy}>
-                Yes, Deactivate
+                {busy ? "Deactivating..." : "Yes, Deactivate"}
               </button>
             </div>
           </div>

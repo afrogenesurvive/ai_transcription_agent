@@ -20,10 +20,28 @@ import { isLicensed, readStoredLicenseKey } from "./license";
 import { writeEncryptedFileAtRest, readEncryptedFileAtRest, migratePlaintextConfig } from "./config-encryption";
 
 export interface AppConfig {
-  /** DeepSeek API key (required for LLM) */
+  /** DeepSeek API key (required when API_PROVIDER=deepseek) */
   DEEPSEEK_API_KEY: string;
-  /** LLM provider: "deepseek" or "ollama" */
+  /** OpenAI API key (required when API_PROVIDER=openai) */
+  OPENAI_API_KEY: string;
+  /** Anthropic API key (required when API_PROVIDER=anthropic) */
+  ANTHROPIC_API_KEY: string;
+  /** LLM provider umbrella: "api" (cloud) or "ollama" (local) */
   LLM_PROVIDER: string;
+  /** Cloud LLM provider when LLM_PROVIDER=api: "deepseek" | "openai" | "anthropic" */
+  API_PROVIDER: string;
+  /** DeepSeek model override (default baked into the runner) */
+  DEEPSEEK_MODEL: string;
+  /** OpenAI model override (default baked into the runner) */
+  OPENAI_MODEL: string;
+  /** Anthropic model override (default baked into the runner) */
+  ANTHROPIC_MODEL: string;
+  /** Optional OpenAI-compatible base URL override (empty = api.openai.com) */
+  OPENAI_BASE_URL: string;
+  /** Optional Anthropic base URL override (empty = api.anthropic.com) */
+  ANTHROPIC_BASE_URL: string;
+  /** Anthropic max output tokens (default 4096) */
+  ANTHROPIC_MAX_TOKENS: string;
   /** Ollama endpoint (only used if LLM_PROVIDER=ollama) */
   OLLAMA_BASE_URL: string;
   /** Ollama model name */
@@ -141,7 +159,16 @@ export interface AppConfig {
 
 const DEFAULTS: AppConfig = {
   DEEPSEEK_API_KEY: "",
-  LLM_PROVIDER: "deepseek",
+  OPENAI_API_KEY: "",
+  ANTHROPIC_API_KEY: "",
+  LLM_PROVIDER: "api",
+  API_PROVIDER: "deepseek",
+  DEEPSEEK_MODEL: "",
+  OPENAI_MODEL: "",
+  ANTHROPIC_MODEL: "",
+  OPENAI_BASE_URL: "",
+  ANTHROPIC_BASE_URL: "",
+  ANTHROPIC_MAX_TOKENS: "4096",
   OLLAMA_BASE_URL: "http://127.0.0.1:11434/v1",
   OLLAMA_MODEL: "",
   OLLAMA_NUM_CTX: "32768",
@@ -214,6 +241,8 @@ export const CONFIG_KEYS: (keyof AppConfig)[] = Object.keys(DEFAULTS) as (keyof 
 /** Config keys holding secrets — never persisted to the plaintext config.defaults.json snapshot. */
 export const SECRET_CONFIG_KEYS: (keyof AppConfig)[] = [
   "DEEPSEEK_API_KEY",
+  "OPENAI_API_KEY",
+  "ANTHROPIC_API_KEY",
   "GMAIL_CLIENT_ID",
   "GMAIL_CLIENT_SECRET",
   "GMAIL_REFRESH_TOKEN",
@@ -232,6 +261,51 @@ export const SECRET_CONFIG_KEYS: (keyof AppConfig)[] = [
   "DSMON_PUSH_TOKEN",
   "CLOUDFLARED_TUNNEL_TOKEN",
 ];
+
+/** Cloud LLM providers selectable under the "api" umbrella. */
+export const API_LLM_PROVIDERS = ["deepseek", "openai", "anthropic"] as const;
+export type ApiLlmProvider = (typeof API_LLM_PROVIDERS)[number];
+/** Effective provider consumed by the agent runner. */
+export type EffectiveLlmProvider = ApiLlmProvider | "ollama";
+
+const API_PROVIDER_SET = new Set<string>(API_LLM_PROVIDERS);
+
+/** True if v is a valid cloud (API) LLM provider id. */
+export function isApiLlmProvider(v: string | null | undefined): v is ApiLlmProvider {
+  return !!v && API_PROVIDER_SET.has(v);
+}
+
+/**
+ * Resolve the two-level LLM config (LLM_PROVIDER: api|ollama + API_PROVIDER)
+ * into the single effective provider the runner consumes. Also accepts legacy
+ * configs where LLM_PROVIDER held the cloud provider directly.
+ */
+export function effectiveLlmProvider(cfg: { LLM_PROVIDER?: string; API_PROVIDER?: string }): EffectiveLlmProvider {
+  const lp = (cfg.LLM_PROVIDER || "").toLowerCase();
+  if (lp === "ollama") return "ollama";
+  if (lp === "api") return isApiLlmProvider(cfg.API_PROVIDER) ? (cfg.API_PROVIDER as ApiLlmProvider) : "deepseek";
+  if (isApiLlmProvider(lp)) return lp as ApiLlmProvider;
+  return "deepseek";
+}
+
+/**
+ * Normalize a raw config object's provider fields in place to the canonical
+ * two-level form (LLM_PROVIDER ∈ {api, ollama} + valid API_PROVIDER). Legacy
+ * `LLM_PROVIDER: "deepseek"` becomes {LLM_PROVIDER: "api", API_PROVIDER: "deepseek"}.
+ */
+export function normalizeProviderPair(vals: Partial<AppConfig>): void {
+  const lp = (vals.LLM_PROVIDER || "").toLowerCase();
+  if (isApiLlmProvider(lp)) {
+    vals.LLM_PROVIDER = "api";
+    if (!vals.API_PROVIDER) vals.API_PROVIDER = lp;
+  } else if (lp && lp !== "api" && lp !== "ollama") {
+    vals.LLM_PROVIDER = "api";
+    if (!vals.API_PROVIDER) vals.API_PROVIDER = "deepseek";
+  }
+  if ((vals.LLM_PROVIDER || "api") === "api" && !isApiLlmProvider(vals.API_PROVIDER)) {
+    vals.API_PROVIDER = "deepseek";
+  }
+}
 
 let userConfigPath: string;
 let userConfigGpgPath: string;
@@ -539,6 +613,9 @@ function getEnvOverrides(): Partial<AppConfig> {
 export function getConfig(): AppConfig {
   if (cachedConfig) return cachedConfig;
   cachedConfig = { ...DEFAULTS, ...getEnvOverrides(), ...parseUserConfig() };
+  // Normalize legacy provider values (deepseek → api + API_PROVIDER) so the
+  // UI and consumers always read the canonical two-level form.
+  normalizeProviderPair(cachedConfig);
   return cachedConfig;
 }
 
@@ -561,6 +638,19 @@ export function getConfigWithSources(): Record<keyof AppConfig, ConfigValueSourc
 
     result[key] = { value, source };
   }
+
+  // Normalize legacy provider values for the UI (deepseek → api + API_PROVIDER).
+  const llmSrc = result.LLM_PROVIDER;
+  if (isApiLlmProvider(llmSrc.value)) {
+    result.LLM_PROVIDER = { value: "api", source: llmSrc.source };
+    if (!isApiLlmProvider(result.API_PROVIDER.value)) {
+      result.API_PROVIDER = { value: llmSrc.value, source: llmSrc.source };
+    }
+  }
+  if ((result.LLM_PROVIDER?.value || "api") === "api" && !isApiLlmProvider(result.API_PROVIDER?.value)) {
+    result.API_PROVIDER = { value: "deepseek", source: "default" };
+  }
+
   return result;
 }
 
@@ -592,7 +682,9 @@ export function saveConfig(values: Partial<AppConfig>): AppConfig {
     // ignore
   }
 
-  const merged = { ...existing, ...values };
+  const merged: Partial<AppConfig> = { ...existing, ...values };
+  // Normalize legacy provider values before persisting (deepseek → api + API_PROVIDER).
+  normalizeProviderPair(merged);
   // Remove empty strings so they don't override saved values
   for (const key of Object.keys(merged) as (keyof AppConfig)[]) {
     if (merged[key] === "") delete merged[key];
@@ -624,6 +716,8 @@ export function replaceConfig(values: Partial<AppConfig>): AppConfig {
     if (v === undefined || v === null || v === "") continue;
     clean[key] = v;
   }
+  // Normalize legacy provider values (deepseek → api + API_PROVIDER).
+  normalizeProviderPair(clean);
 
   writeUserConfigRaw(JSON.stringify(clean, null, 2));
   syncConfigToEnv();
@@ -686,18 +780,21 @@ export function checkConfig(): { ok: boolean; missing: string[] } {
   const config = getConfig();
   const missing: string[] = [];
 
-  // If using Ollama, DEEPSEEK_API_KEY is not required, but a model name is.
-  // Checked here so the UI surfaces it early instead of the runner failing at
-  // the first LLM call.
-  if (config.LLM_PROVIDER === "ollama") {
+  // Required values depend on the effective provider. Surfaced here so the UI
+  // flags the right key early instead of the runner failing at the first LLM call.
+  const effective = effectiveLlmProvider(config);
+  if (effective === "ollama") {
     const model = config.OLLAMA_MODEL || process.env.OLLAMA_MODEL || "";
     if (!model) missing.push("OLLAMA_MODEL");
-  } else {
-    for (const key of REQUIRED_CONFIG_KEYS) {
-      // Check config.json first, then process.env as fallback (for .env values)
-      const val = config[key] || process.env[key] || "";
-      if (!val) missing.push(key);
-    }
+  } else if (effective === "deepseek") {
+    const key = config.DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY || "";
+    if (!key) missing.push("DEEPSEEK_API_KEY");
+  } else if (effective === "openai") {
+    const key = config.OPENAI_API_KEY || process.env.OPENAI_API_KEY || "";
+    if (!key) missing.push("OPENAI_API_KEY");
+  } else if (effective === "anthropic") {
+    const key = config.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY || "";
+    if (!key) missing.push("ANTHROPIC_API_KEY");
   }
   return { ok: missing.length === 0, missing };
 }
@@ -716,7 +813,18 @@ export function getChildEnv(): NodeJS.ProcessEnv {
     ...process.env,
     APP_VERSION: app.getVersion(),
     DEEPSEEK_API_KEY: userVals.DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY || "",
-    LLM_PROVIDER: userVals.LLM_PROVIDER || process.env.LLM_PROVIDER || "deepseek",
+    OPENAI_API_KEY: userVals.OPENAI_API_KEY || process.env.OPENAI_API_KEY || "",
+    ANTHROPIC_API_KEY: userVals.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY || "",
+    // Flatten the two-level config (api + API_PROVIDER) to the single effective
+    // provider the agent runner / model-client consume — "api" never leaks through.
+    LLM_PROVIDER: effectiveLlmProvider(config),
+    API_PROVIDER: userVals.API_PROVIDER || process.env.API_PROVIDER || "",
+    DEEPSEEK_MODEL: userVals.DEEPSEEK_MODEL || process.env.DEEPSEEK_MODEL || "",
+    OPENAI_MODEL: userVals.OPENAI_MODEL || process.env.OPENAI_MODEL || "",
+    ANTHROPIC_MODEL: userVals.ANTHROPIC_MODEL || process.env.ANTHROPIC_MODEL || "",
+    OPENAI_BASE_URL: userVals.OPENAI_BASE_URL || process.env.OPENAI_BASE_URL || "",
+    ANTHROPIC_BASE_URL: userVals.ANTHROPIC_BASE_URL || process.env.ANTHROPIC_BASE_URL || "",
+    ANTHROPIC_MAX_TOKENS: userVals.ANTHROPIC_MAX_TOKENS || process.env.ANTHROPIC_MAX_TOKENS || "4096",
     OLLAMA_BASE_URL: userVals.OLLAMA_BASE_URL || process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434/v1",
     OLLAMA_MODEL: userVals.OLLAMA_MODEL || process.env.OLLAMA_MODEL || "",
     OLLAMA_NUM_CTX: userVals.OLLAMA_NUM_CTX || process.env.OLLAMA_NUM_CTX || "32768",
