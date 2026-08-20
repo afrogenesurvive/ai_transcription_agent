@@ -25,8 +25,12 @@ load_dotenv(override=True)
 # the process.  0.7 = raise error at ~70% MPS usage (catchable).
 # 0.0 = unlimited (macOS may SIGKILL the process instead).
 # DO NOT set to 0.0 — it disables the safety valve and causes hard crashes.
-# os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.0")
-os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.7")
+#
+# NOTE: We deliberately do NOT force a value here. Forcing "0.7" breaks PyTorch
+# 2.8 with "invalid low watermark ratio 1.4" (0.7 × 2 = 1.4 > valid range
+# [0.0, 1.0]), failing diarization model load on Apple Silicon. The Electron app
+# passes PYTORCH_MPS_HIGH_WATERMARK_RATIO via getChildEnv() (Settings → Config →
+# Diarization); when unset, PyTorch uses its internal default.
 
 # ── Windows/CrossOver stdout encoding guard ──
 # The packaged Windows backend runs under the ANSI code page (cp1252 on en-US)
@@ -55,7 +59,6 @@ for _stream in (sys.stdout, sys.stderr):
 import patches  # noqa: F401  (monkey-patches speechbrain + torchaudio + pyannote)
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from config import config
@@ -78,19 +81,12 @@ from license import router as license_router, license_gate_middleware
 
 app = FastAPI(title="Meeting Transcription Backend", version="1.0.0", lifespan=lifespan)
 
-# License gate runs inner-most so CORS (added after) stays outermost and applies
-# headers to gated 403 responses too. Job-execution endpoints require a valid
-# X-License-Token issued by POST /license/challenge + /license/respond.
+# License gate: job-execution endpoints require a valid X-License-Token issued by
+# POST /license/challenge + /license/respond. No CORS middleware is configured —
+# the Python backend is only ever called server-to-server (bridge server, Electron
+# main, agent runner); the browser never talks to :5001 directly, so opening CORS
+# would only expose the unauthenticated endpoints to malicious websites.
 app.add_middleware(BaseHTTPMiddleware, dispatch=license_gate_middleware)
-
-# Allow cross-origin requests from the Electron renderer (Vite dev server on :5173)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # /transcribe/models/status (model preload status) moved to model_preload.py (Phase 1)
 # /health moved to routes/system.py (Phase 4)

@@ -38,7 +38,7 @@ APP_ID = "transcription-agent"
 LICENSE_VERSION = 1
 LICENSE_KEY_RE = r"^TA1\."
 CHALLENGE_TTL_SECONDS = 60
-TOKEN_TTL_SECONDS = int(__import__("os").environ.get("LICENSE_TOKEN_TTL_SECONDS", "43200"))  # 12h default
+TOKEN_TTL_SECONDS = int(__import__("os").environ.get("LICENSE_TOKEN_TTL_SECONDS", "3600"))  # 1h default — short window so a revoked seat's token expires quickly
 
 # ── Master public key ring (keep in sync with electron/src/main/license.ts) ──
 # not_after: unix seconds after which this kid's signatures are rejected; None = valid forever.

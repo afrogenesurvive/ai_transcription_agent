@@ -617,11 +617,25 @@ async function dispatch(tool, args) {
 
 // ── HTTP Server ──
 
-const server = http.createServer(async (req, res) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
+// CORS allowlist: the bridge is called by the local Electron renderer (dev:
+// http://localhost:5173, prod file:// → Origin "null") and server-to-server
+// callers (Electron main, agent runner — no Origin header). Any other origin
+// gets NO CORS headers, so a malicious website's browser can't read responses.
+const CORS_ALLOWED_ORIGINS = new Set(["http://localhost:5173", "null"]);
+
+/** Set CORS headers conditionally on the request Origin (no-Origin callers are allowed). */
+function applyCorsHeaders(req, res) {
+  const origin = req.headers["origin"];
+  const allowed = origin === undefined || CORS_ALLOWED_ORIGINS.has(origin);
+  if (!allowed) return;
+  res.setHeader("Access-Control-Allow-Origin", origin === undefined ? "*" : origin);
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Range");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Range, X-License-Token");
   res.setHeader("Access-Control-Expose-Headers", "Content-Range, Accept-Ranges, Content-Length");
+}
+
+const server = http.createServer(async (req, res) => {
+  applyCorsHeaders(req, res);
 
   if (req.method === "OPTIONS") {
     res.writeHead(204);
@@ -643,9 +657,13 @@ const server = http.createServer(async (req, res) => {
     const bodyBuffer = Buffer.concat(chunks);
 
     try {
+      // Forward the license session token to the Python gate middleware
+      // (job-creation endpoints require X-License-Token).
+      const headers = { "Content-Type": contentType, "Content-Length": bodyBuffer.length.toString() };
+      if (req.headers["x-license-token"]) headers["X-License-Token"] = String(req.headers["x-license-token"]);
       const pyResp = await fetch(`${PYTHON_API}/transcribe/upload`, {
         method: "POST",
-        headers: { "Content-Type": contentType, "Content-Length": bodyBuffer.length.toString() },
+        headers,
         body: bodyBuffer,
       });
 
@@ -658,18 +676,55 @@ const server = http.createServer(async (req, res) => {
       }
 
       // Set CORS headers on the response
-      res.setHeader("Access-Control-Allow-Origin", "*");
+      applyCorsHeaders(req, res);
       res.setHeader("Content-Type", "application/json");
       res.writeHead(pyResp.ok ? 200 : pyResp.status);
       res.end(JSON.stringify(parsed));
       console.log(`[bridge] ← POST /transcribe/upload → ${pyResp.status}`);
     } catch (err) {
       console.error(`[bridge] Upload proxy error: ${err.message}`);
-      res.setHeader("Access-Control-Allow-Origin", "*");
+      applyCorsHeaders(req, res);
       res.setHeader("Content-Type", "application/json");
       res.writeHead(502);
       res.end(JSON.stringify({ error: `Upload proxy failed: ${err.message}` }));
     }
+    return;
+  }
+
+  // ── License handshake proxy (challenge/respond) ──
+  // The Electron main performs the per-seat challenge/response against the
+  // bridge (:5010); forward it to the Python backend where the license router
+  // lives. Response passes through RAW (no sanitize — the token field would
+  // otherwise be redacted).
+  if (req.method === "POST" && (url.pathname === "/license/challenge" || url.pathname === "/license/respond")) {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    let reqBody = {};
+    try {
+      reqBody = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+    } catch {
+      // ignore malformed JSON — Python will return a clear 422
+    }
+    const startTime = Date.now();
+    console.log(`[bridge] → POST ${url.pathname} (license handshake proxy)`);
+    let result;
+    try {
+      result = await callPython("POST", url.pathname, reqBody);
+    } catch (err) {
+      const statusCode = err.statusCode || 502;
+      console.error(`[bridge] ← POST ${url.pathname} → ${statusCode}: ${err.message}`);
+      applyCorsHeaders(req, res);
+      res.setHeader("Content-Type", "application/json");
+      res.writeHead(statusCode);
+      res.end(JSON.stringify({ error: err.message }));
+      return;
+    }
+    const elapsed = Date.now() - startTime;
+    console.log(`[bridge] ← POST ${url.pathname} OK (${elapsed}ms)`);
+    applyCorsHeaders(req, res);
+    res.setHeader("Content-Type", "application/json");
+    res.writeHead(200);
+    res.end(JSON.stringify(result));
     return;
   }
 
@@ -701,14 +756,15 @@ const server = http.createServer(async (req, res) => {
       if (!audioResp.ok) {
         const errBody = await audioResp.text().catch(() => "");
         console.error(`[bridge] ← GET /agent/voiceprints/sample → ${audioResp.status}: ${errBody.slice(0, 200)}`);
-        res.writeHead(audioResp.status, { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" });
+        applyCorsHeaders(req, res);
+        res.writeHead(audioResp.status, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "Voiceprint sample not found" }));
         return;
       }
       const contentType = audioResp.headers.get("content-type") || "audio/wav";
+      applyCorsHeaders(req, res);
       res.writeHead(200, {
         "Content-Type": contentType,
-        "Access-Control-Allow-Origin": "*",
         "Cache-Control": "no-cache",
       });
       const reader = audioResp.body.getReader();
@@ -745,7 +801,8 @@ const server = http.createServer(async (req, res) => {
       if (!audioResp.ok) {
         const errBody = await audioResp.text().catch(() => "");
         console.error(`[bridge] ← GET ${url.pathname} → ${audioResp.status}: ${errBody.slice(0, 200)}`);
-        res.writeHead(audioResp.status, { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" });
+        applyCorsHeaders(req, res);
+        res.writeHead(audioResp.status, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "Audio not found" }));
         return;
       }
@@ -756,12 +813,9 @@ const server = http.createServer(async (req, res) => {
       const statusCode = rangeHeader && audioResp.status === 206 ? 206 : 200;
 
       const fileName = url.pathname.split("/").pop() || "audio";
+      applyCorsHeaders(req, res);
       const responseHeaders = {
         "Content-Type": contentType,
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, OPTIONS",
-        "Access-Control-Allow-Headers": "Range, Content-Type",
-        "Access-Control-Expose-Headers": "Content-Range, Accept-Ranges, Content-Length",
         "Content-Disposition": `inline; filename="${fileName}.wav"`,
         "Accept-Ranges": "bytes",
         "Cache-Control": "no-cache",

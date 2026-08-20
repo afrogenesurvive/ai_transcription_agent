@@ -312,7 +312,7 @@ export interface ElectronAPI {
   reKeyLicense: (
     newKey: string,
   ) => Promise<{ success: boolean; reason?: string; error?: string; safeStorageAvailable?: boolean; status?: LicenseStatus }>;
-  getBridgeToken: () => Promise<{ token: string } | { error: string }>;
+  getBridgeToken: (forceRefresh?: boolean) => Promise<{ token: string } | { error: string }>;
   restoreConfigFromBackup: () => Promise<{ ok: boolean; error?: string }>;
   getAgentConfig: () => Promise<{ tools?: any; pipeline?: any; systemPrompt?: string; error?: string }>;
   saveAgentConfig: (config: { tools?: any; pipeline?: any; systemPrompt?: string }) => Promise<{ success?: boolean; error?: string }>;

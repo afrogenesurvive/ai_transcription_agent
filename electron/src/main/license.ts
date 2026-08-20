@@ -18,9 +18,12 @@
  * Persistence (userData/):
  *   license.json    — NON-secret metadata: { status, sub, kid, exp, installedAt }
  *   license.key.enc — the raw license key, encrypted via Electron safeStorage
- *                     (Keychain on macOS, DPAPI on Windows). If safeStorage is
- *                     unavailable, falls back to base64 inside license.json with
- *                     plaintextFallback=true (warn the user).
+ *                     (Keychain on macOS, DPAPI on Windows).
+ *
+ * There is deliberately NO plaintext fallback: if safeStorage is unavailable
+ * the license simply cannot be persisted (activation reports no_secure_storage)
+ * and the config stays unencrypted. The license key is never written to disk
+ * in the clear.
  *
  * The MASTER key ring is version-independent: normal app updates keep the same
  * ring (or extend it) so existing license keys keep working. Rotation/revocation
@@ -191,8 +194,6 @@ interface LicenseJson {
   kid?: string;
   exp?: number;
   installedAt?: number;
-  plaintextFallback?: boolean;
-  keyB64?: string; // only when safeStorage unavailable
 }
 
 function readLicenseJson(): LicenseJson {
@@ -222,20 +223,19 @@ function writeLicenseJson(data: LicenseJson): void {
 
 /** Read the raw license key back from storage. Returns null if none stored. */
 export function readStoredLicenseKey(): string | null {
-  if (safeStorage.isEncryptionAvailable()) {
-    try {
-      migrateLegacyLicenseFiles();
-      if (fs.existsSync(licenseKeyEncPath())) {
-        const buf = fs.readFileSync(licenseKeyEncPath());
-        return safeStorage.decryptString(buf);
-      }
-      return null;
-    } catch {
-      return null;
+  // The license key is only ever persisted via OS secure storage. There is NO
+  // plaintext fallback: if safeStorage is unavailable the key is not persisted.
+  if (!safeStorage.isEncryptionAvailable()) return null;
+  try {
+    migrateLegacyLicenseFiles();
+    if (fs.existsSync(licenseKeyEncPath())) {
+      const buf = fs.readFileSync(licenseKeyEncPath());
+      return safeStorage.decryptString(buf);
     }
+    return null;
+  } catch {
+    return null;
   }
-  const json = readLicenseJson();
-  return json.keyB64 ? Buffer.from(json.keyB64, "base64").toString("utf8") : null;
 }
 
 /** Store (or clear, when key is null) the raw license key. */
@@ -249,8 +249,6 @@ export function writeStoredLicenseKey(key: string | null): void {
       // ignore
     }
     const json = readLicenseJson();
-    delete json.keyB64;
-    delete json.plaintextFallback;
     writeLicenseJson(json);
     try {
       if (fs.existsSync(legacyLicenseKeyEncPath())) fs.unlinkSync(legacyLicenseKeyEncPath());
@@ -260,20 +258,15 @@ export function writeStoredLicenseKey(key: string | null): void {
     return;
   }
 
-  if (safeStorage.isEncryptionAvailable()) {
-    fs.writeFileSync(encPath, safeStorage.encryptString(key));
-    const json = readLicenseJson();
-    delete json.keyB64;
-    delete json.plaintextFallback;
-    writeLicenseJson(json);
-    try {
-      if (fs.existsSync(legacyLicenseKeyEncPath())) fs.unlinkSync(legacyLicenseKeyEncPath());
-    } catch {
-      // ignore
-    }
-  } else {
-    // Fallback: store base64 in license.json (plaintext — warn).
-    writeLicenseJson({ ...readLicenseJson(), keyB64: Buffer.from(key, "utf8").toString("base64"), plaintextFallback: true });
+  // Only ever persisted via safeStorage — never a plaintext fallback.
+  if (!safeStorage.isEncryptionAvailable()) return;
+  fs.writeFileSync(encPath, safeStorage.encryptString(key));
+  const json = readLicenseJson();
+  writeLicenseJson(json);
+  try {
+    if (fs.existsSync(legacyLicenseKeyEncPath())) fs.unlinkSync(legacyLicenseKeyEncPath());
+  } catch {
+    // ignore
   }
 }
 
@@ -362,15 +355,21 @@ export function getLicenseStatus(): LicenseStatus {
  */
 export function activateLicense(key: string): {
   ok: boolean;
-  reason?: VerifyResult extends infer _ ? string : never;
+  reason?: string;
   status?: LicenseStatus;
-  plaintextFallback?: boolean;
 } {
   logLicenseFlow("info", "activation.requested");
   const res = verifyLicenseKey(key);
   if (!res.ok) {
     logLicenseFlow("warn", "activation.failed", { reason: res.reason });
     return { ok: false, reason: res.reason };
+  }
+
+  // Require OS secure storage: the license key is a bearer credential and must
+  // never be persisted in plaintext on disk.
+  if (!safeStorage.isEncryptionAvailable()) {
+    logLicenseFlow("warn", "activation.failed", { reason: "no_secure_storage" });
+    return { ok: false, reason: "no_secure_storage" };
   }
 
   writeStoredLicenseKey(key);
@@ -381,16 +380,14 @@ export function activateLicense(key: string): {
     exp: res.claims.exp,
     installedAt: Date.now(),
   };
-  if (!safeStorage.isEncryptionAvailable()) json.plaintextFallback = true;
   writeLicenseJson(json);
 
   logLicenseFlow("info", "activated", {
     sub: res.claims.sub,
     kid: res.claims.kid,
     exp: res.claims.exp,
-    safeStorageFallback: !safeStorage.isEncryptionAvailable(),
   });
-  return { ok: true, status: getLicenseStatus(), plaintextFallback: !safeStorage.isEncryptionAvailable() };
+  return { ok: true, status: getLicenseStatus() };
 }
 
 /** Remove the license (back to unlicensed). Does NOT touch the encrypted config. */
@@ -408,9 +405,6 @@ export function getLicenseStatusPayload(): { status: LicenseStatus; safeStorageA
 
 /** Whether the raw license key file is present on disk (recovery UI). */
 export function getLicenseKeyFileStatus(): "present" | "missing" {
-  if (safeStorage.isEncryptionAvailable()) {
-    return fs.existsSync(licenseKeyEncPath()) ? "present" : "missing";
-  }
-  const json = readLicenseJson();
-  return json.keyB64 ? "present" : "missing";
+  if (!safeStorage.isEncryptionAvailable()) return "missing";
+  return fs.existsSync(licenseKeyEncPath()) ? "present" : "missing";
 }

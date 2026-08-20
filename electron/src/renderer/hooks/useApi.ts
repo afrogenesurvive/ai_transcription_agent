@@ -47,16 +47,38 @@ async function bridgeCall(tool: string, args: Record<string, unknown> = {}) {
  * Streams the file bytes so the Python backend never needs to read a local
  * filesystem path (works on macOS, Windows, and packaged/remote backends).
  */
+/**
+ * Obtain a bridge license session token (X-License-Token) for a gated
+ * job-creation upload. Throws a descriptive error when it can't be obtained so
+ * the user never sees a bare "Valid license token required" 403 that looks like
+ * a license problem.
+ */
+async function obtainBridgeToken(forceRefresh = false): Promise<string> {
+  const tok = await window.electronAPI?.getBridgeToken(forceRefresh);
+  if (tok && "token" in tok && tok.token) return tok.token;
+  const reason = tok && "error" in tok && tok.error ? tok.error : "unknown error";
+  throw new Error(`Could not obtain a license token (${reason}). If the bridge just restarted, try again.`);
+}
+
 async function postAudioUpload(formData: FormData): Promise<{ job_id: string; status: string }> {
   // Attach the bridge license session token (job-creation endpoints are gated).
   const headers: Record<string, string> = {};
-  try {
-    const tok = await window.electronAPI?.getBridgeToken();
-    if (tok && "token" in tok && tok.token) headers["X-License-Token"] = tok.token;
-  } catch {
-    // No token → the bridge will reject with 403 (defense in depth).
+  headers["X-License-Token"] = await obtainBridgeToken();
+
+  const doUpload = () => fetch(`${BRIDGE_URL}/transcribe/upload`, { method: "POST", body: formData, headers });
+
+  let res = await doUpload();
+  if (res.status === 403) {
+    // The bridge/backend may have restarted, invalidating the cached token.
+    // Force a fresh challenge/response and retry once before surfacing the error.
+    try {
+      headers["X-License-Token"] = await obtainBridgeToken(true);
+      res = await doUpload();
+    } catch {
+      // fall through — surface the original 403 below
+    }
   }
-  const res = await fetch(`${BRIDGE_URL}/transcribe/upload`, { method: "POST", body: formData, headers });
+
   if (!res.ok) {
     const errBody = await res.text().catch(() => "");
     let cleanMsg = errBody;

@@ -82,7 +82,9 @@ async def upload_audio(
         if info.get("status") in ML_UPLOAD_BLOCKING_STATUSES:
             raise HTTPException(409, "A transcription job is already running — wait for it to finish before starting a new one")
 
-    ext = os.path.splitext(file.filename or "audio.wav")[1] or ".wav"
+    ext = (os.path.splitext(file.filename or "audio.wav")[1] or ".wav").lower()
+    if ext not in config.ALLOWED_EXTENSIONS:
+        raise HTTPException(400, f"Unsupported format: {ext}. Allowed: {', '.join(sorted(config.ALLOWED_EXTENSIONS))}")
     temp_dir = os.path.join(config.STORAGE_PATH, "uploads")
     os.makedirs(temp_dir, exist_ok=True)
     temp_path = os.path.join(temp_dir, f"upload_{os.urandom(4).hex()}{ext}")

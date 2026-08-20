@@ -1951,11 +1951,7 @@ function UsageTab() {
   const [usageProvider, setUsageProvider] = useState<string>("all");
 
   // Per-provider filter for the usage sub-tabs
-  const filteredJobs = aggregate?.jobs
-    ? usageProvider === "all"
-      ? aggregate.jobs
-      : aggregate.jobs.filter((j) => j.provider === usageProvider)
-    : [];
+  const filteredJobs = aggregate?.jobs ? (usageProvider === "all" ? aggregate.jobs : aggregate.jobs.filter((j) => j.provider === usageProvider)) : [];
   const providerAgg = usageProvider !== "all" ? aggregate?.by_provider?.[usageProvider] : undefined;
   const activeTotals = providerAgg?.totals || (usageProvider === "all" ? aggregate?.totals : undefined);
   const activeCosts = providerAgg?.costs || (usageProvider === "all" ? aggregate?.costs : undefined);
@@ -2052,7 +2048,9 @@ function UsageTab() {
 
       {/* Per-provider usage sub-tabs */}
       <div style={{ display: "flex", gap: 0, borderBottom: "1px solid var(--border)", background: "var(--bg)", flexShrink: 0, padding: "0 16px" }}>
-        <button className={`config-section-tab ${usageProvider === "all" ? "config-section-tab--active" : ""}`} onClick={() => setUsageProvider("all")}>
+        <button
+          className={`config-section-tab ${usageProvider === "all" ? "config-section-tab--active" : ""}`}
+          onClick={() => setUsageProvider("all")}>
           <Icon name="apps" size="12" /> All
         </button>
         {LLM_PROVIDER_IDS.map((pid) => (
@@ -2060,9 +2058,7 @@ function UsageTab() {
             key={pid}
             className={`config-section-tab ${usageProvider === pid ? "config-section-tab--active" : ""}`}
             onClick={() => setUsageProvider(pid)}>
-            <span
-              style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: providerColor(pid), marginRight: 5 }}
-            />
+            <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: providerColor(pid), marginRight: 5 }} />
             {providerLabel(pid)}
           </button>
         ))}
@@ -2468,7 +2464,9 @@ function UsageTab() {
                               {providerLabel(job.provider)}
                             </span>
                           </td>
-                          <td style={{ padding: "4px 8px", fontFamily: "monospace", fontSize: 10, color: "var(--text-muted)" }}>{job.model || "—"}</td>
+                          <td style={{ padding: "4px 8px", fontFamily: "monospace", fontSize: 10, color: "var(--text-muted)" }}>
+                            {job.model || "—"}
+                          </td>
                           <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace" }}>
                             {job.totals.prompt_tokens.toLocaleString()}
                           </td>
@@ -4078,7 +4076,8 @@ const DOC_FILES = [
   { id: "electron_architecture", label: "Electron Architecture", file: "electron_architecture.md" },
   { id: "known_bugs", label: "Known Bugs", file: "known_bugs.md" },
   { id: "licensing", label: "Licensing", file: "licensing.md" },
-  { id: "system_overview", label: "System Overview", file: "system_overview.md" },
+  { id: "keepassxc_key_management", label: "KeePassXC Key Vault", file: "keepassxc_key_management.md" },
+  // { id: "system_overview", label: "System Overview", file: "system_overview.md" },
   { id: "ui_state_persistence", label: "UI State Persistence", file: "ui_state_persistence.md" },
   { id: "testing_checklist", label: "Testing Checklist", file: "testing_checklist.md" },
   { id: "usage_tracking_plan", label: "Usage Tracking", file: "usage-tracking-plan.md" },

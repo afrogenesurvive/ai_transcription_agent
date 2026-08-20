@@ -19,59 +19,114 @@
  */
 import crypto from "crypto";
 import fs from "fs";
+import path from "path";
 import * as openpgp from "openpgp";
+import { app, safeStorage } from "electron";
 
-const ENVELOPE_VERSION = "v1";
+// v2 envelope: keyed by a per-machine random secret held ONLY in OS secure
+// storage (Keychain/DPAPI). Decoupled from the license key — a license change
+// or revocation never affects the at-rest config.
+const ENVELOPE_VERSION_V2 = "v2";
+// Legacy v1 envelope (pre-0.9): AES key derived from the license key. Kept only
+// to decrypt older config.json.gpg files once during migration.
+const LEGACY_ENVELOPE_VERSION = "v1";
 const AT_REST_ALGO = "aes-256-gcm";
-const KEY_SALT = "transcription-agent:config:v1:";
+const LEGACY_KEY_SALT = "transcription-agent:config:v1:";
+const CONFIG_SECRET_FILE_NAME = "config.key.enc";
 
-// ── Key derivation ────────────────────────────────────────────────────────────
+// ── Per-machine config secret (safeStorage-backed; NEVER written in plaintext) ──
+//
+// A random 32-byte AES-256 key created once per machine and persisted only via
+// Electron safeStorage. If safeStorage is unavailable we return null and the
+// config is left plaintext rather than weakening the key material.
 
-export function deriveConfigKey(licenseKey: string): Buffer {
-  return crypto
-    .createHash("sha256")
-    .update(KEY_SALT + licenseKey)
-    .digest();
+let _configSecretCache: Buffer | null | undefined; // undefined = not yet resolved
+
+function configSecretPath(): string {
+  return path.join(app.getPath("userData"), "secure", CONFIG_SECRET_FILE_NAME);
+}
+
+/** Resolve (creating on first use) the per-machine config secret, or null when safeStorage is unavailable. */
+export function getOrCreateConfigSecret(): Buffer | null {
+  if (_configSecretCache !== undefined) return _configSecretCache;
+  if (!safeStorage.isEncryptionAvailable()) {
+    _configSecretCache = null;
+    return null;
+  }
+  try {
+    const p = configSecretPath();
+    if (fs.existsSync(p)) {
+      const b64 = safeStorage.decryptString(fs.readFileSync(p));
+      const secret = Buffer.from(b64, "base64");
+      if (secret.length === 32) {
+        _configSecretCache = secret;
+        return secret;
+      }
+    }
+    const secret = crypto.randomBytes(32);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, safeStorage.encryptString(secret.toString("base64")));
+    _configSecretCache = secret;
+    return secret;
+  } catch {
+    _configSecretCache = null;
+    return null;
+  }
 }
 
 // ── At-rest envelope (AES-256-GCM, sync) ──────────────────────────────────────
+// v2 envelope: key = the 32-byte per-machine config secret.
 
-export function encryptConfigEnvelope(plaintext: string, licenseKey: string): string {
-  const key = deriveConfigKey(licenseKey);
+export function encryptConfigEnvelope(plaintext: string, secret: Buffer): string {
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv(AT_REST_ALGO, key, iv);
+  const cipher = crypto.createCipheriv(AT_REST_ALGO, secret, iv);
   const ct = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
   const tag = cipher.getAuthTag();
-  return [ENVELOPE_VERSION, iv.toString("base64"), tag.toString("base64"), ct.toString("base64")].join(".");
+  return [ENVELOPE_VERSION_V2, iv.toString("base64"), tag.toString("base64"), ct.toString("base64")].join(".");
 }
 
-export function decryptConfigEnvelope(envelope: string, licenseKey: string): string {
+export function decryptConfigEnvelope(envelope: string, secret: Buffer): string {
   const parts = envelope.split(".");
-  if (parts.length !== 4 || parts[0] !== ENVELOPE_VERSION) {
+  if (parts.length !== 4 || parts[0] !== ENVELOPE_VERSION_V2) {
     throw new Error("Unsupported config envelope format");
   }
   const [, ivB64, tagB64, ctB64] = parts;
-  const key = deriveConfigKey(licenseKey);
+  const decipher = crypto.createDecipheriv(AT_REST_ALGO, secret, Buffer.from(ivB64, "base64"));
+  decipher.setAuthTag(Buffer.from(tagB64, "base64"));
+  return Buffer.concat([decipher.update(Buffer.from(ctB64, "base64")), decipher.final()]).toString("utf8");
+}
+
+/**
+ * Decrypt a legacy v1 envelope (AES key derived from the license key by older
+ * builds). Used for the one-time migration to the v2 machine-secret scheme.
+ */
+export function decryptLegacyConfigEnvelope(envelope: string, licenseKey: string): string {
+  const parts = envelope.split(".");
+  if (parts.length !== 4 || parts[0] !== LEGACY_ENVELOPE_VERSION) {
+    throw new Error("Unsupported legacy config envelope format");
+  }
+  const [, ivB64, tagB64, ctB64] = parts;
+  const key = crypto.createHash("sha256").update(LEGACY_KEY_SALT + licenseKey).digest();
   const decipher = crypto.createDecipheriv(AT_REST_ALGO, key, Buffer.from(ivB64, "base64"));
   decipher.setAuthTag(Buffer.from(tagB64, "base64"));
   return Buffer.concat([decipher.update(Buffer.from(ctB64, "base64")), decipher.final()]).toString("utf8");
 }
 
-export function writeEncryptedFileAtRest(filePath: string, plaintext: string, licenseKey: string): void {
-  fs.writeFileSync(filePath, encryptConfigEnvelope(plaintext, licenseKey), "utf8");
+export function writeEncryptedFileAtRest(filePath: string, plaintext: string, secret: Buffer): void {
+  fs.writeFileSync(filePath, encryptConfigEnvelope(plaintext, secret), "utf8");
 }
 
-export function readEncryptedFileAtRest(filePath: string, licenseKey: string): string {
+export function readEncryptedFileAtRest(filePath: string, secret: Buffer): string {
   const envelope = fs.readFileSync(filePath, "utf8");
-  return decryptConfigEnvelope(envelope, licenseKey);
+  return decryptConfigEnvelope(envelope, secret);
 }
 
 /**
- * Migrate a legacy plaintext config.json → config.json.gpg.
+ * Migrate a legacy plaintext config.json → config.json.gpg (v2 envelope).
  * Only runs when the .gpg does not exist and config.json looks like JSON.
  * Keeps config.json.bak until the caller confirms the new file is readable.
  */
-export function migratePlaintextConfig(configPath: string, gpgPath: string, licenseKey: string): { migrated: boolean; backupPath?: string } {
+export function migratePlaintextConfig(configPath: string, gpgPath: string, secret: Buffer): { migrated: boolean; backupPath?: string } {
   if (fs.existsSync(gpgPath)) return { migrated: false };
   if (!fs.existsSync(configPath)) return { migrated: false };
   const raw = fs.readFileSync(configPath, "utf8");
@@ -82,7 +137,7 @@ export function migratePlaintextConfig(configPath: string, gpgPath: string, lice
   } catch {
     return { migrated: false };
   }
-  writeEncryptedFileAtRest(gpgPath, trimmed, licenseKey);
+  writeEncryptedFileAtRest(gpgPath, trimmed, secret);
   const backupPath = `${configPath}.bak`;
   fs.writeFileSync(backupPath, trimmed, "utf8");
   fs.unlinkSync(configPath);
