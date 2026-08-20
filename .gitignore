@@ -16,6 +16,11 @@ venv/
 # License master keys (maintainer-only, NEVER commit — see scripts/license.mjs)
 dev-keys/
 
+# License key management + KeePassXC seat export (never commit — contains issued license keys)
+scripts/keymanage.mjs
+keepassxc-seats.csv
+keepassxc-seats.xml
+
 
 # ── Node.js ──
 node_modules/

@@ -146,6 +146,7 @@ function humanizeLicenseReason(reason?: string): string {
     bad_seat_key: "The key's seat key is unreadable.",
     key_mismatch: "The key doesn't match its seat certificate.",
     expired: "This license has expired — enter a new key.",
+    no_secure_storage: "This system has no secure key storage (Keychain/DPAPI) — the license can't be saved securely.",
   };
   return reason ? map[reason] || `Invalid key (${reason}).` : "Unknown error.";
 }
@@ -265,12 +266,13 @@ function LicenseTab({ onLicensedChange }: { onLicensedChange?: () => void }) {
     <div className="about-license">
       <p className="about-license-desc">
         Transcription Agent requires an active per-seat license. Without one, you can fill in the New Job form but cannot submit, and the rest of the
-        app stays locked. The license key also decrypts your configuration at rest.
+        app stays locked. Your configuration is encrypted at rest with an OS-protected key.
       </p>
 
       {!safeStorageAvailable && (
         <p className="about-license-warn">
-          <Icon name="warning" size="14" /> Secure key storage is unavailable on this system — the license key will be stored in plaintext.
+          <Icon name="warning" size="14" /> Secure key storage is unavailable on this system — licenses can't be persisted and your configuration
+          stays unencrypted.
         </p>
       )}
 
@@ -349,7 +351,9 @@ function LicenseTab({ onLicensedChange }: { onLicensedChange?: () => void }) {
           <button className="about-license-btn about-license-btn--danger" onClick={() => setShowDeactivateConfirm(true)} disabled={busy}>
             <Icon name="logout" size="14" /> Deactivate
           </button>
-          <p className="about-license-hint">Deactivating keeps your encrypted config; you'll need the same key to re-open it.</p>
+          <p className="about-license-hint">
+            Deactivating keeps your encrypted config; it stays readable when you re-activate a license.
+          </p>
         </div>
       )}
 
@@ -361,9 +365,8 @@ function LicenseTab({ onLicensedChange }: { onLicensedChange?: () => void }) {
             </div>
             <h3 className="confirm-dialog-title confirm-dialog-title--security">Security Risk</h3>
             <p className="confirm-dialog-text confirm-dialog-text--security">
-              Deactivating removes this key from the app and locks it until another key is activated.{" "}
-              <strong>Security Risk:</strong> your encrypted config becomes unreadable — you'll need to re-enter <strong>this same key</strong> to
-              open it again, or re-import a config after activating a new key.
+              Deactivating removes this key from the app and locks it until another key is activated. Your config stays encrypted with an OS-protected
+              key and remains readable once you re-activate a license.
             </p>
             <div className="confirm-dialog-actions confirm-dialog-actions--center">
               <button className="btn-secondary" onClick={() => setShowDeactivateConfirm(false)}>

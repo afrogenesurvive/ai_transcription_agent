@@ -17,7 +17,13 @@ import fs from "fs";
 import path from "path";
 import { app } from "electron";
 import { isLicensed, readStoredLicenseKey } from "./license";
-import { writeEncryptedFileAtRest, readEncryptedFileAtRest, migratePlaintextConfig } from "./config-encryption";
+import {
+  decryptLegacyConfigEnvelope,
+  getOrCreateConfigSecret,
+  writeEncryptedFileAtRest,
+  readEncryptedFileAtRest,
+  migratePlaintextConfig,
+} from "./config-encryption";
 
 export interface AppConfig {
   /** DeepSeek API key (required when API_PROVIDER=deepseek) */
@@ -153,6 +159,8 @@ export interface AppConfig {
   DIARIZATION_MAX_SPEAKERS: string;
   /** Diarization subprocess timeout floor (minutes); auto-scaled to audio length */
   DIARIZATION_TIMEOUT_MINUTES: string;
+  /** PyTorch MPS high-watermark ratio for the Python backend (Apple Silicon). Empty = PyTorch internal default (the fix for "invalid low watermark ratio" on torch 2.8). Valid explicit values ~0.0–0.5; 0.0 = unlimited (no catchable OOM). */
+  PYTORCH_MPS_HIGH_WATERMARK_RATIO: string;
   /** Show images in the in-app User Guide / Dev Guide (DocViewer renderer) */
   USER_GUIDE_IMAGES_ENABLED: string;
 }
@@ -229,6 +237,7 @@ const DEFAULTS: AppConfig = {
   DIARIZATION_CLUSTERING_THRESHOLD: "0.0",
   DIARIZATION_MAX_SPEAKERS: "0",
   DIARIZATION_TIMEOUT_MINUTES: "60",
+  PYTORCH_MPS_HIGH_WATERMARK_RATIO: "",
   USER_GUIDE_IMAGES_ENABLED: "true",
 };
 
@@ -429,9 +438,15 @@ export function setUserConfigDefaults(): AppConfig {
   return getConfig();
 }
 
-/** The active license key used to encrypt/decrypt the at-rest config, if licensed. */
-function getActiveLicenseKey(): string | null {
-  return isLicensed() ? readStoredLicenseKey() : null;
+/**
+ * The per-machine config secret used to encrypt/decrypt the at-rest config.
+ * Only active when licensed AND OS secure storage is available — there is NO
+ * plaintext fallback (null ⇒ the config stays plaintext, never key material
+ * on disk). Decoupled from the license key.
+ */
+function getActiveConfigKey(): Buffer | null {
+  if (!isLicensed()) return null;
+  return getOrCreateConfigSecret();
 }
 
 /**
@@ -442,10 +457,21 @@ function getActiveLicenseKey(): string | null {
  */
 export function readUserConfigRaw(): string | null {
   if (!userConfigPath) ensureUserDataDir();
-  const key = getActiveLicenseKey();
-  if (key && fs.existsSync(userConfigGpgPath)) {
+  const secret = getActiveConfigKey();
+  if (secret && fs.existsSync(userConfigGpgPath)) {
     try {
-      return readEncryptedFileAtRest(userConfigGpgPath, key);
+      return readEncryptedFileAtRest(userConfigGpgPath, secret);
+    } catch {
+      // Not a v2 envelope — try the one-time legacy v1 migration below.
+    }
+    try {
+      const legacyKey = readStoredLicenseKey();
+      if (legacyKey) {
+        const plaintext = decryptLegacyConfigEnvelope(fs.readFileSync(userConfigGpgPath, "utf8"), legacyKey);
+        // Upgrade in place so the license-derived envelope no longer exists.
+        writeEncryptedFileAtRest(userConfigGpgPath, plaintext, secret);
+        return plaintext;
+      }
     } catch {
       // wrong key / corrupt — fall back to plaintext below
     }
@@ -456,12 +482,12 @@ export function readUserConfigRaw(): string | null {
   return null;
 }
 
-/** Write the user-config JSON string (encrypted at-rest when licensed). */
+/** Write the user-config JSON string (encrypted at-rest when a config secret exists). */
 function writeUserConfigRaw(contents: string): void {
   if (!userConfigPath) ensureUserDataDir();
-  const key = getActiveLicenseKey();
-  if (key) {
-    writeEncryptedFileAtRest(userConfigGpgPath, contents, key);
+  const secret = getActiveConfigKey();
+  if (secret) {
+    writeEncryptedFileAtRest(userConfigGpgPath, contents, secret);
   } else {
     fs.writeFileSync(userConfigPath, contents, "utf8");
   }
@@ -475,13 +501,31 @@ function writeUserConfigRaw(contents: string): void {
 }
 
 /**
- * Migrate a legacy plaintext config.json → config.json.gpg.
- * Called after first license activation. Keeps config.json.bak until verified.
+ * Migrate a legacy plaintext config.json → config.json.gpg (v2), and re-encrypt
+ * an older v1 envelope (encrypted under the previous license key) under the
+ * per-machine secret. Called after first license activation.
  */
-export function migrateConfigToEncrypted(): { migrated: boolean; backupPath?: string } {
+export function migrateConfigToEncrypted(oldLicenseKey?: string): { migrated: boolean; backupPath?: string; legacyMigrated?: boolean } {
   ensureUserDataDir();
-  const key = getActiveLicenseKey();
-  if (!key) return { migrated: false };
+  const secret = getActiveConfigKey();
+  if (!secret) return { migrated: false };
+
+  // A config.json.gpg may already exist from an older build, encrypted under
+  // the license key (v1). Re-encrypt it under the per-machine secret once.
+  if (fs.existsSync(userConfigGpgPath) && oldLicenseKey) {
+    try {
+      readEncryptedFileAtRest(userConfigGpgPath, secret); // already v2 → nothing to do
+    } catch {
+      try {
+        const plaintext = decryptLegacyConfigEnvelope(fs.readFileSync(userConfigGpgPath, "utf8"), oldLicenseKey);
+        writeEncryptedFileAtRest(userConfigGpgPath, plaintext, secret);
+        return { migrated: true, legacyMigrated: true };
+      } catch {
+        // old license key wrong → fall through to plaintext migration / leave as-is
+      }
+    }
+  }
+
   // Only auto-restore from backup when there is NO encrypted config yet — i.e.
   // a genuinely deleted config.json.gpg. If the .gpg already exists, never
   // resurrect a plaintext copy (that would leak secrets next to the encrypted one).
@@ -494,7 +538,7 @@ export function migrateConfigToEncrypted(): { migrated: boolean; backupPath?: st
       // ignore — leave a broken backup alone
     }
   }
-  return migratePlaintextConfig(userConfigPath, userConfigGpgPath, key);
+  return migratePlaintextConfig(userConfigPath, userConfigGpgPath, secret);
 }
 
 /** On-disk config integrity, for recovery UI (never silently default). */
@@ -509,10 +553,10 @@ export function getConfigIntegrity(): ConfigIntegrity {
   const backupExists = fs.existsSync(`${userConfigPath}.bak`);
   let configGpg: ConfigIntegrity["configGpg"] = "missing";
   if (gpgExists) {
-    const key = getActiveLicenseKey();
-    if (key) {
+    const secret = getActiveConfigKey();
+    if (secret) {
       try {
-        readEncryptedFileAtRest(userConfigGpgPath, key);
+        readEncryptedFileAtRest(userConfigGpgPath, secret);
         configGpg = "present";
       } catch {
         configGpg = "corrupt";
@@ -526,8 +570,8 @@ export function getConfigIntegrity(): ConfigIntegrity {
 }
 
 /**
- * Restore the config from config.json.bak (re-encrypts under the active license
- * key when licensed, otherwise stages a plaintext config.json for migration).
+ * Restore the config from config.json.bak (re-encrypts under the active config
+ * secret when available, otherwise stages a plaintext config.json for migration).
  */
 export function restoreConfigFromBackup(): { ok: boolean; error?: string } {
   ensureUserDataDir();
@@ -542,29 +586,6 @@ export function restoreConfigFromBackup(): { ok: boolean; error?: string } {
   } catch (err: any) {
     return { ok: false, error: err?.message || "Could not restore the config backup." };
   }
-}
-
-/**
- * Re-encrypt the at-rest config under a NEW license key (master rotation /
- * re-issued seat key). Requires the old key (still stored) to decrypt first.
- */
-export function reKeyConfig(newKey: string, oldKeyOverride?: string): { ok: boolean; error?: string } {
-  ensureUserDataDir();
-  const oldKey = oldKeyOverride || getActiveLicenseKey();
-  if (fs.existsSync(userConfigGpgPath)) {
-    if (!oldKey) return { ok: false, error: "No previous license key available to decrypt the existing config." };
-    try {
-      const plaintext = readEncryptedFileAtRest(userConfigGpgPath, oldKey);
-      writeEncryptedFileAtRest(userConfigGpgPath, plaintext, newKey);
-    } catch {
-      return { ok: false, error: "Could not decrypt the existing config with the old license key." };
-    }
-  }
-  // If a legacy plaintext config.json still exists, migrate it under the new key.
-  if (fs.existsSync(userConfigPath)) {
-    migratePlaintextConfig(userConfigPath, userConfigGpgPath, newKey);
-  }
-  return { ok: true };
 }
 
 /** Read the user config file from app.getPath("userData")/config.json (or config.json.gpg when licensed). */
@@ -880,6 +901,13 @@ export function getChildEnv(): NodeJS.ProcessEnv {
     DIARIZATION_CLUSTERING_THRESHOLD: userVals.DIARIZATION_CLUSTERING_THRESHOLD || process.env.DIARIZATION_CLUSTERING_THRESHOLD || "0.0",
     DIARIZATION_MAX_SPEAKERS: userVals.DIARIZATION_MAX_SPEAKERS || process.env.DIARIZATION_MAX_SPEAKERS || "0",
     DIARIZATION_TIMEOUT_MINUTES: userVals.DIARIZATION_TIMEOUT_MINUTES || process.env.DIARIZATION_TIMEOUT_MINUTES || "60",
+    // PyTorch MPS high-watermark ratio (Apple Silicon). Only forwarded when an
+    // explicit value is configured (UI / .env / host env); empty = don't set it
+    // so PyTorch uses its internal default (the documented fix for the
+    // "invalid low watermark ratio 1.4" crash on torch 2.8).
+    ...(userVals.PYTORCH_MPS_HIGH_WATERMARK_RATIO || process.env.PYTORCH_MPS_HIGH_WATERMARK_RATIO
+      ? { PYTORCH_MPS_HIGH_WATERMARK_RATIO: userVals.PYTORCH_MPS_HIGH_WATERMARK_RATIO || process.env.PYTORCH_MPS_HIGH_WATERMARK_RATIO }
+      : {}),
     // Storage paths — only override in packaged (prod) mode so DBs land in a
     // writable location. In dev the Python backend defaults to the project-
     // relative storage/ dir, which is already writable.

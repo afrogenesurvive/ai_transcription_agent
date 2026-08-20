@@ -1533,10 +1533,7 @@ The system provides existing memory context at the start of each pipeline run. U
         <div className="config-io-buttons">
           {/* Export split button — main button is inert; menu items are direct actions */}
           <div className="config-export-split">
-            <button
-              className="config-io-btn config-export-split-main"
-              disabled
-              title="Choose an export mode from the menu">
+            <button className="config-io-btn config-export-split-main" disabled title="Choose an export mode from the menu">
               <Icon name="upload" size="14" /> Export
             </button>
             <button
@@ -1803,9 +1800,15 @@ The system provides existing memory context at the start of each pipeline run. U
                                     onChange={() => handleChange("API_PROVIDER", p)}
                                     disabled={activeJobs.length > 0}
                                   />
-                                  <span className="config-radio-label">{p === "deepseek" ? "DeepSeek" : p === "openai" ? "OpenAI" : "Anthropic"}</span>
+                                  <span className="config-radio-label">
+                                    {p === "deepseek" ? "DeepSeek" : p === "openai" ? "OpenAI" : "Anthropic"}
+                                  </span>
                                   <span className="config-radio-desc">
-                                    {p === "deepseek" ? "Cloud API — requires API key" : p === "openai" ? "ChatGPT — requires API key" : "Claude — requires API key"}
+                                    {p === "deepseek"
+                                      ? "Cloud API — requires API key"
+                                      : p === "openai"
+                                        ? "ChatGPT — requires API key"
+                                        : "Claude — requires API key"}
                                   </span>
                                 </label>
                               ))}
@@ -4025,8 +4028,8 @@ The system provides existing memory context at the start of each pipeline run. U
             <h3 className="confirm-dialog-title confirm-dialog-title--security">Security Risk</h3>
             <p className="confirm-dialog-text confirm-dialog-text--security">
               This will write your <strong>API keys</strong> (DeepSeek, OpenAI, Anthropic) and delivery credentials to a{" "}
-              <strong>plain-text JSON file</strong> that anyone with file access can read. <strong>Security Risk:</strong> anyone who obtains
-              this file can use your keys. Prefer the encrypted <strong>.gpg</strong> export unless you specifically need a readable copy.
+              <strong>plain-text JSON file</strong> that anyone with file access can read. <strong>Security Risk:</strong> anyone who obtains this
+              file can use your keys. Prefer the encrypted <strong>.gpg</strong> export unless you specifically need a readable copy.
             </p>
             <div className="confirm-dialog-actions confirm-dialog-actions--center">
               <button className="btn-secondary" onClick={() => setShowPlainExportConfirm(false)}>
