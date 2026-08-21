@@ -4076,7 +4076,6 @@ const DOC_FILES = [
   { id: "electron_architecture", label: "Electron Architecture", file: "electron_architecture.md" },
   { id: "known_bugs", label: "Known Bugs", file: "known_bugs.md" },
   { id: "licensing", label: "Licensing", file: "licensing.md" },
-  { id: "keepassxc_key_management", label: "KeePassXC Key Vault", file: "keepassxc_key_management.md" },
   // { id: "system_overview", label: "System Overview", file: "system_overview.md" },
   { id: "ui_state_persistence", label: "UI State Persistence", file: "ui_state_persistence.md" },
   { id: "testing_checklist", label: "Testing Checklist", file: "testing_checklist.md" },
