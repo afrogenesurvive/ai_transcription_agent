@@ -16,8 +16,10 @@ venv/
 # License master keys (maintainer-only, NEVER commit — see scripts/license.mjs)
 dev-keys/
 
-# License key management (never commit — contains issued license keys)
+# License key management tooling (maintainer-only — never commit; code contains
+# no secrets, but both scripts only make sense against the gitignored dev-keys/)
 scripts/keymanage.mjs
+scripts/license.mjs
 
 
 # ── Node.js ──
