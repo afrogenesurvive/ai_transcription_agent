@@ -28,6 +28,8 @@ interface Props {
   configOk?: boolean;
   /** Called after any operation that changes the saved config (save/import/clear/restore). */
   onConfigChanged?: () => void;
+  /** Called when a DS-mon license recheck finds the seat revoked/expired, so App reloads its license gating and re-obscures the panels. */
+  onLicensedChange?: () => void;
 }
 
 type ConfigTab = "config" | "agent" | "logging" | "ui";
@@ -66,6 +68,8 @@ interface ConfigValues {
   DSMON_PUSH_URL: string;
   DSMON_PUSH_TOKEN: string;
   USAGE_TRACKING_ENABLED: string;
+  DSMON_LICENSE_CHECK_ENABLED: string;
+  DSMON_LICENSE_CHECK_INTERVAL: string;
   CLOUDFLARED_TUNNEL_NAME: string;
   CLOUDFLARED_TUNNEL_TOKEN: string;
   HUGGING_FACE_TOKEN: string;
@@ -154,6 +158,8 @@ const FIELDS: { key: keyof ConfigValues; label: string; required: boolean; secre
   { key: "DSMON_PUSH_TOKEN", label: "DS-mon Push Token", required: false, secret: true, section: "Usage Tracking" },
   { key: "CLOUDFLARED_TUNNEL_TOKEN", label: "Cloudflare Tunnel Token", required: false, secret: true, section: "Usage Tracking" },
   { key: "USAGE_TRACKING_ENABLED", label: "Enable Usage Tracking", required: false, secret: false, section: "Usage Tracking" },
+  { key: "DSMON_LICENSE_CHECK_ENABLED", label: "Enable DS-mon License Check", required: false, secret: false, section: "Usage Tracking" },
+  { key: "DSMON_LICENSE_CHECK_INTERVAL", label: "DS-mon License Check Interval (ms)", required: false, secret: false, section: "Usage Tracking" },
   // ── Diarization tuning ──
   { key: "DIARIZATION_MIN_SPEAKER_DURATION", label: "Min Speaker Duration (s)", required: false, secret: false, section: "Diarization" },
   { key: "DIARIZATION_MIN_SPEAKER_SEGMENTS", label: "Min Speaker Segments", required: false, secret: false, section: "Diarization" },
@@ -241,6 +247,8 @@ function loadConfigValues(cfg: Record<string, { value: string; source: string }>
     DSMON_PUSH_URL: cfg.DSMON_PUSH_URL?.value || "",
     DSMON_PUSH_TOKEN: cfg.DSMON_PUSH_TOKEN?.value || "",
     USAGE_TRACKING_ENABLED: cfg.USAGE_TRACKING_ENABLED?.value || "false",
+    DSMON_LICENSE_CHECK_ENABLED: cfg.DSMON_LICENSE_CHECK_ENABLED?.value || "true",
+    DSMON_LICENSE_CHECK_INTERVAL: cfg.DSMON_LICENSE_CHECK_INTERVAL?.value || "43200000",
     CLOUDFLARED_TUNNEL_NAME: cfg.CLOUDFLARED_TUNNEL_NAME?.value || "",
     CLOUDFLARED_TUNNEL_TOKEN: cfg.CLOUDFLARED_TUNNEL_TOKEN?.value || "",
     LOG_LLM_DATA: cfg.LOG_LLM_DATA?.value || "false",
@@ -339,6 +347,7 @@ function validateNumericConfig(values: ConfigValues): Record<string, string> {
   requireNumber("PERF_METRICS_POLL_INTERVAL", "Perf Metrics Poll Interval (ms)", 1000);
   requireNumber("CREDIT_POLL_INTERVAL", "Credit Poll Interval (ms)", 1000);
   requireNumber("DSMON_PUSH_INTERVAL", "DS-mon Push Interval (ms)", 1000);
+  requireNumber("DSMON_LICENSE_CHECK_INTERVAL", "DS-mon License Check Interval (ms)", 60000);
 
   return errors;
 }
@@ -448,7 +457,7 @@ function formatOllamaSize(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
-export default function ConfigPanel({ onClose, configOk, onConfigChanged }: Props) {
+export default function ConfigPanel({ onClose, configOk, onConfigChanged, onLicensedChange }: Props) {
   // Persisted Config tab + section selection (rule 6)
   const [activeTab, setActiveTab] = useUiStateValue<ConfigTab>("config.tab", "config");
   const [configSection, setConfigSection] = useUiStateValue<string>("config.section", "LLM Provider");
@@ -464,6 +473,12 @@ export default function ConfigPanel({ onClose, configOk, onConfigChanged }: Prop
   const [emailValidationError, setEmailValidationError] = useState<string | null>(null);
   /** Per-key validation errors for numeric/enum config fields (config tab). */
   const [numericErrors, setNumericErrors] = useState<Record<string, string>>({});
+  // ── DS-mon license-authority re-check state (Config → Usage Tracking) ──
+  const [dsmonCheck, setDsmonCheck] = useState<{ checking: boolean; kind: "ok" | "err" | null; text: string | null }>({
+    checking: false,
+    kind: null,
+    text: null,
+  });
 
   // Reset a stale persisted section (e.g. a section renamed/removed in a newer build)
   useEffect(() => {
@@ -1133,6 +1148,43 @@ export default function ConfigPanel({ onClose, configOk, onConfigChanged }: Prop
     }
   }, [values, dirtyKeys, onConfigChanged]);
 
+  /** Trigger an on-demand DS-mon license-authority re-check and show the result. */
+  const runDsmonRecheck = useCallback(async () => {
+    setDsmonCheck({ checking: true, kind: null, text: null });
+    try {
+      const st = await window.electronAPI?.recheckDsmonLicense();
+      if (!st) {
+        setDsmonCheck({ checking: false, kind: "err", text: "DS-mon re-check isn't available in this build." });
+        return;
+      }
+      if (!st.enabled) {
+        setDsmonCheck({ checking: false, kind: "err", text: "License check is disabled — enable the toggle above and Save, then retry." });
+        return;
+      }
+      if (!st.reachable) {
+        setDsmonCheck({ checking: false, kind: "err", text: `Couldn't reach DS-mon (${st.error || "unreachable"}) — running on offline verification only.` });
+        return;
+      }
+      if (st.revoked) {
+        setDsmonCheck({ checking: false, kind: "err", text: "DS-mon reports this seat is REVOKED — the app is locked." });
+        onLicensedChange?.();
+        return;
+      }
+      if (st.expired) {
+        setDsmonCheck({
+          checking: false,
+          kind: "err",
+          text: `DS-mon reports this seat EXPIRED (${new Date((st.exp ?? 0) * 1000).toLocaleString()}).`,
+        });
+        onLicensedChange?.();
+        return;
+      }
+      setDsmonCheck({ checking: false, kind: "ok", text: "DS-mon reports the seat is valid." });
+    } catch (err: any) {
+      setDsmonCheck({ checking: false, kind: "err", text: `DS-mon re-check error: ${err?.message || err}` });
+    }
+  }, [onLicensedChange]);
+
   /**
    * Generate the system prompt from the ordered pipeline steps.
    * Creates numbered sections for each enabled step, injecting tool names.
@@ -1533,7 +1585,10 @@ The system provides existing memory context at the start of each pipeline run. U
         <div className="config-io-buttons">
           {/* Export split button — main button is inert; menu items are direct actions */}
           <div className="config-export-split">
-            <button className="config-io-btn config-export-split-main" disabled title="Choose an export mode from the menu">
+            <button
+              className="config-io-btn config-export-split-main"
+              disabled
+              title="Choose an export mode from the menu">
               <Icon name="upload" size="14" /> Export
             </button>
             <button
@@ -1800,15 +1855,9 @@ The system provides existing memory context at the start of each pipeline run. U
                                     onChange={() => handleChange("API_PROVIDER", p)}
                                     disabled={activeJobs.length > 0}
                                   />
-                                  <span className="config-radio-label">
-                                    {p === "deepseek" ? "DeepSeek" : p === "openai" ? "OpenAI" : "Anthropic"}
-                                  </span>
+                                  <span className="config-radio-label">{p === "deepseek" ? "DeepSeek" : p === "openai" ? "OpenAI" : "Anthropic"}</span>
                                   <span className="config-radio-desc">
-                                    {p === "deepseek"
-                                      ? "Cloud API — requires API key"
-                                      : p === "openai"
-                                        ? "ChatGPT — requires API key"
-                                        : "Claude — requires API key"}
+                                    {p === "deepseek" ? "Cloud API — requires API key" : p === "openai" ? "ChatGPT — requires API key" : "Claude — requires API key"}
                                   </span>
                                 </label>
                               ))}
@@ -2488,7 +2537,12 @@ The system provides existing memory context at the start of each pipeline run. U
 
                       {values.USAGE_TRACKING_ENABLED === "true" &&
                         fields
-                          .filter((f) => f.key !== "USAGE_TRACKING_ENABLED")
+                          .filter(
+                            (f) =>
+                              f.key !== "USAGE_TRACKING_ENABLED" &&
+                              f.key !== "DSMON_LICENSE_CHECK_ENABLED" &&
+                              f.key !== "DSMON_LICENSE_CHECK_INTERVAL",
+                          )
                           .map((field) => (
                             <div key={field.key} className="config-field">
                               <label className="config-label">{field.label}</label>
@@ -2537,6 +2591,75 @@ The system provides existing memory context at the start of each pipeline run. U
                               </p>
                             </div>
                           ))}
+
+                      {/* ── DS-mon License Authority Check ── */}
+                      <div className="config-field" style={{ marginTop: 16 }}>
+                        <label className="config-label">Enable DS-mon License Check</label>
+                        <label className="config-toggle">
+                          <input
+                            type="checkbox"
+                            checked={values.DSMON_LICENSE_CHECK_ENABLED === "true"}
+                            onChange={(e) => handleChange("DSMON_LICENSE_CHECK_ENABLED", e.target.checked ? "true" : "false")}
+                            disabled={activeJobs.length > 0}
+                          />
+                          <span className="config-toggle-slider" />
+                          <span className="config-toggle-label">
+                            {values.DSMON_LICENSE_CHECK_ENABLED === "true" ? "License check is active" : "License check is disabled"}
+                          </span>
+                        </label>
+                        <p className="config-field-hint" style={{ marginTop: 4 }}>
+                          When enabled, the app also asks DS-mon whether this seat is revoked / expired (on top of offline signature
+                          verification). Requires the DS-mon Push URL + token above. Default: ON.
+                        </p>
+                      </div>
+
+                      {values.DSMON_LICENSE_CHECK_ENABLED === "true" && (
+                        <>
+                          <div className="config-field">
+                            <label className="config-label">DS-mon License Check Interval (ms)</label>
+                            <div className="config-input-row">
+                              <input
+                                className="config-input"
+                                type="text"
+                                value={values.DSMON_LICENSE_CHECK_INTERVAL || ""}
+                                onChange={(e) => handleChange("DSMON_LICENSE_CHECK_INTERVAL", e.target.value)}
+                                placeholder="43200000"
+                                disabled={activeJobs.length > 0}
+                              />
+                            </div>
+                            <p className="config-field-hint" style={{ marginTop: 2 }}>
+                              How often the app re-checks the DS-mon authority. Default: 43200000 (12 h), min 60000 (1 min).
+                            </p>
+                          </div>
+
+                          <div className="config-field">
+                            <label className="config-label">Check Now</label>
+                            <div className="config-input-row">
+                              <button
+                                className="config-restore-btn"
+                                type="button"
+                                disabled={dsmonCheck.checking || activeJobs.length > 0}
+                                onClick={runDsmonRecheck}>
+                                {dsmonCheck.checking ? "Checking…" : "Check now"}
+                              </button>
+                              {dsmonCheck.text && (
+                                <span
+                                  className="config-field-hint"
+                                  style={{
+                                    marginLeft: 10,
+                                    color:
+                                      dsmonCheck.kind === "ok" ? "var(--green, #3fb950)" : dsmonCheck.kind === "err" ? "var(--red, #f85149)" : "inherit",
+                                  }}>
+                                  {dsmonCheck.text}
+                                </span>
+                              )}
+                            </div>
+                            <p className="config-field-hint" style={{ marginTop: 2 }}>
+                              Manually ask DS-mon for the current verdict on this seat. Result: Valid / Revoked / Expired / unreachable.
+                            </p>
+                          </div>
+                        </>
+                      )}
 
                       <details className="delivery-config-details" style={{ marginTop: 16 }}>
                         <summary className="delivery-config-summary">
@@ -4028,8 +4151,8 @@ The system provides existing memory context at the start of each pipeline run. U
             <h3 className="confirm-dialog-title confirm-dialog-title--security">Security Risk</h3>
             <p className="confirm-dialog-text confirm-dialog-text--security">
               This will write your <strong>API keys</strong> (DeepSeek, OpenAI, Anthropic) and delivery credentials to a{" "}
-              <strong>plain-text JSON file</strong> that anyone with file access can read. <strong>Security Risk:</strong> anyone who obtains this
-              file can use your keys. Prefer the encrypted <strong>.gpg</strong> export unless you specifically need a readable copy.
+              <strong>plain-text JSON file</strong> that anyone with file access can read. <strong>Security Risk:</strong> anyone who obtains
+              this file can use your keys. Prefer the encrypted <strong>.gpg</strong> export unless you specifically need a readable copy.
             </p>
             <div className="confirm-dialog-actions confirm-dialog-actions--center">
               <button className="btn-secondary" onClick={() => setShowPlainExportConfirm(false)}>

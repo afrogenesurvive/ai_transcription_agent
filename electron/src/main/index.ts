@@ -203,6 +203,7 @@ import {
   syncConfigToEnv,
   saveAgentConfigToDisk,
   migrateConfigToEncrypted,
+  reKeyConfig,
   invalidateConfigCache,
   getConfigIntegrity,
   restoreConfigFromBackup,
@@ -221,6 +222,13 @@ import {
   getLicenseKeyFileStatus,
 } from "./license";
 import { encryptOpenPgpText, decryptOpenPgpText } from "./config-encryption";
+import {
+  checkDsmonAuthority,
+  getDsmonAuthorityState,
+  startDsmonLicenseMonitor,
+  dsmonEvents,
+  DSMON_VERDICT_CHANGED,
+} from "./dsmon";
 
 // Ensure every known config key is represented in the .env file(s) so a fresh
 // reader (or a subprocess that reads .env directly) sees the full configuration.
@@ -891,28 +899,7 @@ const ML_PIPELINE_STATUSES = new Set([
 ]);
 
 /** Terminal statuses — a job with one of these is definitely done. */
-const TERMINAL_STATUSES = new Set(["complete", "delivered", "complete_with_warning", "failed", "corrupted"]);
-
-/** Agent-runner stage statuses that represent a GENUINELY in-progress job
- *  (past the ML pipeline, not yet terminal). This is a whitelist: any other
- *  status on disk — ML-pipeline statuses (handled by Python), terminal
- *  statuses, and stale/placeholder records ("not_found", "unknown", corrupt) —
- *  is never treated as an active job. Leftover status.json files from
- *  cancelled/cleaned jobs therefore can never block config editing. */
-const AGENT_ACTIVE_STATUSES = new Set([
-  "transcribed",
-  "pending_raw_review",
-  "ready_for_agent",
-  "labeling_needed",
-  "enqueued",
-  "refined",
-  "summarized",
-  "analyzed",
-  "pending_delivery_review",
-  "delivery_approved",
-  "saving_memory",
-  "reprocessing",
-]);
+const TERMINAL_STATUSES = new Set(["complete", "delivered", "failed", "corrupted"]);
 
 /** Scan the storage directory for jobs in agent-runner stages (transcribed,
  *  refined, summarized, analyzed, etc.) that the Python /transcribe/active
@@ -930,12 +917,8 @@ function scanAgentStageJobs(storageDir: string): Array<{ job_id: string; status:
       try {
         const status = JSON.parse(fs.readFileSync(statusPath, "utf8"));
         const s = (status.status || "unknown") as string;
-        // Whitelist: only in-progress agent-runner stages count as active.
-        // ML-pipeline statuses (handled by Python), terminal statuses, and
-        // stale placeholder records ("not_found", "unknown", corrupt strings)
-        // are all skipped — leftover status.json files can never block config
-        // editing or storage clearing.
-        if (ML_PIPELINE_STATUSES.has(s) || TERMINAL_STATUSES.has(s) || !AGENT_ACTIVE_STATUSES.has(s)) continue;
+        // Skip ML pipeline statuses (handled by Python) and terminal statuses
+        if (ML_PIPELINE_STATUSES.has(s) || TERMINAL_STATUSES.has(s)) continue;
         // Also skip if it's a bot-created error placeholder
         if (entry.name.startsWith("error-")) continue;
         const metaPath = path.join(storageDir, entry.name, "metadata.json");
@@ -1186,7 +1169,6 @@ const PYTHON_CONFIG_KEYS = new Set<string>([
   "DIARIZATION_CLUSTERING_THRESHOLD",
   "DIARIZATION_MAX_SPEAKERS",
   "DIARIZATION_TIMEOUT_MINUTES",
-  "PYTORCH_MPS_HIGH_WATERMARK_RATIO",
 ]);
 
 ipcMain.handle("config:get", () => {
@@ -1365,31 +1347,59 @@ ipcMain.handle("api:checkDeepSeekBalance", async () => {
 
 // ── License IPC ──
 
-ipcMain.handle("license:get-status", () => {
+/** Full license status payload for the renderer (get-status + DS-mon verdict). */
+function licenseStatusResponse() {
   return {
     ...getLicenseStatusPayload(),
     configIntegrity: {
       ...getConfigIntegrity(),
       licenseKeyFile: getLicenseKeyFileStatus(),
     },
+    dsmon: getDsmonAuthorityState(),
   };
+}
+
+ipcMain.handle("license:get-status", () => {
+  return licenseStatusResponse();
+});
+
+// Manual DS-mon license-authority re-check (e.g. from ConfigPanel after toggling
+// DSMON_LICENSE_CHECK_ENABLED or updating the push URL/token).
+ipcMain.handle("dsmon:recheck", () => checkDsmonAuthority());
+
+/**
+ * Push license-status changes to the renderer whenever the DS-mon authority
+ * verdict transitions (revoked / expired → locked, or reachability change).
+ * This makes a Config-panel recheck OR the periodic monitor reload the app's
+ * license gating so the panels re-obscure (or unlock) without a restart.
+ */
+dsmonEvents.on(DSMON_VERDICT_CHANGED, () => {
+  mainWindow?.webContents.send("license:status-changed", licenseStatusResponse());
 });
 
 ipcMain.handle("license:activate", (_event, key: string) => {
   // Capture the current key BEFORE activation overwrites it. If config.json.gpg
-  // exists from an older build (encrypted under the previous license key), pass
-  // it to migrateConfigToEncrypted so it is re-encrypted under the per-machine
-  // config secret (v2) — the config is no longer tied to the license key.
+  // already exists (encrypted under the previous key), re-key it to the new
+  // license — otherwise switching licenses makes the config unreadable and the
+  // app reports "config missing" even though the file is present.
   const oldKey = readStoredLicenseKey();
   const res = activateLicense(key);
   if (res.ok) {
-    // Migrate any legacy plaintext config.json → config.json.gpg (v2) and
-    // re-encrypt an older v1 envelope under the machine secret if needed.
-    const migration = migrateConfigToEncrypted(oldKey && oldKey !== key ? oldKey : undefined);
-    logLicenseFlow("info", "config.migrated", { migrated: migration.migrated, legacyMigrated: !!migration.legacyMigrated });
-    // If the stored config still can't be decrypted under the machine secret
-    // (e.g. safeStorage unavailable) and a plaintext backup exists, restore it
-    // so the newly activated key unlocks the config automatically.
+    // activateLicense() persisted the key first; now migrate any legacy
+    // plaintext config.json → config.json.gpg under the newly stored key.
+    const migration = migrateConfigToEncrypted();
+    logLicenseFlow("info", "config.migrated", { migrated: migration.migrated });
+    if (oldKey && oldKey !== key) {
+      const rekey = reKeyConfig(key, oldKey);
+      if (rekey.ok) {
+        logLicenseFlow("info", "config.rekeyed", {});
+      } else {
+        logLicenseFlow("warn", "config.rekey.failed", { error: rekey.error });
+      }
+    }
+    // If the stored config still can't be decrypted under the new key (e.g. the
+    // previous key was deactivated, so no re-key was possible) and a plaintext
+    // backup exists, restore it so the new key unlocks the config automatically.
     let restoredFromBackup = false;
     const integrity = getConfigIntegrity();
     if (integrity.configGpg === "corrupt" && integrity.backupExists) {
@@ -1402,6 +1412,8 @@ ipcMain.handle("license:activate", (_event, key: string) => {
       }
     }
     invalidateConfigCache(); // re-read (decrypted) config after unlock
+    // Re-check the DS-mon authority now that a seat is installed (non-blocking).
+    checkDsmonAuthority().catch(() => {});
     return { success: true, migration, restoredFromBackup, ...getLicenseStatusPayload() };
   }
   return { success: false, reason: res.reason };
@@ -1419,13 +1431,12 @@ ipcMain.handle("license:re-key", (_event, newKey: string) => {
     logLicenseFlow("warn", "rekey.failed", { reason: res.reason });
     return { success: false, reason: res.reason };
   }
-  // Config encryption is decoupled from the license key (per-machine secret), so
-  // switching keys never touches the at-rest config.
-  const activation = activateLicense(newKey);
-  if (!activation.ok) {
-    logLicenseFlow("warn", "rekey.failed", { reason: activation.reason });
-    return { success: false, reason: activation.reason };
+  const rekey = reKeyConfig(newKey);
+  if (!rekey.ok) {
+    logLicenseFlow("error", "rekey.failed", { error: rekey.error });
+    return { success: false, error: rekey.error };
   }
+  activateLicense(newKey);
   invalidateConfigCache();
   logLicenseFlow("info", "rekeyed", { sub: res.claims.sub, kid: res.claims.kid, exp: res.claims.exp });
   return { success: true, ...getLicenseStatusPayload() };
@@ -1437,10 +1448,10 @@ ipcMain.handle("license:re-key", (_event, newKey: string) => {
 // private key never leaves the main process (signing happens here).
 
 let bridgeTokenCache: { token: string; expiresAt: number } | null = null;
-const BRIDGE_TOKEN_TTL_MS = 50 * 60 * 1000; // reuse a token until ~10min before expiry (bridge token TTL is 1h)
+const BRIDGE_TOKEN_TTL_MS = 11 * 60 * 60 * 1000; // reuse a token until ~1h before expiry
 
-async function getBridgeLicenseToken(forceRefresh = false): Promise<{ token: string } | { error: string }> {
-  if (!forceRefresh && bridgeTokenCache && Date.now() < bridgeTokenCache.expiresAt) {
+async function getBridgeLicenseToken(): Promise<{ token: string } | { error: string }> {
+  if (bridgeTokenCache && Date.now() < bridgeTokenCache.expiresAt) {
     return { token: bridgeTokenCache.token };
   }
   const key = readStoredLicenseKey();
@@ -1487,7 +1498,7 @@ async function getBridgeLicenseToken(forceRefresh = false): Promise<{ token: str
   }
 }
 
-ipcMain.handle("license:get-bridge-token", (_event, forceRefresh?: boolean) => getBridgeLicenseToken(forceRefresh));
+ipcMain.handle("license:get-bridge-token", async () => getBridgeLicenseToken());
 
 ipcMain.handle("config:restore-backup", () => {
   addLog("main", "info", "[config] restore-from-backup requested");
@@ -1638,28 +1649,21 @@ ipcMain.handle("config:export", async (_event, options?: { mode?: "encrypted" | 
       return { success: false, cancelled: true };
     }
 
-    // macOS NSSavePanel appends the selected filter's extension to the typed name
-    // even when it already ends in .json — normalize the duplicate (foo.json.json → foo.json).
-    let outPath = result.filePath;
-    if (mode === "plain" && outPath.toLowerCase().endsWith(".json.json")) {
-      outPath = outPath.slice(0, -".json".length);
-    }
-
     const plaintext = JSON.stringify(exportData, null, 2);
     if (mode === "plain") {
       // Plain JSON — no encryption. Contains API keys in plaintext; the renderer
       // shows a "Security Risk" confirmation before this path is reached.
-      fs.writeFileSync(outPath, plaintext, "utf8");
-      addLog("main", "warn", `Config exported (plain JSON) to ${outPath} — contains secrets in plaintext`);
-      logLicenseFlow("info", "config.export.plain", { filePath: outPath });
+      fs.writeFileSync(result.filePath, plaintext, "utf8");
+      addLog("main", "warn", `Config exported (plain JSON) to ${result.filePath} — contains secrets in plaintext`);
+      logLicenseFlow("info", "config.export.plain", { filePath: result.filePath });
     } else {
       // Encrypt the whole bundle with OpenPGP (gpg-compatible), passphrase = license key.
       const armored = await encryptOpenPgpText(plaintext, licenseKey);
-      fs.writeFileSync(outPath, armored, "utf8");
-      addLog("main", "info", `Config exported (encrypted) to ${outPath}`);
-      logLicenseFlow("info", "config.export.encrypted", { filePath: outPath });
+      fs.writeFileSync(result.filePath, armored, "utf8");
+      addLog("main", "info", `Config exported (encrypted) to ${result.filePath}`);
+      logLicenseFlow("info", "config.export.encrypted", { filePath: result.filePath });
     }
-    return { success: true, filePath: outPath, format: mode, warnings };
+    return { success: true, filePath: result.filePath, format: mode, warnings };
   } catch (err: any) {
     addLog("main", "error", `Config export failed: ${err.message}`);
     return { success: false, error: err.message };
@@ -3477,6 +3481,11 @@ app.whenReady().then(async () => {
 
   // ── DS-mon tunnel: check connection state and auto-start if needed ──
   ensureDsmonTunnelRunning();
+
+  // ── DS-mon license authority: startup check + periodic revocation re-check ──
+  // (see electron/src/main/dsmon.ts). Non-blocking; no-op unless
+  // DSMON_LICENSE_CHECK_ENABLED === "true" and a seat is installed.
+  startDsmonLicenseMonitor();
 
   // ── Initialize writable agent-config in userData ──
   // Copies bundled agent-config (read-only in production) to userData so the

@@ -14,7 +14,7 @@
    - Speakers matching **B** and **D** → pre-fill normally (no conflict).
    - Speakers matching **A** and **C** → **conflicted** because the form has E and F, but the voice matches A and C.
 
-4. The **SpeakerLabelModal** shows A/B radio selectors for the 2 conflicted speakers.
+4. The **[`SpeakerLabelModal`](../../electron/src/renderer/components/SpeakerLabelModal.tsx#L103)** shows A/B radio selectors for the 2 conflicted speakers.
 
 ---
 
@@ -27,7 +27,7 @@
 | **Overwrite cleanup**    | For names in `overwrite_names`: deletes old voiceprint + attendee record before saving the new one |
 | **Upsert via email key** | `ON CONFLICT(email) DO UPDATE` — same email → update; new email → insert                           |
 | **Speaker-name cleanup** | `DELETE WHERE speaker_name=? AND email!=?` before each save prevents UNIQUE collisions             |
-| **Dedup sweep**          | `_dedup_attendees()` removes duplicate attendee rows after registration                            |
+| **Dedup sweep**          | [`_dedup_attendees()`](../../python-backend/reconciliation.py#L480) removes duplicate attendee rows after registration                            |
 
 ---
 
@@ -148,7 +148,7 @@ If John was (wrongly) classified as non-speaking in Job 002's reconciliation (pr
 
 > **Proactive overwrite warning (before any drift check):** picking an attendee from the **"Voiceprint owners"** dropdown group (an attendee with a `sample_job_id`) immediately highlights the speaker row (`speaker-item--vp-overwrite`) and shows _"{name} already has an enrolled voiceprint (from job xxxxxxxx). Confirming this label will overwrite it with this recording."_ This fires on selection regardless of whether the voice matches, so the user knows the same-email upsert will replace the enrolled print before they even reach the drift/conflict checks below. Selecting a no-voiceprint attendee clears it; editing the name clears it. The dropdown group label reads **"Voiceprint owners — selecting overwrites (N)"**.
 
-The user picks "Mike" (voiceprint owner from Job 001) for a speaker slot, but the current voice does **not** match Mike's enrolled print (similarity below `VOICEPRINT_THRESHOLD`). Without a guard, `label_and_resume`'s email-key upsert would **silently replace** Mike's voiceprint with this new (mismatched) voice. `verify_labels` now returns a `voice_drift_conflicts` entry for this case, and the modal shows an advisory inline notice (not a gate):
+The user picks "Mike" (voiceprint owner from Job 001) for a speaker slot, but the current voice does **not** match Mike's enrolled print (similarity below [`VOICEPRINT_THRESHOLD`](../../python-backend/config.py#L92)). Without a guard, [`label_and_resume`](../../python-backend/routes/labeling.py#L934)'s email-key upsert would **silently replace** Mike's voiceprint with this new (mismatched) voice. [`verify_labels`](../../python-backend/routes/labeling.py#L313) now returns a `voice_drift_conflicts` entry for this case, and the modal shows an advisory inline notice (not a gate):
 
 > ⚠️ **Mike** has an enrolled voiceprint from job 001…, but this voice doesn't match it (18% similarity). Saving will overwrite Mike's enrolled voiceprint. **[Use "Mike" & overwrite voiceprint]**
 
@@ -168,14 +168,14 @@ This is intentionally warning-only. It does not block submission, does not chang
 
 When a dropdown attendee is selected:
 
-- If they're in the current job's form (`in_form`), the **form email** is filled — the backend's email-mismatch correction (`_inner_label_and_resume`) would force it anyway.
+- If they're in the current job's form (`in_form`), the **form email** is filled — the backend's email-mismatch correction ([`_inner_label_and_resume`](../../python-backend/routes/labeling.py#L975)) would force it anyway.
 - Otherwise the **enrolled email** is used, preserving the voiceprint join key and avoiding an orphaned `@voiceprint.local` print created under a new email.
 
 ### Case (f) — Enrolled voiceprint present but not matched in this recording
 
 An attendee typed into the job form who **has an enrolled voiceprint from a previous meeting** but whose voice was **not matched to any voice in this recording** (e.g. dialed in from a different device, or a stale attendee list) is handled deliberately:
 
-- **No data in any input.** `get_speaker_clips` Pass 3's positional fallback **skips** these attendees, so their name/email are **not** auto-filled into a speaker input — and the modal's mount pre-fill also guards against them (both the `form_entry_email` fill and the positional `suggestedEmails[i]` email fallback skip any email belonging to an unmatched enrolled attendee). (Previously `drone001`/`drone002` — enrolled but absent — got filled into empty speaker slots even though their voice wasn't in the audio.)
+- **No data in any input.** [`get_speaker_clips`](../../python-backend/routes/labeling.py#L607) Pass 3's positional fallback **skips** these attendees, so their name/email are **not** auto-filled into a speaker input — and the modal's mount pre-fill also guards against them (both the `form_entry_email` fill and the positional `suggestedEmails[i]` email fallback skip any email belonging to an unmatched enrolled attendee). (Previously `drone001`/`drone002` — enrolled but absent — got filled into empty speaker slots even though their voice wasn't in the audio.)
 - **"Enrolled voiceprint not found in this recording" section.** They are surfaced in a dedicated section of the labeling modal, each with a **radio** to add them as a _present-but-did-not-speak_ attendee:
   - **Checked** → included in the meeting record + delivery as non-speaking (same as the "Also present but did not speak" list), with green feedback "✓ added as non-speaking — click to undo".
   - **Unchecked** → added to `excluded_non_speaking` and dropped from the meeting record + delivery (their voice wasn't in the audio).
@@ -186,7 +186,7 @@ An attendee typed into the job form who **has an enrolled voiceprint from a prev
 
 ### Scope of the drift guard
 
-The drift check runs on every `verify_labels` call (dropdown selection, name blur, and the pre-submit verification pass), so **typing** an enrolled attendee's name with a mismatched voice surfaces the notice too — not just dropdown picks.
+The drift check runs on every [`verify_labels`](../../python-backend/routes/labeling.py#L313) call (dropdown selection, name blur, and the pre-submit verification pass), so **typing** an enrolled attendee's name with a mismatched voice surfaces the notice too — not just dropdown picks.
 
 Two mechanisms guarantee this:
 
@@ -195,9 +195,9 @@ Two mechanisms guarantee this:
 
 `excluded_non_speaking` is sent with the speaker-labeling request and the backend drops those names from the reconciled attendee list in **both** the post-ASR and pre-ASR/resumed labeling paths, and prunes their emails from `email_recipients`.
 
-> **Bug fixed (0.5.11+):** Previously, unused form entries (e.g. `mike`, `smart mike`) were classified as `non_speaking_attendees` by `_reconcile_attendees()` and persisted into `metadata.json`/delivery even though the DB stayed clean — producing 6 attendees / 6 delivery emails for an audio file with only 4 real people. The DB registration already deferred on A/B conflicts; now metadata + delivery apply the same exclusion.
+> **Bug fixed (0.5.11+):** Previously, unused form entries (e.g. `mike`, `smart mike`) were classified as `non_speaking_attendees` by [`_reconcile_attendees()`](../../python-backend/reconciliation.py#L19) and persisted into `metadata.json`/delivery even though the DB stayed clean — producing 6 attendees / 6 delivery emails for an audio file with only 4 real people. The DB registration already deferred on A/B conflicts; now metadata + delivery apply the same exclusion.
 >
-> **Follow-up fix (0.5.10-5):** The pre-ASR/resumed labeling path still leaked excluded entries' emails into `email_recipients`. `_run_pipeline_resumed_sync()` stripped the excluded names from the reconciliation _before_ `_update_metadata_with_reconciliation()` ran, so its email-prune was a no-op (0 overwrites → 6 deliveries, 1 overwrite → 5). The metadata writer now resolves each excluded name's email from the original form data and prunes it, so every variant converges to **4 attendees / 4 deliveries**. Also fixed a latent `NameError` in the resumed path's re-pause branch (an undefined `unregistered` variable) by reusing the `voiceprint_matches_by_speaker` map saved during the initial pre-ASR pause. The renderer now actually sends `excluded_non_speaking`: `App.tsx` forwards `excludedNonSpeaking` to `label_and_resume` (it was previously dropped, leaving the exclusion empty — 6 attendees / 6 deliveries), and the voice-match-warnings dialog records replaced form entries as conflict losers.
+> **Follow-up fix (0.5.10-5):** The pre-ASR/resumed labeling path still leaked excluded entries' emails into `email_recipients`. [`_run_pipeline_resumed_sync()`](../../python-backend/services/pipeline.py#L813) stripped the excluded names from the reconciliation _before_ [`_update_metadata_with_reconciliation()`](../../python-backend/reconciliation.py#L213) ran, so its email-prune was a no-op (0 overwrites → 6 deliveries, 1 overwrite → 5). The metadata writer now resolves each excluded name's email from the original form data and prunes it, so every variant converges to **4 attendees / 4 deliveries**. Also fixed a latent `NameError` in the resumed path's re-pause branch (an undefined `unregistered` variable) by reusing the `voiceprint_matches_by_speaker` map saved during the initial pre-ASR pause. The renderer now actually sends `excluded_non_speaking`: [`App.tsx`](../../electron/src/renderer/App.tsx#L684) forwards `excludedNonSpeaking` to `label_and_resume` (it was previously dropped, leaving the exclusion empty — 6 attendees / 6 deliveries), and the voice-match-warnings dialog records replaced form entries as conflict losers.
 
 ---
 
@@ -210,7 +210,7 @@ Two speakers cannot share the same name — the backend would lose
 one speaker's segment data in the `known` dict during label application.
 ```
 
-The `handleConfirm` function checks `nameCounts` and sets inline errors for duplicates, preventing submission.
+The [`handleConfirm`](../../electron/src/renderer/components/SpeakerLabelModal.tsx#L458) function checks `nameCounts` and sets inline errors for duplicates, preventing submission.
 
 ---
 
@@ -281,7 +281,7 @@ cat "$STORAGE/<job_id>/metadata.json" | jq '.attendees'
 
 > **Note:** Since `0.5.10-3`, attendee-registration failures are no longer
 > silent. If the registry write fails (e.g. transient SQLite `disk I/O error`),
-> the job is flagged with a `warnings` entry in status.json and `complete_job()`
+> the job is flagged with a `warnings` entry in status.json and [`complete_job()`](../../python-backend/routes/jobs.py#L156)
 > refuses to mark it `complete` until the records are rebuilt from
 > `metadata.json` (auto-repaired on the next backend start via the startup
 > sweep). A terminal `complete_with_warning` status means the repair has not
@@ -290,15 +290,15 @@ cat "$STORAGE/<job_id>/metadata.json" | jq '.attendees'
 > **Note:** Since `0.5.10-8`, the startup sweep also repairs otherwise-complete
 > jobs whose attendee registry is silently short — registrations deferred on A/B
 > conflicts in the pre-ASR labeling path never re-register and leave no warning
-> flag. `_job_attendee_shortfall()` detects the shortfall without bumping
+> flag. [`_job_attendee_shortfall()`](../../python-backend/reconciliation.py#L557) detects the shortfall without bumping
 > `last_seen` for healthy jobs and only re-registers names that still have an
 > enrolled voiceprint (so overwritten/replaced attendees are not resurrected),
-> and `complete_job()` now always reconciles the registry from `metadata.json`
+> and [`complete_job()`](../../python-backend/routes/jobs.py#L156) now always reconciles the registry from `metadata.json`
 > before marking a job complete.
 
-> **Note:** Since `0.5.10-7`, the `VoiceprintManager` applies the same
-> `_retry_on_io_error()` treatment (reset the SQLite connection between retries)
-> to _every_ voiceprint DB operation, and `_get_known_embeddings()` dedupes the
+> **Note:** Since `0.5.10-7`, the [`VoiceprintManager`](../../python-backend/voiceprint.py#L80) applies the same
+> [`_retry_on_io_error()`](../../python-backend/voiceprint.py#L216) treatment (reset the SQLite connection between retries)
+> to _every_ voiceprint DB operation, and [`_get_known_embeddings()`](../../python-backend/voiceprint.py#L592) dedupes the
 > conflict-matching load by email first (the unique key), then by name.
 
 ## Expected Counts Summary

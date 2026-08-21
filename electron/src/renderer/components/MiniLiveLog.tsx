@@ -13,6 +13,10 @@ import { useUiStateValue } from "../hooks/useUiState";
 
 interface Props {
   maxLines?: number;
+  /** UI-state storage key for the collapsed flag — lets each host isolate its own collapse state. */
+  stateKey?: string;
+  /** Initial collapse state (used until the user first toggles). Default: expanded. */
+  defaultCollapsed?: boolean;
 }
 
 const MAX_BUFFER = 200;
@@ -37,11 +41,11 @@ interface LogLine {
   message: string;
 }
 
-export default function MiniLiveLog({ maxLines = 8 }: Props) {
+export default function MiniLiveLog({ maxLines = 8, stateKey = "current.liveLogExpanded", defaultCollapsed = false }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [buffer, setBuffer] = useState<LogLine[]>([]);
-  // Expand/collapse state persists per app session (rule 2a) via current.liveLogExpanded
-  const [collapsed, setCollapsed] = useUiStateValue<boolean>("current.liveLogExpanded", false);
+  // Expand/collapse state persists per app session (rule 2a) via the given key.
+  const [collapsed, setCollapsed] = useUiStateValue<boolean>(stateKey, defaultCollapsed);
 
   // Subscribe to live log stream
   useEffect(() => {

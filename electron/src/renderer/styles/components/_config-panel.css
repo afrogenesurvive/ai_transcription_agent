@@ -964,6 +964,56 @@
   border-radius: 3px;
 }
 
+/* ── Config Panel — DS-mon license check: manual check + feedback ── */
+
+.config-license-check-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.config-check-now-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 5px 12px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: var(--fs-12);
+  font-family: var(--font);
+  transition: all 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.config-check-now-btn:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.config-check-now-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.config-license-check-feedback {
+  font-size: var(--fs-12);
+  line-height: 1.4;
+}
+
+.config-license-check-feedback--ok {
+  color: var(--ok, #3fb950);
+}
+
+.config-license-check-feedback--err {
+  color: var(--danger, #f85149);
+}
+
 /* ── Pipeline Steps (Draggable Checklist) ── */
 
 .pipeline-steps-header {

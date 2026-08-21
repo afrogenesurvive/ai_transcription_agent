@@ -124,10 +124,34 @@ export interface ConfigIntegrity {
   backupExists: boolean;
 }
 
+/**
+ * DS-mon license-authority check state (merged into license:get-status as
+ * `dsmon`). `revoked:true` / `expired:true` are authoritative — the app treats
+ * the seat as unlicensed (locked mode). `reachable:false` with `revoked:null`
+ * means DS-mon didn't answer, so only the offline verdict applies.
+ */
+export interface DsmonAuthorityState {
+  /** Whether DSMON_LICENSE_CHECK_ENABLED=true. */
+  enabled: boolean;
+  /** True when DS-mon answered the license check. */
+  reachable: boolean | null;
+  /** DS-mon's verdict; null when unknown (disabled / unreachable / no license). */
+  revoked: boolean | null;
+  /** DS-mon's authoritative expiry verdict: a non-null exp > 0 that has passed = expired. */
+  expired: boolean | null;
+  /** DS-mon's authoritative seat expiry (unix seconds; 0 = unlimited); null when unknown. */
+  exp: number | null;
+  /** Epoch ms of the last check attempt. */
+  checkedAt: number | null;
+  /** Short human-readable reason when not fully confirmed (disabled|no-license|no-push-url|HTTP <n>|unreachable). */
+  error?: string;
+}
+
 export interface LicenseStatusPayload {
   status: LicenseStatus;
   safeStorageAvailable: boolean;
   configIntegrity: ConfigIntegrity;
+  dsmon: DsmonAuthorityState;
 }
 
 export interface StorageUsage {
@@ -298,6 +322,8 @@ export interface ElectronAPI {
 
   // ── License ──
   getLicenseStatus: () => Promise<LicenseStatusPayload>;
+  recheckDsmonLicense: () => Promise<DsmonAuthorityState>;
+  onLicenseStatusChanged: (cb: (payload: LicenseStatusPayload) => void) => () => void;
   activateLicense: (
     key: string,
   ) => Promise<{
@@ -312,7 +338,7 @@ export interface ElectronAPI {
   reKeyLicense: (
     newKey: string,
   ) => Promise<{ success: boolean; reason?: string; error?: string; safeStorageAvailable?: boolean; status?: LicenseStatus }>;
-  getBridgeToken: (forceRefresh?: boolean) => Promise<{ token: string } | { error: string }>;
+  getBridgeToken: () => Promise<{ token: string } | { error: string }>;
   restoreConfigFromBackup: () => Promise<{ ok: boolean; error?: string }>;
   getAgentConfig: () => Promise<{ tools?: any; pipeline?: any; systemPrompt?: string; error?: string }>;
   saveAgentConfig: (config: { tools?: any; pipeline?: any; systemPrompt?: string }) => Promise<{ success?: boolean; error?: string }>;

@@ -17,13 +17,7 @@ import fs from "fs";
 import path from "path";
 import { app } from "electron";
 import { isLicensed, readStoredLicenseKey } from "./license";
-import {
-  decryptLegacyConfigEnvelope,
-  getOrCreateConfigSecret,
-  writeEncryptedFileAtRest,
-  readEncryptedFileAtRest,
-  migratePlaintextConfig,
-} from "./config-encryption";
+import { writeEncryptedFileAtRest, readEncryptedFileAtRest, migratePlaintextConfig, getOrCreateConfigSecret, decryptLegacyConfigEnvelope } from "./config-encryption";
 
 export interface AppConfig {
   /** DeepSeek API key (required when API_PROVIDER=deepseek) */
@@ -141,6 +135,14 @@ export interface AppConfig {
   DSMON_PUSH_TOKEN: string;
   /** Master toggle: enable/disable DS-mon usage tracking entirely */
   USAGE_TRACKING_ENABLED: string;
+  /** Enable the DS-mon license-authority revocation check (default ON) */
+  DSMON_LICENSE_CHECK_ENABLED: string;
+  /** DS-mon license re-check interval in milliseconds (default 43200000 = 12h, min 60000) */
+  DSMON_LICENSE_CHECK_INTERVAL: string;
+  /** Base64url 32-byte AES-256-GCM key — encrypts DS-mon push + license payloads when set (secret) */
+  DSMON_ENCRYPTION_KEY: string;
+  /** Key id placed in each DS-mon encryption envelope (default "dsmon") */
+  DSMON_ENCRYPTION_KEY_ID: string;
   /** Optional named Cloudflare tunnel for the Quick Action (empty = quick tunnel) */
   CLOUDFLARED_TUNNEL_NAME: string;
   /** Cloudflare tunnel token for the Quick Action Start button (cloudflared tunnel run --token … --protocol http2) */
@@ -159,8 +161,6 @@ export interface AppConfig {
   DIARIZATION_MAX_SPEAKERS: string;
   /** Diarization subprocess timeout floor (minutes); auto-scaled to audio length */
   DIARIZATION_TIMEOUT_MINUTES: string;
-  /** PyTorch MPS high-watermark ratio for the Python backend (Apple Silicon). Empty = PyTorch internal default (the fix for "invalid low watermark ratio" on torch 2.8). Valid explicit values ~0.0–0.5; 0.0 = unlimited (no catchable OOM). */
-  PYTORCH_MPS_HIGH_WATERMARK_RATIO: string;
   /** Show images in the in-app User Guide / Dev Guide (DocViewer renderer) */
   USER_GUIDE_IMAGES_ENABLED: string;
 }
@@ -228,6 +228,10 @@ const DEFAULTS: AppConfig = {
   DSMON_PUSH_INTERVAL: "300000",
   DSMON_PUSH_TOKEN: "",
   USAGE_TRACKING_ENABLED: "false",
+  DSMON_LICENSE_CHECK_ENABLED: "true",
+  DSMON_LICENSE_CHECK_INTERVAL: "43200000",
+  DSMON_ENCRYPTION_KEY: "",
+  DSMON_ENCRYPTION_KEY_ID: "dsmon",
   CLOUDFLARED_TUNNEL_NAME: "",
   CLOUDFLARED_TUNNEL_TOKEN: "",
   // ── Diarization tuning defaults ──
@@ -237,7 +241,6 @@ const DEFAULTS: AppConfig = {
   DIARIZATION_CLUSTERING_THRESHOLD: "0.0",
   DIARIZATION_MAX_SPEAKERS: "0",
   DIARIZATION_TIMEOUT_MINUTES: "60",
-  PYTORCH_MPS_HIGH_WATERMARK_RATIO: "",
   USER_GUIDE_IMAGES_ENABLED: "true",
 };
 
@@ -268,6 +271,7 @@ export const SECRET_CONFIG_KEYS: (keyof AppConfig)[] = [
   "HUGGING_FACE_TOKEN",
   "GITHUB_TOKEN",
   "DSMON_PUSH_TOKEN",
+  "DSMON_ENCRYPTION_KEY",
   "CLOUDFLARED_TUNNEL_TOKEN",
 ];
 
@@ -438,15 +442,9 @@ export function setUserConfigDefaults(): AppConfig {
   return getConfig();
 }
 
-/**
- * The per-machine config secret used to encrypt/decrypt the at-rest config.
- * Only active when licensed AND OS secure storage is available — there is NO
- * plaintext fallback (null ⇒ the config stays plaintext, never key material
- * on disk). Decoupled from the license key.
- */
-function getActiveConfigKey(): Buffer | null {
-  if (!isLicensed()) return null;
-  return getOrCreateConfigSecret();
+/** The active license key used to encrypt/decrypt the at-rest config, if licensed. */
+function getActiveLicenseKey(): string | null {
+  return isLicensed() ? readStoredLicenseKey() : null;
 }
 
 /**
@@ -457,23 +455,17 @@ function getActiveConfigKey(): Buffer | null {
  */
 export function readUserConfigRaw(): string | null {
   if (!userConfigPath) ensureUserDataDir();
-  const secret = getActiveConfigKey();
-  if (secret && fs.existsSync(userConfigGpgPath)) {
-    try {
-      return readEncryptedFileAtRest(userConfigGpgPath, secret);
-    } catch {
-      // Not a v2 envelope — try the one-time legacy v1 migration below.
-    }
-    try {
-      const legacyKey = readStoredLicenseKey();
-      if (legacyKey) {
-        const plaintext = decryptLegacyConfigEnvelope(fs.readFileSync(userConfigGpgPath, "utf8"), legacyKey);
-        // Upgrade in place so the license-derived envelope no longer exists.
-        writeEncryptedFileAtRest(userConfigGpgPath, plaintext, secret);
-        return plaintext;
+  // v2: the at-rest config is encrypted under the per-machine secret, NOT the
+  // license key — a license change / revocation never affects it. Locked mode
+  // still never reads it (parseUserConfig gates on isLicensed()).
+  if (isLicensed()) {
+    const secret = getOrCreateConfigSecret();
+    if (secret && fs.existsSync(userConfigGpgPath)) {
+      try {
+        return readEncryptedFileAtRest(userConfigGpgPath, secret);
+      } catch {
+        // wrong secret / corrupt — fall back to plaintext below
       }
-    } catch {
-      // wrong key / corrupt — fall back to plaintext below
     }
   }
   if (fs.existsSync(userConfigPath)) {
@@ -482,10 +474,10 @@ export function readUserConfigRaw(): string | null {
   return null;
 }
 
-/** Write the user-config JSON string (encrypted at-rest when a config secret exists). */
+/** Write the user-config JSON string (encrypted at-rest when licensed). */
 function writeUserConfigRaw(contents: string): void {
   if (!userConfigPath) ensureUserDataDir();
-  const secret = getActiveConfigKey();
+  const secret = isLicensed() ? getOrCreateConfigSecret() : null;
   if (secret) {
     writeEncryptedFileAtRest(userConfigGpgPath, contents, secret);
   } else {
@@ -501,31 +493,14 @@ function writeUserConfigRaw(contents: string): void {
 }
 
 /**
- * Migrate a legacy plaintext config.json → config.json.gpg (v2), and re-encrypt
- * an older v1 envelope (encrypted under the previous license key) under the
- * per-machine secret. Called after first license activation.
+ * Migrate a legacy plaintext config.json → config.json.gpg.
+ * Called after first license activation. Keeps config.json.bak until verified.
  */
-export function migrateConfigToEncrypted(oldLicenseKey?: string): { migrated: boolean; backupPath?: string; legacyMigrated?: boolean } {
+export function migrateConfigToEncrypted(): { migrated: boolean; backupPath?: string } {
   ensureUserDataDir();
-  const secret = getActiveConfigKey();
+  if (!isLicensed()) return { migrated: false };
+  const secret = getOrCreateConfigSecret();
   if (!secret) return { migrated: false };
-
-  // A config.json.gpg may already exist from an older build, encrypted under
-  // the license key (v1). Re-encrypt it under the per-machine secret once.
-  if (fs.existsSync(userConfigGpgPath) && oldLicenseKey) {
-    try {
-      readEncryptedFileAtRest(userConfigGpgPath, secret); // already v2 → nothing to do
-    } catch {
-      try {
-        const plaintext = decryptLegacyConfigEnvelope(fs.readFileSync(userConfigGpgPath, "utf8"), oldLicenseKey);
-        writeEncryptedFileAtRest(userConfigGpgPath, plaintext, secret);
-        return { migrated: true, legacyMigrated: true };
-      } catch {
-        // old license key wrong → fall through to plaintext migration / leave as-is
-      }
-    }
-  }
-
   // Only auto-restore from backup when there is NO encrypted config yet — i.e.
   // a genuinely deleted config.json.gpg. If the .gpg already exists, never
   // resurrect a plaintext copy (that would leak secrets next to the encrypted one).
@@ -553,10 +528,10 @@ export function getConfigIntegrity(): ConfigIntegrity {
   const backupExists = fs.existsSync(`${userConfigPath}.bak`);
   let configGpg: ConfigIntegrity["configGpg"] = "missing";
   if (gpgExists) {
-    const secret = getActiveConfigKey();
-    if (secret) {
+    if (isLicensed()) {
+      const secret = getOrCreateConfigSecret();
       try {
-        readEncryptedFileAtRest(userConfigGpgPath, secret);
+        if (secret) readEncryptedFileAtRest(userConfigGpgPath, secret);
         configGpg = "present";
       } catch {
         configGpg = "corrupt";
@@ -570,8 +545,8 @@ export function getConfigIntegrity(): ConfigIntegrity {
 }
 
 /**
- * Restore the config from config.json.bak (re-encrypts under the active config
- * secret when available, otherwise stages a plaintext config.json for migration).
+ * Restore the config from config.json.bak (re-encrypts under the active license
+ * key when licensed, otherwise stages a plaintext config.json for migration).
  */
 export function restoreConfigFromBackup(): { ok: boolean; error?: string } {
   ensureUserDataDir();
@@ -586,6 +561,36 @@ export function restoreConfigFromBackup(): { ok: boolean; error?: string } {
   } catch (err: any) {
     return { ok: false, error: err?.message || "Could not restore the config backup." };
   }
+}
+
+/**
+ * Re-encrypt the at-rest config under a NEW license key (master rotation /
+ * re-issued seat key). Requires the old key (still stored) to decrypt first.
+ */
+export function reKeyConfig(newKey: string, oldKeyOverride?: string): { ok: boolean; error?: string } {
+  ensureUserDataDir();
+  const secret = getOrCreateConfigSecret();
+  if (secret && fs.existsSync(userConfigGpgPath)) {
+    try {
+      const raw = fs.readFileSync(userConfigGpgPath, "utf8");
+      // v2: config is encrypted under the per-machine secret, NOT the license
+      // key, so a license change never requires re-encryption. Only a legacy
+      // v1 envelope (license-key-derived) is migrated to v2 once.
+      if (raw.startsWith("v1.")) {
+        const oldKey = oldKeyOverride || getActiveLicenseKey();
+        if (!oldKey) return { ok: false, error: "No previous license key available to decrypt the existing config." };
+        const plaintext = decryptLegacyConfigEnvelope(raw, oldKey);
+        writeEncryptedFileAtRest(userConfigGpgPath, plaintext, secret);
+      }
+    } catch {
+      return { ok: false, error: "Could not migrate the existing config." };
+    }
+  }
+  // If a legacy plaintext config.json still exists, migrate it under the machine secret.
+  if (secret && fs.existsSync(userConfigPath)) {
+    migratePlaintextConfig(userConfigPath, userConfigGpgPath, secret);
+  }
+  return { ok: true };
 }
 
 /** Read the user config file from app.getPath("userData")/config.json (or config.json.gpg when licensed). */
@@ -893,6 +898,10 @@ export function getChildEnv(): NodeJS.ProcessEnv {
     DSMON_PUSH_INTERVAL: userVals.DSMON_PUSH_INTERVAL || process.env.DSMON_PUSH_INTERVAL || "300000",
     DSMON_PUSH_TOKEN: userVals.DSMON_PUSH_TOKEN || process.env.DSMON_PUSH_TOKEN || "",
     USAGE_TRACKING_ENABLED: userVals.USAGE_TRACKING_ENABLED || process.env.USAGE_TRACKING_ENABLED || "false",
+    DSMON_LICENSE_CHECK_ENABLED: userVals.DSMON_LICENSE_CHECK_ENABLED || process.env.DSMON_LICENSE_CHECK_ENABLED || "true",
+    DSMON_LICENSE_CHECK_INTERVAL: userVals.DSMON_LICENSE_CHECK_INTERVAL || process.env.DSMON_LICENSE_CHECK_INTERVAL || "43200000",
+    DSMON_ENCRYPTION_KEY: userVals.DSMON_ENCRYPTION_KEY || process.env.DSMON_ENCRYPTION_KEY || "",
+    DSMON_ENCRYPTION_KEY_ID: userVals.DSMON_ENCRYPTION_KEY_ID || process.env.DSMON_ENCRYPTION_KEY_ID || "dsmon",
     CLOUDFLARED_TUNNEL_NAME: userVals.CLOUDFLARED_TUNNEL_NAME || process.env.CLOUDFLARED_TUNNEL_NAME || "",
     // ── Diarization tuning (passed to Python backend) ──
     DIARIZATION_MIN_SPEAKER_DURATION: userVals.DIARIZATION_MIN_SPEAKER_DURATION || process.env.DIARIZATION_MIN_SPEAKER_DURATION || "3.0",
@@ -901,13 +910,6 @@ export function getChildEnv(): NodeJS.ProcessEnv {
     DIARIZATION_CLUSTERING_THRESHOLD: userVals.DIARIZATION_CLUSTERING_THRESHOLD || process.env.DIARIZATION_CLUSTERING_THRESHOLD || "0.0",
     DIARIZATION_MAX_SPEAKERS: userVals.DIARIZATION_MAX_SPEAKERS || process.env.DIARIZATION_MAX_SPEAKERS || "0",
     DIARIZATION_TIMEOUT_MINUTES: userVals.DIARIZATION_TIMEOUT_MINUTES || process.env.DIARIZATION_TIMEOUT_MINUTES || "60",
-    // PyTorch MPS high-watermark ratio (Apple Silicon). Only forwarded when an
-    // explicit value is configured (UI / .env / host env); empty = don't set it
-    // so PyTorch uses its internal default (the documented fix for the
-    // "invalid low watermark ratio 1.4" crash on torch 2.8).
-    ...(userVals.PYTORCH_MPS_HIGH_WATERMARK_RATIO || process.env.PYTORCH_MPS_HIGH_WATERMARK_RATIO
-      ? { PYTORCH_MPS_HIGH_WATERMARK_RATIO: userVals.PYTORCH_MPS_HIGH_WATERMARK_RATIO || process.env.PYTORCH_MPS_HIGH_WATERMARK_RATIO }
-      : {}),
     // Storage paths — only override in packaged (prod) mode so DBs land in a
     // writable location. In dev the Python backend defaults to the project-
     // relative storage/ dir, which is already writable.

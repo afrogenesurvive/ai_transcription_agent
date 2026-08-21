@@ -23,6 +23,7 @@ import "./styles/components/_history-results.css";
 import "./styles/components/_server-status-banner.css";
 import "./styles/components/_about-panel.css";
 import "./styles/components/_appearance-panel.css";
+import "./styles/components/_license-gate.css";
 import "./styles/components/_speaker-label-modal.css";
 import "./styles/components/_delivery-config.css";
 import "./styles/components/_dev-panel-testing.css";

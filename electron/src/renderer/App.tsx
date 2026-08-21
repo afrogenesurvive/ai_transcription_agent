@@ -26,6 +26,7 @@ import StoragePanel from "./components/StoragePanel";
 import AboutPanel from "./components/AboutPanel";
 import AppearancePanel from "./components/AppearancePanel";
 import ServerStatusBanner from "./components/ServerStatusBanner";
+import LicenseGate from "./components/LicenseGate";
 import SpeakerLabelModal from "./components/SpeakerLabelModal";
 import LoadingModal from "./components/LoadingModal";
 import Tooltip from "./components/Tooltip";
@@ -132,10 +133,24 @@ export default function App() {
   useEffect(() => {
     window.electronAPI?.getLicenseStatus().then((p) => setLicenseStatus(p));
   }, []);
-  const licensed = licenseStatus?.status?.status === "active";
+  // Licensed = offline status active AND the DS-mon authority has NOT revoked
+  // the seat. dsmon.revoked===true OR dsmon.expired===true is authoritative
+  // (locked mode → panels obscure); unknown (null) keeps the offline verdict.
+  const licensed =
+    licenseStatus?.status?.status === "active" && !licenseStatus?.dsmon?.revoked && !licenseStatus?.dsmon?.expired;
   const refreshLicenseStatus = useCallback(() => {
     window.electronAPI?.getLicenseStatus().then((p) => setLicenseStatus(p));
   }, []);
+
+  // Reload the license gating whenever the DS-mon authority verdict changes
+  // (pushed from main after a Config-panel recheck or the periodic monitor).
+  // A revoked/expired verdict re-obscures the panels; a valid one unlocks them.
+  useEffect(() => {
+    const cleanup = window.electronAPI?.onLicenseStatusChanged(() => {
+      refreshLicenseStatus();
+    });
+    return () => cleanup?.();
+  }, [refreshLicenseStatus]);
 
   // When the new job form opens, fetch agent config pipeline steps so the
   // UploadPanel checkboxes reflect which steps are disabled in the ConfigPanel.
@@ -1409,12 +1424,11 @@ export default function App() {
 
           <main className="app-main">
             {/* ── Dev view: always interactive (logs help debug startup) ── */}
-            {sidebarView === "dev" &&
-              (licensed ? (
+            {sidebarView === "dev" && (
+              <LicenseGate locked={!licensed} onOpenLicense={() => setSidebarView("about")}>
                 <DevPanel onClose={() => setSidebarView("current")} />
-              ) : (
-                <LicenseRequiredPanel onOpenLicense={() => setSidebarView("about")} />
-              ))}
+              </LicenseGate>
+            )}
 
             {/* ── Server status popover overlay ── */}
             {sidebarView !== "dev" && (
@@ -1619,8 +1633,8 @@ export default function App() {
                   </>
                 )}
 
-                {sidebarView === "storage" &&
-                  (licensed ? (
+                {sidebarView === "storage" && (
+                  <LicenseGate locked={!licensed} onOpenLicense={() => setSidebarView("about")}>
                     <StoragePanel
                       onClose={() => setSidebarView("current")}
                       onNotify={notify}
@@ -1629,12 +1643,11 @@ export default function App() {
                       devAccessSignal={devAccessSignal}
                       onStorageCleared={handleStorageCleared}
                     />
-                  ) : (
-                    <LicenseRequiredPanel onOpenLicense={() => setSidebarView("about")} />
-                  ))}
+                  </LicenseGate>
+                )}
 
-                {sidebarView === "config" &&
-                  (licensed ? (
+                {sidebarView === "config" && (
+                  <LicenseGate locked={!licensed} onOpenLicense={() => setSidebarView("about")}>
                     <ConfigPanel
                       key="config-panel"
                       configOk={configOk}
@@ -1643,19 +1656,18 @@ export default function App() {
                         window.electronAPI?.checkConfig().then((r) => setConfigOk(r.ok));
                       }}
                       onConfigChanged={() => window.electronAPI?.checkConfig().then((r) => setConfigOk(r.ok))}
+                      onLicensedChange={refreshLicenseStatus}
                     />
-                  ) : (
-                    <LicenseRequiredPanel onOpenLicense={() => setSidebarView("about")} />
-                  ))}
+                  </LicenseGate>
+                )}
 
                 {sidebarView === "about" && <AboutPanel onClose={() => setSidebarView("current")} onLicensedChange={refreshLicenseStatus} />}
 
-                {sidebarView === "appearance" &&
-                  (licensed ? (
+                {sidebarView === "appearance" && (
+                  <LicenseGate locked={!licensed} onOpenLicense={() => setSidebarView("about")}>
                     <AppearancePanel onClose={() => setSidebarView("current")} />
-                  ) : (
-                    <LicenseRequiredPanel onOpenLicense={() => setSidebarView("about")} />
-                  ))}
+                  </LicenseGate>
+                )}
               </>
             )}
           </main>
@@ -1664,23 +1676,5 @@ export default function App() {
         <StatusBar configOk={configOk} onOpenConfig={() => setSidebarView("config")} />
       </div>
     </ServiceStatusProvider>
-  );
-}
-
-/** Locked-mode placeholder shown in place of gated panels until a license is active. */
-function LicenseRequiredPanel({ onOpenLicense }: { onOpenLicense: () => void }) {
-  return (
-    <div className="panel license-required-panel">
-      <h2>
-        <Icon name="lock" size="18" color="accent" /> License Required
-      </h2>
-      <p>
-        This area is locked until a license is activated. You can fill in the New Job form, but job submission and the rest of the app are disabled
-        without an active license.
-      </p>
-      <button className="license-required-btn" onClick={onOpenLicense}>
-        <Icon name="key" size="14" /> Open About → License
-      </button>
-    </div>
   );
 }

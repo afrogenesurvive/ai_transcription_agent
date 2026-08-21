@@ -88,6 +88,23 @@ export function renderMarkdown(md: string, opts?: { imagesEnabled?: boolean; img
     if (url.startsWith("#")) {
       return `<a href="#${slugify(url.slice(1))}" class="guide-anchor">${text}</a>`;
     }
+    // Relative/local file links that are NOT markdown docs (e.g.
+    // `../../electron/src/main/license.ts#L108`) are editor navigation in VS
+    // Code's markdown preview but are not navigable in-app. Render them as
+    // inert inline code so the Guide tab shows them as code references instead
+    // of attempting broken external navigation. Doc-to-doc links (*.md) and
+    // absolute paths / URL schemes (http/https/mailto/data/…) stay real links.
+    if (!/^[a-zA-Z][a-zA-Z0-9+.\-]*:/.test(url) && !url.startsWith("/")) {
+      if (!/\.md$/i.test(url.split("#")[0])) {
+        // The label's inline-code backticks were already rendered to
+        // <code>…</code> by the inline-code pass; unwrap so we don't nest.
+        const codeText = text
+          .replace(/^<code>(.*)<\/code>$/, "$1")
+          .replace(/^`(.*)`$/, "$1");
+        return `<code>${codeText}</code>`;
+      }
+      return `<a href="${url}" target="_blank" rel="noopener">${text}</a>`;
+    }
     return `<a href="${url}" target="_blank" rel="noopener">${text}</a>`;
   });
 

@@ -558,6 +558,39 @@
   font-weight: 600;
 }
 
+/* ── Manual DS-mon license check (About → License) ── */
+
+.about-license-check {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.about-license-dsmon {
+  font-size: var(--fs-12);
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.about-license-dsmon--ok {
+  color: var(--ok, #3fb950);
+  border-color: color-mix(in srgb, var(--ok, #3fb950) 50%, transparent);
+}
+
+.about-license-dsmon--revoked,
+.about-license-dsmon--expired {
+  color: var(--danger, #f85149);
+  border-color: color-mix(in srgb, var(--danger, #f85149) 50%, transparent);
+}
+
+.about-license-dsmon--unreachable {
+  color: var(--warn, #d29922);
+  border-color: color-mix(in srgb, var(--warn, #d29922) 50%, transparent);
+}
+
 .about-license-entry {
   display: flex;
   flex-direction: column;

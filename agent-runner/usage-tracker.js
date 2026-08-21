@@ -1,10 +1,11 @@
 /**
  * Usage Tracker — per-API-call usage buffer + push to DS-mon
  *
- * After each DeepSeek LLM call, captures token usage data and buffers it
- * locally in a JSONL file. Periodically flushes to DS-mon's /sync/push
- * endpoint for centralized per-machine usage monitoring across multiple
- * instances sharing the same API key.
+ * After each cloud LLM call (deepseek / openai / anthropic), captures token
+ * usage data and buffers it locally in a JSONL file. Periodically flushes to
+ * DS-mon's /sync/push endpoint for centralized per-machine usage monitoring
+ * across multiple instances sharing the same API key. Ollama (local, no cost)
+ * is intentionally excluded — its per-job totals still land in usage.json.
  *
  * The push URL is set statically via DSMON_PUSH_URL (e.g. a stable named-tunnel
  * URL). Offline-resilient: on push failure, records are retained in the buffer
@@ -22,6 +23,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
+import { encryptEnvelope } from "./crypto.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -32,6 +34,11 @@ let PUSH_URL = (process.env.DSMON_PUSH_URL || "").trim().replace(/\/+$/, "");
 if (PUSH_URL && !/\/sync\/push$/i.test(PUSH_URL)) PUSH_URL += "/sync/push";
 const PUSH_INTERVAL = parseInt(process.env.DSMON_PUSH_INTERVAL || "300000", 10);
 const PUSH_TOKEN = process.env.DSMON_PUSH_TOKEN || "";
+// Optional shared AES-256 key (base64url 32-byte) — when set, the push body is
+// wrapped in an encryption envelope (see crypto.js). Matches DS-mon's
+// afrogene/dsmon.key. Plaintext fallback when unset.
+const ENCRYPTION_KEY = process.env.DSMON_ENCRYPTION_KEY || "";
+const ENCRYPTION_KEY_ID = process.env.DSMON_ENCRYPTION_KEY_ID || "dsmon";
 const STORAGE_BASE = process.env.TRANSCRIPTION_STORAGE || path.resolve(__dirname, "..", "storage");
 const BUFFER_FILE = path.join(STORAGE_BASE, "dsmon_buffer.jsonl");
 // Diagnostic log — persists every push outcome so failures are visible even
@@ -137,20 +144,27 @@ let flushTimer = null;
  * @param {string} model - The model name used for the call
  * @param {number} latencyMs - Round-trip latency in milliseconds
  * @param {object} stepInfo - { step: number, tool: string } identifying the pipeline step
+ * @param {string} providerId - "deepseek" | "openai" | "anthropic" (defaults to env LLM_PROVIDER)
  */
-export function recordCall(usage, model, latencyMs, stepInfo) {
+export function recordCall(usage, model, latencyMs, stepInfo, providerId) {
   // Master switch — no collection unless USAGE_TRACKING_ENABLED=true.
   // (recordCall used to be gated only on PUSH_URL, so records were still
   // buffered while tracking was disabled whenever a push URL was configured.)
   if (!TRACKING_ENABLED) return;
   if (!PUSH_URL) return;
 
+  // Normalize the provider id (env LLM_PROVIDER is deepseek|openai|anthropic|ollama).
+  const pid = (providerId || process.env.LLM_PROVIDER || "deepseek").toLowerCase();
+  // Endpoint reflects the actual upstream API shape DS-mon's UsageLogger parses:
+  // chat-completions shape for deepseek/openai, Messages API for anthropic.
+  const endpoint = pid === "anthropic" ? "/v1/messages" : "/v1/chat/completions";
+
   const record = {
     uuid: crypto.randomUUID(),
     timestamp: Date.now() / 1000,
-    providerId: "deepseek",
+    providerId: pid,
     model: model || "unknown",
-    endpoint: "/v1/chat/completions",
+    endpoint,
     promptTokens: usage?.prompt_tokens || 0,
     completionTokens: usage?.completion_tokens || 0,
     totalTokens: usage?.total_tokens || 0,
@@ -204,10 +218,12 @@ export async function flushBuffer() {
     // Authenticate against the DS-mon host when a shared push token is configured.
     const headers = { "Content-Type": "application/json" };
     if (PUSH_TOKEN) headers["Authorization"] = `Bearer ${PUSH_TOKEN}`;
+    // Encrypt the whole batch when a shared AES key is configured (envelope).
+    const body = ENCRYPTION_KEY ? JSON.stringify(encryptEnvelope(ENCRYPTION_KEY_ID, ENCRYPTION_KEY, records)) : JSON.stringify(records);
     const resp = await fetch(PUSH_URL, {
       method: "POST",
       headers,
-      body: JSON.stringify(records),
+      body,
       signal: AbortSignal.timeout(PUSH_TIMEOUT_MS),
     });
 

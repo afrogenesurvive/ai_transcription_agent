@@ -10,6 +10,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useServiceStatus, SERVICES, SERVICE_LABELS, type ServiceName } from "../hooks/serviceStatusContext";
 import type { ConfigIntegrity, LicenseStatus } from "../types";
 import Icon from "./Icon";
+import MiniLiveLog from "./MiniLiveLog";
 
 const SERVICE_ICONS: Record<string, string> = {
   python: "code",
@@ -575,6 +576,11 @@ export default function ServerStatusBanner({
             <span className="ssb-footer-dot">
               <span className={`ssb-mini-dot ${ollamaOk === true ? "ssb-mini-dot--on" : "ssb-mini-dot--off"}`} /> Ollama
             </span>
+          </div>
+
+          {/* Small collapsible live log, collapsed by default (mirrors the pipeline stepper's MiniLiveLog) */}
+          <div className="ssb-mini-log">
+            <MiniLiveLog maxLines={6} stateKey="serverStatus.liveLogExpanded" defaultCollapsed />
           </div>
         </details>
       </div>

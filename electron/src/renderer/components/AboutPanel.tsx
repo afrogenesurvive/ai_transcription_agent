@@ -14,7 +14,8 @@ import Tooltip from "./Tooltip";
 import DocViewer from "./DocViewer";
 import { useUiStateValue } from "../hooks/useUiState";
 import { renderMarkdown } from "../utils/markdown";
-import type { LicenseStatus, ConfigIntegrity } from "../types";
+import LoadingModal from "./LoadingModal";
+import type { LicenseStatus, ConfigIntegrity, DsmonAuthorityState } from "../types";
 
 type AboutTab = "about" | "guide" | "license";
 
@@ -163,6 +164,8 @@ function LicenseTab({ onLicensedChange }: { onLicensedChange?: () => void }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [integrity, setIntegrity] = useState<ConfigIntegrity | null>(null);
+  const [dsmon, setDsmon] = useState<DsmonAuthorityState | null>(null);
+  const [checking, setChecking] = useState(false);
   const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
 
   const refresh = useCallback(() => {
@@ -170,6 +173,7 @@ function LicenseTab({ onLicensedChange }: { onLicensedChange?: () => void }) {
       setStatus(p.status);
       setSafeStorageAvailable(p.safeStorageAvailable);
       setIntegrity(p.configIntegrity ?? null);
+      setDsmon(p.dsmon ?? null);
     });
   }, []);
 
@@ -259,6 +263,58 @@ function LicenseTab({ onLicensedChange }: { onLicensedChange?: () => void }) {
     setBusy(false);
   };
 
+  /**
+   * Manual license check (About → License): re-run the DS-mon authority check
+   * for the installed seat, refresh the offline status, then reload the app's
+   * license gating. A revoked / expired verdict re-obscures the panels
+   * (LicenseGate overlay); an active verdict unlocks them (e.g. a seat that was
+   * reactivated).
+   */
+  const checkLicense = async () => {
+    if (busy || checking) return;
+    setChecking(true);
+    setMessage(null);
+    try {
+      // Ask DS-mon for the current verdict on the installed seat (updates the
+      // cached authority state in the main process), then re-read full status.
+      await window.electronAPI?.recheckDsmonLicense();
+      const p = await window.electronAPI?.getLicenseStatus();
+      if (p) {
+        setStatus(p.status);
+        setSafeStorageAvailable(p.safeStorageAvailable);
+        setIntegrity(p.configIntegrity ?? null);
+        setDsmon(p.dsmon ?? null);
+      }
+      const d = p?.dsmon;
+      const st = p?.status?.status;
+      if (d?.revoked) {
+        setMessage({ kind: "err", text: "DS-mon reports this seat is REVOKED — the app is now locked." });
+      } else if (d?.expired) {
+        setMessage({
+          kind: "err",
+          text: `DS-mon reports this seat EXPIRED (${new Date((d.exp ?? 0) * 1000).toLocaleDateString()}) — the app is now locked.`,
+        });
+      } else if (d?.enabled && d.reachable === false) {
+        setMessage({ kind: "err", text: `Couldn't reach DS-mon (${d.error || "unreachable"}) — running on offline verification only.` });
+      } else if (st === "active") {
+        setMessage({ kind: "ok", text: "License is active and valid." });
+      } else if (st === "expired" && p?.status?.status === "expired") {
+        setMessage({ kind: "err", text: `License expired (${formatExpiry(p.status.exp)}) — enter a new key.` });
+      } else if (st === "invalid" && p?.status?.status === "invalid") {
+        setMessage({ kind: "err", text: `Stored key is invalid — ${humanizeLicenseReason(p.status.reason)}.` });
+      } else {
+        setMessage({ kind: "err", text: "No license is installed." });
+      }
+      // Reload the app's license gating so the panels re-obscure (revoked /
+      // expired) or unlock (reactivated) based on the fresh verdict.
+      onLicensedChange?.();
+    } catch (err: any) {
+      setMessage({ kind: "err", text: `License check error: ${err?.message || err}` });
+    } finally {
+      setChecking(false);
+    }
+  };
+
   const statusKind = status?.status ?? "unlicensed";
   const active = statusKind === "active";
 
@@ -297,6 +353,29 @@ function LicenseTab({ onLicensedChange }: { onLicensedChange?: () => void }) {
             </>
           )}
         </span>
+      </div>
+
+      {/* Manual DS-mon license check */}
+      <div className="about-license-check">
+        <button className="about-license-btn" onClick={checkLicense} disabled={busy || checking}>
+          <Icon name="sync" size="14" /> {checking ? "Checking…" : "Check License"}
+        </button>
+        {dsmon?.enabled && (
+          <span
+            className={`about-license-dsmon about-license-dsmon--${
+              dsmon.revoked ? "revoked" : dsmon.expired ? "expired" : dsmon.reachable === false ? "unreachable" : dsmon.reachable ? "ok" : "idle"
+            }`}>
+            {dsmon.revoked
+              ? "DS-mon: revoked"
+              : dsmon.expired
+                ? "DS-mon: expired"
+                : dsmon.reachable === false
+                  ? "DS-mon: unreachable — offline only"
+                  : dsmon.reachable
+                    ? "DS-mon: valid"
+                    : "DS-mon: not checked"}
+          </span>
+        )}
       </div>
 
       {/* Activation input */}
@@ -385,6 +464,7 @@ function LicenseTab({ onLicensedChange }: { onLicensedChange?: () => void }) {
           </div>
         </div>
       )}
+      <LoadingModal visible={checking} message="Checking license with DS-mon…" />
     </div>
   );
 }

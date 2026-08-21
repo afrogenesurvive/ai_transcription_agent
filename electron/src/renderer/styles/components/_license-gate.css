@@ -1,0 +1,78 @@
+/* ── License Gate (obscure-not-hide locked panels) ── */
+
+.license-gate {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.license-gate__content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Locked: dim + blur the real panel; the overlay blocks all interaction. */
+.license-gate--locked .license-gate__content {
+  filter: blur(1.5px) brightness(0.8);
+  opacity: 0.99;
+  pointer-events: none;
+  user-select: none;
+  transition:
+    filter 0.2s ease,
+    opacity 0.2s ease;
+}
+
+.license-gate__overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+  border-radius: var(--radius, 8px);
+  padding: 16px;
+}
+
+/* Opaque backdrop dimmed via `opacity` (not a transparent background color),
+   so the licensing card above stays fully opaque. */
+.license-gate__overlay::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--bg, #0d1117);
+  opacity: 0.6;
+  border-radius: inherit;
+}
+
+.license-gate__card {
+  position: relative;
+  z-index: 1;
+  max-width: 440px;
+  width: 100%;
+  padding: 18px 22px;
+  background: var(--surface, #161b22);
+  border: 1px solid var(--border, #30363d);
+  border-radius: var(--radius, 8px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+  text-align: center;
+}
+
+.license-gate__card h2 {
+  margin: 0 0 8px;
+  font-size: var(--fs-16, 16px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.license-gate__card p {
+  margin: 0 0 14px;
+  font-size: var(--fs-12, 12px);
+  color: var(--text-muted, #8b949e);
+  line-height: 1.5;
+}

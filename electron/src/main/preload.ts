@@ -9,6 +9,7 @@ import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { LogEntry, LogFileInfo } from "./logger";
 import type { GmailAuthResult } from "./gmailOAuth";
 import type { MeetingInfo, MeetingAttendee, MeetingRecordingResult, MeetingAuthResult, CaptureSource, CaptureDeviceStatus } from "./meetings/types";
+import type { DsmonAuthorityState } from "./dsmon";
 
 contextBridge.exposeInMainWorld("electronAPI", {
   // ── File dialogs ──
@@ -165,7 +166,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   setDefaultConfig: (): Promise<{ success: boolean; agentDefaultsSaved?: boolean; error?: string; warnings?: string[] }> =>
     ipcRenderer.invoke("config:set-defaults"),
 
-  // ── License (per-seat, offline verification) ──
+  // ── License (per-seat, offline verification + DS-mon authority) ──
   getLicenseStatus: (): Promise<{
     status:
       | { status: "unlicensed" }
@@ -174,7 +175,25 @@ contextBridge.exposeInMainWorld("electronAPI", {
       | { status: "invalid"; reason: string };
     safeStorageAvailable: boolean;
     configIntegrity: { licenseKeyFile: "present" | "missing"; configGpg: "present" | "missing" | "corrupt"; backupExists: boolean };
+    dsmon: DsmonAuthorityState;
   }> => ipcRenderer.invoke("license:get-status"),
+  recheckDsmonLicense: (): Promise<DsmonAuthorityState> => ipcRenderer.invoke("dsmon:recheck"),
+  // Pushed from main whenever the DS-mon authority verdict changes (revoked /
+  // expired → panels re-obscure; valid → unlock) so the UI reloads its license
+  // gating without a manual refresh or restart.
+  onLicenseStatusChanged: (callback: (payload: {
+    status:
+      | { status: "unlicensed" }
+      | { status: "active"; sub: string; kid: string; exp: number; installedAt?: number }
+      | { status: "expired"; sub: string; kid: string; exp: number; installedAt?: number }
+      | { status: "invalid"; reason: string };
+    safeStorageAvailable: boolean;
+    configIntegrity: { licenseKeyFile: "present" | "missing"; configGpg: "present" | "missing" | "corrupt"; backupExists: boolean };
+    dsmon: DsmonAuthorityState;
+  }) => void) => {
+    ipcRenderer.on("license:status-changed", (_event, payload) => callback(payload));
+    return () => ipcRenderer.removeAllListeners("license:status-changed");
+  },
   activateLicense: (
     key: string,
   ): Promise<{
@@ -210,8 +229,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       | { status: "expired"; sub: string; kid: string; exp: number; installedAt?: number }
       | { status: "invalid"; reason: string };
   }> => ipcRenderer.invoke("license:re-key", newKey),
-  getBridgeToken: (forceRefresh?: boolean): Promise<{ token: string } | { error: string }> =>
-    ipcRenderer.invoke("license:get-bridge-token", forceRefresh),
+  getBridgeToken: (): Promise<{ token: string } | { error: string }> => ipcRenderer.invoke("license:get-bridge-token"),
   restoreConfigFromBackup: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke("config:restore-backup"),
 
   // ── UI State (userData/ui-state.json — renderer is the single writer) ──

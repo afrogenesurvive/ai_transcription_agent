@@ -358,6 +358,13 @@
   list-style: none;
 }
 
+/* Small collapsible live log inside the banner (mirrors pipeline stepper) */
+.ssb-mini-log {
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 2px;
+}
+
 .ssb-details-summary::-webkit-details-marker {
   display: none;
 }

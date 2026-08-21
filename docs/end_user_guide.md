@@ -105,17 +105,17 @@ The sidebar can be **dragged wider or narrower** by clicking and dragging the re
 
 **Status Bar** at the bottom:
 
-| Element                          | Description                                                                                                                     |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| **Config** dot                   | 🟢 green = LLM provider configured, 🔴 red = missing API key                                                                    |
-| **Diarization** dot              | 🟢 green = speaker diarization model available                                                                                  |
-| **Python / Bridge / Agent** dots | 🟢 = service running, 🔴 = stopped, ⚪ = checking                                                                               |
-| **Ollama** dot                   | 🟢 = Ollama server running, 🔴 = offline, ⚪ = not the active provider. Shown dimmed when Ollama is not the active LLM provider |
+| Element                          | Description                                                                                                                           |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| **Config** dot                   | 🟢 green = LLM provider configured, 🔴 red = missing API key                                                                          |
+| **Diarization** dot              | 🟢 green = speaker diarization model available                                                                                        |
+| **Python / Bridge / Agent** dots | 🟢 = service running, 🔴 = stopped, ⚪ = checking                                                                                     |
+| **Ollama** dot                   | 🟢 = Ollama server running, 🔴 = offline, ⚪ = not the active provider. Shown dimmed when Ollama is not the active LLM provider       |
 | **💰 Balance**                   | Cloud provider credit/usage: DeepSeek shows its balance; OpenAI/Anthropic show a "usage can't be tracked" badge; Ollama shows "Local" |
-| **Per-service controls**         | Click a running service's ■ button to stop it, or ▶ to restart a stopped service                                                |
-| ⚙️ **Settings**                  | Open the configuration panel                                                                                                    |
-| 📋 **History**                   | Browse past meetings                                                                                                            |
-| 💾 **Storage**                   | View disk usage                                                                                                                 |
+| **Per-service controls**         | Click a running service's ■ button to stop it, or ▶ to restart a stopped service                                                      |
+| ⚙️ **Settings**                  | Open the configuration panel                                                                                                          |
+| 📋 **History**                   | Browse past meetings                                                                                                                  |
+| 💾 **Storage**                   | View disk usage                                                                                                                       |
 
 **Header bar** at the top:
 
@@ -174,6 +174,15 @@ Your settings are backed up in plaintext with every change. If a config file is 
 ### Lost or expired key?
 
 If your license expires, the app returns to locked mode — activate a new key in **About → License** to continue. If you need a replacement, contact whoever issued your license.
+
+### What data we collect
+
+Transcription Agent keeps your work **on your machine** — audio files, transcripts, voiceprints, and logs are stored locally and are never uploaded anywhere unless you choose to deliver them.
+
+- **LLM calls** — when you run a job, the transcript and your prompt are sent to the LLM provider you selected (DeepSeek, OpenAI, Anthropic, or a local Ollama model).
+- **Usage telemetry (optional)** — if you enable **Usage Tracking** (Settings → Config → Usage Tracking), the app sends **token usage only** — provider, model, and input/output/cached/reasoning token counts — plus a machine identifier, to your own DS-mon instance for monitoring. No audio or transcript text is ever included.
+- **License** — the app verifies your license **offline** on your machine. If you enable the **DS-mon License Check**, it asks your DS-mon instance to confirm the seat isn't revoked or expired, sending only the **seat ID and key ID** — never the license key itself.
+- **What we don't collect** — no meeting content, no audio, and no personal data beyond the machine identifier above. Nothing is sold or shared with third parties.
 
 ---
 
