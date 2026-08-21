@@ -137,21 +137,39 @@ Transcription Agent is a licensed desktop app. Until an active license is entere
 2. Paste the license key you were issued and click **Activate License**.
 3. When it succeeds, the app unlocks and you can submit jobs and use all features.
 
-Licenses are issued per seat and may be **time-limited** or **unlimited** — the License tab shows your status (Active / Expired / Unlimited) and which seat the key belongs to.
+The **License** tab shows your current status — **Active**, **Expired**, or **No active license** — along with the seat the key belongs to and its expiry. Licenses are issued per seat and may be **time-limited** or **unlimited**.
+
+> Activation needs the app's secure key storage (your OS keychain / Windows DPAPI). If that isn't available, a license can't be saved safely and the app explains why.
+
+### Deactivating your license
+
+You can remove the active license at any time:
+
+1. Open the **About** panel → **License** tab → **Deactivate**.
+2. Confirm in the **Security Risk** dialog that appears.
+
+What deactivation does:
+
+- **Removes the license key from the app** and returns the app to **locked mode** until another key is activated.
+- **Keeps your configuration** — it is encrypted on disk with an **OS-protected key**, not the license key, so it is **not** deleted and stays readable again as soon as you re-activate any valid license.
+- **Does not** cancel, refund, or otherwise affect your seat — contact whoever issued your license for that.
+
+Before you deactivate, keep in mind:
+
+- Encrypted **config exports (`.gpg` files) are tied to the license key that created them** — a `.gpg` export only opens with that key. If you want a portable backup, export a plain `.json` copy first.
+- The app always keeps a **plaintext backup** of your settings, so your configuration can be recovered after a key change.
 
 ### Config security
 
-Your configuration (API keys, delivery credentials) is stored **encrypted on disk** once a license is active. Config **exports default to encrypted `.gpg` files** (decryptable only with your license key), but you can also export a **plain `.json` copy** via the Export mode toggle — this writes your API keys in plaintext and shows a **"Security Risk"** confirmation first. Your license key is required to open your config.
+Your configuration (API keys, delivery credentials) is stored **encrypted on disk** once a license is active. It is encrypted with an **OS-protected key** on your machine (keychain / DPAPI) — **not** with your license key — so switching or removing a license never locks you out of your settings. Config **exports default to encrypted `.gpg` files** (decryptable with your license key), but you can also export a **plain `.json` copy** via the Export mode toggle — this writes your API keys in plaintext and shows a **"Security Risk"** confirmation first.
 
 ### Config recovery after a key change
 
-Your config is encrypted with the license key that was active when it was saved. If you switch to a different key and the app reports it "can't be decrypted with this license":
+Your settings are backed up in plaintext with every change. If a config file is missing, corrupt, or can't be decrypted:
 
 - The app **automatically restores from its built-in backup** when one is available.
 - Otherwise, **re-import a plaintext `.json` config export** (Config → Import). A `.gpg` file only opens with the license key that created it.
 - A plaintext backup is kept with every config change, so your settings can always be recovered after a key change.
-
-Deactivating a license now asks for confirmation, because it makes your encrypted config unreadable until you re-enter the same key or re-import a config.
 
 ### Lost or expired key?
 
