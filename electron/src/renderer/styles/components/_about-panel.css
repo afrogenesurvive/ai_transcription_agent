@@ -192,6 +192,17 @@
   line-height: 1.5;
 }
 
+.about-md-content .mermaid {
+  margin: 12px 0;
+  text-align: center;
+  overflow-x: auto;
+}
+
+.about-md-content .mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
 .about-md-content a {
   color: var(--accent);
   text-decoration: none;

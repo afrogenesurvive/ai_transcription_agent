@@ -71,8 +71,14 @@ export function renderMarkdown(md: string, opts?: { imagesEnabled?: boolean; img
   // Blockquotes
   html = html.replace(/^&gt;\s?(.*)$/gm, "<blockquote>$1</blockquote>");
 
-  // Code blocks (fenced)
-  html = html.replace(/```[\w]*\n([\s\S]*?)```/g, (_, code) => {
+  // Code blocks (fenced). Mermaid fences render as an in-app diagram container;
+  // the caller runs mermaid.run() on the .mermaid nodes after injecting the HTML.
+  html = html.replace(/```([\w-]*)\n([\s\S]*?)```/g, (_, lang, code) => {
+    if (lang.toLowerCase() === "mermaid") {
+      // `code` is already HTML-escaped by the top-level escape pass; embedding it
+      // as-is yields a text node whose textContent is the raw mermaid source.
+      return `<div class="mermaid">${code.trim()}</div>`;
+    }
     const escaped = code.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     return `<pre><code>${escaped}</code></pre>`;
   });

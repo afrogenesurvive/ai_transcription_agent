@@ -42,7 +42,7 @@ flowchart TB
     end
 ```
 
-**Source:** [`getConfig()`](../../electron/src/main/config.ts#L647) · [`getChildEnv()`](../../electron/src/main/config.ts#L837) · [`agent-runner/agent-config.js`](../../agent-runner/agent-config.js#L1) · [`ensureUserConfigDefaults()`](../../electron/src/main/config.ts#L358)
+**Source:** [`getConfig()`](../electron/src/main/config.ts#L647) · [`getChildEnv()`](../electron/src/main/config.ts#L837) · [`agent-runner/agent-config.js`](../agent-runner/agent-config.js#L1) · [`ensureUserConfigDefaults()`](../electron/src/main/config.ts#L358)
 
 ---
 
@@ -68,9 +68,9 @@ If multiple sources define the same key, the highest-priority source wins:
 
 1. **`config.json`** — Explicit user values (non-empty strings)
 2. **`process.env`** — From `.env` file or host environment
-3. **Hardcoded [`DEFAULTS`](../../electron/src/main/config.ts#L176)** — In [`config.ts`](../../electron/src/main/config.ts#L1)
+3. **Hardcoded [`DEFAULTS`](../electron/src/main/config.ts#L176)** — In [`config.ts`](../electron/src/main/config.ts#L1)
 
-The UI shows source annotations via [`getConfigWithSources()`](../../electron/src/main/config.ts#L657):
+The UI shows source annotations via [`getConfigWithSources()`](../electron/src/main/config.ts#L657):
 
 - `"user_config"` — value is in `config.json`
 - `"environment"` — value is in `process.env`
@@ -78,7 +78,7 @@ The UI shows source annotations via [`getConfigWithSources()`](../../electron/sr
 
 ### How It Works
 
-**File:** [`electron/src/main/config.ts`](../../electron/src/main/config.ts#L1)
+**File:** [`electron/src/main/config.ts`](../electron/src/main/config.ts#L1)
 
 ```typescript
 interface AppConfig {
@@ -144,16 +144,16 @@ interface AppConfig {
 
 | Action                 | IPC Channel               | Code Path                     | What Happens                                                                                                                                                                  |
 | ---------------------- | ------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Read**               | [`config:get`](../../electron/src/main/index.ts#L1193)              | [`getConfig()`](../../electron/src/main/config.ts#L647)                 | Merges `config.json` → defaults, returns `AppConfig`                                                                                                                          |
-| **Read with sources**  | [`config:getWithSources`](../../electron/src/main/index.ts#L1304)   | [`getConfigWithSources()`](../../electron/src/main/config.ts#L657)      | Same as above, but annotates each key with its source                                                                                                                         |
-| **Save**               | [`config:save`](../../electron/src/main/index.ts#L1218)             | [`saveConfig(values)`](../../electron/src/main/config.ts#L706)          | Merges partial values into `config.json`, strips empty keys, invalidates cache. Restarts agent runner; also restarts the Python backend when any Python-consumed key changes. |
-| **Clear**              | [`config:clear`](../../electron/src/main/index.ts#L1513)            | [`clearConfig()`](../../electron/src/main/config.ts#L697)               | Writes `{}` to `config.json` (all values → defaults). **Guard:** blocks if active jobs. Restarts agent runner + Python backend.                                               |
-| **Restore defaults**   | [`config:restore-defaults`](../../electron/src/main/index.ts#L2022) | [`restoreUserConfigDefaults()`](../../electron/src/main/config.ts#L416) | Copies `config.defaults.json` over `config.json`. **Guard:** blocks if active jobs. Restarts agent runner + Python backend.                                                   |
+| **Read**               | [`config:get`](../electron/src/main/index.ts#L1193)              | [`getConfig()`](../electron/src/main/config.ts#L647)                 | Merges `config.json` → defaults, returns `AppConfig`                                                                                                                          |
+| **Read with sources**  | [`config:getWithSources`](../electron/src/main/index.ts#L1304)   | [`getConfigWithSources()`](../electron/src/main/config.ts#L657)      | Same as above, but annotates each key with its source                                                                                                                         |
+| **Save**               | [`config:save`](../electron/src/main/index.ts#L1218)             | [`saveConfig(values)`](../electron/src/main/config.ts#L706)          | Merges partial values into `config.json`, strips empty keys, invalidates cache. Restarts agent runner; also restarts the Python backend when any Python-consumed key changes. |
+| **Clear**              | [`config:clear`](../electron/src/main/index.ts#L1513)            | [`clearConfig()`](../electron/src/main/config.ts#L697)               | Writes `{}` to `config.json` (all values → defaults). **Guard:** blocks if active jobs. Restarts agent runner + Python backend.                                               |
+| **Restore defaults**   | [`config:restore-defaults`](../electron/src/main/index.ts#L2022) | [`restoreUserConfigDefaults()`](../electron/src/main/config.ts#L416) | Copies `config.defaults.json` over `config.json`. **Guard:** blocks if active jobs. Restarts agent runner + Python backend.                                                   |
 | **Check completeness** | `config:check`            | `checkConfig()`               | Returns `{ok, missing[]}`. Requires the active provider's API key (deepseek/openai/anthropic) or `OLLAMA_MODEL` when local.                                                                       |
 
 ### Child Process Environment
 
-[`getChildEnv()`](../../electron/src/main/config.ts#L837) in `config.ts` exports all config values to child processes (Python backend, bridge, agent runner). In **packaged (production)** mode, it also overrides storage paths to point inside `userData/`:
+[`getChildEnv()`](../electron/src/main/config.ts#L837) in `config.ts` exports all config values to child processes (Python backend, bridge, agent runner). In **packaged (production)** mode, it also overrides storage paths to point inside `userData/`:
 
 ```typescript
 // Only in app.isPackaged === true:
@@ -166,7 +166,7 @@ TRANSCRIPTION_TRIGGER_FILE → {userData}/queue/.transcription-trigger
 
 In **development** mode, child processes use project-relative paths (`./storage/`, `./queue/`).
 
-[`getChildEnv()`](../../electron/src/main/config.ts#L837) applies **`user config → process.env → DEFAULT`** precedence for every key: an explicit value in `config.json` wins; otherwise a `.env`/host env var wins; otherwise the hardcoded default. All `AppConfig` keys are forwarded to child processes, including `OLLAMA_NUM_CTX` (agent-runner context window), `PERF_METRICS_POLL_INTERVAL`/`CREDIT_POLL_INTERVAL` (renderer poll rates), and `LOG_COLLAPSE_REPEATED_PREFIXES`. `APP_VERSION` is always injected so children (e.g. the bridge's defaults snapshot) know the running app version.
+[`getChildEnv()`](../electron/src/main/config.ts#L837) applies **`user config → process.env → DEFAULT`** precedence for every key: an explicit value in `config.json` wins; otherwise a `.env`/host env var wins; otherwise the hardcoded default. All `AppConfig` keys are forwarded to child processes, including `OLLAMA_NUM_CTX` (agent-runner context window), `PERF_METRICS_POLL_INTERVAL`/`CREDIT_POLL_INTERVAL` (renderer poll rates), and `LOG_COLLAPSE_REPEATED_PREFIXES`. `APP_VERSION` is always injected so children (e.g. the bridge's defaults snapshot) know the running app version.
 
 ---
 
@@ -186,7 +186,7 @@ Controls the LLM's tool definitions, pipeline step ordering, system prompt, and 
 
 ### Initialization Flow
 
-On first Electron launch, [`initAgentConfigDir()`](../../electron/src/main/backend-manager.ts#L352) in [`backend-manager.ts`](../../electron/src/main/backend-manager.ts#L1):
+On first Electron launch, [`initAgentConfigDir()`](../electron/src/main/backend-manager.ts#L352) in [`backend-manager.ts`](../electron/src/main/backend-manager.ts#L1):
 
 1. Checks if `{userData}/agent-config/` exists
 2. If not, looks for bundled source in `extraResources/agent-config/`
@@ -257,11 +257,11 @@ The LLM system prompt template. Contains a `{{TOOL_LIST}}` placeholder that the 
 
 #### `schema.json`
 
-JSON Schema (draft-07) that validates `tools.json` (array of tool definitions) and `pipeline.json` (constants/steps/hints/event templates). A root `oneOf` selects between the two file shapes. The ConfigPanel validates the pipeline (and tool definitions) against this schema **before saving** — a malformed config is rejected with an inline error instead of being written to disk. A TS copy lives at [`electron/src/renderer/utils/agentConfigSchema.ts`](../../electron/src/renderer/utils/agentConfigSchema.ts#L1) — keep the two files in sync when editing either one.
+JSON Schema (draft-07) that validates `tools.json` (array of tool definitions) and `pipeline.json` (constants/steps/hints/event templates). A root `oneOf` selects between the two file shapes. The ConfigPanel validates the pipeline (and tool definitions) against this schema **before saving** — a malformed config is rejected with an inline error instead of being written to disk. A TS copy lives at [`electron/src/renderer/utils/agentConfigSchema.ts`](../electron/src/renderer/utils/agentConfigSchema.ts#L1) — keep the two files in sync when editing either one.
 
 ### Agent Runner Loading
 
-**File:** [`agent-runner/agent-config.js`](../../agent-runner/agent-config.js#L1)
+**File:** [`agent-runner/agent-config.js`](../agent-runner/agent-config.js#L1)
 
 All config files are read **synchronously** at import time for a consistent snapshot:
 
@@ -277,8 +277,8 @@ All config files are read **synchronously** at import time for a consistent snap
 **Fallback strategy (three layers):**
 
 1. **Live file** in the resolved config dir (e.g. `{userData}/agent-config/tools.json`)
-2. **Shipped defaults snapshot** at `{configDir}/.defaults/<file>` (seeded by [`initAgentConfigDir()`](../../electron/src/main/backend-manager.ts#L352) and refreshed on app upgrades) — used when the live file is missing or fails to parse
-3. **Hardcoded [`FALLBACK_TOOLS`](../../agent-runner/agent-config.js#L103) / [`FALLBACK_PIPELINE`](../../agent-runner/agent-config.js#L339) / [`FALLBACK_SYSTEM_PROMPT`](../../agent-runner/agent-config.js#L491)** — a last-resort set that mirrors the shipped templates and always loads
+2. **Shipped defaults snapshot** at `{configDir}/.defaults/<file>` (seeded by [`initAgentConfigDir()`](../electron/src/main/backend-manager.ts#L352) and refreshed on app upgrades) — used when the live file is missing or fails to parse
+3. **Hardcoded [`FALLBACK_TOOLS`](../agent-runner/agent-config.js#L103) / [`FALLBACK_PIPELINE`](../agent-runner/agent-config.js#L339) / [`FALLBACK_SYSTEM_PROMPT`](../agent-runner/agent-config.js#L491)** — a last-resort set that mirrors the shipped templates and always loads
 
 The layered fallback means a corrupt live file (e.g. a bad edit) no longer drops the runner onto a stale hardcoded set — it loads the shipped defaults instead.
 
@@ -301,7 +301,7 @@ Every agent-config save from the Electron main process uses a dual-path strategy
 
 1. **Primary:** POST to bridge server (`http://127.0.0.1:5010/agent/config`)
    - Bridge writes files atomically, touches `.restart-flag`
-2. **Fallback:** Direct disk write via [`saveAgentConfigToDisk()`](../../electron/src/main/config.ts#L960) in `config.ts`
+2. **Fallback:** Direct disk write via [`saveAgentConfigToDisk()`](../electron/src/main/config.ts#L960) in `config.ts`
    - Writes directly to `{userData}/agent-config/`
    - Also touches `.restart-flag`
 
@@ -317,13 +317,13 @@ Two independent snapshot systems, one per config layer:
 
 | File                              | Created                                                                                         | Contents                                                                                                                                                                        | Restored By                   |
 | --------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
-| `{userData}/config.defaults.json` | [`ensureUserConfigDefaults()`](../../electron/src/main/config.ts#L358) on first launch, then regenerated whenever the app version changes | Full `AppConfig` object + an internal `__version` stamp. First launch: hardcoded `DEFAULTS` merged with any existing `config.json` values. On upgrade: pure current `DEFAULTS`. | `config:restore-defaults` IPC |
+| `{userData}/config.defaults.json` | [`ensureUserConfigDefaults()`](../electron/src/main/config.ts#L358) on first launch, then regenerated whenever the app version changes | Full `AppConfig` object + an internal `__version` stamp. First launch: hardcoded `DEFAULTS` merged with any existing `config.json` values. On upgrade: pure current `DEFAULTS`. | `config:restore-defaults` IPC |
 
 ### Agent Config Defaults
 
 | Directory                            | Created                                                                                                   | Contents                                                                 | Restored By                                                                        |
 | ------------------------------------ | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
-| `{userData}/agent-config/.defaults/` | [`snapshotDefaults()`](../../bridge-server/index.js#L38) on bridge startup + refreshed by [`initAgentConfigDir()`](../../electron/src/main/backend-manager.ts#L352) when the app version changes | `tools.json`, `pipeline.json`, `system-prompt.md` + `version.json` stamp | `agent-config:restore-defaults` IPC → bridge `POST /agent/config/restore-defaults` |
+| `{userData}/agent-config/.defaults/` | [`snapshotDefaults()`](../bridge-server/index.js#L38) on bridge startup + refreshed by [`initAgentConfigDir()`](../electron/src/main/backend-manager.ts#L352) when the app version changes | `tools.json`, `pipeline.json`, `system-prompt.md` + `version.json` stamp | `agent-config:restore-defaults` IPC → bridge `POST /agent/config/restore-defaults` |
 
 ### How Defaults Are Used
 
@@ -353,7 +353,7 @@ flowchart TD
     PY -->|"Yes"| PY2["Restart Python backend"]
 ```
 
-**Source:** [`config:save`](../../electron/src/main/index.ts#L1218) · [`saveConfig()`](../../electron/src/main/config.ts#L706)
+**Source:** [`config:save`](../electron/src/main/index.ts#L1218) · [`saveConfig()`](../electron/src/main/config.ts#L706)
 
 
 ### Save Agent Config (Agent Tab)
@@ -371,7 +371,7 @@ flowchart TD
     WATCH --> RESTART["Restart agent runner<br/>(reads new config at import)"]
 ```
 
-**Source:** [`agent-config:save`](../../electron/src/main/index.ts#L2217) · [`saveAgentConfigToDisk()`](../../electron/src/main/config.ts#L960)
+**Source:** [`agent-config:save`](../electron/src/main/index.ts#L2217) · [`saveAgentConfigToDisk()`](../electron/src/main/config.ts#L960)
 
 
 ### Export Config
@@ -391,7 +391,7 @@ flowchart TD
     MODE -->|"plain"| JSON["Write bundle as-is (plaintext JSON) → .json<br/>(Security Risk confirmation shown)"]
 ```
 
-**Source:** [`config:export`](../../electron/src/main/index.ts#L1571)
+**Source:** [`config:export`](../electron/src/main/index.ts#L1571)
 
 
 ### Import Config
@@ -412,7 +412,7 @@ flowchart TD
     SAVE --> AD["Import agent defaults snapshot:<br/>[TRY] POST /agent/config/defaults<br/>[FALLBACK] write userData/agent-config/.defaults/*"]
 ```
 
-**Source:** [`config:import`](../../electron/src/main/index.ts#L1677)
+**Source:** [`config:import`](../electron/src/main/index.ts#L1677)
 
 
 ### Restore Defaults
@@ -435,7 +435,7 @@ flowchart LR
     end
 ```
 
-**Source:** [`config:restore-defaults`](../../electron/src/main/index.ts#L2022) · [`agent-config:restore-defaults`](../../electron/src/main/index.ts#L2269)
+**Source:** [`config:restore-defaults`](../electron/src/main/index.ts#L2022) · [`agent-config:restore-defaults`](../electron/src/main/index.ts#L2269)
 
 
 ---
@@ -469,26 +469,26 @@ The config system is fully Windows-compatible. All cross-platform concerns are h
 
 | Channel                   | Parameters               | Returns                                                                                                              | Guard          |
 | ------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------- | -------------- |
-| [`config:get`](../../electron/src/main/index.ts#L1193)              | —                        | `Record<keyof AppConfig, string>`                                                                                    | —              |
-| [`config:save`](../../electron/src/main/index.ts#L1218)             | `Record<string, string>` | `Record<string, string>` (updated)                                                                                   | —              |
-| [`config:check`](../../electron/src/main/index.ts#L1298)            | —                        | `{ok: boolean, missing: string[]}`                                                                                   | —              |
-| [`config:clear`](../../electron/src/main/index.ts#L1513)            | —                        | `{success, error?, blocked?}`                                                                                        | ❌ Active jobs |
-| [`config:getWithSources`](../../electron/src/main/index.ts#L1304)   | —                        | `Record<string, {value, source}>`                                                                                    | —              |
+| [`config:get`](../electron/src/main/index.ts#L1193)              | —                        | `Record<keyof AppConfig, string>`                                                                                    | —              |
+| [`config:save`](../electron/src/main/index.ts#L1218)             | `Record<string, string>` | `Record<string, string>` (updated)                                                                                   | —              |
+| [`config:check`](../electron/src/main/index.ts#L1298)            | —                        | `{ok: boolean, missing: string[]}`                                                                                   | —              |
+| [`config:clear`](../electron/src/main/index.ts#L1513)            | —                        | `{success, error?, blocked?}`                                                                                        | ❌ Active jobs |
+| [`config:getWithSources`](../electron/src/main/index.ts#L1304)   | —                        | `Record<string, {value, source}>`                                                                                    | —              |
 | `config:export`           | `{mode?: "encrypted"\|"plain"}` | `{success, filePath?, format?: "encrypted"\|"plain", error?, cancelled?, warnings?}`                            | —              |
-| [`config:import`](../../electron/src/main/index.ts#L1677)           | —                        | `{success, filePath?, error?, cancelled?, blocked?, agentConfigImported?, defaultsImported?, userDefaultsImported?}` | ❌ Active jobs |
-| [`config:defaults`](../../electron/src/main/index.ts#L2011)         | —                        | `{success, defaults}`                                                                                                | —              |
-| [`config:restore-defaults`](../../electron/src/main/index.ts#L2022) | —                        | `{success, error?, blocked?}`                                                                                        | ❌ Active jobs |
-| [`config:set-defaults`](../../electron/src/main/index.ts#L2117)     | —                        | `{success, agentDefaultsSaved?, error?, warnings?}`                                                                  | ❌ Active jobs |
+| [`config:import`](../electron/src/main/index.ts#L1677)           | —                        | `{success, filePath?, error?, cancelled?, blocked?, agentConfigImported?, defaultsImported?, userDefaultsImported?}` | ❌ Active jobs |
+| [`config:defaults`](../electron/src/main/index.ts#L2011)         | —                        | `{success, defaults}`                                                                                                | —              |
+| [`config:restore-defaults`](../electron/src/main/index.ts#L2022) | —                        | `{success, error?, blocked?}`                                                                                        | ❌ Active jobs |
+| [`config:set-defaults`](../electron/src/main/index.ts#L2117)     | —                        | `{success, agentDefaultsSaved?, error?, warnings?}`                                                                  | ❌ Active jobs |
 
 ### Agent Config
 
 | Channel                         | Parameters                           | Returns                                      | Guard                          |
 | ------------------------------- | ------------------------------------ | -------------------------------------------- | ------------------------------ |
-| [`agent-config:get`](../../electron/src/main/index.ts#L2205)              | —                                    | `{tools?, pipeline?, systemPrompt?, error?}` | —                              |
-| [`agent-config:save`](../../electron/src/main/index.ts#L2217)             | `{tools?, pipeline?, systemPrompt?}` | `{success?, written?, error?}`               | ⚠️ Bridge-side: ❌ Active jobs |
-| [`agent-config:defaults`](../../electron/src/main/index.ts#L2257)         | —                                    | `{tools?, pipeline?, systemPrompt?, error?}` | —                              |
-| [`agent-config:restore-defaults`](../../electron/src/main/index.ts#L2269) | —                                    | `{success?, restored[]?, error?}`            | ❌ Active jobs                 |
-| [`agent-config:restart`](../../electron/src/main/index.ts#L2311)          | —                                    | `{success?, error?}`                         | —                              |
+| [`agent-config:get`](../electron/src/main/index.ts#L2205)              | —                                    | `{tools?, pipeline?, systemPrompt?, error?}` | —                              |
+| [`agent-config:save`](../electron/src/main/index.ts#L2217)             | `{tools?, pipeline?, systemPrompt?}` | `{success?, written?, error?}`               | ⚠️ Bridge-side: ❌ Active jobs |
+| [`agent-config:defaults`](../electron/src/main/index.ts#L2257)         | —                                    | `{tools?, pipeline?, systemPrompt?, error?}` | —                              |
+| [`agent-config:restore-defaults`](../electron/src/main/index.ts#L2269) | —                                    | `{success?, restored[]?, error?}`            | ❌ Active jobs                 |
+| [`agent-config:restart`](../electron/src/main/index.ts#L2311)          | —                                    | `{success?, error?}`                         | —                              |
 
 ---
 
@@ -537,13 +537,13 @@ The required key depends on the active provider: `DEEPSEEK_API_KEY` (deepseek), 
 
 | File                                               | Purpose                                                                           |
 | -------------------------------------------------- | --------------------------------------------------------------------------------- |
-| [`electron/src/main/config.ts`](../../electron/src/main/config.ts#L1)                      | User config management: DEFAULTS, get/save/clear/export/import/restore, child env |
-| [`electron/src/main/backend-manager.ts`](../../electron/src/main/backend-manager.ts#L1)             | Agent config directory init, path resolution, process management                  |
-| [`electron/src/main/index.ts`](../../electron/src/main/index.ts#L1)                       | IPC handlers for all config channels, restart-flag watcher, service orchestration |
-| [`electron/src/main/preload.ts`](../../electron/src/main/preload.ts#L1)                     | `contextBridge.exposeInMainWorld("electronAPI", ...)` — all config IPC bindings   |
-| [`electron/src/renderer/components/ConfigPanel.tsx`](../../electron/src/renderer/components/ConfigPanel.tsx#L1) | UI: config tab, agent tab, logging tab, export/import/clear/restore buttons       |
-| [`agent-runner/agent-config.js`](../../agent-runner/agent-config.js#L1)                     | Agent config loading: sync file read, fallback defaults, CONFIG_DIR resolution    |
-| [`bridge-server/index.js`](../../bridge-server/index.js#L1)                           | Bridge REST API: agent config CRUD, defaults snapshot, restart flag               |
+| [`electron/src/main/config.ts`](../electron/src/main/config.ts#L1)                      | User config management: DEFAULTS, get/save/clear/export/import/restore, child env |
+| [`electron/src/main/backend-manager.ts`](../electron/src/main/backend-manager.ts#L1)             | Agent config directory init, path resolution, process management                  |
+| [`electron/src/main/index.ts`](../electron/src/main/index.ts#L1)                       | IPC handlers for all config channels, restart-flag watcher, service orchestration |
+| [`electron/src/main/preload.ts`](../electron/src/main/preload.ts#L1)                     | `contextBridge.exposeInMainWorld("electronAPI", ...)` — all config IPC bindings   |
+| [`electron/src/renderer/components/ConfigPanel.tsx`](../electron/src/renderer/components/ConfigPanel.tsx#L1) | UI: config tab, agent tab, logging tab, export/import/clear/restore buttons       |
+| [`agent-runner/agent-config.js`](../agent-runner/agent-config.js#L1)                     | Agent config loading: sync file read, fallback defaults, CONFIG_DIR resolution    |
+| [`bridge-server/index.js`](../bridge-server/index.js#L1)                           | Bridge REST API: agent config CRUD, defaults snapshot, restart flag               |
 
 ### Config Data Files
 

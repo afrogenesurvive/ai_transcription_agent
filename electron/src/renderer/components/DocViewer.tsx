@@ -6,9 +6,13 @@
  */
 
 import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import mermaid from "mermaid";
 import Icon from "./Icon";
 import Tooltip from "./Tooltip";
 import { renderMarkdown, splitIntoPages } from "../utils/markdown";
+
+// Configure Mermaid once for the in-app guide (diagrams in docs/safe/*.md).
+mermaid.initialize({ startOnLoad: false, theme: "neutral", suppressErrorRendering: false });
 
 interface Props {
   markdown: string;
@@ -84,7 +88,14 @@ export default function DocViewer({ markdown, emptyMessage, initialIndex, onInde
     if (searchQuery.trim()) {
       const escaped = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const re = new RegExp(`(${escaped})`, "gi");
+      // Protect Mermaid source (raw diagram text, not prose) from search highlighting.
+      const mermaidBlocks: string[] = [];
+      html = html.replace(/<div class="mermaid">[\s\S]*?<\/div>/g, (m) => {
+        mermaidBlocks.push(m);
+        return `@@MERMAIDHTML${mermaidBlocks.length - 1}@@`;
+      });
       html = html.replace(re, '<mark class="guide-search-hl">$1</mark>');
+      html = html.replace(/@@MERMAIDHTML(\d+)@@/g, (_, i) => mermaidBlocks[Number(i)] ?? "");
     }
     return html;
   }, [pages, currentIndex, searchQuery, imagesEnabled]);
@@ -139,6 +150,18 @@ export default function DocViewer({ markdown, emptyMessage, initialIndex, onInde
     setSearchQuery("");
     onIndexChangeRef.current?.(idx);
   }, [markdown, pages.length, initialIndex]);
+
+  // Render any Mermaid diagrams in the current page after the HTML is injected.
+  useEffect(() => {
+    const container = contentRef.current;
+    if (!container) return;
+    const nodes = container.querySelectorAll<HTMLElement>(".mermaid");
+    if (nodes.length === 0) return;
+    nodes.forEach((n) => n.removeAttribute("data-processed"));
+    mermaid
+      .run({ nodes: Array.from(nodes), suppressErrors: true })
+      .catch((err) => console.error("[mermaid] render failed:", err));
+  }, [renderedHtml]);
 
   if (pages.length === 0) {
     return <p className="about-md-content about-md-content--empty">{emptyMessage || "No content available."}</p>;

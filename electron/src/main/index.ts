@@ -222,13 +222,7 @@ import {
   getLicenseKeyFileStatus,
 } from "./license";
 import { encryptOpenPgpText, decryptOpenPgpText } from "./config-encryption";
-import {
-  checkDsmonAuthority,
-  getDsmonAuthorityState,
-  startDsmonLicenseMonitor,
-  dsmonEvents,
-  DSMON_VERDICT_CHANGED,
-} from "./dsmon";
+import { checkDsmonAuthority, getDsmonAuthorityState, startDsmonLicenseMonitor, dsmonEvents, DSMON_VERDICT_CHANGED } from "./dsmon";
 
 // Ensure every known config key is represented in the .env file(s) so a fresh
 // reader (or a subprocess that reads .env directly) sees the full configuration.
@@ -1360,6 +1354,14 @@ function licenseStatusResponse() {
 }
 
 ipcMain.handle("license:get-status", () => {
+  // Opportunistic DS-mon re-check on the renderer's periodic status poll
+  // (throttled to 60s), so a revocation/expiry is detected even if the DS-mon
+  // tunnel came up after the startup retry window. The verdict arrives async
+  // and is pushed to the renderer via DSMON_VERDICT_CHANGED.
+  const lastCheck = getDsmonAuthorityState().checkedAt;
+  if (!lastCheck || Date.now() - lastCheck >= 60_000) {
+    checkDsmonAuthority().catch(() => {});
+  }
   return licenseStatusResponse();
 });
 
@@ -3660,4 +3662,13 @@ app.on("activate", () => {
   } else {
     mainWindow.show();
   }
+});
+
+// Re-check the DS-mon license authority whenever the app window regains focus,
+// so a seat revoked mid-session is locked the moment the user returns to the
+// app (throttled to once per minute — checkDsmonAuthority is a network call).
+app.on("browser-window-focus", () => {
+  const last = getDsmonAuthorityState().checkedAt;
+  if (last && Date.now() - last < 60_000) return;
+  checkDsmonAuthority().catch(() => {});
 });

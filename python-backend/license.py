@@ -50,7 +50,7 @@ MASTER_KEY_RING: dict[str, dict] = {
 }
 
 REVOKED_KIDS: set[str] = set()
-REVOKED_SEATS: set[str] = {"lic_test@test.com", "revoked-test-2", "revoke_test@test.com", "seat-test-1", "revoke-test-2", "revoke-test-3"}  # per-seat blocklist (cert "sub"); keep in sync with license.ts
+REVOKED_SEATS: set[str] = {"lic_test@test.com", "revoked-test-2", "revoke_test@test.com", "seat-test-1", "revoke-test-2", "revoke-test-3", "revoke-test-4", "revoke_key_test_5"}  # per-seat blocklist (cert "sub"); keep in sync with license.ts
 
 
 def _b64u_decode(s: str) -> bytes:

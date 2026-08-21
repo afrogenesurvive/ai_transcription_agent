@@ -229,7 +229,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       | { status: "expired"; sub: string; kid: string; exp: number; installedAt?: number }
       | { status: "invalid"; reason: string };
   }> => ipcRenderer.invoke("license:re-key", newKey),
-  getBridgeToken: (): Promise<{ token: string } | { error: string }> => ipcRenderer.invoke("license:get-bridge-token"),
+  getBridgeToken: (forceRefresh?: boolean): Promise<{ token: string } | { error: string }> => ipcRenderer.invoke("license:get-bridge-token", forceRefresh),
   restoreConfigFromBackup: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke("config:restore-backup"),
 
   // ── UI State (userData/ui-state.json — renderer is the single writer) ──

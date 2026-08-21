@@ -246,6 +246,13 @@ export async function checkDsmonAuthority(): Promise<DsmonAuthorityState> {
  * 12h). Safe to call once at app startup (idempotent). Also returns the initial
  * state synchronously.
  */
+/** True when a further startup retry can't change the verdict. */
+function isDefinitiveVerdict(s: DsmonAuthorityState): boolean {
+  // Got DS-mon's answer, the feature is off, or there is no push URL to ever
+  // reach — retrying cannot change these outcomes.
+  return s.reachable === true || s.enabled === false || s.error === "no-push-url";
+}
+
 export function startDsmonLicenseMonitor(): DsmonAuthorityState {
   if (!monitorTimer) {
     // Recursive setTimeout re-reads the interval from config each cycle, so a
@@ -261,5 +268,18 @@ export function startDsmonLicenseMonitor(): DsmonAuthorityState {
   }
   // Fire the initial check without blocking startup.
   checkDsmonAuthority().catch(() => {});
+
+  // The startup check is fail-open: if DS-mon is unreachable (the cloudflared
+  // tunnel can take a few seconds to come up) or the seat identity isn't
+  // readable yet (safeStorage not ready), it degrades to "valid" and the app
+  // stays unlocked until the periodic timer. Retry with backoff until we get a
+  // definitive verdict so a revoked seat is locked as soon as possible.
+  const retryDelaysMs = [3000, 10000, 30000, 60000];
+  for (const ms of retryDelaysMs) {
+    setTimeout(() => {
+      if (isDefinitiveVerdict(getDsmonAuthorityState())) return;
+      checkDsmonAuthority().catch(() => {});
+    }, ms);
+  }
   return getDsmonAuthorityState();
 }
