@@ -306,7 +306,7 @@ export interface ElectronAPI {
     warnings?: string[];
   }>;
   clearConfig: () => Promise<{ success: boolean; error?: string; blocked?: boolean }>;
-  importConfig: (options?: { preferJson?: boolean }) => Promise<{
+  importConfig: () => Promise<{
     success: boolean;
     filePath?: string;
     error?: string;
@@ -324,9 +324,7 @@ export interface ElectronAPI {
   getLicenseStatus: () => Promise<LicenseStatusPayload>;
   recheckDsmonLicense: () => Promise<DsmonAuthorityState>;
   onLicenseStatusChanged: (cb: (payload: LicenseStatusPayload) => void) => () => void;
-  activateLicense: (
-    key: string,
-  ) => Promise<{
+  activateLicense: (key: string) => Promise<{
     success: boolean;
     reason?: string;
     migration?: { migrated: boolean; backupPath?: string };

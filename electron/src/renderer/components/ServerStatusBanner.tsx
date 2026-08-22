@@ -37,6 +37,7 @@ export default function ServerStatusBanner({
     diarizationProgress,
     ollamaOk,
     ollamaProvider,
+    hfTokenConfigured,
     checking,
     allReady,
     checkServers: onCheckServers,
@@ -62,6 +63,12 @@ export default function ServerStatusBanner({
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasTriggeredCheck = useRef(false);
   const initialMount = useRef(true);
+
+  // Setup is "incomplete" while unlicensed or config is blocking. While that
+  // holds, the banner must NOT auto-close when services report all-ready (e.g.
+  // mid key-switch) — it should stay open and return to step 1.
+  const configBlocking = configMissing || hfTokenConfigured === false;
+  const setupIncomplete = licensed === false || configBlocking;
 
   // Show "Import Config" only when the config is absent / malformed / invalid
   // (i.e. a first-run or broken-config situation), not on every setup screen.
@@ -155,15 +162,17 @@ export default function ServerStatusBanner({
     }
   }, [countdown, countdownActive, onCheckServers]);
 
-  // When servers become all ready, close the popover immediately
-  // regardless of whether the countdown is still active
+  // When servers become all ready, close the popover immediately regardless of
+  // whether the countdown is still active. BUT keep it open while setup is
+  // incomplete (unlicensed or config blocking) — e.g. mid key-switch, so it
+  // returns to step 1 (key entry) instead of closing.
   useEffect(() => {
-    if (allReady) {
+    if (allReady && !setupIncomplete) {
       // Small delay so the user sees the green state briefly
       const t = setTimeout(() => setVisible(false), 800);
       return () => clearTimeout(t);
     }
-  }, [allReady]);
+  }, [allReady, setupIncomplete]);
 
   const handleRestartService = useCallback(
     async (name: ServiceName) => {
@@ -185,7 +194,7 @@ export default function ServerStatusBanner({
   const handleImportConfig = useCallback(async () => {
     setRestarting((prev) => ({ ...prev, _import: true }));
     setBannerError(null);
-    const result = await window.electronAPI?.importConfig({ preferJson: true });
+    const result = await window.electronAPI?.importConfig();
     setRestarting((prev) => ({ ...prev, _import: false }));
     if (result?.success) {
       const cfg = await window.electronAPI?.checkConfig();
@@ -214,18 +223,54 @@ export default function ServerStatusBanner({
       setBannerError(null);
       setLicenseSuccess("License activated — services starting…");
       window.setTimeout(() => setLicenseSuccess(null), 4000);
+      // Step the banner forward immediately instead of waiting on the license
+      // poll — the poll stops once a license is active, so in the switch-key
+      // flow (deactivated + poll stopped) it would never advance past key entry.
+      const p = await window.electronAPI?.getLicenseStatus();
+      const isLicensed = p?.status?.status === "active";
+      licensedRef.current = isLicensed;
+      setLicensed(isLicensed);
+      setLicenseStatus(p?.status ?? null);
+      setConfigIntegrity(p?.configIntegrity ?? null);
       // Tell App to refresh its license state so the UI unlocks immediately
       // (gating is driven by App, not this banner).
       onLicenseActivated?.();
-      // licensed state flips via the polling effect; refresh config + services
-      // so the banner can clear.
+      // refresh config + services so the banner can clear.
       window.electronAPI?.checkConfig().then((r) => setConfigMissing(!r.ok));
       onCheckServers();
       onConfigImported?.();
+      // No auto-open here — the Import Config button (step 2) is shown and the
+      // user clicks it manually.
     } else {
       setBannerError(licenseReasonText(res?.reason));
     }
   }, [licenseInput, activating, onLicenseActivated, onCheckServers, onConfigImported]);
+
+  // If the key activated in step 1 can't decrypt the imported config, let the
+  // user drop back to key entry: deactivate the current key, clear banner
+  // state, and re-show the license input so they can enter the matching key.
+  // Deactivation is safe/reversible (the encrypted config stays readable on
+  // reactivation). `licensed` flips back via the banner's license poll.
+  const handleSwitchKey = useCallback(async () => {
+    await window.electronAPI?.deactivateLicense();
+    licensedRef.current = false;
+    setLicenseInput("");
+    setBannerError(null);
+    setLicenseSuccess(null);
+    // Stay on step 1 (key entry): keep the banner open, reset the countdown so
+    // the auto-close/retry UI doesn't fire, and reflect the now-unlicensed state
+    // immediately (the poll would otherwise lag ~3s).
+    setVisible(true);
+    setCountdownActive(true);
+    setCountdown(COUNTDOWN_SECONDS);
+    const p = await window.electronAPI?.getLicenseStatus();
+    setLicensed(p?.status?.status === "active");
+    setLicenseStatus(p?.status ?? null);
+    setConfigIntegrity(p?.configIntegrity ?? null);
+    onLicenseActivated?.();
+    window.electronAPI?.checkConfig().then((r) => setConfigMissing(!r.ok));
+    onCheckServers();
+  }, [onLicenseActivated, onCheckServers]);
 
   function licenseReasonText(reason?: string): string {
     const map: Record<string, string> = {
@@ -328,24 +373,54 @@ export default function ServerStatusBanner({
           </div>
           <div className="ssb-header-text">
             <h2 className="ssb-title">Setting Up&hellip;</h2>
-            {configMissing && configIntegrity?.configGpg === "missing" && licensed === true && (
-              <button
-                className="ssb-import-config-btn"
-                onClick={handleImportConfig}
-                disabled={restarting._import}
-                title="First install? Select a config file, then services restart automatically">
-                <Icon name="download" size="14" /> Import Config
-              </button>
+            {(licensed !== true || configBlocking) && (
+              <div className="ssb-steps" role="list" aria-label="Setup steps">
+                <div className={`ssb-step ${licensed === true ? "ssb-step--done" : "ssb-step--active"}`} role="listitem">
+                  <span className="ssb-step-dot">{licensed === true ? <Icon name="check" size="12" /> : "1"}</span>
+                  <span className="ssb-step-label">Activate License</span>
+                </div>
+                <span className="ssb-step-connector" />
+                <div className={`ssb-step ${!configBlocking ? "ssb-step--done" : licensed === true ? "ssb-step--active" : ""}`} role="listitem">
+                  <span className="ssb-step-dot">{!configBlocking ? <Icon name="check" size="12" /> : "2"}</span>
+                  <span className="ssb-step-label">Import Config</span>
+                </div>
+              </div>
             )}
-            {configMissing && configIntegrity?.configGpg === "corrupt" && licensed === true && (
+            {licensed === true && configBlocking && configIntegrity?.configGpg === "corrupt" && (
               <div className="ssb-license-corrupt">
                 <p className="ssb-license-hint">
-                  <Icon name="restore" size="12" /> A config file exists but can't be decrypted with this license. Re-import a plaintext .json export (a .gpg is locked to the key that exported it).
+                  <Icon name="restore" size="12" /> A config file exists but can't be decrypted with this license. Re-import a plaintext .json export
+                  — a .gpg encrypted with a different license key won't decrypt here.
                 </p>
                 <button className="ssb-import-config-btn" onClick={handleImportConfig} disabled={restarting._import}>
                   <Icon name="download" size="14" /> Re-import Config
                 </button>
               </div>
+            )}
+            {licensed === true && configBlocking && configIntegrity?.configGpg !== "corrupt" && (
+              <div className="ssb-import-callout">
+                <p className="ssb-license-hint">
+                  <Icon name="info" size="12" />{" "}
+                  {hfTokenConfigured === false && !configMissing
+                    ? "A configuration file is needed to enable speaker diarization — a Hugging Face token is missing."
+                    : "Import a configuration file to finish setup and start the model services."}
+                </p>
+                <button
+                  className="ssb-import-config-btn ssb-import-config-btn--primary"
+                  onClick={handleImportConfig}
+                  disabled={restarting._import}
+                  title="First install? Select a config file, then services restart automatically">
+                  <Icon name="download" size="14" /> {restarting._import ? "Importing…" : "Import Config"}
+                </button>
+              </div>
+            )}
+            {licensed === true && configBlocking && (
+              <button
+                className="ssb-switch-key-btn"
+                onClick={handleSwitchKey}
+                title="Deactivate the current key and enter a different one that matches the config's encryption">
+                Encrypted with a different key? Use a different license key
+              </button>
             )}
             {licensed === false && (
               <>
@@ -358,19 +433,19 @@ export default function ServerStatusBanner({
                   </p>
                 )}
                 <div className="ssb-license-entry">
-                <input
-                  className="ssb-license-input"
-                  type="text"
-                  placeholder="Paste your license key (TA1.…)"
-                  value={licenseInput}
-                  onChange={(e) => setLicenseInput(e.target.value)}
-                  spellCheck={false}
-                  autoCapitalize="off"
-                  autoCorrect="off"
-                />
-                <button className="ssb-license-activate-btn" onClick={handleActivateLicense} disabled={activating || !licenseInput.trim()}>
-                  <Icon name="key" size="14" /> {activating ? "Activating…" : "Activate"}
-                </button>
+                  <input
+                    className="ssb-license-input"
+                    type="text"
+                    placeholder="Paste your license key (TA1.…)"
+                    value={licenseInput}
+                    onChange={(e) => setLicenseInput(e.target.value)}
+                    spellCheck={false}
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                  />
+                  <button className="ssb-license-activate-btn" onClick={handleActivateLicense} disabled={activating || !licenseInput.trim()}>
+                    <Icon name="key" size="14" /> {activating ? "Activating…" : "Activate"}
+                  </button>
                 </div>
               </>
             )}
@@ -410,8 +485,13 @@ export default function ServerStatusBanner({
             {allItems.map((item) => {
               const isDiarization = item.name === "diarization";
               const isOllama = item.name === "ollama";
+              const isAgent = item.name === "agent";
               const isOnline = item.status === true;
               const isChecking = item.status === null;
+              // First-run: don't paint the model services as "failed" while the
+              // user still needs to import config — show a neutral pending state
+              // instead of a red offline row (no dead-end impression).
+              const waitingForConfig = isDiarization ? configBlocking : isAgent ? configMissing : false;
               // First-run model fetch feedback: the backend reports a non-blocking
               // diarization status so the user sees the download (with % when known)
               // under the Diarization Model badge.
@@ -429,27 +509,37 @@ export default function ServerStatusBanner({
                   : null;
               const statusText = isOnline
                 ? "running"
-                : isDiarization
-                  ? isDownloading
-                    ? hasProgress
-                      ? `Downloading model… ${Math.round(diarizationProgress!)}%`
-                      : "Downloading model… (first run, ~1.5 GB, may take a few minutes)"
-                    : isLoading
-                      ? "Loading model…"
-                      : diarizationStatus === "checking" || diarizationStatus === "idle"
-                        ? "checking…"
-                        : diarizationError
-                          ? `unavailable — ${diarizationError.slice(0, 80)}`
-                          : "unavailable"
-                  : isChecking
-                    ? "checking…"
-                    : isOllama
-                      ? "not running"
-                      : "offline";
+                : waitingForConfig
+                  ? "waiting for configuration"
+                  : isDiarization
+                    ? isDownloading
+                      ? hasProgress
+                        ? `Downloading model… ${Math.round(diarizationProgress!)}%`
+                        : "Downloading model… (first run, ~1.5 GB, may take a few minutes)"
+                      : isLoading
+                        ? "Loading model…"
+                        : diarizationStatus === "checking" || diarizationStatus === "idle"
+                          ? "checking…"
+                          : diarizationError
+                            ? `unavailable — ${diarizationError.slice(0, 80)}`
+                            : "unavailable"
+                    : isChecking
+                      ? "checking…"
+                      : isOllama
+                        ? "not running"
+                        : "offline";
               return (
                 <div
                   key={item.name}
-                  className={`ssb-service ${isOnline ? "ssb-service--online" : isChecking ? "ssb-service--unknown" : "ssb-service--offline"}`}>
+                  className={`ssb-service ${
+                    waitingForConfig
+                      ? "ssb-service--pending"
+                      : isOnline
+                        ? "ssb-service--online"
+                        : isChecking
+                          ? "ssb-service--unknown"
+                          : "ssb-service--offline"
+                  }`}>
                   <div className="ssb-service-info">
                     <span className="ssb-service-icon">
                       <Icon name={item.icon} size="18" color="accent" />
@@ -472,7 +562,7 @@ export default function ServerStatusBanner({
                       )}
                     </div>
                   </div>
-                  {!isOnline && (
+                  {!isOnline && !waitingForConfig && (
                     <button
                       className={`ssb-restart-btn ${isDiarization ? "ssb-restart-btn--config" : isOllama ? "ssb-restart-btn--ollama" : ""}`}
                       onClick={() => {

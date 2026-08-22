@@ -30,7 +30,6 @@ import { executeToolCall } from "./tool-executor.js";
 import { logAction } from "./logger.js";
 import { claimPendingEvent, completeEvent, failEvent, enqueueEvent, getQueueStats } from "./poller.js";
 import { recordCall, startFlushTimer } from "./usage-tracker.js";
-import { estimateCost } from "./pricing.js";
 import { sanitizeTranscriptSegments, sanitizeContextString } from "./sanitize.js";
 import {
   TOOLS,
@@ -674,9 +673,7 @@ async function processEvent(event) {
           availableTools = availableTools.filter((t) => t.name !== "transcribe_refine");
         }
         if (hasReadTranscript) {
-          availableTools = availableTools.filter(
-            (t) => t.name !== "transcribe_get_transcript",
-          );
+          availableTools = availableTools.filter((t) => t.name !== "transcribe_get_transcript");
         }
         if (!summarizeCalled) {
           availableTools = availableTools.filter((t) => t.name !== "transcribe_get_summary");
@@ -839,13 +836,11 @@ async function processEvent(event) {
       // ── DS-mon per-call tracking ──
       // Forward usage data to the local buffer for periodic push to the
       // central DS-mon server. No-op when DSMON_PUSH_URL is not set.
-      // All cloud providers (deepseek/openai/anthropic) are pushed; Ollama
-      // (local, no cost) is excluded — its per-job totals still land in
-      // usage.json.
+      // DS-mon usage tracking is DeepSeek-only — other providers' per-call
+      // usage still lands in usage.json (per-job totals) but is never pushed.
       const llmModel = getModelName();
-      const llmProvider = process.env.LLM_PROVIDER || "deepseek";
-      if (llmProvider === "deepseek" || llmProvider === "openai" || llmProvider === "anthropic") {
-        recordCall(decision.usage, llmModel, callLatencyMs, { step, tool: decision.name || "unknown" }, llmProvider);
+      if (process.env.LLM_PROVIDER === "deepseek") {
+        recordCall(decision.usage, llmModel, callLatencyMs, { step, tool: decision.name || "unknown" });
       }
     } else {
       console.log(`⚠️  [RUNNER] No usage data from LLM at step ${step} — decision.usage is ${JSON.stringify(decision?.usage)}`);
@@ -1208,9 +1203,7 @@ async function processEvent(event) {
     // otherwise it gets sidetracked and never returns to call transcribe_summarize.
     if (decision.name === "transcribe_get_transcript") {
       hasReadTranscript = true;
-      availableTools = availableTools.filter(
-        (t) => t.name !== "transcribe_get_transcript",
-      );
+      availableTools = availableTools.filter((t) => t.name !== "transcribe_get_transcript");
       console.log(`🔒 [RUNNER] transcribe_get_transcript + labeling tools locked — must summarize first`);
     }
 
@@ -1383,15 +1376,14 @@ async function processEvent(event) {
     try {
       // Combine existing steps (from previous retries) with new steps from this run
       const allSteps = [...existingSteps, ...tokenUsage];
-      // Provider-aware per-1M-token cost estimation (USD). DeepSeek = flat rate;
-      // OpenAI/Anthropic = model-matched rates from pricing.js; Ollama/local = $0.
+      // DeepSeek V4 Flash pricing (per 1M tokens): input=$0.25, output=$1.00.
+      // Ollama is local — no cost. OpenAI/Anthropic costs aren't estimated
+      // (usage tracking is DeepSeek-only), so they report $0 for reference.
       const llmProviderForCost = process.env.LLM_PROVIDER || "deepseek";
-      const { inputCost, outputCost, totalCost } = estimateCost(
-        llmProviderForCost,
-        getModelName(),
-        totalPromptTokens,
-        totalCompletionTokens,
-      );
+      const INPUT_RATE_PER_1M = llmProviderForCost === "deepseek" ? 0.25 : 0;
+      const OUTPUT_RATE_PER_1M = llmProviderForCost === "deepseek" ? 1.0 : 0;
+      const inputCost = (totalPromptTokens / 1_000_000) * INPUT_RATE_PER_1M;
+      const outputCost = (totalCompletionTokens / 1_000_000) * OUTPUT_RATE_PER_1M;
 
       const usageData = {
         job_id: jobId,
@@ -1407,7 +1399,7 @@ async function processEvent(event) {
         costs: {
           input_cost: parseFloat(inputCost.toFixed(6)),
           output_cost: parseFloat(outputCost.toFixed(6)),
-          total_cost: parseFloat(totalCost.toFixed(6)),
+          total_cost: parseFloat((inputCost + outputCost).toFixed(6)),
         },
         saved_at: new Date().toISOString(),
       };

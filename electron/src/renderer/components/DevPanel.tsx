@@ -2080,10 +2080,8 @@ function UsageTab() {
               <Icon name="credit_off" size="14" color="accent" /> {providerLabel(usageProvider)} Usage
             </h4>
             <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text-muted)", fontSize: 12 }}>
-              <Icon name="info" size="14" color="orange" />
-              <span>
-                No public balance endpoint — per-call token usage is still tracked per job and pushed to DS-mon when Usage Tracking is enabled.
-              </span>
+              <Icon name="warning" size="14" color="orange" />
+              <span>Usage can't be tracked — {providerLabel(usageProvider)} has no public usage/balance endpoint.</span>
             </div>
           </div>
         ) : usageProvider === "ollama" ? (
@@ -4078,11 +4076,10 @@ const DOC_FILES = [
   { id: "electron_architecture", label: "Electron Architecture", file: "electron_architecture.md" },
   { id: "known_bugs", label: "Known Bugs", file: "known_bugs.md" },
   { id: "licensing", label: "Licensing", file: "licensing.md" },
-  // { id: "system_overview", label: "System Overview", file: "system_overview.md" },
+  { id: "system_overview", label: "System Overview", file: "system_overview.md" },
   { id: "ui_state_persistence", label: "UI State Persistence", file: "ui_state_persistence.md" },
   { id: "testing_checklist", label: "Testing Checklist", file: "testing_checklist.md" },
-  { id: "dsmon_integration", label: "DS-mon Integration", file: "dsmon_integration.md" },
-  { id: "dsmon_repo_changes", label: "DS-mon Repo Changes", file: "dsmon_repo_changes.md" },
+  { id: "usage_tracking_plan", label: "Usage Tracking", file: "usage-tracking-plan.md" },
   { id: "windows_aws_testing", label: "Windows AWS Testing", file: "windows_aws_testing.md" },
   { id: "windows_file_locations", label: "Windows File Locations", file: "windows_file_locations.md" },
   { id: "windows_install", label: "Windows Install/Update", file: "windows_install_uninstall_update.md" },

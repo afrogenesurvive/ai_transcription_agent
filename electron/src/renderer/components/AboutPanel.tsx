@@ -19,7 +19,15 @@ import type { LicenseStatus, ConfigIntegrity, DsmonAuthorityState } from "../typ
 
 type AboutTab = "about" | "guide" | "license";
 
-export default function AboutPanel({ onClose, onLicensedChange }: { onClose: () => void; onLicensedChange?: () => void }) {
+export default function AboutPanel({
+  onClose,
+  onLicensedChange,
+  onOpenConfig,
+}: {
+  onClose: () => void;
+  onLicensedChange?: () => void;
+  onOpenConfig?: () => void;
+}) {
   // Persisted About tab selection (rule 7a)
   const [activeTab, setActiveTab] = useUiStateValue<AboutTab>("about.tab", "about");
   const [appName, setAppName] = useState("Transcription Agent");
@@ -79,7 +87,7 @@ export default function AboutPanel({ onClose, onLicensedChange }: { onClose: () 
       ) : activeTab === "guide" ? (
         <GuideTab markdown={guideMd} />
       ) : (
-        <LicenseTab onLicensedChange={onLicensedChange} />
+        <LicenseTab onLicensedChange={onLicensedChange} onOpenConfig={onOpenConfig} />
       )}
     </div>
   );
@@ -157,7 +165,7 @@ function formatExpiry(exp: number): string {
   return new Date(exp * 1000).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
 }
 
-function LicenseTab({ onLicensedChange }: { onLicensedChange?: () => void }) {
+function LicenseTab({ onLicensedChange, onOpenConfig }: { onLicensedChange?: () => void; onOpenConfig?: () => void }) {
   const [status, setStatus] = useState<LicenseStatus | null>(null);
   const [safeStorageAvailable, setSafeStorageAvailable] = useState(true);
   const [keyInput, setKeyInput] = useState("");
@@ -247,7 +255,7 @@ function LicenseTab({ onLicensedChange }: { onLicensedChange?: () => void }) {
     setBusy(true);
     setMessage(null);
     try {
-      const res = await window.electronAPI?.importConfig({ preferJson: true });
+      const res = await window.electronAPI?.importConfig();
       if (res?.success) {
         setMessage({ kind: "ok", text: "Config imported and re-encrypted under the active license." });
         refresh();
@@ -347,11 +355,7 @@ function LicenseTab({ onLicensedChange }: { onLicensedChange?: () => void }) {
               Expired (was seat <strong>{status.sub}</strong>, {formatExpiry(status.exp)}) — enter a new key
             </>
           )}
-          {status?.status === "invalid" && (
-            <>
-              Stored key is invalid — {humanizeLicenseReason(status.reason)}. Enter a valid key below.
-            </>
-          )}
+          {status?.status === "invalid" && <>Stored key is invalid — {humanizeLicenseReason(status.reason)}. Enter a valid key below.</>}
         </span>
       </div>
 
@@ -403,25 +407,36 @@ function LicenseTab({ onLicensedChange }: { onLicensedChange?: () => void }) {
         </p>
       )}
 
-      {/* Config recovery — accidental deletion / wrong-key protection */}
-      {integrity?.configGpg === "missing" && integrity.backupExists && (
+      {/* Licensed-but-config missing/corrupt warning, plus recovery actions */}
+      {(integrity?.configGpg === "missing" || integrity?.configGpg === "corrupt") && (
         <div className="about-license-recovery">
           <p className="about-license-recovery-msg">
-            <Icon name="restore" size="14" /> Your config file is missing, but a backup was found.
+            <Icon name={active ? "warning" : "info"} size="14" />{" "}
+            {integrity.configGpg === "corrupt"
+              ? active
+                ? "Your license is active, but the saved configuration can't be decrypted with this key — re-import a config or enter the key that matches it."
+                : "Your saved configuration can't be decrypted — enter the matching license key or re-import a plaintext .json export."
+              : active
+                ? "Your license is active, but no configuration is installed — import one to start the model services."
+                : "After activating a license, import a configuration to get started."}
           </p>
-          <button className="about-license-btn" onClick={restoreBackup} disabled={busy}>
-            <Icon name="restore" size="14" /> Restore Config from Backup
-          </button>
-        </div>
-      )}
-      {integrity?.configGpg === "corrupt" && (
-        <div className="about-license-recovery">
-          <p className="about-license-recovery-msg">
-            <Icon name="warning" size="14" /> Your config file was encrypted with a different license key — enter that key to restore access, or re-import a plaintext .json export under this key.
-          </p>
-          <button className="about-license-btn" onClick={reimport} disabled={busy}>
-            <Icon name="download" size="14" /> Re-import Config
-          </button>
+          <div className="about-license-recovery-actions">
+            {active && (
+              <button className="about-license-btn" onClick={onOpenConfig} disabled={busy}>
+                <Icon name="settings" size="14" /> Open Config & Import
+              </button>
+            )}
+            {integrity.configGpg === "corrupt" && (
+              <button className="about-license-btn" onClick={reimport} disabled={busy}>
+                <Icon name="download" size="14" /> Re-import Config
+              </button>
+            )}
+            {integrity.configGpg === "missing" && integrity.backupExists && (
+              <button className="about-license-btn" onClick={restoreBackup} disabled={busy}>
+                <Icon name="restore" size="14" /> Restore from Backup
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -430,9 +445,7 @@ function LicenseTab({ onLicensedChange }: { onLicensedChange?: () => void }) {
           <button className="about-license-btn about-license-btn--danger" onClick={() => setShowDeactivateConfirm(true)} disabled={busy}>
             <Icon name="logout" size="14" /> Deactivate
           </button>
-          <p className="about-license-hint">
-            Deactivating keeps your encrypted config; it stays readable when you re-activate a license.
-          </p>
+          <p className="about-license-hint">Deactivating keeps your encrypted config; it stays readable when you re-activate a license.</p>
         </div>
       )}
 

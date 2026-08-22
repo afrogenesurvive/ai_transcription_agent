@@ -79,6 +79,9 @@ export default function App() {
   const [devWarningModal, setDevWarningModal] = useState<SidebarView | null>(null);
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
   const [configOk, setConfigOk] = useState(true);
+  // Set when navigating from About → License's "Open Config & Import" so the
+  // Config panel scrolls its Import button into view (it sits in the footer).
+  const [configFocusImport, setConfigFocusImport] = useState(false);
   // Per-seat license status — drives locked-mode gating (New Job form viewable
   // but not submittable; About accessible; everything else gated until licensed).
   const [licenseStatus, setLicenseStatus] = useState<LicenseStatusPayload | null>(null);
@@ -136,8 +139,7 @@ export default function App() {
   // Licensed = offline status active AND the DS-mon authority has NOT revoked
   // the seat. dsmon.revoked===true OR dsmon.expired===true is authoritative
   // (locked mode → panels obscure); unknown (null) keeps the offline verdict.
-  const licensed =
-    licenseStatus?.status?.status === "active" && !licenseStatus?.dsmon?.revoked && !licenseStatus?.dsmon?.expired;
+  const licensed = licenseStatus?.status?.status === "active" && !licenseStatus?.dsmon?.revoked && !licenseStatus?.dsmon?.expired;
   const refreshLicenseStatus = useCallback(() => {
     window.electronAPI?.getLicenseStatus().then((p) => setLicenseStatus(p));
   }, []);
@@ -1651,7 +1653,9 @@ export default function App() {
                     <ConfigPanel
                       key="config-panel"
                       configOk={configOk}
+                      focusImport={configFocusImport}
                       onClose={() => {
+                        setConfigFocusImport(false);
                         setSidebarView("current");
                         window.electronAPI?.checkConfig().then((r) => setConfigOk(r.ok));
                       }}
@@ -1661,7 +1665,16 @@ export default function App() {
                   </LicenseGate>
                 )}
 
-                {sidebarView === "about" && <AboutPanel onClose={() => setSidebarView("current")} onLicensedChange={refreshLicenseStatus} />}
+                {sidebarView === "about" && (
+                  <AboutPanel
+                    onClose={() => setSidebarView("current")}
+                    onLicensedChange={refreshLicenseStatus}
+                    onOpenConfig={() => {
+                      setConfigFocusImport(true);
+                      setSidebarView("config");
+                    }}
+                  />
+                )}
 
                 {sidebarView === "appearance" && (
                   <LicenseGate locked={!licensed} onOpenLicense={() => setSidebarView("about")}>

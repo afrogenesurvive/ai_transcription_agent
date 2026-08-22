@@ -142,7 +142,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   saveConfig: (values: Record<string, string>): Promise<Record<string, string>> => ipcRenderer.invoke("config:save", values),
   checkConfig: (): Promise<{ ok: boolean; missing: string[] }> => ipcRenderer.invoke("config:check"),
   getConfigWithSources: (): Promise<Record<string, { value: string; source: string }>> => ipcRenderer.invoke("config:getWithSources"),
-  exportConfig: (options?: { mode?: "encrypted" | "plain" }): Promise<{
+  exportConfig: (options?: {
+    mode?: "encrypted" | "plain";
+  }): Promise<{
     success: boolean;
     filePath?: string;
     format?: "encrypted" | "plain";
@@ -151,7 +153,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     warnings?: string[];
   }> => ipcRenderer.invoke("config:export", options),
   clearConfig: (): Promise<{ success: boolean; error?: string; blocked?: boolean }> => ipcRenderer.invoke("config:clear"),
-  importConfig: (options?: { preferJson?: boolean }): Promise<{
+  importConfig: (): Promise<{
     success: boolean;
     filePath?: string;
     error?: string;
@@ -160,7 +162,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     agentConfigImported?: boolean;
     defaultsImported?: boolean;
     userDefaultsImported?: boolean;
-  }> => ipcRenderer.invoke("config:import", options),
+  }> => ipcRenderer.invoke("config:import"),
   getDefaultUserConfig: (): Promise<{ success: boolean; defaults: Record<string, string>; error?: string }> => ipcRenderer.invoke("config:defaults"),
   restoreDefaultUserConfig: (): Promise<{ success: boolean; error?: string; blocked?: boolean }> => ipcRenderer.invoke("config:restore-defaults"),
   setDefaultConfig: (): Promise<{ success: boolean; agentDefaultsSaved?: boolean; error?: string; warnings?: string[] }> =>
@@ -181,16 +183,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Pushed from main whenever the DS-mon authority verdict changes (revoked /
   // expired → panels re-obscure; valid → unlock) so the UI reloads its license
   // gating without a manual refresh or restart.
-  onLicenseStatusChanged: (callback: (payload: {
-    status:
-      | { status: "unlicensed" }
-      | { status: "active"; sub: string; kid: string; exp: number; installedAt?: number }
-      | { status: "expired"; sub: string; kid: string; exp: number; installedAt?: number }
-      | { status: "invalid"; reason: string };
-    safeStorageAvailable: boolean;
-    configIntegrity: { licenseKeyFile: "present" | "missing"; configGpg: "present" | "missing" | "corrupt"; backupExists: boolean };
-    dsmon: DsmonAuthorityState;
-  }) => void) => {
+  onLicenseStatusChanged: (
+    callback: (payload: {
+      status:
+        | { status: "unlicensed" }
+        | { status: "active"; sub: string; kid: string; exp: number; installedAt?: number }
+        | { status: "expired"; sub: string; kid: string; exp: number; installedAt?: number }
+        | { status: "invalid"; reason: string };
+      safeStorageAvailable: boolean;
+      configIntegrity: { licenseKeyFile: "present" | "missing"; configGpg: "present" | "missing" | "corrupt"; backupExists: boolean };
+      dsmon: DsmonAuthorityState;
+    }) => void,
+  ) => {
     ipcRenderer.on("license:status-changed", (_event, payload) => callback(payload));
     return () => ipcRenderer.removeAllListeners("license:status-changed");
   },
@@ -229,7 +233,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       | { status: "expired"; sub: string; kid: string; exp: number; installedAt?: number }
       | { status: "invalid"; reason: string };
   }> => ipcRenderer.invoke("license:re-key", newKey),
-  getBridgeToken: (forceRefresh?: boolean): Promise<{ token: string } | { error: string }> => ipcRenderer.invoke("license:get-bridge-token", forceRefresh),
+  getBridgeToken: (forceRefresh?: boolean): Promise<{ token: string } | { error: string }> =>
+    ipcRenderer.invoke("license:get-bridge-token", forceRefresh),
   restoreConfigFromBackup: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke("config:restore-backup"),
 
   // ── UI State (userData/ui-state.json — renderer is the single writer) ──

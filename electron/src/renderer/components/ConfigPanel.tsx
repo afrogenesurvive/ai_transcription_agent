@@ -26,6 +26,8 @@ import type { PipelineStep, ConfigValueSource } from "../types";
 interface Props {
   onClose: () => void;
   configOk?: boolean;
+  /** When true (arriving from About → License), scroll the Import button into view on mount. */
+  focusImport?: boolean;
   /** Called after any operation that changes the saved config (save/import/clear/restore). */
   onConfigChanged?: () => void;
   /** Called when a DS-mon license recheck finds the seat revoked/expired, so App reloads its license gating and re-obscures the panels. */
@@ -457,7 +459,7 @@ function formatOllamaSize(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
-export default function ConfigPanel({ onClose, configOk, onConfigChanged, onLicensedChange }: Props) {
+export default function ConfigPanel({ onClose, configOk, onConfigChanged, onLicensedChange, focusImport }: Props) {
   // Persisted Config tab + section selection (rule 6)
   const [activeTab, setActiveTab] = useUiStateValue<ConfigTab>("config.tab", "config");
   const [configSection, setConfigSection] = useUiStateValue<string>("config.section", "LLM Provider");
@@ -724,6 +726,15 @@ export default function ConfigPanel({ onClose, configOk, onConfigChanged, onLice
   useEffect(() => {
     feedbackRef.current?.scrollTo({ top: feedbackRef.current.scrollHeight });
   }, [exportResult, importResult, clearResult, restoreUserDefaultsResult, saveDefaultsResult, error, saved]);
+
+  // Scroll the Import button into view when arriving from About → License's
+  // "Open Config & Import" (the button sits in the panel footer).
+  const importBtnRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (focusImport) {
+      requestAnimationFrame(() => importBtnRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }));
+    }
+  }, [focusImport]);
 
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showPlainExportConfirm, setShowPlainExportConfirm] = useState(false);
@@ -1162,7 +1173,11 @@ export default function ConfigPanel({ onClose, configOk, onConfigChanged, onLice
         return;
       }
       if (!st.reachable) {
-        setDsmonCheck({ checking: false, kind: "err", text: `Couldn't reach DS-mon (${st.error || "unreachable"}) — running on offline verification only.` });
+        setDsmonCheck({
+          checking: false,
+          kind: "err",
+          text: `Couldn't reach DS-mon (${st.error || "unreachable"}) — running on offline verification only.`,
+        });
         return;
       }
       if (st.revoked) {
@@ -1585,10 +1600,7 @@ The system provides existing memory context at the start of each pipeline run. U
         <div className="config-io-buttons">
           {/* Export split button — main button is inert; menu items are direct actions */}
           <div className="config-export-split">
-            <button
-              className="config-io-btn config-export-split-main"
-              disabled
-              title="Choose an export mode from the menu">
+            <button className="config-io-btn config-export-split-main" disabled title="Choose an export mode from the menu">
               <Icon name="upload" size="14" /> Export
             </button>
             <button
@@ -1628,6 +1640,7 @@ The system provides existing memory context at the start of each pipeline run. U
           </div>
           <Tooltip content="Load configuration from an encrypted .gpg file (or legacy JSON)">
             <button
+              ref={importBtnRef}
               className={`config-io-btn ${!configOk ? "config-io-btn--import-highlight" : ""}`}
               onClick={handleImport}
               disabled={importing || activeJobs.length > 0}
@@ -1855,9 +1868,15 @@ The system provides existing memory context at the start of each pipeline run. U
                                     onChange={() => handleChange("API_PROVIDER", p)}
                                     disabled={activeJobs.length > 0}
                                   />
-                                  <span className="config-radio-label">{p === "deepseek" ? "DeepSeek" : p === "openai" ? "OpenAI" : "Anthropic"}</span>
+                                  <span className="config-radio-label">
+                                    {p === "deepseek" ? "DeepSeek" : p === "openai" ? "OpenAI" : "Anthropic"}
+                                  </span>
                                   <span className="config-radio-desc">
-                                    {p === "deepseek" ? "Cloud API — requires API key" : p === "openai" ? "ChatGPT — requires API key" : "Claude — requires API key"}
+                                    {p === "deepseek"
+                                      ? "Cloud API — requires API key"
+                                      : p === "openai"
+                                        ? "ChatGPT — requires API key"
+                                        : "Claude — requires API key"}
                                   </span>
                                 </label>
                               ))}
@@ -2608,8 +2627,8 @@ The system provides existing memory context at the start of each pipeline run. U
                           </span>
                         </label>
                         <p className="config-field-hint" style={{ marginTop: 4 }}>
-                          When enabled, the app also asks DS-mon whether this seat is revoked / expired (on top of offline signature
-                          verification). Requires the DS-mon Push URL + token above. Default: ON.
+                          When enabled, the app also asks DS-mon whether this seat is revoked / expired (on top of offline signature verification).
+                          Requires the DS-mon Push URL + token above. Default: ON.
                         </p>
                       </div>
 
@@ -2648,7 +2667,11 @@ The system provides existing memory context at the start of each pipeline run. U
                                   style={{
                                     marginLeft: 10,
                                     color:
-                                      dsmonCheck.kind === "ok" ? "var(--green, #3fb950)" : dsmonCheck.kind === "err" ? "var(--red, #f85149)" : "inherit",
+                                      dsmonCheck.kind === "ok"
+                                        ? "var(--green, #3fb950)"
+                                        : dsmonCheck.kind === "err"
+                                          ? "var(--red, #f85149)"
+                                          : "inherit",
                                   }}>
                                   {dsmonCheck.text}
                                 </span>
@@ -4151,8 +4174,8 @@ The system provides existing memory context at the start of each pipeline run. U
             <h3 className="confirm-dialog-title confirm-dialog-title--security">Security Risk</h3>
             <p className="confirm-dialog-text confirm-dialog-text--security">
               This will write your <strong>API keys</strong> (DeepSeek, OpenAI, Anthropic) and delivery credentials to a{" "}
-              <strong>plain-text JSON file</strong> that anyone with file access can read. <strong>Security Risk:</strong> anyone who obtains
-              this file can use your keys. Prefer the encrypted <strong>.gpg</strong> export unless you specifically need a readable copy.
+              <strong>plain-text JSON file</strong> that anyone with file access can read. <strong>Security Risk:</strong> anyone who obtains this
+              file can use your keys. Prefer the encrypted <strong>.gpg</strong> export unless you specifically need a readable copy.
             </p>
             <div className="confirm-dialog-actions confirm-dialog-actions--center">
               <button className="btn-secondary" onClick={() => setShowPlainExportConfirm(false)}>

@@ -590,3 +590,118 @@
   background: var(--accent);
   color: #fff;
 }
+
+/* ── First-run setup steps (guided 2-step) ── */
+
+.ssb-steps {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-top: 2px;
+}
+
+.ssb-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-12);
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.ssb-step-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  font-size: var(--fs-11);
+  font-weight: 600;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.ssb-step--active {
+  color: var(--text);
+}
+
+.ssb-step--active .ssb-step-dot {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ssb-step--done {
+  color: var(--text);
+}
+
+.ssb-step--done .ssb-step-dot {
+  border-color: var(--ok, #3fb950);
+  background: var(--ok, #3fb950);
+  color: #fff;
+}
+
+.ssb-step-connector {
+  width: 18px;
+  height: 1px;
+  background: var(--border);
+  margin: 0 8px;
+}
+
+/* ── Import Config callout (prominent first-run CTA) ── */
+
+.ssb-import-callout {
+  margin-top: 2px;
+}
+
+.ssb-import-callout .ssb-license-hint {
+  margin: 0 0 8px;
+}
+
+.ssb-import-config-btn--primary {
+  background: var(--accent);
+  color: #fff;
+  padding: 8px 16px;
+  font-size: var(--fs-13);
+}
+
+.ssb-import-config-btn--primary:hover:not(:disabled) {
+  background: var(--accent);
+  filter: brightness(0.9);
+  color: #fff;
+}
+
+/* ── Neutral "waiting for configuration" service row (first run, no dead-end) ── */
+
+.ssb-service--pending {
+  border-color: rgba(148, 163, 184, 0.3);
+  background: rgba(148, 163, 184, 0.05);
+}
+
+.ssb-service--pending .ssb-service-status {
+  color: var(--text-muted);
+}
+
+/* Switch to a different license key when the current one can't decrypt the config */
+.ssb-switch-key-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  margin-top: 8px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-size: var(--fs-12);
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ssb-switch-key-btn:hover {
+  color: var(--text);
+}

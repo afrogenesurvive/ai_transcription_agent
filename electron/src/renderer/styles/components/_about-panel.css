@@ -703,6 +703,12 @@
   line-height: 1.5;
 }
 
+.about-license-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 /* ── Locked-mode placeholder panel (gated sidebar views) ── */
 
 .license-required-panel {

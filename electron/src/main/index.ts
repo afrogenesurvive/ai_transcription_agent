@@ -1672,7 +1672,7 @@ ipcMain.handle("config:export", async (_event, options?: { mode?: "encrypted" | 
   }
 });
 
-ipcMain.handle("config:import", async (_event, options?: { preferJson?: boolean }) => {
+ipcMain.handle("config:import", async (_event) => {
   addLog("main", "info", "[config] import requested");
   try {
     // Licensed-only import: decrypting an exported config requires the license key.
@@ -1708,23 +1708,13 @@ ipcMain.handle("config:import", async (_event, options?: { preferJson?: boolean 
     // Show open dialog — accept both encrypted .gpg (OpenPGP, the current export
     // format) and legacy plaintext .json. Shared by Config → Import and the
     // ServerStatusBanner's Import Config (both use config:import).
-    // Show open dialog — accept both encrypted .gpg (OpenPGP, the current export
-    // format) and legacy plaintext .json. When recovering an undecryptable
-    // config (preferJson), default the picker to .json because a .gpg is
-    // passphrase-locked to the key that exported it.
-    const filters: Electron.FileFilter[] = options?.preferJson
-      ? [
-          { name: "JSON Config", extensions: ["json"] },
-          { name: "Config Files", extensions: ["gpg", "json"] },
-          { name: "All Files", extensions: ["*"] },
-        ]
-      : [
-          // IMPORTANT: on macOS the FIRST filter group is the active default in
-          // the open dialog, and any file that doesn't match it is greyed out.
-          // Keep .gpg + .json together so both are selectable without switching.
-          { name: "Config Files", extensions: ["gpg", "json"] },
-          { name: "All Files", extensions: ["*"] },
-        ];
+    // IMPORTANT: on macOS the FIRST filter group is the active default in the
+    // open dialog, and any file that doesn't match it is greyed out. Keep
+    // .gpg + .json together as the default so BOTH are selectable everywhere.
+    const filters: Electron.FileFilter[] = [
+      { name: "Config Files", extensions: ["gpg", "json"] },
+      { name: "All Files", extensions: ["*"] },
+    ];
     const result = await dialog.showOpenDialog(mainWindow!, {
       title: "Import Configuration",
       filters,

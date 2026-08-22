@@ -137,31 +137,20 @@ Transcription Agent is a licensed desktop app. Until an active license is entere
 2. Paste the license key you were issued and click **Activate License**.
 3. When it succeeds, the app unlocks and you can submit jobs and use all features.
 
-The **License** tab shows your current status — **Active**, **Expired**, or **No active license** — along with the seat the key belongs to and its expiry. Licenses are issued per seat and may be **time-limited** or **unlimited**.
+Licenses are issued per seat and may be **time-limited** or **unlimited** — the License tab shows your status (Active / Expired / Unlimited) and which seat the key belongs to.
 
-> Activation needs the app's secure key storage (your OS keychain / Windows DPAPI). If that isn't available, a license can't be saved safely and the app explains why.
+### First-time setup
 
-### Deactivating your license
+On a fresh install, the **"Setting Up…" banner** walks you through two steps:
 
-You can remove the active license at any time:
+1. **Activate License** — paste the license key you were issued.
+2. **Import Config** — choose a configuration file: an encrypted **`.gpg`** export (opens with your active license key) or a plain **`.json`** export. Importing restarts the services with your settings.
 
-1. Open the **About** panel → **License** tab → **Deactivate**.
-2. Confirm in the **Security Risk** dialog that appears.
-
-What deactivation does:
-
-- **Removes the license key from the app** and returns the app to **locked mode** until another key is activated.
-- **Keeps your configuration** — it is encrypted on disk with an **OS-protected key**, not the license key, so it is **not** deleted and stays readable again as soon as you re-activate any valid license.
-- **Does not** cancel, refund, or otherwise affect your seat — contact whoever issued your license for that.
-
-Before you deactivate, keep in mind:
-
-- Encrypted **config exports (`.gpg` files) are tied to the license key that created them** — a `.gpg` export only opens with that key. If you want a portable backup, export a plain `.json` copy first.
-- The app always keeps a **plaintext backup** of your settings, so your configuration can be recovered after a key change.
+If the `.gpg` you picked was encrypted with a **different** license key, import reports it can't be decrypted — use the **"Use a different license key"** link in the banner to deactivate and enter the key that matches the file, then import again.
 
 ### Config security
 
-Your configuration (API keys, delivery credentials) is stored **encrypted on disk** once a license is active. It is encrypted with an **OS-protected key** on your machine (keychain / DPAPI) — **not** with your license key — so switching or removing a license never locks you out of your settings. Config **exports default to encrypted `.gpg` files** (decryptable with your license key), but you can also export a **plain `.json` copy** via the Export mode toggle — this writes your API keys in plaintext and shows a **"Security Risk"** confirmation first.
+Your configuration (API keys, delivery credentials) is stored **encrypted on disk** once a license is active, using an **OS-protected key** on your machine (keychain / DPAPI) — **not** your license key — so switching or renewing a license never locks you out of your settings. Config **exports default to encrypted `.gpg` files** (decryptable with your license key), but you can also export a **plain `.json` copy** via the Export mode toggle — this writes your API keys in plaintext and shows a **"Security Risk"** confirmation first.
 
 ### Config recovery after a key change
 
@@ -171,18 +160,15 @@ Your settings are backed up in plaintext with every change. If a config file is 
 - Otherwise, **re-import a plaintext `.json` config export** (Config → Import). A `.gpg` file only opens with the license key that created it.
 - A plaintext backup is kept with every config change, so your settings can always be recovered after a key change.
 
+Deactivating a license asks for confirmation, but it **keeps your configuration** — it stays readable again as soon as you re-activate any valid license.
+
+### Missing or unreadable config
+
+If your license is active but no configuration is installed (or the saved config can't be read), the **About → License** tab shows a warning with an **Open Config & Import** button that jumps to the Config panel's Import control (highlighted in red).
+
 ### Lost or expired key?
 
 If your license expires, the app returns to locked mode — activate a new key in **About → License** to continue. If you need a replacement, contact whoever issued your license.
-
-### What data we collect
-
-Transcription Agent keeps your work **on your machine** — audio files, transcripts, voiceprints, and logs are stored locally and are never uploaded anywhere unless you choose to deliver them.
-
-- **LLM calls** — when you run a job, the transcript and your prompt are sent to the LLM provider you selected (DeepSeek, OpenAI, Anthropic, or a local Ollama model).
-- **Usage telemetry (optional)** — if you enable **Usage Tracking** (Settings → Config → Usage Tracking), the app sends **token usage only** — provider, model, and input/output/cached/reasoning token counts — plus a machine identifier, to your own DS-mon instance for monitoring. No audio or transcript text is ever included.
-- **License** — the app verifies your license **offline** on your machine. If you enable the **DS-mon License Check**, it asks your DS-mon instance to confirm the seat isn't revoked or expired, sending only the **seat ID and key ID** — never the license key itself.
-- **What we don't collect** — no meeting content, no audio, and no personal data beyond the machine identifier above. Nothing is sold or shared with third parties.
 
 ---
 
