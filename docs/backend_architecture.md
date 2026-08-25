@@ -71,6 +71,25 @@ On **startup:**
   8. **Attendee registration** — `_register_attendees_after_reconciliation()` persists the reconciled attendee list to the ephemeral DB (only after full reconciliation)
 - `_run_pipeline_resumed_sync(job_id)` — resuming after speaker labeling (skips diarization, loads saved state, includes same reconciliation + registration steps)
 
+```mermaid
+flowchart TD
+    START["_run_pipeline_sync(job_id)"] --> INIT["Initialize → set status"]
+    INIT --> DIAR["Diarization → detect speakers"]
+    DIAR --> VP["Voiceprint matching → identify known speakers"]
+    VP --> REC["Attendee reconciliation<br/>_reconcile_attendees()"]
+    REC --> ASR["Transcription (ASR) → text"]
+    ASR --> ALIGN["Alignment → merge diarization + ASR"]
+    ALIGN --> UNKNOWN{"Unknown speakers?"}
+    UNKNOWN -->|"yes"| PAUSE["Pause for labeling"]
+    PAUSE --> RESUME["_run_pipeline_resumed_sync()<br/>(skips diarization, loads saved state)"]
+    RESUME --> REC2["Reconciliation + registration"]
+    UNKNOWN -->|"no"| ENQ["Enqueue for agent runner"]
+    ENQ --> REG["Attendee registration<br/>_register_attendees_after_reconciliation()"]
+    REC2 --> REG
+```
+
+**Source:** [`_run_pipeline_sync()`](../python-backend/services/pipeline.py#L237) · [`_run_pipeline_resumed_sync()`](../python-backend/services/pipeline.py#L813) · [`_reconcile_attendees()`](../python-backend/reconciliation.py#L19) · [`_register_attendees_after_reconciliation()`](../python-backend/reconciliation.py#L357)
+
 **Concurrency:** Limited by `MAX_CONCURRENT_PIPELINES` (default: 2) via asyncio.Semaphore. The status check endpoint is excluded from the concurrency limit.
 
 ### `config.py` — Configuration
@@ -108,6 +127,21 @@ All settings come from environment variables, with sensible defaults:
 3. **Alignment** — `align_transcript(diarization, asr_result)`:
    - Merges diarization (who) with ASR (what) by matching word timestamps to speaker segment boundaries
    - Output: list of `{speaker, text, start, end}` segments
+
+### `upload.py` — Audio Upload & Status
+
+```mermaid
+flowchart LR
+    AUD["audio"] --> DIAR["1. Diarization<br/>run_diarization()"]
+    DIAR --> SEG["{speaker, start, end, duration}"]
+    AUD --> ASR["2. ASR<br/>run_transcription()"]
+    ASR --> WORDS["word-by-word + timestamps"]
+    SEG --> ALIGN["3. Alignment<br/>align_transcript()"]
+    WORDS --> ALIGN
+    ALIGN --> OUT["{speaker, text, start, end}"]
+```
+
+**Source:** [`run_diarization()`](../python-backend/transcription.py#L490) · [`align_transcript()`](../python-backend/transcription.py#L871)
 
 ### `upload.py` — Audio Upload & Status
 

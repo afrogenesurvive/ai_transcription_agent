@@ -31,6 +31,19 @@ There is deliberately **no merge/clear on the main side** — a stale renderer c
 
 The file is written atomically (`.tmp` + rename), mirroring `config.ts`.
 
+```mermaid
+flowchart TD
+    MOUNT["App mounts<br/>UiStateProvider"] --> LOAD["ui-state:get → load whole object once"]
+    LOAD --> READY["ready = true (store loaded)"]
+    READY --> MUT["Components mutate in-memory object<br/>useUiStateValue(path, value)"]
+    MUT --> DEB["Debounced save (~400ms)"]
+    DEB --> SAVE["ui-state:save → atomic write (.tmp + rename)"]
+    MUT --> FLUSH["beforeunload → immediate flush"]
+    FLUSH --> SAVE2["ui-state:save"]
+```
+
+**Source:** [`getUiState()`](../electron/src/main/ui-state.ts#L38) · [`saveUiState()`](../electron/src/main/ui-state.ts#L52) · [`ui-state:get`](../electron/src/main/index.ts#L1179) · [`UiStateProvider`](../electron/src/renderer/hooks/useUiState.tsx#L103)
+
 ---
 
 ## IPC surface

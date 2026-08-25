@@ -21,3 +21,12 @@ application entry point:
 This layout keeps the backend maintainable, and each refactor step was done in
 independent, revertible commits. See `backend_architecture.md` for the broader
 architecture.
+
+```mermaid
+flowchart TD
+    MAIN["main.py (~120 lines)<br/>env + FastAPI app/CORS + include_router + __main__"] --> ROUTES["routes/ package<br/>one module per domain"]
+    MAIN --> SERVICES["services/ package<br/>pipeline orchestration · lifespan · registry"]
+    MAIN --> SUPPORT["Support modules<br/>constants · helpers · refinement · reconciliation<br/>pipeline state · model preload · memory · upload"]
+```
+
+**Source:** [`main.py`](../python-backend/main.py#L82)

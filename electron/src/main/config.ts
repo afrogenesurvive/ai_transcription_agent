@@ -73,6 +73,8 @@ export interface AppConfig {
   PERF_METRICS_POLL_INTERVAL: string;
   /** Credit balance polling interval (ms) for Usage tab */
   CREDIT_POLL_INTERVAL: string;
+  /** Server-status banner loading-shape rotation interval (ms); default 5000 */
+  LOADING_SHAPE_INTERVAL_MS: string;
   /** Speaker embedding model provider: "pyannote" or "speechbrain" */
   EMBEDDING_PROVIDER: string;
   /** Whisper ASR model size: "medium" or "large" */
@@ -197,6 +199,7 @@ const DEFAULTS: AppConfig = {
   GITHUB_TOKEN: "",
   PERF_METRICS_POLL_INTERVAL: "10000",
   CREDIT_POLL_INTERVAL: "60000",
+  LOADING_SHAPE_INTERVAL_MS: "5000",
   WHISPER_MODEL_SIZE: "medium",
   EMBEDDING_PROVIDER: "pyannote",
   KEEP_TRANSCRIPT_TIMESTAMPS: "false",

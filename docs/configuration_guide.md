@@ -134,6 +134,7 @@ interface AppConfig {
   APPEARANCE_SIDEBAR_WIDTH: string;
   PERF_METRICS_POLL_INTERVAL: string;
   CREDIT_POLL_INTERVAL: string;
+  LOADING_SHAPE_INTERVAL_MS: string;
   PLAYWRIGHT_AUDIO_FILE_PATH: string; // Test-only
   PLAYWRIGHT_TITLE_TEMPLATE: string;
   PLAYWRIGHT_GENERIC_NAMES: string;
@@ -528,6 +529,7 @@ The required key depends on the active provider: `DEEPSEEK_API_KEY` (deepseek), 
 | `LOG_CHROMIUM`                 | `"true"`                     | Debug — routes Chromium renderer/GPU/console logs to stderr (restart required)                                                                                                             |
 | `PERF_METRICS_POLL_INTERVAL`   | `"10000"`                    | Milliseconds                                                                                                                                                                               |
 | `CREDIT_POLL_INTERVAL`         | `"60000"`                    | Milliseconds                                                                                                                                                                               |
+| `LOADING_SHAPE_INTERVAL_MS`    | `"5000"`                     | Server-status banner loading-shape rotation interval (ms)                                                                                                                                   |
 
 ---
 

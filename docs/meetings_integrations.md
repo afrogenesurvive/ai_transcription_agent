@@ -14,6 +14,19 @@ The New Job form has three tabs:
 
 All three submit through the same in-app pipeline (diarization → ASR → voiceprints → agent). Job results show the audio **Source** in the Audio tab.
 
+```mermaid
+flowchart TD
+    NEW["New Job form"] --> UPLOAD["Upload<br/>(existing file)"]
+    NEW --> REC["System Recording<br/>(live system audio)"]
+    NEW --> TMZ["Teams/Zoom<br/>(cloud recording)"]
+    UPLOAD --> PIPE["In-app pipeline<br/>diarization → ASR → voiceprints → agent"]
+    REC --> PIPE
+    TMZ --> FETCH["Fetch Recording & Attendees"]
+    FETCH --> PIPE
+```
+
+**Source:** [`NewJobPanel.tsx`](../electron/src/renderer/components/NewJobPanel.tsx#L17) · [`MeetingsPanel.tsx`](../electron/src/renderer/components/MeetingsPanel.tsx#L43)
+
 ## System Recording
 
 Records whatever audio your computer is playing (both sides of a meeting). No per-participant audio is exposed by Teams/Zoom, so speaker diarization + voiceprints still assign "who said what".
@@ -89,3 +102,26 @@ The tab shows setup guidance when BlackHole isn't detected.
 | `ZOOM_USER`          | Zoom signed-in user                          |
 
 These are regular config keys, so they participate in config export/import, "save as defaults", and "restore defaults" like every other setting.
+
+```mermaid
+flowchart LR
+    subgraph SETUP["1 · App registration"]
+        direction TB
+        TE["Teams: Entra app registration<br/>redirect http://localhost"]
+        ZO["Zoom: Marketplace OAuth app<br/>redirect http://localhost[:PORT]"]
+    end
+    subgraph CONNECT["2 · Connect in-app"]
+        direction TB
+        CI["Config → Services → set Client ID / Secret"]
+        CT["Connect Microsoft Teams / Connect Zoom"]
+    end
+    subgraph FETCH["3 · Pull meeting"]
+        direction TB
+        REF["Refresh → list meetings"]
+        SEL["Select meeting → Fetch Recording & Attendees"]
+        PRE["Review attendees → Start Transcription"]
+    end
+    SETUP --> CONNECT --> FETCH
+```
+
+**Source:** [`connectTeams()`](../electron/src/renderer/components/ConfigPanel.tsx#L1058) · [`connectZoom()`](../electron/src/renderer/components/ConfigPanel.tsx#L1088) · [`refreshMeetings()`](../electron/src/renderer/components/MeetingsPanel.tsx#L127)

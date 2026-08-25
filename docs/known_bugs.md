@@ -307,6 +307,19 @@ Even after the write-back fix, a job with a manually-labeled 4th attendee could 
 
 **Fix (0.5.10-10, `agent-runner/`):** before executing `send_delivery_email`, the runner reads the job's `delivery.json` (written by `transcribe_prepare_delivery`) and overrides the LLM's args with the authoritative `email_recipients` (setting both `to` and `recipients`). `sendEmail()` also resolves recipients from `delivery.json` itself and fails loudly if none are present. Recipient ordering in `email_recipients` is now deterministic (was arbitrary set iteration). Result: every configured recipient receives the email regardless of LLM behavior.
 
+```mermaid
+flowchart TD
+    LABEL["label_and_resume()<br/>labels + register_attendees"] --> WB["Persist reconciled attendees<br/>back to metadata.json"]
+    WB --> R1["enqueue_ready reads updated metadata"]
+    WB --> R2["approve_gate1 reads via get_metadata()"]
+    WB --> R3["/agent/deliver reads email_recipients"]
+    R3 --> PREP["transcribe_prepare_delivery<br/>writes delivery.json"]
+    PREP --> RUNNER["agent-runner overrides LLM args<br/>with authoritative email_recipients"]
+    RUNNER --> SEND["sendEmail() resolves recipients<br/>from delivery.json"]
+```
+
+**Source:** [`label_and_resume()`](../python-backend/routes/labeling.py#L935) · [`enqueue_ready()`](../python-backend/agent_bridge.py#L65) · [`sendEmail()`](../agent-runner/tool-executor.js#L62)
+
 ### Affected Versions
 
 All versions before 2026-07-22.
@@ -408,6 +421,16 @@ This was the only clear leg lacking a "close before remove" step — the ephemer
 4. **Cosmetic-failure guard:** if the directory is already gone despite an exception (e.g. only the eviction cleanup failed), it reports success instead of a misleading failure.
 
 `_ensure_loaded()` raises a clear "being cleared — try again in a moment" error while the flag is set, so callers fail fast with a useful message instead of a confusing `AttributeError` on a `None` collection.
+
+```mermaid
+flowchart TD
+    CLEAR["DELETE /storage/semantic<br/>clear_semantic_memory()"] --> EV["1. Evict + stop cached ChromaDB System<br/>(SharedSystemClient pop + stale.stop())"]
+    EV --> FLAG["2. Set SemanticMemory._clearing flag"]
+    FLAG --> DROP["3. Drop collection ref + rmtree<br/>(retry loop for AV/Defender locks)"]
+    DROP --> GUARD["4. Cosmetic-failure guard<br/>(report success if dir already gone)"]
+```
+
+**Source:** [`clear_semantic_memory()`](../python-backend/routes/storage.py#L152) · [`_ensure_loaded()`](../python-backend/semantic_memory.py#L106)
 
 ### Affected Versions
 

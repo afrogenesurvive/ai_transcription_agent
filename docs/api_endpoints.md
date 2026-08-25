@@ -22,6 +22,20 @@ agent runner uses for tool execution.
 - **Agent config endpoints** — get/save/restore the agent pipeline configuration
   and restart the agent runner.
 
+```mermaid
+flowchart LR
+    RUNNER["Agent Runner"] --> CALL["POST /tools/call {tool, args}"]
+    CALL --> SAN["Sanitize request (redact secrets)"]
+    SAN --> ROUTE{"handler"}
+    ROUTE -->|"proxy"| PY["Proxy to Python backend"]
+    ROUTE -->|"direct"| D["Execute directly"]
+    PY --> RESP["Sanitize response"]
+    D --> RESP
+    RESP --> BACK["Return to caller"]
+```
+
+**Source:** [`bridge-server/index.js`](../bridge-server/index.js#L1)
+
 ## For developers
 
 If you are working on the app itself, the full endpoint catalog is maintained in

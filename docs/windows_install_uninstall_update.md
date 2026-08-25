@@ -73,6 +73,19 @@ The Windows distribution uses an NSIS installer built by electron-builder.
    - **Cancel button** remains enabled throughout extraction — users can abort mid-installation
 5. **Completion** — branded success message with component checklist
 
+```mermaid
+flowchart TD
+    WELCOME["1. Welcome page<br/>component overview + launch checkbox"] --> SUMMARY["2. Pre-install summary<br/>path · components · size (~400 MB)"]
+    SUMMARY --> UPGRADE{"existing install?"}
+    UPGRADE -->|"yes"| CONFIRM["Upgrade confirm dialog<br/>'update & keep your data?'"]
+    CONFIRM -->|"decline"| SUMMARY
+    CONFIRM -->|"accept"| EXTRACT["3. File extraction (MUI_PAGE_INSTFILES)<br/>core app + Python backend + bridge + agent runner"]
+    UPGRADE -->|"no"| EXTRACT
+    EXTRACT --> DONE["4. Completion<br/>branded success + component checklist"]
+```
+
+**Source:** [`customWelcomePage`](../electron/build/installer.nsh#L87) · [`customPageAfterChangeDir`](../electron/build/installer.nsh#L135) · [`instProgressLeave`](../electron/build/installer.nsh#L178)
+
 ### Bundled Components
 
 The installer bundles everything needed:
@@ -152,18 +165,21 @@ Updates use `electron-updater` with GitHub Releases as the source.
 
 ### Update Flow (Packaged Mode)
 
+```mermaid
+flowchart TD
+    START["App starts → checks for available updates from GitHub Releases"] --> CHECK["Every 12 hours → checkForUpdates()"]
+    CHECK --> API["API call to GitHub Releases → latest version"]
+    API --> NEW{"newer version?"}
+    NEW -->|"yes"| NOTIFY["'Update Available' notification"]
+    NOTIFY --> DL["Click 'Download Update' → downloadUpdate()<br/>(progress events 0-100%)"]
+    DL --> READY["'Update Ready' notification"]
+    READY --> INSTALL["Click 'Restart & Install' → quitAndInstall()"]
+    INSTALL --> RUNNER["Installer runs<br/>(NSIS UAC elevation on Windows / macOS .zip)"]
+    RUNNER --> RELAUNCH["App relaunches with new version"]
+    NEW -->|"no"| IDLE["Idle until next check"]
 ```
-1. App starts → checks for available updates from GitHub Releases
-2. Every 12 hours → autoUpdater.checkForUpdates()
-3. API call to GitHub Releases → latest release version
-4. If newer version found → "Update Available" notification
-5. User clicks "Download Update" → autoUpdater.downloadUpdate()
-6. Progress tracked via download-progress events (0-100%)
-7. Download complete → "Update Ready" notification
-8. User clicks "Restart & Install" → autoUpdater.quitAndInstall()
-9. Installer runs (non-silent NSIS on Windows → UAC elevation prompt; macOS installs the downloaded `.zip`) → applies over the existing install
-10. App relaunches with new version
-```
+
+**Source:** [`setupPackagedUpdater()`](../electron/src/main/auto-updater.ts#L485) · [`checkAndUpdate()`](../electron/src/main/auto-updater.ts#L597)
 
 ### Key Details
 
@@ -304,6 +320,19 @@ The uninstaller wiring lives in `installer.nsh` (the `customUnInstall` / `custom
 3. Deletes the per-user application-data directory **only if** the "delete my data" checkbox was checked on the uninstall page.
 
 `customUnWelcomePage` shows a checkbox (default **unchecked**) letting the user choose to delete their transcripts, voiceprints, and settings — uninstall defaults to keeping user data (partial).
+
+```mermaid
+flowchart TD
+    UN["Uninstall initiated"] --> KILL["customUnInstall: kill app + orphaned processes<br/>(child-pids.txt)"]
+    KILL --> OLLAMA["removeOllamaIfAutoInstalled (sentinel-gated)"]
+    OLLAMA --> ASK{"delete my data checkbox?"}
+    ASK -->|"checked"| DEL["Delete %APPDATA%\Transcription Agent<br/>(config, storage, logs, voiceprints, chroma, ffmpeg)"]
+    ASK -->|"unchecked (default)"| KEEP["Keep user data"]
+    DEL --> REM["Remove install dir ($INSTDIR)"]
+    KEEP --> REM
+```
+
+**Source:** [`customUnInstall`](../electron/build/installer.nsh#L346) · [`removeUserData`](../electron/build/cleanup.nsh#L11) · [`removeOllamaIfAutoInstalled`](../electron/build/cleanup.nsh#L16) · [`cleanup.ts`](../electron/src/main/cleanup.ts#L231)
 
 ### Programmatic Uninstall (From App)
 

@@ -113,3 +113,15 @@ when it is required and not already present.
 
 > Exact install/user-data paths are intentionally not published here; see the in-app uninstall flow for
 > details.
+
+## Layout at a glance
+
+```mermaid
+flowchart LR
+    INSTALL["Application install directory"] --> RES["resources/<br/>app.asar · python-backend · bridge-server · agent-runner"]
+    DATA["Per-user application-data directory"] --> CFG["config.json"]
+    DATA --> ST["storage/<br/>jobs · chroma · databases"]
+    DATA --> QUE["queue/"]
+```
+
+**Source:** [`getChildEnv()`](../electron/src/main/config.ts#L832)

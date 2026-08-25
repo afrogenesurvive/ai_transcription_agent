@@ -55,6 +55,18 @@ Screenshots are written to a **timestamped subdirectory** under `docs/screenshot
 - Prior runs are preserved in their date-stamped folders for comparison
 - Partial runs (e.g. if a test fails mid-way) will not overwrite the root copies until `afterAll` completes
 
+```mermaid
+flowchart TD
+    VARS["Edit test variables<br/>(DevPanel Testing tab / Settings / env)"] --> CHK["Live prerequisite checks<br/>(services · audio file · ≥20 names)"]
+    CHK --> RUN["Run Tests → Playwright spawned<br/>with PLAYWRIGHT_* env vars"]
+    RUN --> OUT["Real-time output streamed back"]
+    OUT --> EXIT{"exit code"}
+    EXIT -->|"0"| PASS["Pass — screenshots copied to docs/screenshots/"]
+    EXIT -->|"≠0"| FAIL["Fail — partial run preserved in date folder"]
+```
+
+**Source:** [`user-guide-screenshots.spec.ts`](../electron/tests/screenshots/user-guide-screenshots.spec.ts#L1)
+
 ### TypeScript Compilation
 
 ```bash
@@ -269,6 +281,22 @@ Given N attendees in `attendeeList`:
 | #1  | `[0, 1]`    | First 2 — manually entered, no prior voiceprints |
 | #2  | `[0, 1, 2]` | First 2 now have voiceprints, 3rd is new         |
 | #3  | `[1, 2, 3]` | Middle 2 have voiceprints, 4th is new            |
+
+```mermaid
+flowchart LR
+    subgraph J1["Job #1"]
+        A1["attendees [0, 1]<br/>manually entered, no voiceprints"]
+    end
+    subgraph J2["Job #2"]
+        A2["attendees [0, 1, 2]<br/>first 2 have voiceprints, 3rd new"]
+    end
+    subgraph J3["Job #3"]
+        A3["attendees [1, 2, 3]<br/>middle 2 have voiceprints, 4th new"]
+    end
+    J1 --> J2 --> J3
+```
+
+**Source:** [`scripts/test-bot.mjs`](../scripts/test-bot.mjs#L1)
 
 ### Test Log
 

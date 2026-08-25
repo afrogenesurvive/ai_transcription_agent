@@ -62,6 +62,25 @@ electron/
 
 ## Main Process (`src/main/`)
 
+```mermaid
+flowchart LR
+    subgraph APP["Electron App"]
+        direction TB
+        RND["Renderer (React + Vite :5173)<br/>components / hooks"]
+        PRE["preload.ts<br/>contextBridge → window.electronAPI"]
+        MAIN["Main Process<br/>index.ts (IPC handlers)"]
+        BM["backend-manager.ts<br/>(spawns child processes)"]
+        RND <--> PRE
+        PRE <--> MAIN
+        MAIN --> BM
+    end
+    BM --> PY["Python Backend :5001"]
+    BM --> BRIDGE["Bridge Server :5010"]
+    BM --> RUNNER["Agent Runner (fs.watch)"]
+```
+
+**Source:** [`index.ts`](../electron/src/main/index.ts#L1) · [`preload.ts`](../electron/src/main/preload.ts#L1) · [`backend-manager.ts`](../electron/src/main/backend-manager.ts#L1) · [`startPythonBackend()`](../electron/src/main/backend-manager.ts#L563)
+
 ### `index.ts` — Application Entry
 
 **Responsibilities:**

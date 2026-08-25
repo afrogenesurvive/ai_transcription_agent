@@ -33,6 +33,15 @@ npm run transcribe:all
 npm run electron:dev
 ```
 
+```mermaid
+flowchart TD
+    CLONE["git clone <repo-url>"] --> SETUP["npm run transcribe:setup<br/>(venv + pip + npm + platform Whisper)"]
+    SETUP --> ALL["npm run transcribe:all<br/>(Python :5001 · Bridge :5010 · Agent Runner)"]
+    ALL --> DEV["npm run electron:dev<br/>(Electron UI :5173)"]
+```
+
+**Source:** [`package.json`](../package.json#L1)
+
 ---
 
 ## Step-by-Step Setup
@@ -185,6 +194,19 @@ npm run electron:dist:linux
 ```
 
 The built installers are output to `electron/dist/`.
+
+```mermaid
+flowchart TD
+    PREP["npm run electron:dist:prepare<br/>1. build standalone Python backend<br/>2. write version.json"] --> PLAT{"target platform"}
+    PLAT -->|"Windows"| WIN["npm run electron:dist:win<br/>(NSIS installer)"]
+    PLAT -->|"macOS"| MAC["npm run electron:dist:mac<br/>(DMG)"]
+    PLAT -->|"Linux"| LIN["npm run electron:dist:linux<br/>(AppImage)"]
+    WIN --> OUT["electron/dist/"]
+    MAC --> OUT
+    LIN --> OUT
+```
+
+**Source:** [`dist:prepare`](../electron/package.json#L17) · [`dist:win`/`dist:mac`/`dist:linux`](../electron/package.json#L18) · [`build-python-backend.sh`](../scripts/build-python-backend.sh#L1) · [`write-version.sh`](../scripts/write-version.sh#L1)
 
 ---
 

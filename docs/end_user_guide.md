@@ -278,6 +278,29 @@ The **progress bar** at the top fills from left to right and shows the percentag
 
 Below the stepper, a **Mini Live Log** shows the last few log entries from the backend in real-time, color-coded by source (blue for Python, green for Bridge, yellow for Agent). Click the header to collapse or expand it.
 
+```mermaid
+flowchart TD
+    UPLOAD["1. Uploading<br/>(copy audio to storage)"] --> READY["2. Getting Ready<br/>(load AI models)"]
+    READY --> SPEAK["3. Identifying Speakers<br/>(diarization)"]
+    SPEAK --> MATCH["4. Matching Voices<br/>(voiceprints)"]
+    MATCH --> LABEL{"speaker count ≠<br/>attendee count?"}
+    LABEL -->|"yes"| MODAL["Speaker-labeling popup"]
+    MODAL --> TRANS["5. Transcribing Speech<br/>(ASR)"]
+    LABEL -->|"no"| TRANS
+    TRANS --> ALIGN["6. Aligning<br/>(speaker-labeled transcript)"]
+    ALIGN --> G1{"Gate 1 enabled?"}
+    G1 -->|"yes"| RV["7a. Review Transcript"]
+    G1 -->|"no"| AI["7b. AI Processing<br/>(memory → refine → summarize → analyze)"]
+    RV --> AI
+    AI --> SAVE["8. Saving to Memory"]
+    SAVE --> G2{"Gate 2 enabled?"}
+    G2 -->|"yes"| RD["9a. Review Deliverable"]
+    G2 -->|"no"| DELIV["9b. Delivery<br/>(email / Drive / Trello)"]
+    RD --> DELIV
+```
+
+**Source:** [`_run_pipeline_sync()`](../python-backend/services/pipeline.py#L237) · [`enqueue_ready()`](../python-backend/agent_bridge.py#L65)
+
 <p align="center">
   <img src="screenshots/user-guide/current_job_progress_001.png" alt="Pipeline progress tracker with stage stepper, progress bar, and mini live log" width="680"/>
   <br/>
@@ -1049,6 +1072,7 @@ For important events, the app also sends a **native OS notification** that appea
 When one or more backend services (Python, Bridge, Agent, Diarization model, or Ollama) are not running, a **Server Status popover** appears over the current view:
 
 - **20-second countdown** — a circular progress indicator counts down before automatically checking the servers
+- **Loading animation** — while services are still down (or setup is incomplete), a rotating sequence of shapes (diamond, square, triangle, pentagon, hexagon, plus, cross, star) plays in the ring with the countdown % overlaid in the center; the shape-switch interval is configurable (`LOADING_SHAPE_INTERVAL_MS`)
 - **Per-service status** — shows which services are up (🟢) and which are down (🔴)
 - **Check Now button** — manually trigger a service check at any time
 - **Collapsible Developer section** — shows detailed service status with individual restart buttons:

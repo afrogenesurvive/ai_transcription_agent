@@ -6,41 +6,28 @@ Transcription Agent is a desktop application that transcribes, diarizes, and sum
 
 ## Architecture at a Glance
 
+```mermaid
+flowchart LR
+    subgraph APP["Electron Desktop App"]
+        direction TB
+        RND["Renderer (React) :5173"]
+        MAIN["Main Process (IPC)"]
+        BM["Backend Manager<br/>(spawns child procs)"]
+        RND <--> MAIN
+        MAIN --> BM
+    end
+    BM --> BRIDGE["Bridge Server :5010"]
+    BM --> RUNNER["Agent Runner (fs.watch)"]
+    BM --> PY["Python Backend (FastAPI :5001)"]
+    PY --> WH["Whisper ASR"]
+    PY --> PD["Pyannote Diarization"]
+    PY --> VPM["Voiceprint Matching"]
+    PY --> RUNNER
+    RUNNER --> BRIDGE
+    BRIDGE --> EXT["External Services<br/>(Gmail, Drive, Trello)"]
 ```
-┌─────────────────────────────────────────────────────────┐
-│                  Electron Desktop App                    │
-│  ┌──────────┐  ┌──────────┐  ┌──────────────────────┐  │
-│  │ Renderer │  │   Main   │  │  Backend Manager      │  │
-│  │ (React)  │◄─┤ Process  │──┤  (spawns child procs) │  │
-│  │  :5173   │  │  (IPC)   │  └──────────┬───────────┘  │
-│  └─────┬────┘  └────┬─────┘             │              │
-│        │            │                   │              │
-└────────┼────────────┼───────────────────┼──────────────┘
-         │            │                   │
-         ▼            ▼                   ▼
-   ┌──────────┐ ┌──────────┐ ┌──────────────────┐
-   │  Bridge  │ │  Agent   │ │  Python Backend   │
-   │  Server  │◄┤  Runner  │◄┤  (FastAPI :5001)  │
-   │  :5010   │ │ (fs.watch)│ │                   │
-   └────┬─────┘ └──────────┘ │  ┌─────────────┐  │
-        │                    │  │  Whisper ASR │  │
-        │                    │  ├─────────────┤  │
-        │                    │  │  Pyannote    │  │
-        │                    │  │  Diarization │  │
-        │                    │  ├─────────────┤  │
-        │                    │  │  Voiceprint  │  │
-        │                    │  │  Matching    │  │
-        │                    │  └─────────────┘  │
-        │                    └──────────────────┘
-        ▼
-  ┌──────────────┐
-  │  External    │
-  │  Services    │
-  │  (Gmail,     │
-  │  Drive,      │
-  │  Trello)     │
-  └──────────────┘
-```
+
+**Source:** [`backend-manager.ts`](../electron/src/main/backend-manager.ts#L1) · [`startPythonBackend()`](../electron/src/main/backend-manager.ts#L563)
 
 ## Core Services
 
@@ -55,39 +42,27 @@ Transcription Agent is a desktop application that transcribes, diarizes, and sum
 
 ### Transcription Pipeline
 
+```mermaid
+flowchart TD
+    AUD["Audio File"] --> PY["Python Backend"]
+    PY --> DIAR["Diarization (who)"]
+    PY --> ASR["ASR (what)"]
+    DIAR --> ALIGN["Alignment"]
+    ASR --> ALIGN
+    ALIGN --> QUEUE["Queue"]
+    QUEUE --> RUNNER["Agent Runner"]
+    RUNNER --> MEM["Fetch Memory Context"]
+    MEM --> REFINE["Refine Transcript"]
+    REFINE --> READ["Read Transcript"]
+    READ --> SUMM["Summarize"]
+    SUMM --> ANALYZE["Analyze"]
+    ANALYZE --> REVIEW["Review & Approve Delivery"]
+    REVIEW --> SAVEMEM["Save to Memory"]
+    SAVEMEM --> PREP["Prepare Delivery"]
+    PREP --> DELIV["Deliver via Email"]
 ```
-Audio File ──► Python Backend ──► Diarization (who) ──► ASR (what) ──► Alignment ──► Queue
-                                                                                        │
-                                                                                        ▼
-                                                                                Agent Runner
-                                                                                        │
-                                                                                        ▼
-                                                                           Fetch Memory Context
-                                                                                        │
-                                                                                        ▼
-                                                                              Refine Transcript
-                                                                                        │
-                                                                                        ▼
-                                                                               Read Transcript
-                                                                                        │
-                                                                                        ▼
-                                                                                  Summarize
-                                                                                        │
-                                                                                        ▼
-                                                                                  Analyze
-                                                                                        │
-                                                                                        ▼
-                                                                          Review & Approve Delivery
-                                                                                        │
-                                                                                        ▼
-                                                                               Save to Memory
-                                                                                        │
-                                                                                        ▼
-                                                                             Prepare Delivery
-                                                                                        │
-                                                                                        ▼
-                                                                           Deliver via Email
-```
+
+**Source:** [`_run_pipeline_sync()`](../python-backend/services/pipeline.py#L237) · [`enqueue_ready()`](../python-backend/agent_bridge.py#L65) · [`claimPendingEvent()`](../agent-runner/poller.js#L24) · [`processEvent()`](../agent-runner/index.js#L157)
 
 1. **User uploads audio** via the Electron UI
 2. **Bridge Server** proxies upload to Python Backend (`:5001`)

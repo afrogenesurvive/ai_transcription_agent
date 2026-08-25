@@ -330,9 +330,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: var(--fs-12);
+  font-size: var(--fs-11);
   font-weight: 600;
   color: var(--accent);
+  pointer-events: none;
+  /* Knock out the shape's rotating lines behind the % so it stays legible. */
+  text-shadow:
+    0 0 3px var(--surface),
+    0 0 3px var(--surface),
+    0 0 3px var(--surface);
 }
 
 .ssb-details {
@@ -381,15 +387,55 @@
   color: var(--text-muted);
 }
 
-/* ── Spinner animation when countdown is done ── */
+/* ── Loading shapes: entry fade + continuous spin + glow ── */
 
-.ssb-spinner-ring--done {
-  animation: ssb-spin 1.2s linear infinite;
+/* Each shape (diamond → … → star) fades + scales in on change; the <g> wrapper
+ * is keyed so React remounts it and this animation replays. */
+.ssb-shape {
+  /* Center the entry scale/rotate on the 56×56 viewBox so shapes grow from the
+     middle, not the top-left corner (default SVG origin is 0,0). */
+  transform-box: view-box;
+  transform-origin: 50% 50%;
+  animation: ssb-shape-in 0.5s ease;
 }
 
-@keyframes ssb-spin {
+@keyframes ssb-shape-in {
+  from {
+    opacity: 0;
+    transform: scale(0.7) rotate(-20deg);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+/* Continuous rotation of the whole shape, centered on the 56×56 viewBox. Lives
+ * on a <g> wrapper so it can't clash with the entry animation's transform. */
+.ssb-shape-spin {
+  /* Rotate around the viewBox center (28,28) — not each shape's own bounding
+     box — so every shape (incl. the triangle) stays centered while spinning. */
+  transform-box: view-box;
+  transform-origin: 50% 50%;
+  animation:
+    ssb-shape-spin 4s linear infinite,
+    ssb-shape-glow 2.4s ease-in-out infinite;
+}
+
+@keyframes ssb-shape-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+/* Pulsing accent glow around the shape's stroke. */
+@keyframes ssb-shape-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 3px var(--accent));
+  }
+  50% {
+    filter: drop-shadow(0 0 10px var(--accent));
   }
 }
 

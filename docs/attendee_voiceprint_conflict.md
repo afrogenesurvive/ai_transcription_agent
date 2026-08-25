@@ -216,46 +216,28 @@ The [`handleConfirm`](../electron/src/renderer/components/SpeakerLabelModal.tsx#
 
 ## Architectural Flow
 
+```mermaid
+flowchart TD
+    UP["UploadPanel (form: B, D, E, F)"] --> PAUSE["Pipeline pauses for labeling"]
+    PAUSE --> MODAL["SpeakerLabelModal (mount)"]
+    MODAL --> SLOTS["Voiceprint matching → 4 slots<br/>B ✓ (pre-filled) · D ✓ (pre-filled)<br/>A→E ⚠️ conflict · C→F ⚠️ conflict"]
+    SLOTS --> CHOICE["User makes A/B choices per conflicted slot"]
+    CHOICE --> CONFIRM["handleConfirm()"]
+    CONFIRM --> CHECKS["Checks duplicate names<br/>Checks voiceprint name/email conflicts<br/>Voice-match verification (verify_labels)"]
+    CHECKS --> EXCL["Computes excludedNonSpeaking<br/>· A/B conflict losers<br/>· non-speaking attendees removed via X"]
+    EXCL --> LABEL["POST /transcribe/label_and_resume/{job_id}<br/>(labels, overwrite_names, excluded_non_speaking)"]
+    LABEL --> EMB["Extract embeddings for all 4 labels"]
+    EMB --> DRIFT["Drift audit (skip overwrite_names)"]
+    DRIFT --> CLEANUP["Overwrite cleanup → delete old voiceprint + attendee"]
+    CLEANUP --> BATCH["Batch-save 4 voiceprints (INSERT or UPDATE)"]
+    BATCH --> DROP["Drop excluded_non_speaking from non-speaking list"]
+    DROP --> PRUNE["Prune excluded emails from email_recipients"]
+    PRUNE --> RECON["Build reconciled attendee list (4 names)"]
+    RECON --> REG["Register 4 attendees (dedup sweep)"]
+    REG --> CONT["Continue pipeline"]
 ```
-UploadPanel (form: B, D, E, F)
-  │
-  ▼
-Pipeline pauses for labeling
-  │
-  ▼
-SpeakerLabelModal (mount)
-  ├─ Voiceprint matching → 4 slots
-  │   ├─ B ✓ (pre-filled)
-  │   ├─ D ✓ (pre-filled)
-  │   ├─ A→E ⚠️ (conflict — A/B selector)
-  │   └─ C→F ⚠️ (conflict — A/B selector)
-  │
-  ▼
-User makes A/B choices per conflicted slot
-  │
-  ▼
-handleConfirm()
-  ├─ Checks duplicate names
-  ├─ Checks voiceprint name/email conflicts
-  ├─ Voice-match verification
-  ├─ Computes excludedNonSpeaking:
-  │    ├─ A/B conflict losers (form entry lost to "use voice owner")
-  │    └─ Non-speaking attendees removed via the X button
-  └─ Calls onConfirm(result, { overwriteNames, excludedNonSpeaking })
-      │
-      ▼
-the speaker-labeling endpoint  (body: labels, overwrite_names, excluded_non_speaking)
-  ├─ Extract embeddings for all 4 labels
-  ├─ Drift audit (skip overwrite_names)
-  ├─ Overwrite cleanup → delete old voiceprint + attendee
-  ├─ Batch-save 4 voiceprints (INSERT or UPDATE)
-  ├─ Drop excluded_non_speaking from the non-speaking attendee list
-  │    (post-ASR inline block + pre-ASR/resumed _run_pipeline_resumed_sync)
-  ├─ Prune excluded attendees' emails from email_recipients
-  ├─ Build reconciled attendee list (4 names)
-  ├─ Register 4 attendees (with dedup sweep)
-  └─ Continue pipeline
-```
+
+**Source:** [`SpeakerLabelModal.tsx`](../electron/src/renderer/components/SpeakerLabelModal.tsx#L103) · [`handleConfirm()`](../electron/src/renderer/components/SpeakerLabelModal.tsx#L458) · [`verify_labels()`](../python-backend/routes/labeling.py#L313) · [`label_and_resume()`](../python-backend/routes/labeling.py#L935) · [`_reconcile_attendees()`](../python-backend/reconciliation.py#L19)
 
 ---
 

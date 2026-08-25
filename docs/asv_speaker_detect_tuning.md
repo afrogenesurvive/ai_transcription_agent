@@ -14,6 +14,22 @@ Speaker diarization (ASV — Automatic Speaker Verification / Segmentation) iden
 
 **Phantom speakers** occur when noise, reverberation, or non-speech events (door clicks, paper rustling, microphone bumps, coughs, laughter) produce embedding clusters that are distinct enough from real speakers. Even a 50ms cough can spawn an entire phantom speaker.
 
+```mermaid
+flowchart TD
+    AUD["audio"] --> VAD["1. VAD<br/>speech regions"]
+    VAD --> EMB["2. Embedding extraction<br/>speaker embedding vectors"]
+    EMB --> CLUST["3. Clustering (AHC / HMM)"]
+    CLUST --> HINT{"max_speakers /<br/>min_speakers hint"}
+    HINT -->|"set"| BIAS["Bias clustering<br/>to expected range"]
+    BIAS --> CFG["Clustering threshold override<br/>pipeline.instantiate()"]
+    HINT -->|"auto"| CFG
+    CFG --> FILT["Post-filter: min speaker duration<br/>(phantom removal)"]
+    FILT --> MERGE["Merge adjacent same-speaker segments<br/>(small gaps)"]
+    MERGE --> OUT["speaker segments → ASR → align"]
+```
+
+**Source:** [`run_diarization()`](../python-backend/transcription.py#L490) · [`_run_diarization_subprocess()`](../python-backend/transcription.py#L264) · [`DIARIZATION_MODEL`](../python-backend/config.py#L81)
+
 ---
 
 ## Configuration Reference

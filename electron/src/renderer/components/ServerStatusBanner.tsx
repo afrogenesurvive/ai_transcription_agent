@@ -21,6 +21,87 @@ const SERVICE_ICONS: Record<string, string> = {
 
 const COUNTDOWN_SECONDS = 25;
 
+// Loading shapes cycled the whole time the banner is loading — regardless of
+// countdown percentage — one every shapeIntervalMs (default 5s), with the
+// % counter overlaid in the center of the current shape.
+const LOADING_SHAPES = ["diamond", "square", "triangle", "pentagon", "hexagon", "plus", "cross", "star"] as const;
+type LoadingShape = (typeof LOADING_SHAPES)[number];
+/** Default per-shape interval (ms) — overridable via LOADING_SHAPE_INTERVAL_MS. */
+const DEFAULT_SHAPE_INTERVAL_MS = 5_000;
+
+/** SVG points for a regular polygon with `sides` sides, centered at (cx, cy),
+ *  radius r, first vertex at `startDeg` degrees (12 o'clock = -90). */
+function polygonPoints(sides: number, cx: number, cy: number, r: number, startDeg = -90): string {
+  const points: string[] = [];
+  for (let i = 0; i < sides; i++) {
+    const a = ((startDeg + (i * 360) / sides) * Math.PI) / 180;
+    points.push(`${(cx + r * Math.cos(a)).toFixed(2)},${(cy + r * Math.sin(a)).toFixed(2)}`);
+  }
+  return points.join(" ");
+}
+
+/** Plus-sign outline: two crossing bars centered at (cx, cy), arm length r,
+ *  bar thickness t. Traced as ONE concave polygon so it renders as a single
+ *  <polygon> like every other shape (strokeLinejoin round keeps corners soft). */
+function plusPoints(cx: number, cy: number, r: number, t: number): string {
+  const h = t / 2;
+  const pts: Array<[number, number]> = [
+    [cx - h, cy - r],
+    [cx + h, cy - r],
+    [cx + h, cy - h],
+    [cx + r, cy - h],
+    [cx + r, cy + h],
+    [cx + h, cy + h],
+    [cx + h, cy + r],
+    [cx - h, cy + r],
+    [cx - h, cy + h],
+    [cx - r, cy + h],
+    [cx - r, cy - h],
+    [cx - h, cy - h],
+  ];
+  return pts.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(" ");
+}
+
+/** Rotate a "x,y x,y …" point string by `deg` degrees about (cx, cy). */
+function rotatePoints(points: string, cx: number, cy: number, deg: number): string {
+  const rad = (deg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  return points
+    .split(" ")
+    .map((p) => {
+      const [xs, ys] = p.split(",");
+      const x = parseFloat(xs) - cx;
+      const y = parseFloat(ys) - cy;
+      return `${(x * cos - y * sin + cx).toFixed(2)},${(x * sin + y * cos + cy).toFixed(2)}`;
+    })
+    .join(" ");
+}
+
+/** 5-pointed star outline centered at (cx, cy): outer radius r, inner radius r*innerRatio. */
+function starPoints(cx: number, cy: number, r: number, innerRatio = 0.4): string {
+  const points: string[] = [];
+  for (let i = 0; i < 10; i++) {
+    const radius = i % 2 === 0 ? r : r * innerRatio;
+    const a = ((-90 + (i * 360) / 10) * Math.PI) / 180;
+    points.push(`${(cx + radius * Math.cos(a)).toFixed(2)},${(cy + radius * Math.sin(a)).toFixed(2)}`);
+  }
+  return points.join(" ");
+}
+
+/** Precomputed 56×56 SVG polygon points for each loading shape (center 28,28, r=22,
+ *  sized to fill the ring area — larger, with the % counter overlaid in the center). */
+const SHAPE_POINTS: Record<LoadingShape, string> = {
+  diamond: polygonPoints(4, 28, 28, 22, -90), // pointy at N/E/S/W
+  square: polygonPoints(4, 28, 28, 22, -45), // flat edges top/bottom
+  triangle: polygonPoints(3, 28, 28, 22, -90), // point-up
+  pentagon: polygonPoints(5, 28, 28, 22, -90),
+  hexagon: polygonPoints(6, 28, 28, 22, -90),
+  plus: plusPoints(28, 28, 22, 8), // two crossing bars
+  cross: rotatePoints(plusPoints(28, 28, 22, 8), 28, 28, 45), // plus rotated 45° = X
+  star: starPoints(28, 28, 22, 0.4), // 5-point star
+};
+
 export default function ServerStatusBanner({
   onConfigImported,
   onLicenseActivated,
@@ -48,6 +129,14 @@ export default function ServerStatusBanner({
   const [restarting, setRestarting] = useState<Record<string, boolean>>({});
   const [countdown, setCountdown] = useState(COUNTDOWN_SECONDS);
   const [countdownActive, setCountdownActive] = useState(true);
+  // Shape morphing: 0..n = which shape is showing; n+1 = sequence finished.
+  // sequencePlaying is decoupled from the stuck state so the full shape run
+  // plays out even if services come back up mid-way. Once services are ready
+  // (allReady), the close effect stops the sequence early and dismisses.
+  const [shapePhase, setShapePhase] = useState(0);
+  const [sequencePlaying, setSequencePlaying] = useState(false);
+  // Per-shape interval (ms) — from config LOADING_SHAPE_INTERVAL_MS, default 5s.
+  const [shapeIntervalMs, setShapeIntervalMs] = useState(DEFAULT_SHAPE_INTERVAL_MS);
   const [visible, setVisible] = useState(true);
   const [configMissing, setConfigMissing] = useState(false);
   // License state: on a fresh/unlicensed run the user cannot import config
@@ -80,6 +169,15 @@ export default function ServerStatusBanner({
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // Load the shape-switch interval from config (the main process folds in the
+  // LOADING_SHAPE_INTERVAL_MS env var); falls back to the 5s default.
+  useEffect(() => {
+    window.electronAPI?.getConfig().then((cfg) => {
+      const v = Number.parseInt(cfg?.LOADING_SHAPE_INTERVAL_MS ?? "", 10);
+      if (Number.isFinite(v) && v > 0) setShapeIntervalMs(v);
+    });
   }, []);
 
   // Load license state and re-poll while the banner is up, so activating a
@@ -162,17 +260,26 @@ export default function ServerStatusBanner({
     }
   }, [countdown, countdownActive, onCheckServers]);
 
-  // When servers become all ready, close the popover immediately regardless of
+  // When servers become all ready, close the popover promptly regardless of
   // whether the countdown is still active. BUT keep it open while setup is
   // incomplete (unlicensed or config blocking) — e.g. mid key-switch, so it
-  // returns to step 1 (key entry) instead of closing.
+  // returns to step 1 (key entry) instead of closing. If services recover mid
+  // shape-sequence, stop the loop early so the banner closes right away
+  // instead of playing out the remaining shapes.
   useEffect(() => {
     if (allReady && !setupIncomplete) {
+      if (sequencePlaying) {
+        // Services are up — end the sequence now (the circle branch renders,
+        // and the restart effect won't fire because countdownDone is false).
+        setSequencePlaying(false);
+        setShapePhase(LOADING_SHAPES.length);
+        return;
+      }
       // Small delay so the user sees the green state briefly
       const t = setTimeout(() => setVisible(false), 800);
       return () => clearTimeout(t);
     }
-  }, [allReady, setupIncomplete]);
+  }, [allReady, setupIncomplete, sequencePlaying]);
 
   const handleRestartService = useCallback(
     async (name: ServiceName) => {
@@ -322,14 +429,35 @@ export default function ServerStatusBanner({
 
   const anyBusy = Object.values(restarting).some(Boolean) || checking;
   const countdownDone = countdown === 0 && !countdownActive && !allReady;
+  // "Loading" = the banner can't close yet: services not all ready, or setup
+  // still incomplete (unlicensed / config blocking). While loading, the shape
+  // sequence runs — shapes change regardless of the countdown percentage.
+  const loading = !allReady || setupIncomplete;
+
+  // Keep the shape sequence playing for the whole time the banner is loading;
+  // stop it once loading ends (the close effect then dismisses the banner).
+  useEffect(() => {
+    if (loading && !sequencePlaying) {
+      setShapePhase(0);
+      setSequencePlaying(true);
+    } else if (!loading && sequencePlaying) {
+      setSequencePlaying(false);
+    }
+  }, [loading, sequencePlaying]);
+
+  // Advance one shape every shapeIntervalMs, wrapping around so the sequence
+  // cycles continuously.
+  useEffect(() => {
+    if (!sequencePlaying) return;
+    const id = setInterval(() => {
+      setShapePhase((prev) => (prev + 1) % LOADING_SHAPES.length);
+    }, shapeIntervalMs);
+    return () => clearInterval(id);
+  }, [sequencePlaying, shapeIntervalMs]);
 
   if (!visible) return null;
 
   const progressPct = Math.round(((COUNTDOWN_SECONDS - countdown) / COUNTDOWN_SECONDS) * 100);
-  // SVG circular progress: circumference = 2 * pi * r
-  const r = 20;
-  const circ = 2 * Math.PI * r;
-  const offset = circ - (progressPct / 100) * circ;
 
   return (
     <div className="ssb-overlay">
@@ -340,36 +468,23 @@ export default function ServerStatusBanner({
         {/* Spinner header with circular progress tied to countdown */}
         <div className="ssb-header ssb-header--center">
           <div className="ssb-spinner-wrap">
-            <svg className={`ssb-spinner-ring ${countdownDone ? "ssb-spinner-ring--done" : ""}`} width="56" height="56" viewBox="0 0 56 56">
-              <circle cx="28" cy="28" r={r} fill="none" stroke="var(--border)" strokeWidth="4" />
-              {countdownDone ? (
-                <circle
-                  cx="28"
-                  cy="28"
-                  r={r}
+            <svg className="ssb-spinner-ring" width="56" height="56" viewBox="0 0 56 56">
+              {/* Loading shape — cycles through every shapeIntervalMs regardless of
+                  the countdown percentage. The <g> spins + glows; the polygon handles
+                  the per-shape entry fade (remounted via the key on the <g>). */}
+              <g key={LOADING_SHAPES[shapePhase % LOADING_SHAPES.length]} className="ssb-shape-spin">
+                <polygon
+                  className="ssb-shape"
+                  points={SHAPE_POINTS[LOADING_SHAPES[shapePhase % LOADING_SHAPES.length]]}
                   fill="none"
                   stroke="var(--accent)"
                   strokeWidth="4"
+                  strokeLinejoin="round"
                   strokeLinecap="round"
-                  strokeDasharray={`${circ * 0.75} ${circ * 0.25}`}
-                  style={{ transform: "rotate(-90deg)", transformOrigin: "center" }}
                 />
-              ) : (
-                <circle
-                  cx="28"
-                  cy="28"
-                  r={r}
-                  fill="none"
-                  stroke="var(--accent)"
-                  strokeWidth="4"
-                  strokeLinecap="round"
-                  strokeDasharray={circ}
-                  strokeDashoffset={offset}
-                  style={{ transform: "rotate(-90deg)", transformOrigin: "center", transition: "stroke-dashoffset 0.4s ease" }}
-                />
-              )}
+              </g>
             </svg>
-            {!countdownDone && <span className="ssb-spinner-label">{progressPct}%</span>}
+            {loading && <span className="ssb-spinner-label">{progressPct}%</span>}
           </div>
           <div className="ssb-header-text">
             <h2 className="ssb-title">Setting Up&hellip;</h2>
