@@ -174,11 +174,12 @@ npm run transcribe:all
 ```bash
 # First-time dist preparation:
 # 1. Builds standalone Python backend
-# 2. Writes version.json
+# 2. Builds agent-runner esbuild bundle
+# 3. Writes version.json
 npm run electron:dist:prepare
 ```
 
-> **Windows build note:** The `dist:prepare` script and its dependencies (`write-version.sh`, `build-python-backend.sh`) are **bash scripts** that require a Unix-compatible shell. On Windows, run the build from **Git Bash** (comes with Git for Windows) or **WSL**. The scripts already detect MINGW/MSYS/CYGWIN environments and handle Windows paths and binaries (`.exe` suffixes, `taskkill`, etc.) correctly.
+> **Windows build note:** The `dist:prepare` script and its dependencies (`write-version.sh`, `build-python-backend.sh`, `build-agent-runner.sh`) are **bash scripts** that require a Unix-compatible shell. On Windows, run the build from **Git Bash** (comes with Git for Windows) or **WSL**. The scripts already detect MINGW/MSYS/CYGWIN environments and handle Windows paths and binaries (`.exe` suffixes, `taskkill`, etc.) correctly.
 
 ### Platform-Specific Builds
 

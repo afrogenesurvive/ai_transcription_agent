@@ -5,7 +5,8 @@
   "description": "Standalone agent runner — watches trigger file, calls LLM, executes tools via the bridge server",
   "type": "module",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "build": "node build.mjs"
   },
   "overrides": {
     "uuid": "^11.1.1"
@@ -16,5 +17,8 @@
     "google-auth-library": "^9.14.0",
     "googleapis": "^144.0.0",
     "openai": "^7.4.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
   }
 }

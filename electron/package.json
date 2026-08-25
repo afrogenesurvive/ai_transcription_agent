@@ -14,7 +14,7 @@
     "build": "tsc -b && vite build",
     "build:main": "tsc -p tsconfig.main.json",
     "start": "electron .",
-    "dist:prepare": "bash ../scripts/write-version.sh && bash ../scripts/build-python-backend.sh",
+    "dist:prepare": "bash ../scripts/write-version.sh && bash ../scripts/build-python-backend.sh && bash ../scripts/build-agent-runner.sh",
     "dist:win": "npm run build && npm run dist:prepare && electron-builder --win",
     "dist:mac": "npm run build && npm run dist:prepare && electron-builder --mac",
     "dist:linux": "npm run build && npm run dist:prepare && electron-builder --linux",
@@ -26,6 +26,7 @@
   "build": {
     "appId": "com.transcription.agent",
     "productName": "Transcription Agent",
+    "compression": "maximum",
     "publish": {
       "provider": "github",
       "owner": "afrogenesurvive",
@@ -71,16 +72,8 @@
         "from": "../agent-runner",
         "to": "agent-runner",
         "filter": [
-          "**/*",
-          "!node_modules/**/.cache/**"
-        ]
-      },
-      {
-        "from": "../agent-runner/node_modules",
-        "to": "agent-runner/node_modules",
-        "filter": [
-          "**/*",
-          "!**/.cache/**"
+          "dist/**/*",
+          "package.json"
         ]
       },
       {

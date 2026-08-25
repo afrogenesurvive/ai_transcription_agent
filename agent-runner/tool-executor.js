@@ -83,11 +83,13 @@ async function sendEmail(to, subject, body, meetingTitle, jobId) {
     return { ok: false, tool: "send_delivery_email", error: "No email recipients provided (to is empty)" };
   }
 
-  const { google } = await import("googleapis");
+  // Subpath import (not the full googleapis barrel): keeps the esbuild bundle
+  // to just Gmail instead of all ~250 Google API clients (size win in the .app).
   const { OAuth2Client } = await import("google-auth-library");
+  const { gmail_v1 } = await import("googleapis/build/src/apis/gmail/index.js");
   const oauth = new OAuth2Client(process.env.GMAIL_CLIENT_ID, process.env.GMAIL_CLIENT_SECRET);
   oauth.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
-  const gmail = google.gmail({ version: "v1", auth: oauth });
+  const gmail = new gmail_v1.Gmail({ auth: oauth });
   const full = body;
 
   const results = [];
@@ -146,11 +148,13 @@ async function createTrelloCards(listId, items) {
 }
 
 async function saveToDrive(folder, title, summary) {
-  const { google } = await import("googleapis");
+  // Subpath import (not the full googleapis barrel): keeps the esbuild bundle
+  // to just Drive instead of all ~250 Google API clients (size win in the .app).
   const { OAuth2Client } = await import("google-auth-library");
+  const { drive_v3 } = await import("googleapis/build/src/apis/drive/index.js");
   const oauth = new OAuth2Client(process.env.GMAIL_CLIENT_ID, process.env.GMAIL_CLIENT_SECRET);
   oauth.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
-  const drive = google.drive({ version: "v3", auth: oauth });
+  const drive = new drive_v3.Drive({ auth: oauth });
 
   const folderName = folder || "Meeting Transcripts";
   const search = await drive.files.list({

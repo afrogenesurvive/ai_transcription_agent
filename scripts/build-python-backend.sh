@@ -171,6 +171,12 @@ echo ""
   --hidden-import "starlette.responses" \
   --hidden-import "starlette.datastructures" \
   --hidden-import "multidict" \
+  --strip \
+  --exclude-module "matplotlib" \
+  --exclude-module "IPython" \
+  --exclude-module "notebook" \
+  --exclude-module "torchvision" \
+  --exclude-module "torch.utils.tensorboard" \
   --collect-all "lightning_fabric" \
   --collect-all "pytorch_lightning" \
   --collect-all "pyannote.audio" \
@@ -179,6 +185,43 @@ echo ""
 
 echo ""
 echo "   ✅ PyInstaller completed"
+
+# ── 4b. Thin universal2 binaries to the target arch (macOS only) ──
+#
+# torch / numpy / scipy etc. ship as macOS universal2 wheels (x86_64 + arm64), so
+# a PyInstaller bundle built on any Mac carries BOTH arch slices of every .so —
+# roughly doubling the backend size even for a single-arch .app. Thin every fat
+# Mach-O in the bundle down to TARGET_ARCH (default: the host arch) to halve it.
+# The PyInstaller `main` bootloader is already host-arch; only _internal .so/.dylib
+# files are typically fat. Runs on macOS only (Windows .exe bundles are not fat).
+
+if [ "$IS_WIN" = false ]; then
+  TARGET_ARCH="${TARGET_ARCH:-$(uname -m)}"
+  BUNDLE_DIR="$OUTDIR/main"
+  echo "   🔪 Thinning universal2 binaries to $TARGET_ARCH..."
+  THINNED=0
+  SKIPPED=0
+  if [ -d "$BUNDLE_DIR" ]; then
+    while IFS= read -r -d '' f; do
+      # lipo -info prints "Architectures in the fat file: <path> are: <archs>"
+      # for fat binaries and "Non-fat file: ... is architecture: <arch>" for
+      # thin ones. We only act on fat files that actually contain TARGET_ARCH.
+      archs=$(lipo -info "$f" 2>/dev/null | sed -n 's/.* are: //p')
+      case "$archs" in
+        *"$TARGET_ARCH"*)
+          if printf '%s' "$archs" | grep -q "x86_64"; then
+            if lipo -thin "$TARGET_ARCH" -output "$f.tmp" "$f" 2>/dev/null && mv "$f.tmp" "$f" 2>/dev/null; then
+              THINNED=$((THINNED + 1))
+            else
+              SKIPPED=$((SKIPPED + 1))
+            fi
+          fi
+          ;;
+      esac
+    done < <(find "$BUNDLE_DIR" -type f \( -name "*.so" -o -name "*.dylib" \) -print0 2>/dev/null)
+  fi
+  echo "   ✅ Thinned $THINNED universal2 binary(s) to $TARGET_ARCH (skipped $SKIPPED)"
+fi
 
 # ── 5. Clean up build artifacts ──
 

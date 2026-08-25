@@ -115,7 +115,7 @@ jobs:
       - name: Build bridge-server & agent-runner deps
         run: |
           cd bridge-server && npm ci && cd ..
-          cd agent-runner && npm ci && cd ..
+          cd agent-runner && npm ci && npm run build && cd ..
 
       - name: Write version file
         run: bash scripts/write-version.sh

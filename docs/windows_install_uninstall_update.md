@@ -96,7 +96,7 @@ The installer bundles everything needed:
 | Python backend  | `dist-resources/python-backend/` | ~200 MB (standalone binary) |
 | Node.js runtime | Electron (embedded) | 0 MB |
 | Bridge server   | `bridge-server/` (source)        | ~5 MB                       |
-| Agent runner    | `agent-runner/` (source)         | ~5 MB                       |
+| Agent runner    | `agent-runner/dist/` (bundled)   | ~2 MB                       |
 | **Total**       |                                  | **~400 MB**                 |
 
 ### Custom NSIS Macros (`electron/build/installer.nsh`)

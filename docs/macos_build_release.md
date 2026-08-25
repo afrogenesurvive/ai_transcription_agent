@@ -28,6 +28,13 @@ Both platforms are published to the same GitHub Release. The detailed build and
 release procedure (commands, architecture targets, pitfalls) is maintained
 internally and is not published in this repo.
 
+## Smaller app builds
+
+The packaged app is slimmed at build time — the transcription backend is built
+stripped and arch-tuned, and the agent runner is bundled into a single file — so
+downloads are significantly smaller and the app starts faster. (Build detail is
+maintained internally.)
+
 ## In-app auto-update (macOS)
 
 electron-updater on macOS uses the `.zip` + `latest-mac.yml` from the GitHub

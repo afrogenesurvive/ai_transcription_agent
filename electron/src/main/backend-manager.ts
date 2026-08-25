@@ -1433,7 +1433,9 @@ export async function ensureFfmpegAvailable(): Promise<string | null> {
 }
 export async function startAgentRunner(): Promise<void> {
   const agentDir = resourcePath("agent-runner");
-  const nodeSpec = nodeSpawnSpec("index.js");
+  // Packaged: run the esbuild bundle (dist/bundle.js — node_modules is not shipped).
+  // Dev: run the source entry against the repo's node_modules.
+  const nodeSpec = nodeSpawnSpec(isProd ? "dist/bundle.js" : "index.js");
 
   console.log(`[agent] Starting agent runner at ${agentDir} using ${nodeSpec.command}`);
 
