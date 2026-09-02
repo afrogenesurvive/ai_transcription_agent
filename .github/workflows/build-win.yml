@@ -54,12 +54,16 @@ jobs:
           # cryptography 46.x fixes PYSEC-2026-35/36/2141; the remaining
           #   PYSEC-2026-3552/3553/3554 + GHSA-537c-gmf6-5ccf need ≥48/49/50 —
           #   major bumps not yet validated against the Ed25519 license flow (license.py).
+          # 2026-09: chromadb 1.5.9 CVE-2026-45830/45831/45833 (no fix release yet);
+          #   transformers 4.57.6 CVE-2026-9856 (fix 5.10.0 — major bump not yet
+          #   validated against pyannote/sentence-transformers).
           # New CVEs outside this list fail the build.
           pip-audit --ignore-vuln PYSEC-2026-311 --ignore-vuln PYSEC-2026-3624 \
             --ignore-vuln PYSEC-2025-194 --ignore-vuln PYSEC-2025-203 --ignore-vuln PYSEC-2025-204 --ignore-vuln PYSEC-2025-206 \
             --ignore-vuln PYSEC-2026-139 --ignore-vuln PYSEC-2026-2286 --ignore-vuln CVE-2025-2999 --ignore-vuln CVE-2025-3001 \
             --ignore-vuln PYSEC-2025-217 --ignore-vuln PYSEC-2026-2288 --ignore-vuln PYSEC-2026-2289 --ignore-vuln PYSEC-2026-2290 \
-            --ignore-vuln PYSEC-2026-3552 --ignore-vuln PYSEC-2026-3553 --ignore-vuln PYSEC-2026-3554 --ignore-vuln GHSA-537c-gmf6-5ccf
+            --ignore-vuln PYSEC-2026-3552 --ignore-vuln PYSEC-2026-3553 --ignore-vuln PYSEC-2026-3554 --ignore-vuln GHSA-537c-gmf6-5ccf \
+            --ignore-vuln CVE-2026-45830 --ignore-vuln CVE-2026-45831 --ignore-vuln CVE-2026-45833 --ignore-vuln CVE-2026-9856
 
       - name: Build Python backend (Windows)
         shell: bash
