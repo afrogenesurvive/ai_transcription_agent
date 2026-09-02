@@ -85,7 +85,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // ── System audio capture ──
   captureSources: (): Promise<CaptureSource[]> => ipcRenderer.invoke("capture:sources"),
   captureDevice: (): Promise<CaptureDeviceStatus> => ipcRenderer.invoke("capture:device"),
-  captureStart: (): Promise<{ ok: boolean; filePath?: string; error?: string }> => ipcRenderer.invoke("capture:start"),
+  captureStart: (deviceName?: string): Promise<{ ok: boolean; filePath?: string; error?: string }> => ipcRenderer.invoke("capture:start", deviceName),
   captureStop: (): Promise<{ ok: boolean; filePath?: string; error?: string }> => ipcRenderer.invoke("capture:stop"),
   captureSave: (data: Uint8Array): Promise<{ ok: boolean; filePath?: string; error?: string }> => ipcRenderer.invoke("capture:save", data),
 

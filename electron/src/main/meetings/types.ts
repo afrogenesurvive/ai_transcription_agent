@@ -52,5 +52,7 @@ export interface CaptureDeviceStatus {
   blackholeInstalled: boolean;
   ffmpegAvailable: boolean;
   windowsLoopbackAvailable: boolean;
+  /** macOS: avfoundation audio capture devices (BlackHole, Aggregate Devices, built-in mic, …). */
+  macAudioDevices?: CaptureSource[];
   hint?: string;
 }

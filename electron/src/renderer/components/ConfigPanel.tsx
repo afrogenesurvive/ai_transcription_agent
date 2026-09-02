@@ -3061,7 +3061,7 @@ The system provides existing memory context at the start of each pipeline run. U
                         </summary>
                         <div className="delivery-config-body">
                           <p className="config-field-hint">
-                            Pull Zoom meetings with cloud recordings. Set the Client ID + Secret, then connect your Zoom account.
+                            Pull Zoom meetings with cloud recordings. Set the public Client ID (secret optional for PKCE), then connect your Zoom account.
                           </p>
                           <ProviderConnectRow
                             label="Connect Zoom"
@@ -3080,9 +3080,10 @@ The system provides existing memory context at the start of each pipeline run. U
                             portalLabel="Open Zoom Marketplace"
                             steps={[
                               "Go to the Zoom Marketplace → Build App → OAuth (general purpose).",
-                              "Redirect URL for OAuth: http://localhost (also add http://localhost:PORT if your app uses a fixed port).",
-                              "Scopes: meeting:read, recording:read, user:read.",
-                              "Copy the Client ID and Client Secret into the Zoom fields below.",
+                              "In Basic Information → App Credentials, toggle Use Public Client OAuth ON and copy the public client ID.",
+                              "Redirect URL for OAuth: http://127.0.0.1 (loopback — only works with PKCE public client OAuth).",
+                              "Add the scopes your app needs under Scopes → Add Scopes (e.g. meeting read, recording read, user read). The app requests the app's default scopes automatically.",
+                              "Enter the public Client ID (Client Secret optional) into the Zoom fields below, then Connect Zoom.",
                             ]}
                           />
                           {fields

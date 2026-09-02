@@ -61,6 +61,8 @@ export interface CaptureDeviceStatus {
   ffmpegAvailable: boolean;
   /** Windows: the built-in loopback path is always available. */
   windowsLoopbackAvailable: boolean;
+  /** macOS: avfoundation audio capture devices (BlackHole, Aggregate Devices, built-in mic, …). */
+  macAudioDevices?: CaptureSource[];
   /** macOS: human-readable setup hint when BlackHole is missing. */
   hint?: string;
 }
@@ -70,11 +72,13 @@ export async function detectCaptureDevice(): Promise<CaptureDeviceStatus> {
   if (IS_MAC) {
     const ffmpegAvailable = fs.existsSync(resolveFfmpeg()) || true; // PATH fallback always "exists"
     const blackholeInstalled = await isBlackholeInstalled();
+    const macAudioDevices = await listMacAudioDevices();
     return {
       platform: "darwin",
       blackholeInstalled,
       ffmpegAvailable,
       windowsLoopbackAvailable: false,
+      macAudioDevices,
       hint: blackholeInstalled
         ? undefined
         : "Install the free BlackHole driver and set up a Multi-Output Device in Audio MIDI Setup so meeting audio is routed to BlackHole while you can still hear it.",
@@ -112,10 +116,54 @@ async function isBlackholeInstalled(): Promise<boolean> {
 }
 
 /**
+ * macOS: list avfoundation AUDIO capture devices (BlackHole, Aggregate Devices,
+ * the built-in mic, etc.) by parsing `ffmpeg -f avfoundation -list_devices`.
+ * Only the "audio devices:" section is parsed; entries look like "[0] Name".
+ */
+async function listMacAudioDevices(): Promise<CaptureSource[]> {
+  const devices: CaptureSource[] = [];
+  try {
+    const proc = spawn(resolveFfmpeg(), ["-f", "avfoundation", "-list_devices", "true", "-i", ""], {
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let stderr = "";
+    proc.stderr?.on("data", (d) => (stderr += d.toString()));
+    await new Promise<void>((resolve) => {
+      proc.on("close", () => resolve());
+      proc.on("error", () => resolve());
+    });
+    let inAudio = false;
+    for (const raw of stderr.split(/\r?\n/)) {
+      const line = raw.trim();
+      if (/AVFoundation audio devices:/i.test(line)) {
+        inAudio = true;
+        continue;
+      }
+      if (/AVFoundation video devices:/i.test(line)) {
+        inAudio = false;
+        continue;
+      }
+      if (inAudio) {
+        // ffmpeg prefixes every line ("[AVFoundation indev @ 0x...] [0] Name"),
+        // so match "[N] Name" anywhere in the line, not just at the start.
+        const m = line.match(/\[\d+\]\s+(.+)$/);
+        if (m) {
+          const name = m[1].trim();
+          if (name) devices.push({ id: name, name });
+        }
+      }
+    }
+  } catch {
+    /* return whatever we parsed */
+  }
+  return devices;
+}
+
+/**
  * macOS: start ffmpeg capturing the BlackHole device to an M4A.
  * Returns the output path immediately (recording runs in the background).
  */
-export function startFfmpegCapture(): Promise<{ ok: boolean; filePath?: string; error?: string }> {
+export function startFfmpegCapture(deviceName?: string): Promise<{ ok: boolean; filePath?: string; error?: string }> {
   return new Promise((resolve) => {
     if (ffmpegProc) {
       resolve({ ok: false, error: "A capture is already in progress." });
@@ -125,12 +173,14 @@ export function startFfmpegCapture(): Promise<{ ok: boolean; filePath?: string; 
       resolve({ ok: false, error: "ffmpeg capture is only used on macOS." });
       return;
     }
-    const filePath = path.join(capturesDir(), `meeting-${Date.now()}.m4a`);
     // avfoundation inputs are "<video>:<audio>". A bare device name with no
     // colon is treated as a VIDEO device (ffmpeg fails with "Video device not
-    // found"), so audio-only capture from BlackHole must use ":BlackHole 2ch"
-    // — empty video slot, named audio device.
-    const args = ["-f", "avfoundation", "-i", ":BlackHole 2ch", "-c:a", "aac", "-y", filePath];
+    // found"), so audio-only capture must use ":<device>" — empty video slot,
+    // named audio device. Defaults to BlackHole 2ch (system audio); an
+    // Aggregate Device (BlackHole + your mic) captures both sides.
+    const dev = (deviceName ?? "BlackHole 2ch").trim() || "BlackHole 2ch";
+    const filePath = path.join(capturesDir(), `meeting-${Date.now()}.m4a`);
+    const args = ["-f", "avfoundation", "-i", `:${dev}`, "-c:a", "aac", "-y", filePath];
     addLog("main", "info", `[capture] starting ffmpeg → ${filePath}`);
 
     const proc = spawn(resolveFfmpeg(), args, { stdio: ["ignore", "ignore", "pipe"] });

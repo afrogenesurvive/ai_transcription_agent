@@ -77,7 +77,8 @@ export default function MeetingsPanel({ onTranscribe, uploading, disabled, initi
       setConnectedUser({ teams: (cfg?.MS_USER || "").trim(), zoom: (cfg?.ZOOM_USER || "").trim() });
       setConfigured({
         teams: !!(cfg?.MS_CLIENT_ID || "").trim(),
-        zoom: !!(cfg?.ZOOM_CLIENT_ID || "").trim() && !!(cfg?.ZOOM_CLIENT_SECRET || "").trim(),
+        // Zoom uses a PKCE public client — no secret required.
+        zoom: !!(cfg?.ZOOM_CLIENT_ID || "").trim(),
       });
     });
     return () => {

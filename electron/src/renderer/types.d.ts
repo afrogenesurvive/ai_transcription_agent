@@ -220,6 +220,8 @@ export interface CaptureDeviceStatus {
   blackholeInstalled: boolean;
   ffmpegAvailable: boolean;
   windowsLoopbackAvailable: boolean;
+  /** macOS: avfoundation audio capture devices (BlackHole, Aggregate Devices, built-in mic, …). */
+  macAudioDevices?: CaptureSource[];
   hint?: string;
 }
 
@@ -281,7 +283,7 @@ export interface ElectronAPI {
   // ── System audio capture ──
   captureSources: () => Promise<CaptureSource[]>;
   captureDevice: () => Promise<CaptureDeviceStatus>;
-  captureStart: () => Promise<{ ok: boolean; filePath?: string; error?: string }>;
+  captureStart: (deviceName?: string) => Promise<{ ok: boolean; filePath?: string; error?: string }>;
   captureStop: () => Promise<{ ok: boolean; filePath?: string; error?: string }>;
   captureSave: (data: Uint8Array) => Promise<{ ok: boolean; filePath?: string; error?: string }>;
   getActiveJobs: () => Promise<Array<{ job_id: string; status: string; progress: number; title: string }>>;

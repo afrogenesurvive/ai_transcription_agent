@@ -5,8 +5,8 @@
  * Runs the consent -> loopback redirect -> token-exchange flow entirely in the
  * main process, mirroring gmailOAuth.ts but generalized:
  *   - loopback server on 127.0.0.1:0 with a `state` check
- *   - optional PKCE (Teams requires it; Microsoft blocks the implicit flow)
- *   - optional client secret (Zoom) vs public client (Teams, no secret)
+ *   - optional PKCE (Teams requires it; Zoom uses it for loopback redirects)
+ *   - optional client secret (confidential clients) vs public client (PKCE, no secret)
  *   - best-effort signed-in user fetch after token exchange
  *
  * The renderer never sees the auth code or tokens mid-flight — only the final
@@ -34,9 +34,9 @@ export interface OAuthFlowOptions {
   clientSecret?: string;
   /**
    * Host used in the loopback redirect URI advertised to the provider.
-   * Defaults to "localhost". Azure (Teams) and Zoom validate the redirect
-   * URI strictly, so "127.0.0.1" often fails (AADSTS50011 / invalid_redirect_uri)
-   * while "localhost" matches a registered "http://localhost" redirect.
+   * Defaults to "localhost" (Teams matches a registered "http://localhost"
+   * redirect). Zoom requires the numeric loopback "127.0.0.1" for its PKCE
+   * flow, so providers that need it must set this explicitly.
    */
   redirectHost?: string;
   /** Enable PKCE (S256) — required by Microsoft; optional elsewhere. */
@@ -160,10 +160,13 @@ export async function runOAuthFlow(opts: OAuthFlowOptions): Promise<OAuthFlowRes
         client_id: opts.clientId,
         redirect_uri: redirectUri,
         response_type: "code",
-        scope: opts.scopes.join(" "),
         state,
         ...(opts.extraAuthorizeParams || {}),
       });
+      // Zoom granular-scope apps use the basic authorization query (no `scope`
+      // param) so Zoom requests the app's configured default scopes — sending
+      // classic scope strings here causes "Invalid scope".
+      if (opts.scopes.length > 0) params.set("scope", opts.scopes.join(" "));
       if (opts.usePkce) {
         params.set("code_challenge", base64Url(crypto.createHash("sha256").update(codeVerifier).digest()));
         params.set("code_challenge_method", "S256");
@@ -187,7 +190,8 @@ async function exchangeCode(opts: OAuthFlowOptions, code: string, redirectUri: s
     grant_type: "authorization_code",
     client_id: opts.clientId,
   };
-  if (opts.clientSecret) body.client_secret = opts.clientSecret;
+  // PKCE public clients must NOT send a client secret (there is none).
+  if (opts.clientSecret && !opts.usePkce) body.client_secret = opts.clientSecret;
   if (opts.usePkce) body.code_verifier = codeVerifier;
   if (opts.extraTokenParams) Object.assign(body, opts.extraTokenParams(code, redirectUri));
 

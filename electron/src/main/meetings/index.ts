@@ -63,7 +63,7 @@ export function registerMeetingsIpc(): void {
   // ── Capture ──
   ipcMain.handle("capture:sources", () => capture.listCaptureSources());
   ipcMain.handle("capture:device", () => capture.detectCaptureDevice());
-  ipcMain.handle("capture:start", () => capture.startFfmpegCapture());
+  ipcMain.handle("capture:start", (_e, deviceName?: string) => capture.startFfmpegCapture(deviceName));
   ipcMain.handle("capture:stop", () => capture.stopFfmpegCapture());
   ipcMain.handle("capture:save", (_e, data: Uint8Array | ArrayBuffer) => {
     if (data == null) {

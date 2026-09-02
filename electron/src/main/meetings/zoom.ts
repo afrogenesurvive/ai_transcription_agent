@@ -1,5 +1,9 @@
 /**
- * Zoom meeting provider — Zoom Marketplace OAuth (client secret) + Zoom REST API.
+ * Zoom meeting provider — Zoom Marketplace OAuth (PKCE public client) + Zoom REST API.
+ *
+ * Uses Zoom's PKCE public-client OAuth flow with a numeric loopback redirect
+ * (http://127.0.0.1:<port>/), which is the supported pattern for desktop apps.
+ * The client secret is optional: public-client (PKCE) setups leave it blank.
  *
  * - List the user's meetings that have cloud recordings (the recordings
  *   endpoint is the natural "meetings with audio" list).
@@ -21,7 +25,11 @@ const AUTHORIZE_URL = "https://zoom.us/oauth/authorize";
 const TOKEN_URL = "https://zoom.us/oauth/token";
 const API = "https://api.zoom.us/v2";
 
-const SCOPES = ["meeting:read", "recording:read", "user:read"];
+// Newly created Zoom apps use granular scopes configured in the Marketplace.
+// We omit the `scope` parameter on authorize (Zoom's basic authorization query)
+// so Zoom requests the app's default required scopes — sending classic scope
+// strings here causes "Invalid scope" on granular-scope apps.
+const SCOPES: string[] = [];
 
 function clientId(): string {
   return getConfig().ZOOM_CLIENT_ID.trim();
@@ -41,6 +49,9 @@ export async function connectZoom(): Promise<OAuthFlowResult> {
     provider: "Zoom",
     clientId: clientId(),
     clientSecret: clientSecret(),
+    // Zoom loopback redirects are only accepted for PKCE public-client flows.
+    redirectHost: "127.0.0.1",
+    usePkce: true,
     authorizeUrl: AUTHORIZE_URL,
     tokenUrl: TOKEN_URL,
     scopes: SCOPES,
@@ -59,7 +70,9 @@ export function cancelZoom(): void {
 
 /** Verify connectivity with the saved token (used to fail fast on submit). */
 export async function validateZoom(): Promise<{ ok: boolean; user?: string; error?: string }> {
-  if (!clientId() || !clientSecret() || !refreshToken()) {
+  // Public-client (PKCE) setups have no client secret, so only the client ID
+  // and refresh token are required to be able to call the API.
+  if (!clientId() || !refreshToken()) {
     return { ok: false, error: "Zoom is not connected — connect your Zoom account first." };
   }
   try {
@@ -78,15 +91,19 @@ export async function validateZoom(): Promise<{ ok: boolean; user?: string; erro
 async function getAccessToken(): Promise<string> {
   const rt = refreshToken();
   if (!rt) throw new Error("Zoom is not connected.");
+  // Public-client (PKCE) refresh uses just client_id + refresh_token; only
+  // include the client secret when one is configured (confidential clients).
+  const params: Record<string, string> = {
+    client_id: clientId(),
+    grant_type: "refresh_token",
+    refresh_token: rt,
+  };
+  const secret = clientSecret();
+  if (secret) params.client_secret = secret;
   const res = await fetch(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: clientId(),
-      client_secret: clientSecret(),
-      grant_type: "refresh_token",
-      refresh_token: rt,
-    }).toString(),
+    body: new URLSearchParams(params).toString(),
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const json: any = await res.json().catch(() => ({}));

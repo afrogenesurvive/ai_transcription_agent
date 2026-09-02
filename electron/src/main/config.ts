@@ -57,7 +57,7 @@ export interface AppConfig {
   MS_CLIENT_ID: string;
   MS_REFRESH_TOKEN: string;
   MS_USER: string;
-  /** Zoom meeting integration (Marketplace OAuth app — client secret required) */
+  /** Zoom meeting integration (Marketplace OAuth app — PKCE public client; secret optional) */
   ZOOM_CLIENT_ID: string;
   ZOOM_CLIENT_SECRET: string;
   ZOOM_REFRESH_TOKEN: string;

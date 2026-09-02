@@ -2,8 +2,9 @@
 # (installer + latest.yml) when a version tag (v*) is pushed.
 #
 # NOTE: macOS is intentionally NOT built here. macOS is built locally from the
-# Mac via the release wrap-up prompt (`electron-builder --mac --publish always`)
-# so its .dmg/.zip + latest-mac.yml are added to the same GitHub Release.
+# Mac via the release wrap-up prompt (`electron-builder --mac --publish never`
+# with the arm64-only config, then `gh release upload`) so its .dmg/.zip +
+# latest-mac.yml are added to the same GitHub Release.
 name: Build Windows
 
 on:

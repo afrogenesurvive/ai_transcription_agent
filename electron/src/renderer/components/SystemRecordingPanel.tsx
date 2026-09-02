@@ -47,6 +47,9 @@ export default function SystemRecordingPanel({ onTranscribe, uploading, disabled
   const [sources, setSources] = useState<CaptureSource[]>([]);
   // Persisted so the panel reopens on the last-selected capture source (validated against the fetched list below).
   const [selectedSourceId, setSelectedSourceId] = useUiStateValue<string>("newForm.recording.source", "");
+  // macOS: persisted avfoundation input device. Defaults to BlackHole 2ch (system
+  // audio only); an Aggregate Device (BlackHole + your mic) captures both sides.
+  const [selectedMacDevice, setSelectedMacDevice] = useUiStateValue<string>("newForm.recording.macDevice", "BlackHole 2ch");
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -90,13 +93,20 @@ export default function SystemRecordingPanel({ onTranscribe, uploading, disabled
         setSources(srcs);
         // Keep the persisted source only if it still exists in the fresh list; otherwise fall back to the first.
         setSelectedSourceId((prev) => (srcs.some((s) => s.id === prev) ? prev : (srcs[0]?.id ?? "")));
+      } else if (dev?.platform === "darwin") {
+        const macDevs = dev.macAudioDevices ?? [];
+        // Keep the persisted device if it still exists; otherwise prefer BlackHole, else the first audio device.
+        setSelectedMacDevice((prev) => {
+          if (macDevs.some((d) => d.name === prev)) return prev;
+          return macDevs.find((d) => /\bBlackHole\b/i.test(d.name))?.name ?? macDevs[0]?.name ?? "BlackHole 2ch";
+        });
       }
     } catch {
       setError("Could not re-check capture support. Please try again.");
     } finally {
       setChecking(false);
     }
-  }, [setSelectedSourceId]);
+  }, [setSelectedSourceId, setSelectedMacDevice]);
 
   // Detect platform capture capability on mount (and when refreshTrigger changes).
   useEffect(() => {
@@ -222,7 +232,7 @@ export default function SystemRecordingPanel({ onTranscribe, uploading, disabled
     setBusy(true);
     setError(null);
     try {
-      const res = await window.electronAPI?.captureStart();
+      const res = await window.electronAPI?.captureStart(selectedMacDevice);
       if (res?.ok && res.filePath) {
         setFilePath(res.filePath);
         setRecording(true);
@@ -234,7 +244,7 @@ export default function SystemRecordingPanel({ onTranscribe, uploading, disabled
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [selectedMacDevice]);
 
   const stopMacCapture = useCallback(async () => {
     setBusy(true);
@@ -371,6 +381,22 @@ export default function SystemRecordingPanel({ onTranscribe, uploading, disabled
               </option>
             ))}
           </select>
+        </label>
+      )}
+
+      {device && isMac && (device.macAudioDevices?.length ?? 0) > 0 && !recording && (
+        <label className="capture-source-row">
+          <span className="field-hint">Capture input (macOS):</span>
+          <select value={selectedMacDevice} onChange={(e) => setSelectedMacDevice(e.target.value)} disabled={disabled}>
+            {device.macAudioDevices?.map((d) => (
+              <option key={d.id} value={d.name}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+          {!/\bBlackHole\b/i.test(selectedMacDevice) && (
+            <span className="field-hint">Aggregate / other input — records this device's audio in addition to system audio routed to BlackHole.</span>
+          )}
         </label>
       )}
 
