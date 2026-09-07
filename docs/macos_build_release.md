@@ -67,3 +67,14 @@ download. Each user must bypass it once:
 Locally-built DMGs have no quarantine attribute and open without a prompt on the
 building machine — the warning only appears after download/distribution.
 
+---
+
+## Logs (install & startup diagnostics)
+
+- **No installer log on macOS** — the DMG is drag-and-drop, so there is no install step to log.
+- **First launch / startup:** once the app has run, diagnostics are written to the per-user `logs/` folder under the app's data directory:
+  - `startup-error.log` — backend / agent runner failed to start.
+  - `agent.log`, `bridge.log` — per-service stderr capture.
+  - `update.log` — auto-updater.
+- The **Windows NSIS installer** writes a matching `installer.log` in the same per-user `logs/` folder — see [Install, Uninstall & Update (Windows & macOS)](windows_install_uninstall_update.md).
+

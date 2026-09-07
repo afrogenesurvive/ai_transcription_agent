@@ -80,6 +80,66 @@ Function instfiles.show
 FunctionEnd
 !endif
 
+; ── Installer Log (diagnostic) ──
+;
+; Writes %APPDATA%\Transcription Agent\logs\installer.log — the same folder the
+; app uses for its runtime logs (startup-error.log, agent.log) — so an install
+; that fails or is aborted can be diagnosed like a runtime issue. The file is
+; truncated at the start of each install and a "completed" line is appended only
+; on success, so a partial file means the install did not finish.
+;
+; Uses only native NSIS file commands (FileOpen/FileWrite/FileClose) — no
+; logging-enabled NSIS build / toolchain swap required.
+
+!ifndef BUILD_UNINSTALLER
+
+Var InstallLogPath
+Var InstallLogMsg
+Var InstallLogMode
+
+!macro InstallLogLine TEXT
+  StrCpy $InstallLogMsg "${TEXT}"
+  Call LogInstallLine
+!macroend
+
+Function StartInstallLog
+  ; Detect mode (fresh vs upgrade), then wipe any previous run's log.
+  StrCpy $InstallLogMode "fresh install"
+  IfFileExists "$INSTDIR\Uninstall Transcription Agent.exe" 0 startlog_mode_done
+  StrCpy $InstallLogMode "upgrade (existing install detected)"
+  startlog_mode_done:
+
+  StrCpy $InstallLogPath "$APPDATA\Transcription Agent\logs\installer.log"
+  CreateDirectory "$APPDATA\Transcription Agent\logs"
+  FileOpen $0 $InstallLogPath "w"
+  FileClose $0
+
+  !insertmacro InstallLogLine "==== Transcription Agent installer (v${VERSION}) ===="
+  !insertmacro InstallLogLine "Install directory: $INSTDIR"
+  !insertmacro InstallLogLine "Install mode: $InstallLogMode"
+  !insertmacro InstallLogLine "--------------------------------------------"
+FunctionEnd
+
+Function LogInstallLine
+  ; Append $InstallLogMsg to the installer log, preserving $0..$3.
+  Push $0
+  Push $1
+  Push $2
+  Push $3
+  StrCpy $0 $InstallLogMsg
+  FileOpen $1 $InstallLogPath "a"
+  StrCmp $1 "" logInstallLineDone   ; open failed (e.g. no APPDATA) — skip quietly
+  FileWrite $1 "$0$\r$\n"
+  FileClose $1
+  logInstallLineDone:
+  Pop $3
+  Pop $2
+  Pop $1
+  Pop $0
+FunctionEnd
+
+!endif
+
 ; ── Custom Welcome Page (installer only) ──
 
 !ifndef BUILD_UNINSTALLER
@@ -195,6 +255,9 @@ FunctionEnd
 ; generated sections. They show the user what's being installed.
 
 !macro InstallProgressMessages
+!ifndef BUILD_UNINSTALLER
+  Call StartInstallLog
+!endif
   DetailPrint ""
   DetailPrint "╔══════════════════════════════════════════════════════════╗"
   DetailPrint "║   🎙️  Transcription Agent — Installing                    ║"
@@ -244,6 +307,9 @@ FunctionEnd
 !macroend
 
 !macro InstallCompleteMessage
+!ifndef BUILD_UNINSTALLER
+  !insertmacro InstallLogLine "Install completed successfully."
+!endif
   DetailPrint ""
   DetailPrint "╔══════════════════════════════════════════════════════════╗"
   DetailPrint "║   ✅  Installation Complete!                             ║"

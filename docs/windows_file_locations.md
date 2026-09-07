@@ -63,7 +63,7 @@ Stored under the platform's standard per-user application-data directory
 | `storage\logs\`               | Agent runner JSONL logs                                       |
 | `storage\uploads\`            | Temp upload directory (cleaned after processing)              |
 | `storage\test-bot-log.jsonl`  | Test bot run logs                                             |
-| `logs\`                       | Electron main process logs                                    |
+| `logs\`                       | Electron main + per-service logs (`startup-error.log`, `agent.log`, `bridge.log`, `update.log`); Windows NSIS installs also write `installer.log` here |
 | `queue\`                      | Pipeline job queue files                                      |
 | `bin\ffmpeg.exe`              | Auto-downloaded ffmpeg binary                                 |
 | `.ollama-auto-installed`      | Sentinel (Ollama was auto-installed)                          |
@@ -86,7 +86,7 @@ Stored under the platform's standard per-user application-data directory
 | `storage/voiceprints.db`      | SQLite DB (enrolled speaker voiceprints)                      |
 | `storage/logs/`               | Agent runner JSONL logs                                       |
 | `storage/uploads/`            | Temp upload directory (cleaned after processing)              |
-| `logs/`                       | Electron main + update logs                                   |
+| `logs/`                       | Electron main + per-service logs (`startup-error.log`, `agent.log`, `bridge.log`, `update.log`); no installer log on macOS (DMG drag-copy) |
 | `meetings/`                   | Downloaded Teams/Zoom recordings (`teams/` / `zoom/`)         |
 | `queue/`                      | Pipeline job queue files                                      |
 | `bin/ffmpeg`                  | Auto-downloaded ffmpeg binary                                 |

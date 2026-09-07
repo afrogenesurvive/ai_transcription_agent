@@ -140,6 +140,17 @@ The macOS distribution is a DMG built by electron-builder (`build.mac` targets `
 
 The `.zip` is the auto-update artifact (the `.app` compressed) consumed by electron-updater via `latest-mac.yml` — it is not a user-facing installer.
 
+### Install & Startup Logs (diagnostics)
+
+- **Windows (NSIS installer)** writes an installer log to the app's per-user `logs/` folder as `installer.log` — the same folder the app uses for its runtime logs. Each install run truncates the file and records the app version, install directory, and install mode (fresh vs upgrade), ending with `Install completed successfully.` on success. A **partial file means the install was aborted or failed.** It is written with native NSIS file commands, so no special NSIS build/toolchain is required.
+- **macOS (DMG)** has no installer step (drag-and-drop), so no installer log is produced.
+- **Both platforms — first launch:** once the app has run, diagnostics are written under `<userData>/logs/`:
+  - `startup-error.log` — written when the backend or agent runner fails to start (e.g. `Agent runner exited immediately after starting — check agent-runner/index.js for errors`).
+  - `agent.log`, `bridge.log` — per-service stderr capture (the agent runner's actual crash stack trace lands here, prefixed `[stderr]`).
+  - `update.log` — auto-updater.
+
+  If an install succeeds but the app doesn't start correctly, check `startup-error.log` and `agent.log` first.
+
 ---
 
 ## Update Mechanism
@@ -326,7 +337,7 @@ flowchart TD
     UN["Uninstall initiated"] --> KILL["customUnInstall: kill app + orphaned processes<br/>(child-pids.txt)"]
     KILL --> OLLAMA["removeOllamaIfAutoInstalled (sentinel-gated)"]
     OLLAMA --> ASK{"delete my data checkbox?"}
-    ASK -->|"checked"| DEL["Delete %APPDATA%\Transcription Agent<br/>(config, storage, logs, voiceprints, chroma, ffmpeg)"]
+    ASK -->|"checked"| DEL["Delete the app's user-data folder<br/>(config, storage, logs, voiceprints, chroma, ffmpeg)"]
     ASK -->|"unchecked (default)"| KEEP["Keep user data"]
     DEL --> REM["Remove install dir ($INSTDIR)"]
     KEEP --> REM
