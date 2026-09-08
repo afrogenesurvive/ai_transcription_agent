@@ -96,6 +96,7 @@ FunctionEnd
 Var InstallLogPath
 Var InstallLogMsg
 Var InstallLogMode
+Var InstallLogStarted
 
 !macro InstallLogLine TEXT
   StrCpy $InstallLogMsg "${TEXT}"
@@ -103,6 +104,10 @@ Var InstallLogMode
 !macroend
 
 Function StartInstallLog
+  ; Idempotent — truncate + write the header only once per install run.
+  StrCmp $InstallLogStarted "1" startlog_already_started
+  StrCpy $InstallLogStarted "1"
+
   ; Detect mode (fresh vs upgrade), then wipe any previous run's log.
   StrCpy $InstallLogMode "fresh install"
   IfFileExists "$INSTDIR\Uninstall Transcription Agent.exe" 0 startlog_mode_done
@@ -118,6 +123,7 @@ Function StartInstallLog
   !insertmacro InstallLogLine "Install directory: $INSTDIR"
   !insertmacro InstallLogLine "Install mode: $InstallLogMode"
   !insertmacro InstallLogLine "--------------------------------------------"
+  startlog_already_started:
 FunctionEnd
 
 Function LogInstallLine
@@ -137,6 +143,14 @@ Function LogInstallLine
   Pop $1
   Pop $0
 FunctionEnd
+
+; electron-builder calls `customInstall` at the END of the install section (after
+; all files are extracted) — for interactive AND silent installs, so the success
+; marker is written even when no progress pages are shown. A partial installer.log
+; (missing this line) means the install was aborted/failed.
+!macro customInstall
+  !insertmacro InstallLogLine "Install completed successfully."
+!macroend
 
 !endif
 
@@ -245,6 +259,10 @@ Function instProgressLeave
        Continue?" /SD IDYES IDYES done
     Abort
   done:
+  ; Install is about to begin — start the installer log (truncate any previous
+  ; run + write the header). Fresh installs and confirmed upgrades reach here;
+  ; a declined overwrite Aborts before this point.
+  Call StartInstallLog
 FunctionEnd
 
 !endif
@@ -255,9 +273,6 @@ FunctionEnd
 ; generated sections. They show the user what's being installed.
 
 !macro InstallProgressMessages
-!ifndef BUILD_UNINSTALLER
-  Call StartInstallLog
-!endif
   DetailPrint ""
   DetailPrint "╔══════════════════════════════════════════════════════════╗"
   DetailPrint "║   🎙️  Transcription Agent — Installing                    ║"
@@ -307,9 +322,6 @@ FunctionEnd
 !macroend
 
 !macro InstallCompleteMessage
-!ifndef BUILD_UNINSTALLER
-  !insertmacro InstallLogLine "Install completed successfully."
-!endif
   DetailPrint ""
   DetailPrint "╔══════════════════════════════════════════════════════════╗"
   DetailPrint "║   ✅  Installation Complete!                             ║"
