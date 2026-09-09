@@ -1,5 +1,7 @@
 /**
- * agent-runner build — bundles index.js into a single self-contained ESM file.
+ * agent-runner build — bundles index.js (and smoke.mjs) into single
+ * self-contained ESM files under dist/. A createRequire banner keeps lazy
+ * `require()` of Node built-ins working at runtime (see BASE_BUILD below).
  *
  * Why: electron-builder ships agent-runner as an extraResource. Previously that
  * meant copying the ENTIRE node_modules tree (googleapis alone carries all ~250
@@ -29,18 +31,38 @@ import esbuild from "esbuild";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "fs";
 import { join } from "path";
 
-await esbuild.build({
-  entryPoints: ["index.js"],
+/** Shared esbuild options for the runner bundle and the smoke bundle.
+ *
+ * banner (createRequire): the output is ESM, which has NO top-level require.
+ * Bundled CJS deps that lazily `require()` Node built-ins at module init
+ * (google-auth-library's pluggable-auth-handler.js / googleauth.js require
+ * `child_process`; gaxios requires `https`) would otherwise crash with
+ * "Dynamic require of ... is not supported" the first time sendEmail()/
+ * saveToDrive() initializes the Google stack — packaged-only, since dev runs
+ * raw index.js where require exists. Defining `require` via createRequire
+ * makes those dynamic requires resolve normally at runtime.
+ */
+const BASE_BUILD = {
   bundle: true,
   platform: "node",
   format: "esm",
   target: "node18",
-  outfile: "dist/bundle.js",
   sourcemap: false,
   // node:* stays external; node-fetch + agentkeepalive stay external (see comment above).
   external: ["node:*", "node-fetch", "agentkeepalive"],
   logLevel: "info",
-});
+  banner: {
+    js: 'import { createRequire as __createRequire } from "module"; const require = __createRequire(import.meta.url);',
+  },
+};
+
+// Main runner bundle — shipped by electron-builder as dist/** (see package.json).
+await esbuild.build({ ...BASE_BUILD, entryPoints: ["index.js"], outfile: "dist/bundle.js" });
+
+// Smoke bundle — `npm run smoke` runs this to catch the packaged-only
+// "Dynamic require" crash (google-stack module init) without a full packaged
+// app. Exit 0 = the Google client modules initialize inside the bundle.
+await esbuild.build({ ...BASE_BUILD, entryPoints: ["smoke.mjs"], outfile: "dist/smoke.mjs" });
 
 // Vendor the externalized CJS packages + their FULL transitive dependency
 // closure into dist/node_modules so the packaged app ships nothing else from

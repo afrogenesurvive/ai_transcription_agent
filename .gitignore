@@ -128,3 +128,6 @@ docs/safe/
 # Changelogs are rebuilt each save_progress (docs/safe/CHANGELOG.md -> redacted
 # docs/CHANGELOG.md) and are not committed to the repo.
 docs/CHANGELOG.md
+
+# PyInstaller workpath (python-backend/build/ — intermediate build output, like dist-resources/)
+python-backend/build/

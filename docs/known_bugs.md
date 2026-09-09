@@ -437,3 +437,35 @@ flowchart TD
 | Component                  | Affected Versions               | Platforms                          |
 | -------------------------- | ------------------------------- | ---------------------------------- |
 | `DELETE /storage/semantic` | 0.8.10 and earlier (fixed next) | Windows, CrossOver (Windows apps on macOS) |
+
+---
+
+## Packaged Gmail/Drive delivery fails — `Dynamic require of ... is not supported` (fixed in 0.9.7)
+
+### Symptom
+
+- In **packaged** builds only (installed Windows `.exe` / macOS `.app`), the first time the agent runs Gmail/Drive delivery the delivery fails and the job log shows an error of the form:
+
+```
+Dynamic require of "<https|child_process>" is not supported
+```
+
+- Running the runner in dev never reproduces it, so it slips past local testing.
+- Because the failure was treated as a normal pipeline error, the queue reset the **same job event** back to pending and re-ran the **entire** multi-step LLM pipeline on each retry — wasting tokens, and since this failure is deterministic, every retry failed identically.
+
+### Root Cause
+
+The bundled agent runner runs as an esbuild ESM bundle, which has no top-level `require`. Bundled dependencies that lazily `require()` Node built-ins at module init (the Google auth/Gmail/Drive stack) throw `Dynamic require of ... is not supported` the first time delivery initializes. Dev runs raw CommonJS where a real `require` exists, so it never crashes. Delivery failures were also being treated as retryable pipeline errors, causing the wasteful full-pipeline re-runs above.
+
+### Fix (0.9.7)
+
+1. The runner bundle now defines `require` via `createRequire`, so lazy dynamic requires of Node built-ins resolve at runtime (packaged-only crash fixed).
+2. Added a bundle smoke check that verifies the Google client stack initializes inside the bundle, catching this class of packaged-only crash without building a full app.
+3. Delivery-tool outcomes are now **terminal**: when a delivery tool has already handled job completion/failure inline, the event is completed even on error — no more full-pipeline retry that burns tokens on a deterministic failure. The job is already marked failed, and it can be requeued manually from the queue view. Non-delivery pipeline errors still retry as before.
+
+### Affected Versions
+
+| Component | Affected | Platforms |
+| --- | --- | --- |
+| Packaged `Dynamic require` delivery crash | ESM-bundle builds incl. 0.9.6 | Windows, macOS (packaged only) |
+| Delivery failure → full-pipeline re-run | all versions before 0.9.7 | Windows, macOS |

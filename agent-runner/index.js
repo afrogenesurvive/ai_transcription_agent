@@ -1531,8 +1531,25 @@ async function processEvent(event) {
     llmDataStream = null;
   }
 
-  // Mark the event as completed (or failed if there was a pipeline error)
-  if (pipelineError) {
+  // Mark the event as completed (or failed if there was a pipeline error).
+  //
+  // Delivery-tool outcomes are TERMINAL: when a delivery tool already handled
+  // job completion/failure inline (deliveryHandled === true) we complete the
+  // event even on failure. Failing it would make the Python queue reset the
+  // SAME event back to 'pending' (ephemeral_memory.fail_event retries up to
+  // max_retries), which re-runs the ENTIRE multi-step LLM pipeline from the top
+  // and re-attempts delivery — wasted tokens, and deterministic failures (e.g.
+  // the bundled "Dynamic require" crash) can never succeed on retry. The job is
+  // already marked failed via transcribe_fail_job inline; a user can requeue
+  // manually (DevPanel → queue) once the root cause is fixed.
+  if (deliveryHandled) {
+    if (pipelineError) {
+      console.log(
+        `📬 [RUNNER] Delivery outcome terminal (failed) — completing event, no full-pipeline retry (job already marked failed): ${pipelineError}`,
+      );
+    }
+    await completeEvent(eventId);
+  } else if (pipelineError) {
     await failEvent(eventId, pipelineError);
   } else {
     await completeEvent(eventId);

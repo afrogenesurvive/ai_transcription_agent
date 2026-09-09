@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "build": "node build.mjs"
+    "build": "node build.mjs",
+    "smoke": "node dist/smoke.mjs"
   },
   "overrides": {
     "uuid": "^11.1.1"
