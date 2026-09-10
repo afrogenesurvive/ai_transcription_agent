@@ -162,7 +162,7 @@ python -c "from main import app; print('FastAPI app loaded OK')"
 | 6.4  | Audio tab plays the original recording         | Audio player with seek controls                         |           |
 | 6.5  | Pipeline tab shows progress for completed jobs | Progress bar at 100%, stage checkmarks                  |           |
 | 6.6  | Tokens tab shows LLM token usage               | Per-step breakdown with totals                          |           |
-| 6.7  | Logs tab shows job-specific log files          | pipeline.log content displayed                          |           |
+| 6.7  | Logs tab shows job-specific log files          | pipeline.log content displayed (non-empty on Windows)  |           |
 | 6.8  | Logs tab collapses repeated consecutive lines  | Expandable groups with line count badge                 |           |
 | 6.9  | Attendees tab shows registered attendees       | Name, email, voiceprint status, sample availability     |           |
 | 6.10 | Click a history job, results load correctly    | All tabs populated from stored data                     |           |

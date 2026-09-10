@@ -348,7 +348,8 @@ async def get_raw_transcript(job_id: str):
     # First try the dedicated raw transcript file
     raw_path = os.path.join(config.STORAGE_PATH, job_id, "raw_transcript.txt")
     if os.path.exists(raw_path):
-        with open(raw_path) as f:
+        # Pin UTF-8 (Windows locale code page would fail on accented text).
+        with open(raw_path, encoding="utf-8", errors="replace") as f:
             text = f.read()
         print(f"[api] GET /transcribe/raw_transcript/{job_id} → OK ({len(text)} chars)")
         return {"text": text}
@@ -356,7 +357,8 @@ async def get_raw_transcript(job_id: str):
     # Fallback: use the pre-refinement transcript.txt (may have speaker labels)
     txt_path = os.path.join(config.STORAGE_PATH, job_id, "transcript.txt")
     if os.path.exists(txt_path):
-        with open(txt_path) as f:
+        # Pin UTF-8 (Windows locale code page would fail on accented text).
+        with open(txt_path, encoding="utf-8", errors="replace") as f:
             text = f.read()
         print(f"[api] GET /transcribe/raw_transcript/{job_id} → fallback transcript.txt ({len(text)} chars)")
         return {"text": text}
@@ -633,10 +635,18 @@ async def get_job_logs(job_id: str, max_lines: int = 0):
             if any(fname.endswith(ext) for ext in (".log", ".txt", ".jsonl")):
                 fpath = os.path.join(job_dir, fname)
                 try:
-                    with open(fpath) as f:
+                    # Pin UTF-8 explicitly: on Windows a bare open() uses the
+                    # locale code page (cp1252 on en-US), which cannot decode
+                    # the arrows/emoji in pipeline.log — the read raised and the
+                    # file was silently dropped from this listing (empty log
+                    # viewer). macOS/Linux already default to UTF-8, so this is
+                    # a no-op there; ``errors="replace"`` only affects bytes
+                    # that used to make the whole file unreadable.
+                    with open(fpath, encoding="utf-8", errors="replace") as f:
                         content = f.read()
                     job_logs.append({"file": fname, "content": content})
-                except Exception:
+                except Exception as e:
+                    print(f"[api] GET /transcribe/job_logs/{job_id} → could not read {fname}: {e!r}")
                     continue
     if max_lines <= 0:
         return {"logs": matched_lines, "job_logs": job_logs}
@@ -692,20 +702,25 @@ async def get_pipeline_log(job_id: str, max_lines: int = 0):
     p = os.path.join(job_dir, "pipeline.log")
     if os.path.exists(p):
         try:
-            with open(p) as f:
+            # Pin UTF-8: a bare open() uses the locale code page on Windows
+            # (cp1252), which cannot decode the arrows/emoji in pipeline.log —
+            # the read raised and this returned 0 lines. macOS/Linux already
+            # default to UTF-8, so this is a no-op there.
+            with open(p, encoding="utf-8", errors="replace") as f:
                 for line in f:
                     s = line.rstrip("\n")
                     if s:
                         all_lines.append(s)
                         pipeline_count += 1
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[api] GET /transcribe/pipeline_log/{job_id} → could not read pipeline.log: {e!r}")
 
     # ── Source 2: actions.jsonl (per-action log) ──
     p = os.path.join(job_dir, "actions.jsonl")
     if os.path.exists(p):
         try:
-            with open(p) as f:
+            # Same UTF-8 pin as pipeline.log above (Windows locale code page).
+            with open(p, encoding="utf-8", errors="replace") as f:
                 for line in f:
                     s = line.strip()
                     if not s:
@@ -725,8 +740,8 @@ async def get_pipeline_log(job_id: str, max_lines: int = 0):
                     except json.JSONDecodeError:
                         all_lines.append(f"[actions] {s[:300]}")
                         actions_count += 1
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[api] GET /transcribe/pipeline_log/{job_id} → could not read actions.jsonl: {e!r}")
 
     if max_lines > 0:
         all_lines = all_lines[-max_lines:]

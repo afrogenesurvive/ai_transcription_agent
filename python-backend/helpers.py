@@ -36,7 +36,10 @@ def _log_file_has_errors(fpath):
       - Plain-text (.log): contains [error] or [ERROR]
     """
     try:
-        with open(fpath) as f:
+        # Pin UTF-8: a bare open() uses the locale code page on Windows
+        # (cp1252), where decoding a log containing arrows/emoji raised and
+        # made this report "no errors" (or skip the file) entirely.
+        with open(fpath, encoding="utf-8", errors="replace") as f:
             content = f.read()
         if fpath.endswith(".jsonl"):
             return '"eventType":"failed"' in content or '"level":"error"' in content

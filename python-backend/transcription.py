@@ -280,6 +280,7 @@ def _run_diarization_subprocess(
     On uncatchable crash (segfault etc.): exits with non-zero code (parent detects).
     """
     import os
+    import sys
     import time
     import traceback
 
@@ -288,6 +289,20 @@ def _run_diarization_subprocess(
     from pyannote.audio import Pipeline
     import torch
     import soundfile as _sf
+
+    # ── Line-buffer this child's stdout ──
+    # The packaged (frozen) Windows child re-runs main.py, whose
+    # ``sys.stdout.reconfigure(encoding="utf-8")`` replaces the stream buffer
+    # and defeats PYTHONUNBUFFERED=1 — so everything this child printed only
+    # reached the parent when the 8 KB buffer filled or at interpreter exit
+    # (observed: the whole startup block arriving ~8 minutes late, in one
+    # burst, just before "Diarization complete"). Line buffering restores
+    # real-time, correctly ordered progress. No-op on macOS/Linux, where the
+    # spawn child never runs main.py and is already unbuffered.
+    try:
+        sys.stdout.reconfigure(line_buffering=True, write_through=True)
+    except Exception:
+        pass
 
     t0 = time.time()
 

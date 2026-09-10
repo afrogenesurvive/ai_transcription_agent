@@ -469,3 +469,53 @@ The bundled agent runner runs as an esbuild ESM bundle, which has no top-level `
 | --- | --- | --- |
 | Packaged `Dynamic require` delivery crash | ESM-bundle builds incl. 0.9.6 | Windows, macOS (packaged only) |
 | Delivery failure → full-pipeline re-run | all versions before 0.9.7 | Windows, macOS |
+
+---
+
+## Windows: Empty log viewer + blank raw transcript (fixed in 0.9.8)
+
+### Symptom
+
+- On the **packaged Windows** app, a completed job's **Logs** tab comes up **empty** (or lists only some of the files), and **Raw transcript** can be blank — even though the job's log files exist on disk and contain text.
+- macOS and Linux are unaffected, so it slips past local testing.
+- Nothing is reported anywhere: an unreadable file was simply skipped in the listing, and the pipeline-log reader swallowed its errors and returned nothing.
+
+### Root Cause
+
+Reading a text file without stating an encoding uses the operating system's default code page — on Windows that is typically **cp1252**, not UTF-8. The app writes its logs in UTF-8 and they contain arrows and emoji; decoding those bytes as cp1252 fails, so the whole read aborts and the file looks missing or empty. This is the read-side counterpart of the Windows startup `UnicodeEncodeError` entry above — same code page, opposite direction.
+
+### Fix (0.9.8)
+
+1. **All job log and transcript reads now specify UTF-8 explicitly**, in the backend helpers and in the routes that serve the Logs tab and the Raw transcript. Bytes that still cannot be decoded are shown as replacement characters instead of failing the file, so the rest of the log still renders.
+2. **Read failures are reported, not hidden** — if a log file genuinely cannot be read, the reason is now written to the backend log instead of the file silently disappearing from the list.
+
+### Affected Versions
+
+| Component | Affected | Platforms |
+| --- | --- | --- |
+| Job log viewer (empty/partial listing) | all packaged builds before 0.9.8 | Windows |
+| Raw transcript (blank) | all packaged builds before 0.9.8 | Windows |
+
+---
+
+## Windows: Diarization startup progress arrives minutes late in one burst (fixed in 0.9.8)
+
+### Symptom
+
+- On the **packaged Windows** app, during the diarization (speaker detection) stage the job log stays silent for the first several minutes, then the **entire startup block appears at once**, immediately followed by `Diarization complete`.
+- The stage looks stalled and then suddenly finished. Nothing is lost — only the timing and ordering of the progress messages is wrong.
+- macOS and Linux are unaffected.
+
+### Root Cause
+
+The helper process that performs diarization is started with output unbuffered, but in the packaged Windows build it re-runs the backend's startup module, which reconfigures its output stream for UTF-8. Reconfiguring a stream replaces its buffer and silently drops the unbuffered setting, so everything the helper printed waited in the default block buffer — and only flushed when it filled or when the process exited. On macOS/Linux that startup module is not re-run, so the helper stays unbuffered.
+
+### Fix (0.9.8)
+
+The diarization helper now re-enables line buffering on its own output as soon as it starts, so each progress line is flushed as it is printed. Progress on Windows now streams in real time and in order.
+
+### Affected Versions
+
+| Component | Affected | Platforms |
+| --- | --- | --- |
+| Diarization startup progress (late single burst) | all packaged builds before 0.9.8 | Windows |
