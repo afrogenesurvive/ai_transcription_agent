@@ -1,9 +1,13 @@
 """License revocation tests.
 
-Keeps the Python verifier's REVOKED_SEATS in lockstep with the authoritative
-dev-keys/revoked-seats.json and confirms revoked seats are rejected by
-verify_cert. The TS-side parity + reject test lives in
-`node scripts/keymanage.mjs check-revocation`.
+Confirms revoked seats are rejected by verify_cert in the shipped Python
+verifier.
+
+The authoritative blocklist lives in a separate, local-only key-manager repo
+(not part of this project), which rewrites the REVOKED_SEATS constant in
+python-backend/license.py and electron/src/main/license.ts. Parity between the two
+is enforced there, so it is not re-asserted here — these tests exercise the
+verifier and its embedded blocklist, with no dependency on the key store.
 """
 
 import base64
@@ -14,9 +18,6 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from license import REVOKED_SEATS, LicenseError, verify_cert  # noqa: E402
-
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-REVOKED_JSON = os.path.join(ROOT, "dev-keys", "revoked-seats.json")
 
 
 def _b64u(data: bytes) -> str:
@@ -33,12 +34,6 @@ def _make_cert(sub: str) -> tuple[str, str]:
     cert_b64 = _b64u(json.dumps(cert).encode())
     sig_b64 = _b64u(b"bogus-signature")
     return cert_b64, sig_b64
-
-
-def test_revoked_seats_authoritative_parity():
-    with open(REVOKED_JSON) as f:
-        data = json.load(f)
-    assert set(data.get("seats", [])) == set(REVOKED_SEATS)
 
 
 def test_every_revoked_seat_is_rejected():

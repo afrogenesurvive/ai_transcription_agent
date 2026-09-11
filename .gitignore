@@ -13,13 +13,9 @@ venv/
 # Environment
 .env
 
-# License master keys (maintainer-only, NEVER commit — see scripts/license.mjs)
-dev-keys/
-
-# License key management tooling (maintainer-only — never commit; code contains
-# no secrets, but both scripts only make sense against the gitignored dev-keys/)
-scripts/keymanage.mjs
-scripts/license.mjs
+# NOTE: licence issuance/revocation tooling lives in a separate, local-only
+# key-manager repository. No key material and no issuing tooling is stored here;
+# the verifiers (license.ts / license.py) embed only the public ring + blocklist.
 
 
 # ── Node.js ──
