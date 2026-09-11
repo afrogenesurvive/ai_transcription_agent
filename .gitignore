@@ -99,6 +99,9 @@ docs/screenshots/user-guide/raw/
 Thumbs.db
 Desktop.ini
 
+# ── Dev monitor config (local-only, per-machine) ──
+devmon.json
+
 # ── Personal notes ──
 notes.txt
 
