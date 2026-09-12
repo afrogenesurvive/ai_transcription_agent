@@ -60,12 +60,12 @@ def test_build_attendee_presence_warning_flags_registered_but_voiceprint_unmatch
 
 def test_build_voiceprint_reuse_warnings_flags_cross_job_reuse():
     warnings = _build_voiceprint_reuse_warnings(
-        entries=[{"name": "Sags", "email": "african.genetic.survival@gmail.com"}],
+        entries=[{"name": "Sags", "email": "sags@example.com"}],
         current_job_id="job-003",
         voiceprints=[
             {
                 "name": "Sags",
-                "email": "african.genetic.survival@gmail.com",
+                "email": "sags@example.com",
                 "sample_job_id": "job-002",
             }
         ],
@@ -78,12 +78,12 @@ def test_build_voiceprint_reuse_warnings_flags_cross_job_reuse():
 
 def test_build_voiceprint_reuse_warnings_ignores_same_job_reuse():
     warnings = _build_voiceprint_reuse_warnings(
-        entries=[{"name": "Sags", "email": "african.genetic.survival@gmail.com"}],
+        entries=[{"name": "Sags", "email": "sags@example.com"}],
         current_job_id="job-003",
         voiceprints=[
             {
                 "name": "Sags",
-                "email": "african.genetic.survival@gmail.com",
+                "email": "sags@example.com",
                 "sample_job_id": "job-003",
             }
         ],

@@ -42,6 +42,11 @@ dist/
 # Generated build resources (Python backend + ffmpeg; produced by CI and build-python-backend.sh, not committed)
 dist-resources/
 
+# Transient electron-builder config for local macOS arm64 release builds —
+# created per release by the macOS release procedure and removed afterwards
+# (see docs/safe/macos_local_build_release.md), so it must never be committed.
+electron/builder-mac-arm64.json
+
 # ── Transcription Agent Service (self-contained, gitignored) ──
 transcription-agent/
 .next/
