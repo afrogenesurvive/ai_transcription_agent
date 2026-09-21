@@ -143,8 +143,46 @@ export interface DsmonAuthorityState {
   exp: number | null;
   /** Epoch ms of the last check attempt. */
   checkedAt: number | null;
-  /** Short human-readable reason when not fully confirmed (disabled|no-license|no-push-url|HTTP <n>|unreachable). */
+  /**
+   * Short human-readable reason when not fully confirmed. One of
+   * `disabled | no-license | no-push-url | no-token | unauthorized | HTTP <n> |
+   * unreachable`. `no-token` and `unauthorized` are CONFIGURATION errors (the
+   * push token is absent or rejected) — never present them as unreachability.
+   */
   error?: string;
+}
+
+/**
+ * DS-mon usage-push status. Written by the AGENT RUNNER (a separate process) to
+ * `storage/dsmon_status.json` and read by the main process — the push itself
+ * never happens in the UI process. `paused:true` means pushing stopped on a
+ * PERMANENT auth error (missing or rejected push token): buffered records are
+ * preserved for replay, and new records are not collected (so the buffer can't
+ * reach its cap and silently drop them) until DSMON_PUSH_TOKEN is fixed.
+ */
+export interface DsmonPushStatus {
+  /** False when no snapshot exists yet (the agent runner hasn't started). */
+  available: boolean;
+  /** True while pushing is paused on a permanent (auth) error. */
+  paused: boolean;
+  /** "no-token" | "unauthorized" while paused; null otherwise. */
+  pauseReason: "no-token" | "unauthorized" | null;
+  /** Last push error — "unauthorized" or `HTTP <n> …`; null after a successful push. */
+  error: string | null;
+  /** Epoch ms of the last push attempt; null if none yet. */
+  at: number | null;
+  /** Records handed to the last push attempt. */
+  count: number;
+  /** Bytes currently held in the pending buffer file. */
+  bufferBytes: number;
+  /** Records waiting to be pushed. */
+  bufferCount: number;
+  /** Records NOT collected because pushing was paused. */
+  skippedWhilePaused: number;
+  /** Instance id reported by the runner. */
+  instanceId?: string;
+  /** Epoch ms this snapshot was written. */
+  writtenAt: number | null;
 }
 
 export interface LicenseStatusPayload {
@@ -325,6 +363,7 @@ export interface ElectronAPI {
   // ── License ──
   getLicenseStatus: () => Promise<LicenseStatusPayload>;
   recheckDsmonLicense: () => Promise<DsmonAuthorityState>;
+  getDsmonPushStatus: () => Promise<DsmonPushStatus>;
   onLicenseStatusChanged: (cb: (payload: LicenseStatusPayload) => void) => () => void;
   activateLicense: (key: string) => Promise<{
     success: boolean;

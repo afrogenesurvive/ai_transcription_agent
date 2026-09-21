@@ -21,6 +21,7 @@ import LoadingModal from "./LoadingModal";
 import { loadAndApplyAppearance } from "../appearance";
 import { Validator } from "@cfworker/json-schema";
 import { agentConfigSchema } from "../utils/agentConfigSchema";
+import { describeDsmonError, isDsmonAuthError } from "../utils/dsmonCopy";
 import type { PipelineStep, ConfigValueSource } from "../types";
 
 interface Props {
@@ -481,6 +482,21 @@ export default function ConfigPanel({ onClose, configOk, onConfigChanged, onLice
     kind: null,
     text: null,
   });
+  // ── DS-mon usage-push status (Config → Usage Tracking) ──
+  // Published by the AGENT RUNNER to storage/dsmon_status.json (the push happens
+  // in that separate process), so this is a polled snapshot rather than live IPC.
+  // It is how a paused push — a missing or rejected push token — becomes visible
+  // where the operator is already looking.
+  const [pushStatus, setPushStatus] = useState<{
+    available: boolean;
+    paused: boolean;
+    pauseReason: "no-token" | "unauthorized" | null;
+    error: string | null;
+    at: number | null;
+    count: number;
+    bufferCount: number;
+    skippedWhilePaused: number;
+  } | null>(null);
 
   // Reset a stale persisted section (e.g. a section renamed/removed in a newer build)
   useEffect(() => {
@@ -547,6 +563,51 @@ export default function ConfigPanel({ onClose, configOk, onConfigChanged, onLice
     const id = setInterval(poll, 5000);
     return () => clearInterval(id);
   }, [values.USAGE_TRACKING_ENABLED]);
+
+  // Poll the DS-mon usage-push status for the same window. A paused push (missing
+  // or rejected push token) must be actionable from here, not just visible in a log.
+  useEffect(() => {
+    if (values.USAGE_TRACKING_ENABLED !== "true") return;
+    const poll = async () => {
+      try {
+        const st = await window.electronAPI?.getDsmonPushStatus();
+        if (st) setPushStatus(st);
+      } catch {}
+    };
+    poll();
+    const id = setInterval(poll, 5000);
+    return () => clearInterval(id);
+  }, [values.USAGE_TRACKING_ENABLED]);
+
+  /**
+   * One-line DS-mon usage-push status for Config → Usage Tracking. Kept separate
+   * from the JSX so the paused wording (the exact setting to fix) stays readable.
+   */
+  const pushStatusLine = useMemo(() => {
+    if (!pushStatus) return null;
+    if (pushStatus.paused) {
+      const cause =
+        pushStatus.pauseReason === "no-token"
+          ? "no push token is set — DSMON_PUSH_URL is configured but DSMON_PUSH_TOKEN is empty"
+          : "DS-mon rejected the push token — it must match the token configured on the DS-mon host";
+      const kept = pushStatus.bufferCount > 0 ? ` ${pushStatus.bufferCount} buffered record(s) are preserved and will be sent once this is fixed.` : "";
+      const skipped = pushStatus.skippedWhilePaused > 0 ? ` ${pushStatus.skippedWhilePaused} usage record(s) were not collected.` : "";
+      return {
+        kind: "paused" as const,
+        text: `Pushing paused — ${cause}.${kept}${skipped} Fix it above, click Save, then use Restart All Services to apply it.`,
+      };
+    }
+    if (!pushStatus.available) {
+      return { kind: "idle" as const, text: "Push status unavailable — the agent runner hasn't published a status yet." };
+    }
+    return {
+      kind: "ok" as const,
+      text:
+        pushStatus.bufferCount > 0
+          ? `Pushing normally — ${pushStatus.bufferCount} usage record(s) buffered, sent on the next flush.`
+          : "Pushing normally — no usage records waiting.",
+    };
+  }, [pushStatus]);
 
   // ── Tunnel action handlers ──
 
@@ -1129,6 +1190,21 @@ export default function ConfigPanel({ onClose, configOk, onConfigChanged, onLice
     setSaving(true);
     setError(null);
     try {
+      // Fail-closed DS-mon guard: the hardened DS-mon host requires the push token
+      // on every route (it refuses to serve without one), so a URL with no token can
+      // only ever produce 401s. Refuse to save that combination rather than let the
+      // runner pause on an error the UI could have caught.
+      if (
+        values.USAGE_TRACKING_ENABLED === "true" &&
+        (values.DSMON_PUSH_URL || "").trim() &&
+        !(values.DSMON_PUSH_TOKEN || "").trim()
+      ) {
+        setError(
+          "Cannot save — DSMON_PUSH_URL is set but DSMON_PUSH_TOKEN is empty. DS-mon rejects unauthenticated pushes (401). Add the push token, or clear the push URL to stop sending usage.",
+        );
+        setSaving(false);
+        return;
+      }
       // Block save if any numeric/enum config value is invalid — a bad value
       // would be forwarded to the Python backend and crash it at startup.
       const invalid = validateNumericConfig(values);
@@ -1172,11 +1248,21 @@ export default function ConfigPanel({ onClose, configOk, onConfigChanged, onLice
         setDsmonCheck({ checking: false, kind: "err", text: "License check is disabled — enable the toggle above and Save, then retry." });
         return;
       }
+      if (isDsmonAuthError(st.error)) {
+        // Push-token configuration error, not an outage — name the setting to fix
+        // instead of reporting "couldn't reach DS-mon".
+        setDsmonCheck({
+          checking: false,
+          kind: "err",
+          text: `DS-mon licence check: ${describeDsmonError(st.error)}. Running on offline verification only.`,
+        });
+        return;
+      }
       if (!st.reachable) {
         setDsmonCheck({
           checking: false,
           kind: "err",
-          text: `Couldn't reach DS-mon (${st.error || "unreachable"}) — running on offline verification only.`,
+          text: `Couldn't reach DS-mon (${describeDsmonError(st.error)}) — running on offline verification only.`,
         });
         return;
       }
@@ -2602,7 +2688,7 @@ The system provides existing memory context at the start of each pipeline run. U
                                 {field.key === "DSMON_PUSH_INTERVAL" &&
                                   "How often (ms) buffered usage records are pushed to DS-mon. Default: 300000 (5 min)."}
                                 {field.key === "DSMON_PUSH_URL" &&
-                                  "Static URL of the DS-mon sync server, e.g. https://dsmon.yourdomain.com/sync/push (a public hostname on your Cloudflare tunnel) or http://<host>:18888/sync/push on a LAN."}
+                                  "Static URL of the DS-mon sync server, e.g. https://dsmon.yourdomain.com/sync/push (a public hostname on your Cloudflare tunnel) or http://127.0.0.1:18888/sync/push when the agent runs on the same machine as DS-mon. A LAN IP (http://192.168.x.y:18888/…) will NOT connect — DS-mon listens on loopback only."}
                                 {field.key === "DSMON_PUSH_TOKEN" &&
                                   "Required. Shared secret for the DS-mon host's /sync/push endpoint — DS-mon returns 401 without it. Must match the push token configured in DS-mon. Stored locally only."}
                                 {field.key === "CLOUDFLARED_TUNNEL_TOKEN" &&
@@ -2610,6 +2696,26 @@ The system provides existing memory context at the start of each pipeline run. U
                               </p>
                             </div>
                           ))}
+
+                      {/* ── DS-mon usage-push status (published by the agent runner) ── */}
+                      {values.USAGE_TRACKING_ENABLED === "true" && pushStatusLine && (
+                        <div
+                          className="config-field-hint"
+                          style={{
+                            marginTop: 10,
+                            display: "flex",
+                            alignItems: "flex-start",
+                            gap: 6,
+                            fontWeight: pushStatusLine.kind === "paused" ? 600 : 400,
+                            color: pushStatusLine.kind === "paused" ? "var(--warn, #d29922)" : undefined,
+                          }}>
+                          <Icon
+                            name={pushStatusLine.kind === "paused" ? "warning" : pushStatusLine.kind === "ok" ? "check_circle" : "info"}
+                            size="14"
+                          />
+                          <span>{pushStatusLine.text}</span>
+                        </div>
+                      )}
 
                       {/* ── DS-mon License Authority Check ── */}
                       <div className="config-field" style={{ marginTop: 16 }}>
@@ -2744,8 +2850,9 @@ The system provides existing memory context at the start of each pipeline run. U
                             </li>
                             <li>
                               <strong>DS-mon Push URL</strong> — paste your public URL, e.g. <code>https://dsmon.yourdomain.com/sync/push</code> (your
-                              Cloudflare tunnel's public hostname) or <code>http://&lt;host&gt;:18888/sync/push</code> (LAN). Stored in this machine's
-                              local config only — never shipped in the repo.
+                              Cloudflare tunnel's public hostname) or <code>http://127.0.0.1:18888/sync/push</code> when the agent runs on the same machine
+                              as DS-mon (a LAN IP will not connect — DS-mon listens on loopback only). Stored in this machine's local config only — never
+                              shipped in the repo.
                             </li>
                             <li>
                               <strong>DS-mon Push Token</strong> — <strong>required</strong>. Same token set on the DS-mon host; DS-mon returns 401

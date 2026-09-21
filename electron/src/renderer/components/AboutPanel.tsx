@@ -14,6 +14,7 @@ import Tooltip from "./Tooltip";
 import DocViewer from "./DocViewer";
 import { useUiStateValue } from "../hooks/useUiState";
 import { renderMarkdown } from "../utils/markdown";
+import { describeDsmonError, isDsmonAuthError } from "../utils/dsmonCopy";
 import LoadingModal from "./LoadingModal";
 import type { LicenseStatus, ConfigIntegrity, DsmonAuthorityState } from "../types";
 
@@ -302,8 +303,12 @@ function LicenseTab({ onLicensedChange, onOpenConfig }: { onLicensedChange?: () 
           kind: "err",
           text: `DS-mon reports this seat EXPIRED (${new Date((d.exp ?? 0) * 1000).toLocaleDateString()}) — the app is now locked.`,
         });
+      } else if (d?.enabled && isDsmonAuthError(d.error)) {
+        // A missing/rejected push token is a CONFIGURATION error, not an outage —
+        // name the setting to fix rather than implying the host is unreachable.
+        setMessage({ kind: "err", text: `DS-mon licence check: ${describeDsmonError(d.error)}. Running on offline verification only.` });
       } else if (d?.enabled && d.reachable === false) {
-        setMessage({ kind: "err", text: `Couldn't reach DS-mon (${d.error || "unreachable"}) — running on offline verification only.` });
+        setMessage({ kind: "err", text: `Couldn't reach DS-mon (${describeDsmonError(d.error)}) — running on offline verification only.` });
       } else if (st === "active") {
         setMessage({ kind: "ok", text: "License is active and valid." });
       } else if (st === "expired" && p?.status?.status === "expired") {
@@ -367,17 +372,31 @@ function LicenseTab({ onLicensedChange, onOpenConfig }: { onLicensedChange?: () 
         {dsmon?.enabled && (
           <span
             className={`about-license-dsmon about-license-dsmon--${
-              dsmon.revoked ? "revoked" : dsmon.expired ? "expired" : dsmon.reachable === false ? "unreachable" : dsmon.reachable ? "ok" : "idle"
+              dsmon.revoked
+                ? "revoked"
+                : dsmon.expired
+                  ? "expired"
+                  : isDsmonAuthError(dsmon.error)
+                    ? "config"
+                    : dsmon.reachable === false
+                      ? "unreachable"
+                      : dsmon.reachable
+                        ? "ok"
+                        : "idle"
             }`}>
             {dsmon.revoked
               ? "DS-mon: revoked"
               : dsmon.expired
                 ? "DS-mon: expired"
-                : dsmon.reachable === false
-                  ? "DS-mon: unreachable — offline only"
-                  : dsmon.reachable
-                    ? "DS-mon: valid"
-                    : "DS-mon: not checked"}
+                : isDsmonAuthError(dsmon.error)
+                  ? dsmon.error === "no-token"
+                    ? "DS-mon: push token required"
+                    : "DS-mon: push token rejected"
+                  : dsmon.reachable === false
+                    ? "DS-mon: unreachable — offline only"
+                    : dsmon.reachable
+                      ? "DS-mon: valid"
+                      : "DS-mon: not checked"}
           </span>
         )}
       </div>

@@ -602,6 +602,13 @@
   border-color: color-mix(in srgb, var(--warn, #d29922) 50%, transparent);
 }
 
+/* Push-token configuration error (missing/rejected DSMON_PUSH_TOKEN) — a
+   setting to fix, not an outage, so it stays in the warning colour. */
+.about-license-dsmon--config {
+  color: var(--warn, #d29922);
+  border-color: color-mix(in srgb, var(--warn, #d29922) 50%, transparent);
+}
+
 .about-license-entry {
   display: flex;
   flex-direction: column;

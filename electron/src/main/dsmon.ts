@@ -6,13 +6,26 @@
  *   Offline Ed25519 verification in license.ts stays the PRIMARY gate. DS-mon
  *   acts as an ADDITIONAL revocation authority: it holds the host-side
  *   revoked-seats registry and answers `POST /license/check` with
- *   `{ ok: true, revoked: boolean, seat, checkedAt }`. DS-mon never holds
+ *   `{ ok: true, revoked: boolean, exp: number|null, checkedAt }` — there is no
+ *   `seat` object (DS-mon hardened 2026-09-16; echoing seat metadata would only
+ *   make the route an information-disclosure surface). DS-mon never holds
  *   master keys — signature verification remains fully offline in this app.
+ *
+ * Auth contract (DS-mon hardened 2026-09-16): every route on the sync port
+ *   requires `Authorization: Bearer <DSMON_PUSH_TOKEN>`, and the host is
+ *   fail-closed — with no token configured it refuses to start its sync server.
+ *   A missing or rejected token is therefore a CONFIGURATION error, not an
+ *   outage, and must never be presented as unreachability.
  *
  * Failure semantics ("continue but flag prominently"):
  *   - Feature disabled (default)           -> enabled:false, no impact.
- *   - No license installed                 -> enabled, seat:null (no-op).
- *   - DS-mon unreachable / HTTP error      -> reachable:false, revoked:null
+ *   - No license installed                 -> enabled, no-op.
+ *   - No DS-mon push token configured      -> error:"no-token" — no request is
+ *     attempted at all (it could only ever produce a 401).
+ *   - DS-mon rejected the push token       -> error:"unauthorized" (HTTP
+ *     401/403) — fix DSMON_PUSH_TOKEN; the app stays unlocked (a rejected
+ *     token is not a revocation) but the licence UI says exactly what to fix.
+ *   - DS-mon unreachable / other HTTP error -> reachable:false, revoked:null
  *     (unknown) — the app keeps the offline verdict and the UI shows a warning.
  *   - DS-mon reports revoked:true          -> revoked:true — the app treats the
  *     seat as unlicensed (locked mode) and flags prominently.
@@ -42,7 +55,12 @@ export interface DsmonAuthorityState {
   exp: number | null;
   /** Epoch ms of the last check attempt. */
   checkedAt: number | null;
-  /** Short human-readable reason when not fully confirmed (disabled|no-license|no-push-url|HTTP <n>|unreachable). */
+  /**
+   * Short human-readable reason when not fully confirmed. One of
+   * `disabled | no-license | no-push-url | no-token | unauthorized | HTTP <n> |
+   * unreachable`. `no-token` and `unauthorized` are CONFIGURATION errors (the
+   * push token is absent or rejected) — never present them as unreachability.
+   */
   error?: string;
 }
 
@@ -181,14 +199,28 @@ export async function checkDsmonAuthority(): Promise<DsmonAuthorityState> {
     return cached;
   }
 
+  // Fail-closed config guard: the hardened DS-mon host refuses to serve without a
+  // token, so an unauthenticated request could only ever come back 401 — which
+  // the UI would then report as an outage and send the operator chasing the
+  // network. Report the missing setting instead and make no request at all.
+  const token = (getConfig().DSMON_PUSH_TOKEN || "").trim();
+  if (!token) {
+    cached = { enabled, reachable: null, revoked: null, expired: null, exp: null, checkedAt: Date.now(), error: "no-token" };
+    broadcastIfChanged(cached);
+    addLog(
+      "main",
+      "warn",
+      "[DSMON] License authority check skipped — no push token configured (set DSMON_PUSH_TOKEN in Config → Usage Tracking)",
+    );
+    return cached;
+  }
+
   // Deduplicate concurrent calls (e.g. startup + manual re-check).
   if (inFlight) return inFlight;
 
   inFlight = (async () => {
     try {
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      const token = (getConfig().DSMON_PUSH_TOKEN || "").trim();
-      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const headers: Record<string, string> = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
       const encKey = (getConfig().DSMON_ENCRYPTION_KEY || "").trim();
       // Envelope `kid` is the encryption KEY id (matches usage-tracker's push
       // envelope and DS-mon's EnvelopeCrypto.keyID), NOT the seat's master kid.
@@ -224,6 +256,17 @@ export async function checkDsmonAuthority(): Promise<DsmonAuthorityState> {
             exp ? `, exp=${new Date(exp * 1000).toISOString()}` : ""
           })`,
         );
+      } else if (res.status === 401 || res.status === 403) {
+        // A rejected token is a CONFIGURATION error, not an outage. Surface it as
+        // such so the operator fixes the setting instead of debugging the tunnel.
+        // It is emphatically NOT a revocation — the app stays unlocked.
+        cached = { enabled, reachable: false, revoked: null, expired: null, exp: null, checkedAt: Date.now(), error: "unauthorized" };
+        broadcastIfChanged(cached);
+        addLog(
+          "main",
+          "warn",
+          `[DSMON] License authority rejected the push token (HTTP ${res.status}) — check DSMON_PUSH_TOKEN in Config → Usage Tracking`,
+        );
       } else {
         cached = { enabled, reachable: false, revoked: null, expired: null, exp: null, checkedAt: Date.now(), error: `HTTP ${res.status}` };
         broadcastIfChanged(cached);
@@ -248,9 +291,14 @@ export async function checkDsmonAuthority(): Promise<DsmonAuthorityState> {
  */
 /** True when a further startup retry can't change the verdict. */
 function isDefinitiveVerdict(s: DsmonAuthorityState): boolean {
-  // Got DS-mon's answer, the feature is off, or there is no push URL to ever
-  // reach — retrying cannot change these outcomes.
-  return s.reachable === true || s.enabled === false || s.error === "no-push-url";
+  // Got DS-mon's answer, the feature is off, there is no push URL to ever reach,
+  // or the push token is absent/rejected — retrying cannot change any of these.
+  // The token cases matter for more than noise: a rejected token is permanent, and
+  // the retry window would otherwise repeat the "fix DSMON_PUSH_TOKEN" warning four
+  // more times. Recovery is unaffected — a corrected token is picked up by the next
+  // periodic/opportunistic re-check (and by a runner restart for usage pushing).
+  const tokenMisconfigured = s.error === "no-token" || s.error === "unauthorized";
+  return s.reachable === true || s.enabled === false || s.error === "no-push-url" || tokenMisconfigured;
 }
 
 export function startDsmonLicenseMonitor(): DsmonAuthorityState {

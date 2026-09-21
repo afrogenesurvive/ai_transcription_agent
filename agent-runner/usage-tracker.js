@@ -8,14 +8,23 @@
  * is intentionally excluded — its per-job totals still land in usage.json.
  *
  * The push URL is set statically via DSMON_PUSH_URL (e.g. a stable named-tunnel
- * URL). Offline-resilient: on push failure, records are retained in the buffer
- * file and retried on the next cycle.
+ * URL). Offline-resilient: on a transient push failure, records are retained in
+ * the buffer file and retried on the next cycle.
  *
- * Config (all env vars, optional — tracking disabled when all empty):
+ * Auth failures are NOT transient. The DS-mon host is fail-closed — it requires
+ * `Authorization: Bearer <DSMON_PUSH_TOKEN>` on every route and refuses to serve
+ * without a token — so a 401/403 is a configuration error that retrying can never
+ * fix. On 401/403 (or a URL with no token at all) pushing PAUSES: buffered records
+ * are kept for replay, new records are not collected (so the buffer can't reach
+ * the cap and silently drop them), and the reason is logged once. A successful
+ * push clears the pause. The current state is mirrored to
+ * `<storage>/dsmon_status.json` for the Config Panel's status line.
+ *
+ * Config (env vars; DSMON_PUSH_TOKEN is required whenever DSMON_PUSH_URL is set):
  *   DSMON_PUSH_URL          — Static DS-mon push URL (e.g. https://<tunnel-id>.cfargotunnel.com/sync/push)
  *   DSMON_INSTANCE_ID       — Instance identifier (default: auto-generated)
  *   DSMON_PUSH_INTERVAL     — Flush interval in ms (default: 300000 = 5 min)
- *   DSMON_PUSH_TOKEN        — Shared bearer token required by the DS-mon host's /sync/push endpoint
+ *   DSMON_PUSH_TOKEN        — Shared bearer token REQUIRED by the DS-mon host's /sync/push endpoint
  */
 
 import crypto from "crypto";
@@ -45,6 +54,9 @@ const BUFFER_FILE = path.join(STORAGE_BASE, "dsmon_buffer.jsonl");
 // when no job is active (the main-process logger only writes to a job's
 // pipeline.log while a job is running).
 const LOG_FILE = path.join(STORAGE_BASE, "dsmon.log");
+// Push-status snapshot — read by the Config Panel (main process → `dsmon:push-status`)
+// so a paused / failing push is visible where the operator already looks.
+const STATUS_FILE = path.join(STORAGE_BASE, "dsmon_status.json");
 // Cap the buffer so a permanently-unreachable DS-mon host can't grow it forever.
 const MAX_BUFFER_BYTES = 5 * 1024 * 1024; // 5 MB
 const PUSH_TIMEOUT_MS = 30000; // 30s (was 15s — a slow tunnel can exceed 15s)
@@ -52,6 +64,15 @@ const PUSH_TIMEOUT_MS = 30000; // 30s (was 15s — a slow tunnel can exceed 15s)
 // Last-push status (for UI/telemetry visibility via getDsmonStatus).
 let lastPush = { at: null, ok: null, count: 0, error: null };
 let retryTimer = null;
+// Paused = pushing has stopped on a permanent (auth) error. Sticky until a push
+// succeeds, so a bad token can never drain — or silently drop — the buffer.
+// `null` while healthy; "no-token" | "unauthorized" otherwise.
+let pushPaused = false;
+let pushPausedReason = null;
+// De-duplicates the pause log line (once per transition, not per flush cycle).
+let lastLoggedPauseKey = null;
+// Records not collected because pushing was paused (surfaced in the status line).
+let skippedWhilePaused = 0;
 
 /** Append a line to the DS-mon diagnostic log (and mirror to stdout). */
 function _log(msg) {
@@ -78,7 +99,61 @@ export function getDsmonStatus() {
   } catch {
     // ignore
   }
-  return { ...lastPush, bufferBytes, bufferCount };
+  return { ...lastPush, bufferBytes, bufferCount, paused: pushPaused, pauseReason: pushPausedReason, skippedWhilePaused };
+}
+
+/**
+ * Persist the status snapshot for the UI. Written atomically (tmp + rename) so
+ * the main process can never read a half-written file.
+ */
+function _writeStatus() {
+  try {
+    fs.mkdirSync(path.dirname(STATUS_FILE), { recursive: true });
+    const tmp = `${STATUS_FILE}.tmp`;
+    const snapshot = {
+      ...getDsmonStatus(),
+      instanceId: INSTANCE_ID,
+      pushUrl: PUSH_URL,
+      trackingEnabled: TRACKING_ENABLED,
+      writtenAt: Date.now(),
+    };
+    fs.writeFileSync(tmp, JSON.stringify(snapshot, null, 2), "utf8");
+    fs.renameSync(tmp, STATUS_FILE);
+  } catch {
+    // Non-fatal — diagnostics only
+  }
+}
+
+/**
+ * Enter (or refresh) the paused state. Sticky: only a successful push clears it.
+ * The reason is logged once per transition rather than on every flush cycle.
+ *
+ * @param {string} reason - "no-token" | "unauthorized"
+ * @param {string} detail - Human-readable cause, including the exact value to fix
+ */
+function _setPaused(reason, detail) {
+  pushPaused = true;
+  pushPausedReason = reason;
+  const key = `${reason}:${detail}`;
+  if (key !== lastLoggedPauseKey) {
+    lastLoggedPauseKey = key;
+    const cause = reason === "unauthorized" ? "push token missing/invalid" : detail;
+    _log(
+      `⛔ [DSMON] ${cause} — tracking paused (fix DSMON_PUSH_TOKEN) — buffered records preserved, new records not collected`,
+    );
+  }
+  _writeStatus();
+}
+
+/** Clear the paused state after a successful push, so the buffer replays. */
+function _clearPaused() {
+  const wasPaused = pushPaused;
+  pushPaused = false;
+  pushPausedReason = null;
+  lastLoggedPauseKey = null;
+  skippedWhilePaused = 0;
+  if (wasPaused) _log(`📊 [DSMON] Pushing resumed — paused state cleared`);
+  _writeStatus();
 }
 
 /** Schedule a fast retry after a failed push (recovers quickly when the host returns). */
@@ -153,6 +228,15 @@ export function recordCall(usage, model, latencyMs, stepInfo, providerId) {
   if (!TRACKING_ENABLED) return;
   if (!PUSH_URL) return;
 
+  // While paused (missing or rejected push token) new records are NOT collected:
+  // that keeps the buffer away from MAX_BUFFER_BYTES so the drop path below can
+  // never be reached because of an auth problem. The skipped count is surfaced in
+  // the status snapshot, so nothing is silently invisible.
+  if (pushPaused) {
+    skippedWhilePaused += 1;
+    return;
+  }
+
   // Normalize the provider id (env LLM_PROVIDER is deepseek|openai|anthropic|ollama).
   const pid = (providerId || process.env.LLM_PROVIDER || "deepseek").toLowerCase();
   // Endpoint reflects the actual upstream API shape DS-mon's UsageLogger parses:
@@ -179,7 +263,7 @@ export function recordCall(usage, model, latencyMs, stepInfo, providerId) {
   try {
     fs.mkdirSync(path.dirname(BUFFER_FILE), { recursive: true });
     if (fs.existsSync(BUFFER_FILE) && fs.statSync(BUFFER_FILE).size > MAX_BUFFER_BYTES) {
-      _log(`⚠️ [DSMON] Buffer exceeds ${MAX_BUFFER_BYTES} bytes — dropping record (host unreachable?)`);
+      _log(`⚠️ [DSMON] Buffer exceeds ${MAX_BUFFER_BYTES} bytes — dropping record (DS-mon unreachable for an extended period; see dsmon.log)`);
       return;
     }
     fs.appendFileSync(BUFFER_FILE, JSON.stringify(record) + "\n", "utf8");
@@ -190,13 +274,24 @@ export function recordCall(usage, model, latencyMs, stepInfo, providerId) {
 
 /**
  * Flush buffered records to DS-mon's /sync/push endpoint.
- * On success (HTTP 200), truncates the buffer file.
- * On failure, leaves records intact for retry on the next cycle.
+ * On success (HTTP 200), truncates the buffer file and clears any pause.
+ * On a transient failure, leaves records intact for retry on the next cycle.
+ * On a permanent (auth) failure, PAUSES — records are kept, no retry is
+ * scheduled, and collection stops until the token is fixed.
  */
 export async function flushBuffer() {
   // Master switch — never push while tracking is disabled.
   if (!TRACKING_ENABLED) return;
   if (!PUSH_URL) return;
+
+  // Fail-closed config guard: the hardened DS-mon host requires the bearer token on
+  // every route and refuses to serve without one, so a request sent without a token
+  // can only ever come back 401. Pause instead of pushing — buffered records are
+  // preserved and nothing new is collected until DSMON_PUSH_TOKEN is configured.
+  if (!PUSH_TOKEN) {
+    _setPaused("no-token", "DSMON_PUSH_URL is set but DSMON_PUSH_TOKEN is empty");
+    return;
+  }
 
   if (!fs.existsSync(BUFFER_FILE)) return;
 
@@ -215,9 +310,9 @@ export async function flushBuffer() {
   if (records.length === 0) return;
 
   try {
-    // Authenticate against the DS-mon host when a shared push token is configured.
-    const headers = { "Content-Type": "application/json" };
-    if (PUSH_TOKEN) headers["Authorization"] = `Bearer ${PUSH_TOKEN}`;
+    // Every route on the hardened DS-mon host requires the bearer token, so this
+    // is unconditional (a missing token is handled by the fail-closed guard above).
+    const headers = { "Content-Type": "application/json", Authorization: `Bearer ${PUSH_TOKEN}` };
     // Encrypt the whole batch when a shared AES key is configured (envelope).
     const body = ENCRYPTION_KEY ? JSON.stringify(encryptEnvelope(ENCRYPTION_KEY_ID, ENCRYPTION_KEY, records)) : JSON.stringify(records);
     const resp = await fetch(PUSH_URL, {
@@ -233,15 +328,27 @@ export async function flushBuffer() {
       fs.writeFileSync(BUFFER_FILE, "", "utf8");
       lastPush = { at: Date.now(), ok: true, count: records.length, error: null };
       _log(`📊 [DSMON] Pushed ${records.length} usage records to ${PUSH_URL}`);
+      // A good push clears any pause (e.g. the token was corrected on the host),
+      // which is what replays the records preserved during the paused window.
+      _clearPaused();
+    } else if (resp.status === 401 || resp.status === 403) {
+      // PERMANENT. Retrying cannot fix a rejected or missing token, so don't
+      // schedule a retry: the buffer keeps its records and the next interval tick
+      // (or a runner restart after fixing DSMON_PUSH_TOKEN) drains them.
+      await resp.text().catch(() => "");
+      lastPush = { at: Date.now(), ok: false, count: records.length, error: "unauthorized" };
+      _setPaused("unauthorized", `DS-mon rejected the push token (HTTP ${resp.status})`);
     } else {
       const text = await resp.text().catch(() => "");
       lastPush = { at: Date.now(), ok: false, count: records.length, error: `HTTP ${resp.status} ${text.slice(0, 100)}` };
       _log(`⚠️ [DSMON] Push failed: HTTP ${resp.status} ${text.slice(0, 100)} — ${records.length} records retained`);
+      _writeStatus();
       _scheduleRetry();
     }
   } catch (err) {
     lastPush = { at: Date.now(), ok: false, count: records.length, error: err.message };
     _log(`⚠️ [DSMON] Push error: ${err.message} — ${records.length} records retained for retry`);
+    _writeStatus();
     _scheduleRetry();
   }
 }
@@ -263,6 +370,11 @@ export function startFlushTimer() {
 
   // Immediate flush on start (catches offline-period records)
   flushBuffer();
+
+  // Publish a snapshot even when there was nothing to flush (a healthy runner with
+  // no buffered records), so the Config Panel's status line always has a state to
+  // render instead of reporting "no status".
+  _writeStatus();
 
   flushTimer = setInterval(flushBuffer, PUSH_INTERVAL);
 }

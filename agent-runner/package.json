@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node index.js",
     "build": "node build.mjs",
-    "smoke": "node dist/smoke.mjs"
+    "smoke": "node dist/smoke.mjs",
+    "test:dsmon-401": "node test-usage-tracker-401.mjs"
   },
   "overrides": {
     "uuid": "^11.1.1"

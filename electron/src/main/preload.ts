@@ -180,6 +180,24 @@ contextBridge.exposeInMainWorld("electronAPI", {
     dsmon: DsmonAuthorityState;
   }> => ipcRenderer.invoke("license:get-status"),
   recheckDsmonLicense: (): Promise<DsmonAuthorityState> => ipcRenderer.invoke("dsmon:recheck"),
+  // DS-mon usage-push status, published by the agent runner's usage tracker
+  // (agent-runner/usage-tracker.js → storage/dsmon_status.json) and read by the
+  // main process. `available:false` = no snapshot yet (runner not started).
+  getDsmonPushStatus: (): Promise<{
+    available: boolean;
+    paused: boolean;
+    pauseReason: "no-token" | "unauthorized" | null;
+    error: string | null;
+    at: number | null;
+    count: number;
+    bufferBytes: number;
+    bufferCount: number;
+    skippedWhilePaused: number;
+    instanceId?: string;
+    pushUrl?: string;
+    trackingEnabled?: boolean;
+    writtenAt: number | null;
+  }> => ipcRenderer.invoke("dsmon:push-status"),
   // Pushed from main whenever the DS-mon authority verdict changes (revoked /
   // expired → panels re-obscure; valid → unlock) so the UI reloads its license
   // gating without a manual refresh or restart.

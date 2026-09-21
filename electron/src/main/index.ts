@@ -1370,6 +1370,44 @@ ipcMain.handle("license:get-status", () => {
 ipcMain.handle("dsmon:recheck", () => checkDsmonAuthority());
 
 /**
+ * Directory candidates for the agent-runner's status files. The runner and the
+ * main process normally agree on TRANSCRIPTION_STORAGE, but a manually started
+ * runner (`npm run transcribe:runner`) falls back to <repo>/storage — so check
+ * both, primary first. Same lookup as `testbot:getRunningJobs`.
+ */
+function storageDirCandidates(): string[] {
+  const primary = process.env.TRANSCRIPTION_STORAGE || path.join(app.getPath("userData"), "storage");
+  const dirs = [primary];
+  try {
+    const projectRoot = app.isPackaged ? path.join(process.resourcesPath, "..") : path.join(app.getAppPath(), "..");
+    const projectStorage = path.join(projectRoot, "storage");
+    if (projectStorage !== primary && fs.existsSync(projectStorage)) dirs.push(projectStorage);
+  } catch {
+    // ignore — the primary path is enough
+  }
+  return dirs;
+}
+
+/**
+ * DS-mon usage-push status (Config → Usage Tracking). Written by the AGENT
+ * RUNNER (`agent-runner/usage-tracker.js` → storage/dsmon_status.json), because
+ * the push happens in that separate process, not here. A missing file simply
+ * means the runner hasn't published a snapshot yet — not an error.
+ */
+ipcMain.handle("dsmon:push-status", () => {
+  for (const dir of storageDirCandidates()) {
+    try {
+      const file = path.join(dir, "dsmon_status.json");
+      if (!fs.existsSync(file)) continue;
+      return { ...JSON.parse(fs.readFileSync(file, "utf8")), available: true };
+    } catch {
+      // Unreadable/partial file — try the next candidate
+    }
+  }
+  return { available: false, paused: false, pauseReason: null, error: null, bufferBytes: 0, bufferCount: 0, writtenAt: null };
+});
+
+/**
  * Push license-status changes to the renderer whenever the DS-mon authority
  * verdict transitions (revoked / expired → locked, or reachability change).
  * This makes a Config-panel recheck OR the periodic monitor reload the app's
