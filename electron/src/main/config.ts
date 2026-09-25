@@ -17,7 +17,7 @@ import fs from "fs";
 import path from "path";
 import { app } from "electron";
 import { isLicensed, readStoredLicenseKey } from "./license";
-import { writeEncryptedFileAtRest, readEncryptedFileAtRest, migratePlaintextConfig, getOrCreateConfigSecret, decryptLegacyConfigEnvelope } from "./config-encryption";
+import { writeEncryptedFileAtRest, readEncryptedFileAtRest, migratePlaintextConfig, getOrCreateConfigSecret, decryptLegacyConfigEnvelope, readConfigEnvelopeVersion } from "./config-encryption";
 
 export interface AppConfig {
   /** DeepSeek API key (required when API_PROVIDER=deepseek) */
@@ -523,12 +523,24 @@ export function migrateConfigToEncrypted(): { migrated: boolean; backupPath?: st
 export interface ConfigIntegrity {
   configGpg: "present" | "missing" | "corrupt";
   backupExists: boolean;
+  /**
+   * Envelope version of an existing `config.json.gpg`, read WITHOUT decrypting it
+   * (so it is available even when unlicensed).
+   *
+   * `v1` is the legacy pre-0.9 scheme: its AES key was **derived from the licence
+   * string**, so re-issuing that seat's key is the one operation that can leave the
+   * config unreadable (see `reKeyConfig`). `v2` is keyed from the per-machine
+   * secret and is unaffected by any licence change. `missing` = no encrypted
+   * config on disk; `unknown` = unrecognised tag or unreadable file.
+   */
+  configEnvelope: "v2" | "v1" | "unknown" | "missing";
 }
 
 export function getConfigIntegrity(): ConfigIntegrity {
   ensureUserDataDir();
   const gpgExists = fs.existsSync(userConfigGpgPath);
   const backupExists = fs.existsSync(`${userConfigPath}.bak`);
+  const configEnvelope: ConfigIntegrity["configEnvelope"] = gpgExists ? readConfigEnvelopeVersion(userConfigGpgPath) : "missing";
   let configGpg: ConfigIntegrity["configGpg"] = "missing";
   if (gpgExists) {
     if (isLicensed()) {
@@ -544,7 +556,7 @@ export function getConfigIntegrity(): ConfigIntegrity {
       configGpg = "present";
     }
   }
-  return { configGpg, backupExists };
+  return { configGpg, backupExists, configEnvelope };
 }
 
 /**

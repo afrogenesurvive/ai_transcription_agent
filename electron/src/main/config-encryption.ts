@@ -112,6 +112,38 @@ export function decryptLegacyConfigEnvelope(envelope: string, licenseKey: string
   return Buffer.concat([decipher.update(Buffer.from(ctB64, "base64")), decipher.final()]).toString("utf8");
 }
 
+/** Envelope tag found on an at-rest config file (see the version constants above). */
+export type ConfigEnvelopeVersion = "v2" | "v1" | "unknown";
+
+/**
+ * Read ONLY the envelope version tag of an encrypted file — cheaply, without
+ * decrypting it and without needing a license.
+ *
+ * Why this exists: a **v1** config was keyed from the licence *string*, so
+ * re-issuing (re-signing) that seat's key rewrites the only thing that can unlock
+ * it. Knowing the version up front lets the operator see which machines would be
+ * affected before re-signing a seat (About → License, `license.log`, and
+ * `getConfigIntegrity().configEnvelope`). A **v2** config is keyed from the
+ * per-machine secret and is unaffected by any licence change.
+ */
+export function readConfigEnvelopeVersion(filePath: string): ConfigEnvelopeVersion {
+  try {
+    const fd = fs.openSync(filePath, "r");
+    try {
+      const head = Buffer.alloc(8);
+      const n = fs.readSync(fd, head, 0, head.length, 0);
+      const tag = head.subarray(0, n).toString("utf8").split(".")[0];
+      if (tag === ENVELOPE_VERSION_V2) return "v2";
+      if (tag === LEGACY_ENVELOPE_VERSION) return "v1";
+      return "unknown";
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return "unknown";
+  }
+}
+
 export function writeEncryptedFileAtRest(filePath: string, plaintext: string, secret: Buffer): void {
   fs.writeFileSync(filePath, encryptConfigEnvelope(plaintext, secret), "utf8");
 }

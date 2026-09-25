@@ -3484,6 +3484,12 @@ app.whenReady().then(async () => {
   } else if (integrity.configGpg === "corrupt") {
     logLicenseFlow("warn", "config.integrity.undecryptable");
   }
+  // A legacy v1 config is keyed from the LICENCE STRING, so record it: re-issuing
+  // (re-signing) this seat's key is the one operation that can leave it unreadable.
+  // A v2 config is keyed from the per-machine secret and is never affected.
+  if (integrity.configEnvelope === "v1") {
+    logLicenseFlow("warn", "config.integrity.legacy_envelope", { envelope: "v1" });
+  }
 
   // macOS 10.14+: trigger the system's one-time notification permission dialog.
   // Without this, the user must manually enable notifications in System Settings.

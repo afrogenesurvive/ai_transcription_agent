@@ -427,6 +427,17 @@ function LicenseTab({ onLicensedChange, onOpenConfig }: { onLicensedChange?: () 
         </p>
       )}
 
+      {/* Legacy v1 config envelope: its key was derived from the licence string */}
+      {integrity?.configEnvelope === "v1" && (
+        <div className="about-license-recovery">
+          <p className="about-license-recovery-msg">
+            <Icon name="info" size="14" /> Your saved settings still use the legacy (pre-0.9) format, which is unlocked with the licence key
+            that created them. Replacing that key can make them unreadable — activating a re-issued key on this machine migrates them
+            automatically, so keep the old key available (or export a config) until it has.
+          </p>
+        </div>
+      )}
+
       {/* Licensed-but-config missing/corrupt warning, plus recovery actions */}
       {(integrity?.configGpg === "missing" || integrity?.configGpg === "corrupt") && (
         <div className="about-license-recovery">

@@ -139,6 +139,8 @@ Transcription Agent is a licensed desktop app. Until an active license is entere
 
 Licenses are issued per seat and may be **time-limited** or **unlimited** — the License tab shows your status (Active / Expired / Unlimited) and which seat the key belongs to. If your key was issued with an email address, it is shown alongside the seat so you can confirm which license you are running; not every key carries one.
 
+If the License tab also warns that your settings use the **legacy (pre-0.9) format**, those settings are unlocked with the licence key that created them. Keep that key to hand — or export a config — before replacing it with a different one.
+
 ### First-time setup
 
 On a fresh install, the **"Setting Up…" banner** walks you through two steps:

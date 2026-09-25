@@ -122,6 +122,8 @@ export interface ConfigIntegrity {
   licenseKeyFile: "present" | "missing";
   configGpg: "present" | "missing" | "corrupt";
   backupExists: boolean;
+  /** `v1` = the legacy pre-0.9 at-rest envelope, keyed from the licence STRING. */
+  configEnvelope: "v2" | "v1" | "unknown" | "missing";
 }
 
 /**

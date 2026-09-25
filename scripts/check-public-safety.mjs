@@ -95,8 +95,22 @@ const WARN_PATTERNS = [
     label: "Reference to internal docs/safe/ in public content",
   },
   {
-    re: /\b(?:api[_-]?key|client[_-]?secret|access[_-]?token|refresh[_-]?token|auth[_-]?token|secret|passwd|password|private[_-]?key)\s*[:=]\s*["']?[A-Za-z0-9_\-./+]{16,}["']?/gi,
-    label: "Possible credential assignment (key=value)",
+    // High-signal form: the value is a quoted string literal. Whitespace is
+    // excluded — real keys/tokens never contain it, whereas test fixtures are
+    // often a phrase (`PASSWORD = "correct horse battery staple"`), which this
+    // rule flagged when it allowed spaces.
+    re: /\b(?:api[_-]?key|client[_-]?secret|access[_-]?token|refresh[_-]?token|auth[_-]?token|secret|passwd|password|private[_-]?key)\s*[:=]\s*["'][^"'\s]{8,}["']/gi,
+    label: "Possible credential assignment (quoted value)",
+  },
+  {
+    // Unquoted form, tightened so it stops matching CODE. A dotted value is an
+    // identifier path, not a literal (`cfg.API_KEY`, `crypto.randomBytes`), and a
+    // value with no digit is a plain identifier (`getOrCreateConfigSecret`).
+    // Real unquoted credentials are env-style values and carry a digit; `.env`
+    // files are blocked by path anyway. Both cases matched before, which made
+    // every file that assigns a local named `secret = <fn>()` report a warning.
+    re: /\b(?:api[_-]?key|client[_-]?secret|access[_-]?token|refresh[_-]?token|auth[_-]?token|secret|passwd|password|private[_-]?key)\s*[:=]\s*(?=[A-Za-z0-9_\-/+]*\d)[A-Za-z0-9_\-/+]{16,}/gi,
+    label: "Possible credential assignment (unquoted value)",
   },
 ];
 

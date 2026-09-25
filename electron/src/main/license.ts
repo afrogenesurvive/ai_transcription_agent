@@ -63,7 +63,7 @@ export const MASTER_KEY_RING: MasterKeyEntry[] = [{ kid: "mk-dev", publicKey: "n
 /** kids whose signatures are no longer trusted (compromise / forced retirement). */
 export const REVOKED_KIDS: string[] = [];
 /** Per-seat revocation — a specific seat (sub) is invalidated without retiring its master kid. */
-export const REVOKED_SEATS: string[] = ["lic_test@test.com","revoked-test-2","revoke_test@test.com","seat-test-1","revoke-test-2","revoke-test-3","revoke-test-4","revoke_key_test_5"];
+export const REVOKED_SEATS: string[] = ["lic_test@test.com","revoked-test-2","revoke_test@test.com","seat-test-1","revoke-test-2","revoke-test-3","revoke-test-4","revoke_key_test_5","exp_test_2","exp_test@test.com","expiry-test-4","master_key@test.com","shanice_flowsync","unlimited@test.com","win_test@test.com","stonedrone002@gmail.com"];
 
 export interface LicenseClaims {
   app: string;

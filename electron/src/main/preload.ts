@@ -176,7 +176,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       | { status: "expired"; sub: string; kid: string; exp: number; installedAt?: number; email?: string }
       | { status: "invalid"; reason: string };
     safeStorageAvailable: boolean;
-    configIntegrity: { licenseKeyFile: "present" | "missing"; configGpg: "present" | "missing" | "corrupt"; backupExists: boolean };
+    configIntegrity: { licenseKeyFile: "present" | "missing"; configGpg: "present" | "missing" | "corrupt"; backupExists: boolean; configEnvelope: "v2" | "v1" | "unknown" | "missing" };
     dsmon: DsmonAuthorityState;
   }> => ipcRenderer.invoke("license:get-status"),
   recheckDsmonLicense: (): Promise<DsmonAuthorityState> => ipcRenderer.invoke("dsmon:recheck"),
@@ -209,7 +209,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
         | { status: "expired"; sub: string; kid: string; exp: number; installedAt?: number; email?: string }
         | { status: "invalid"; reason: string };
       safeStorageAvailable: boolean;
-      configIntegrity: { licenseKeyFile: "present" | "missing"; configGpg: "present" | "missing" | "corrupt"; backupExists: boolean };
+      configIntegrity: { licenseKeyFile: "present" | "missing"; configGpg: "present" | "missing" | "corrupt"; backupExists: boolean; configEnvelope: "v2" | "v1" | "unknown" | "missing" };
       dsmon: DsmonAuthorityState;
     }) => void,
   ) => {
