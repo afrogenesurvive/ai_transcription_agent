@@ -104,7 +104,14 @@ mkdir -p "$OUTDIR"
 echo "   🔨 Running PyInstaller (this may take a few minutes)..."
 echo ""
 
+# --noconfirm is required for REPEAT builds: COLLECT refuses to write into a
+# non-empty distpath and aborts with "The output directory ... is not empty.
+# Please remove all its contents or use the -y option" — so without it, a second
+# `dist:prepare` on a machine that already has a bundle always fails. The
+# workpath is deleted at the end of every successful run (step 5), so a stale
+# bundle is the only thing that can be in the way.
 "$VENV_PYTHON" -m PyInstaller \
+  --noconfirm \
   --onedir \
   --name "main" \
   --distpath "$OUTDIR" \
