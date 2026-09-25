@@ -172,8 +172,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getLicenseStatus: (): Promise<{
     status:
       | { status: "unlicensed" }
-      | { status: "active"; sub: string; kid: string; exp: number; installedAt?: number }
-      | { status: "expired"; sub: string; kid: string; exp: number; installedAt?: number }
+      | { status: "active"; sub: string; kid: string; exp: number; installedAt?: number; email?: string }
+      | { status: "expired"; sub: string; kid: string; exp: number; installedAt?: number; email?: string }
       | { status: "invalid"; reason: string };
     safeStorageAvailable: boolean;
     configIntegrity: { licenseKeyFile: "present" | "missing"; configGpg: "present" | "missing" | "corrupt"; backupExists: boolean };
@@ -205,8 +205,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     callback: (payload: {
       status:
         | { status: "unlicensed" }
-        | { status: "active"; sub: string; kid: string; exp: number; installedAt?: number }
-        | { status: "expired"; sub: string; kid: string; exp: number; installedAt?: number }
+        | { status: "active"; sub: string; kid: string; exp: number; installedAt?: number; email?: string }
+        | { status: "expired"; sub: string; kid: string; exp: number; installedAt?: number; email?: string }
         | { status: "invalid"; reason: string };
       safeStorageAvailable: boolean;
       configIntegrity: { licenseKeyFile: "present" | "missing"; configGpg: "present" | "missing" | "corrupt"; backupExists: boolean };
@@ -225,8 +225,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     safeStorageAvailable?: boolean;
     status?:
       | { status: "unlicensed" }
-      | { status: "active"; sub: string; kid: string; exp: number; installedAt?: number }
-      | { status: "expired"; sub: string; kid: string; exp: number; installedAt?: number }
+      | { status: "active"; sub: string; kid: string; exp: number; installedAt?: number; email?: string }
+      | { status: "expired"; sub: string; kid: string; exp: number; installedAt?: number; email?: string }
       | { status: "invalid"; reason: string };
   }> => ipcRenderer.invoke("license:activate", key),
   deactivateLicense: (): Promise<{
@@ -234,8 +234,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     safeStorageAvailable?: boolean;
     status?:
       | { status: "unlicensed" }
-      | { status: "active"; sub: string; kid: string; exp: number; installedAt?: number }
-      | { status: "expired"; sub: string; kid: string; exp: number; installedAt?: number }
+      | { status: "active"; sub: string; kid: string; exp: number; installedAt?: number; email?: string }
+      | { status: "expired"; sub: string; kid: string; exp: number; installedAt?: number; email?: string }
       | { status: "invalid"; reason: string };
   }> => ipcRenderer.invoke("license:deactivate"),
   reKeyLicense: (
@@ -247,8 +247,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     safeStorageAvailable?: boolean;
     status?:
       | { status: "unlicensed" }
-      | { status: "active"; sub: string; kid: string; exp: number; installedAt?: number }
-      | { status: "expired"; sub: string; kid: string; exp: number; installedAt?: number }
+      | { status: "active"; sub: string; kid: string; exp: number; installedAt?: number; email?: string }
+      | { status: "expired"; sub: string; kid: string; exp: number; installedAt?: number; email?: string }
       | { status: "invalid"; reason: string };
   }> => ipcRenderer.invoke("license:re-key", newKey),
   getBridgeToken: (forceRefresh?: boolean): Promise<{ token: string } | { error: string }> =>

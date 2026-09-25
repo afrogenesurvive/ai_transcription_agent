@@ -1,6 +1,6 @@
 {
   "name": "AI Transcription Agent - Backend",
-  "version": "0.9.10",
+  "version": "0.9.11",
   "private": true,
   "license": "Apache-2.0",
   "description": "AI Meeting Transcription Agent — automatic speech-to-text, speaker diarization, summarization, and memory",

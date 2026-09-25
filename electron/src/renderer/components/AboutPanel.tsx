@@ -353,6 +353,7 @@ function LicenseTab({ onLicensedChange, onOpenConfig }: { onLicensedChange?: () 
           {status?.status === "active" && (
             <>
               Active — seat <strong>{status.sub}</strong> · expires <strong>{formatExpiry(status.exp)}</strong>
+              {status.email ? <> · {status.email}</> : null}
             </>
           )}
           {status?.status === "expired" && (

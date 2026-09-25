@@ -114,8 +114,8 @@ export interface ConfigValueSource {
 // ── License (per-seat, offline verification) ──
 export type LicenseStatus =
   | { status: "unlicensed" }
-  | { status: "active"; sub: string; kid: string; exp: number; installedAt?: number }
-  | { status: "expired"; sub: string; kid: string; exp: number; installedAt?: number }
+  | { status: "active"; sub: string; kid: string; exp: number; installedAt?: number; email?: string }
+  | { status: "expired"; sub: string; kid: string; exp: number; installedAt?: number; email?: string }
   | { status: "invalid"; reason: string };
 
 export interface ConfigIntegrity {

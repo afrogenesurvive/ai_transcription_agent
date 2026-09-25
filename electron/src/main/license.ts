@@ -16,7 +16,8 @@
  *   4. Check app/v and exp (exp = 0 means UNLIMITED).
  *
  * Persistence (userData/):
- *   license.json    — NON-secret metadata: { status, sub, kid, exp, installedAt }
+ *   license.json    — NON-secret metadata: { status, sub, kid, exp, installedAt, email? }
+ *                     (email is the optional seat claim; it is identity, not a secret)
  *   license.key.enc — the raw license key, encrypted via Electron safeStorage
  *                     (Keychain on macOS, DPAPI on Windows).
  *
@@ -71,6 +72,16 @@ export interface LicenseClaims {
   exp: number; // 0 = unlimited
   kid: string;
   pub: string;
+  // ── optional seat claims (added 2026-09-24 by the key manager) ──
+  // Absent on every key issued before that date, and on any seat the operator
+  // has not bound an identity to. Parsing is by type assertion, so an unknown
+  // field is simply ignored — a claimed key still verifies on older builds.
+  /** Mailbox this seat belongs to (lower-cased, shape-validated by the issuer). */
+  email?: string;
+  /** scrypt password VERIFIER — never a password. See ./license-claims. */
+  pwdv?: string;
+  /** Claim-envelope version (`1`); present only when the cert carries claims. */
+  metaV?: number;
 }
 
 export type VerifyResult =
@@ -93,9 +104,22 @@ export type VerifyResult =
 
 export type LicenseStatus =
   | { status: "unlicensed" }
-  | { status: "active"; sub: string; kid: string; exp: number; installedAt?: number }
-  | { status: "expired"; sub: string; kid: string; exp: number; installedAt?: number }
+  | { status: "active"; sub: string; kid: string; exp: number; installedAt?: number; email?: string }
+  | { status: "expired"; sub: string; kid: string; exp: number; installedAt?: number; email?: string }
   | { status: "invalid"; reason: string };
+
+// ── Seat claims (optional cert fields) ────────────────────────────────────────
+// Claims live inside the same signed cert bytes, so they cost no format change:
+// `v` stays 1 and a claim-less cert is byte-identical to the old output. Only
+// two things are ever done with them — showing `email` as the seat's identity,
+// and checking a password against `pwdv` (an scrypt VERIFIER, never a password).
+//
+// The password implementation is Electron-free in ./license-claims so it can be
+// tested without booting the app; re-exported here so callers keep one import
+// site. `pwdv` must never reach a log, the DevPanel, or an error message.
+
+export { parsePasswordVerifier, verifyPasswordClaim } from "./license-claims";
+export type { PasswordClaim, ParsedPasswordVerifier } from "./license-claims";
 
 // ── Verification ──────────────────────────────────────────────────────────────
 
@@ -196,6 +220,8 @@ interface LicenseJson {
   kid?: string;
   exp?: number;
   installedAt?: number;
+  /** Optional seat claim (identity only — never a credential). */
+  email?: string;
 }
 
 function readLicenseJson(): LicenseJson {
@@ -276,8 +302,8 @@ export function writeStoredLicenseKey(key: string | null): void {
 // Every license event is written to BOTH the live log (DevPanel, via addLog,
 // subSource "license") and a dedicated append-only userData/license.log (JSON
 // lines). NEVER pass the raw license key, seat private key, cert, sig, bridge
-// token, or any decrypted secret into these helpers — only safe fields
-// (sub, kid, exp, status, reason…).
+// token, `pwdv` (a password verifier) or `email` (PII) into these helpers — only
+// safe fields (sub, kid, exp, status, reason…).
 
 const LICENSE_LOG_NAME = "license.log";
 const LICENSE_LOG_DIR_NAME = "logs";
@@ -343,10 +369,18 @@ export function getLicenseStatus(): LicenseStatus {
       kid: res.claims.kid,
       exp: res.claims.exp,
       installedAt: json.installedAt,
+      email: res.claims.email,
     };
   }
   if (res.reason === "expired") {
-    return { status: "expired", sub: json.sub || "", kid: json.kid || "", exp: json.exp || 0, installedAt: json.installedAt };
+    return {
+      status: "expired",
+      sub: json.sub || "",
+      kid: json.kid || "",
+      exp: json.exp || 0,
+      installedAt: json.installedAt,
+      email: json.email,
+    };
   }
   return { status: "invalid", reason: res.reason };
 }
@@ -381,6 +415,7 @@ export function activateLicense(key: string): {
     kid: res.claims.kid,
     exp: res.claims.exp,
     installedAt: Date.now(),
+    email: res.claims.email,
   };
   writeLicenseJson(json);
 

@@ -67,6 +67,14 @@ const BLOCKER_PATTERNS = [
   { re: /\bAKIA[0-9A-Z]{16}\b/g, label: "AWS access key ID (AKIA…)" },
   { re: /\b[A-Za-z0-9+/]{40,}={0,2}\b/g, label: "Long base64 blob (possible token/key)", classify: classifyBase64 },
   { re: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/g, label: "Private key block" },
+  // Seat/licence material. A TA1 string embeds the seat's private seed (it IS the
+  // config-encryption key source), and a `pwdv` is an offline-crackable password
+  // verifier. Neither belongs in the public repo — a licence key pasted into a
+  // doc, or a copied `<sub>.key`, is caught here as well as by the path rules.
+  { re: /TA1\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\./g, label: "TA1 license string" },
+  { re: /"d"\s*:\s*"[A-Za-z0-9_-]{43}"/g, label: "Ed25519/X25519 JWK private scalar" },
+  { re: /scrypt\$\d+\$\d+\$\d+\$[A-Za-z0-9_-]+\$[A-Za-z0-9_-]+/g, label: "scrypt password verifier" },
+  { re: /"pwdv"\s*:\s*"[^"]+"/g, label: "claim verifier field (pwdv)" },
 ];
 
 /**
@@ -105,7 +113,7 @@ const BAD_PATH_PATTERNS = [
   { re: /(^|\/)agent-config\/(pipeline\.json|tools\.json|system-prompt\.md|\.defaults\/)/, label: "agent-config live files (per-user secrets/customization)" },
   { re: /(^|\/)version\.json$/, label: "version.json — generated branch version" },
   { re: /(^|\/)electron\/(test-results|docs)\//, label: "electron test artifacts" },
-  { re: /\.(pem|key|p12|pfx)$/, label: "certificate/private-key file" },
+  { re: /\.(pem|key|p12|pfx|asc|jks|keystore)$/, label: "certificate/private-key file" },
   { re: /(^|\/)dist-resources\//, label: "dist-resources/ — generated backend bundle" },
   { re: /(^|\/)node_modules\//, label: "node_modules/ — dependencies" },
   { re: /(^|\/)dist\//, label: "dist/ — build output" },

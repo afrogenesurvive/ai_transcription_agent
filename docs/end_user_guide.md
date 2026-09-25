@@ -137,7 +137,7 @@ Transcription Agent is a licensed desktop app. Until an active license is entere
 2. Paste the license key you were issued and click **Activate License**.
 3. When it succeeds, the app unlocks and you can submit jobs and use all features.
 
-Licenses are issued per seat and may be **time-limited** or **unlimited** — the License tab shows your status (Active / Expired / Unlimited) and which seat the key belongs to.
+Licenses are issued per seat and may be **time-limited** or **unlimited** — the License tab shows your status (Active / Expired / Unlimited) and which seat the key belongs to. If your key was issued with an email address, it is shown alongside the seat so you can confirm which license you are running; not every key carries one.
 
 ### First-time setup
 
@@ -844,7 +844,7 @@ The Testing tab is located in **Dev Tools → Testing** — see the [Dev Tools �
 
 ## Dev Tools
 
-Click the **�️ Dev** button in the sidebar to open the developer panel. A confirmation dialog appears the first time — click **Proceed** to continue.
+Click the **🛠️ Dev** button in the sidebar to open the developer panel. A confirmation dialog appears the first time — click **Proceed** to continue.
 
 The Dev panel has the following tabs:
 

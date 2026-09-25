@@ -8,6 +8,12 @@ Mirrors electron/src/main/license.ts — embed the SAME master public key ring
   certJson         = { app, v, sub, exp, kid, pub }   (pub = seat Ed25519 pubkey, b64url)
   exp              = 0 means UNLIMITED
 
+The cert may also carry optional seat CLAIMS (`email`, `pwdv`, `metaV`), added by
+2026-09-24 by the key manager (see electron/src/main/license-claims.ts). They are
+additive at v=1 and are simply ignored here — this verifier reads only the fields
+above. `email` is copied into the session-token payload for audit; `pwdv` is a
+password VERIFIER and is never read, logged or returned by the bridge.
+
 Flow:
   POST /license/challenge  { cert, sig }  → verifies master sig + exp, returns
                                             { challenge_id, nonce }
@@ -148,6 +154,12 @@ def issue_token(cert: dict) -> tuple[str, dict]:
         "iat": now,
         "exp_token": now + TOKEN_TTL_SECONDS,
     }
+    # Optional seat claim (identity, not a credential). Omitted entirely when the
+    # cert carries no claim, so a claim-less seat's payload is byte-identical to
+    # what it was before claims existed.
+    email = cert.get("email")
+    if email:
+        payload["email"] = email
     payload_b64 = _b64u_encode(json.dumps(payload, separators=(",", ":")).encode())
     token = f"{payload_b64}.{_sign(payload_b64)}"
     return token, payload
