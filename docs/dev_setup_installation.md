@@ -68,6 +68,16 @@ pip install faster-whisper
 pip install openai-whisper
 ```
 
+> **The venv is required in development.** The Electron main process resolves the backend
+> interpreter as: bundled PyInstaller binary (packaged builds) → `python-backend/venv/bin/python3`
+> (`venv\Scripts\python.exe` on Windows) → **hard failure**. It deliberately does not fall back
+> to the system `python3`, which on macOS is Python 3.9 and has none of the ML dependencies — so a
+> missing venv shows a "Backend Error" dialog telling you to run `npm run transcribe:setup`
+> instead of failing later with `ModuleNotFoundError`.
+>
+> `venv/` is gitignored, so a repo-wide `git clean -xfd` deletes it. That is the usual cause of
+> a dev backend that suddenly stops starting after previously working.
+
 ### 2. Node.js Services
 
 ```bash
@@ -371,6 +381,24 @@ The app has a monkey-patch (`patches.py`) that forces `weights_only=False` for `
 1. Check if the Python backend is running
 2. Ensure the virtual environment is activated
 3. Check for port conflicts with `lsof -ti:5001`
+
+### `ModuleNotFoundError: No module named 'soundfile'` (with a stream of bridge 502s)
+
+The Python backend exits during startup, so every bridge call fails with
+`502 Python backend unreachable`, and the health monitor retries three times before pausing.
+
+Look at `{userData}/logs/startup-error.log` (and the app's Live Log). If it ends with
+`No module named '...'`, either the venv is missing packages or the whole `python-backend/venv`
+directory is gone:
+
+1. Recreate/repair it from the repo root: `npm run transcribe:setup`
+2. Confirm the interpreter the app will use:
+   `python-backend/venv/bin/python3 -c "import soundfile, torch, pyannote.audio"`
+3. Restart the app
+
+Create the venv with a Python **>= 3.10** (`python3.11` is the tested version) — on macOS the
+bare `python3` is 3.9. The app fails fast with this guidance rather than falling back to the
+system Python, which cannot satisfy `requirements.txt`.
 
 ### "Agent runner not picking up jobs"
 

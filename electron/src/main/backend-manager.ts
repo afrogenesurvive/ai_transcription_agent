@@ -9,7 +9,7 @@
  * In production (packaged), binaries are in extraResources.
  */
 
-import { spawn, ChildProcess, execSync } from "child_process";
+import { spawn, ChildProcess, execFileSync, execSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import { app } from "electron";
@@ -499,7 +499,26 @@ async function killProcess(proc: ChildProcess): Promise<void> {
   }
 }
 
-/** Resolve the Python backend binary path. */
+/**
+ * Path to the dev virtualenv interpreter, or null when the venv doesn't exist.
+ * Exported so the dev auto-updater installs into the same interpreter the backend is
+ * spawned with (it used to shell out to the system `pip3` instead).
+ */
+export function venvPythonPath(backendDir: string): string | null {
+  const venvPython = path.join(backendDir, IS_WIN ? "venv\\Scripts\\python.exe" : "venv", "bin", PYTHON_BIN);
+  return fs.existsSync(venvPython) ? venvPython : null;
+}
+
+/**
+ * Resolve the Python backend binary path.
+ *
+ * In dev the backend must run inside `python-backend/venv`: requirements.txt needs
+ * Python >= 3.10 plus the ML stack, and the system interpreter (`python3` on macOS is
+ * 3.9) has neither. Falling back to it silently — as this did — turns a deleted venv
+ * (venv/ is gitignored, so `git clean -xfd` removes it) into a bare "ModuleNotFoundError:
+ * No module named 'soundfile'" from patches.py, a bridge 502 storm, and three failed
+ * auto-restarts. So fail fast with an actionable message instead.
+ */
 function resolvePythonBin(backendDir: string): { bin: string; args: string[] } {
   // Production (packaged): use PyInstaller standalone binary
   if (isProd) {
@@ -520,15 +539,65 @@ function resolvePythonBin(backendDir: string): { bin: string; args: string[] } {
       }
     }
 
-    console.log(`[backend] Standalone binary not found (tried: ${candidates.join(", ")}) — falling back to system Python`);
+    // Keep the system-Python fallback (a packaged build can't be fixed from here),
+    // but never do it silently — it is almost certainly going to fail.
+    console.warn(`[backend] Standalone binary not found (tried: ${candidates.join(", ")}) — falling back to system Python`);
+    addLog(
+      "main",
+      "warn",
+      `[backend] Packaged Python binary missing (tried: ${candidates.join(", ")}) — falling back to the system Python, which normally lacks the ML dependencies. Reinstall the app if this keeps happening.`,
+    );
   }
 
-  // Dev: try venv first, then system Python
-  const venvPython = path.join(backendDir, IS_WIN ? "venv\\Scripts\\python.exe" : "venv", "bin", PYTHON_BIN);
-  if (fs.existsSync(venvPython)) {
+  // Dev: the venv is required — see the doc comment above.
+  const venvPython = venvPythonPath(backendDir);
+  if (venvPython) {
     return { bin: venvPython, args: ["main.py"] };
   }
-  return { bin: PYTHON_BIN, args: ["main.py"] };
+
+  throw new Error(
+    `Python virtualenv not found at ${path.join(backendDir, "venv")}.\n` +
+      `  The dev backend must run inside python-backend/venv (Python >= 3.10). The app does not fall back to the system Python (${PYTHON_BIN}) because it lacks soundfile/torch/pyannote.\n` +
+      `  Fix: run 'npm run transcribe:setup' from the repo root, or create the venv manually:\n` +
+      (IS_WIN
+        ? `    cd python-backend && python -m venv venv && venv\\Scripts\\python.exe -m pip install -r requirements.txt`
+        : `    cd python-backend && python3.11 -m venv venv && venv/bin/python3 -m pip install -r requirements.txt`) +
+      `\n  Note: venv/ is gitignored, so a 'git clean -xfd' deletes it.`,
+  );
+}
+
+/**
+ * What the backend imports before anything else — `soundfile` is the first non-stdlib
+ * import in patches.py (imported by main.py:59), so importing it is the cheapest
+ * reliable check that requirements.txt actually landed in the interpreter. Deliberately
+ * does not import torch/pyannote (multi-second, and always present after setup).
+ */
+const PYTHON_DEP_PROBE = "import soundfile";
+
+/**
+ * Fail fast (dev only) when the resolved interpreter can't import the backend's startup
+ * deps — e.g. a venv whose install was interrupted. Without this the failure surfaces as
+ * a raw traceback in the stderr tail plus a 502 storm, and the health monitor burns three
+ * restart attempts before backing off. The packaged PyInstaller binary bundles its own
+ * interpreter and packages, so it is never probed.
+ */
+function assertPythonDeps(pythonBin: string, backendDir: string): void {
+  try {
+    execFileSync(pythonBin, ["-c", PYTHON_DEP_PROBE], { cwd: backendDir, stdio: "pipe", timeout: 30_000 });
+  } catch (err: any) {
+    const raw =
+      `${err?.stderr?.toString() || ""}${err?.stdout?.toString() || ""}`.trim() || String(err?.message || err);
+    const tail = raw
+      .split("\n")
+      .filter((l) => l.trim())
+      .slice(-6)
+      .join("\n      ");
+    throw new Error(
+      `Python environment at ${pythonBin} cannot run '${PYTHON_DEP_PROBE}'.\n` +
+        `      ${tail}\n` +
+        `  Fix: run 'npm run transcribe:setup' from the repo root to (re)install requirements.txt into python-backend/venv.`,
+    );
+  }
 }
 
 // ── Python Backend ──
@@ -575,8 +644,16 @@ export async function startPythonBackend(port = 5001): Promise<void> {
   const backendDir = resourcePath("python-backend");
   const { bin: pythonBin, args: pythonArgs } = resolvePythonBin(backendDir);
 
+  // Fail fast when the dev venv exists but its packages don't (interrupted setup,
+  // partially removed site-packages) — otherwise this only shows up as a traceback
+  // buried in the stderr tail of a 120s health-check timeout.
+  if (!isProd) assertPythonDeps(pythonBin, backendDir);
+
   console.log(`[backend] Starting Python backend at ${backendDir}`);
-  console.log(`[backend] Using: ${pythonBin} ${pythonArgs.join(" ") || "(standalone binary)"}`);
+  const interpreterOrigin = isProd ? "standalone binary" : "dev venv";
+  console.log(`[backend] Using: ${pythonBin} ${pythonArgs.join(" ") || "(standalone binary)"} (${interpreterOrigin})`);
+  // Mirror to the in-app log so the chosen interpreter is visible without the terminal.
+  addLog("main", "info", `[backend] Using ${pythonBin} (${interpreterOrigin})`);
 
   // Determine ffmpeg path: managed binary (userData/bin/ffmpeg) or system PATH
   const ffmpegPath = ffmpegTargetPath();
@@ -1729,16 +1806,33 @@ function recordRestartSuccess(key: string): void {
   if (restartFailures[key]) restartFailures[key].count = 0;
 }
 
+/**
+ * Collapse a backend-startup error into a single readable log line. The raw messages
+ * embed a whole stderr tail (up to 10 lines) plus a multi-line fix hint, which would
+ * otherwise flood the in-app Live Log (MiniLiveLog renders the message verbatim).
+ */
+function summarizeStartupError(err: any): string {
+  const lines = String(err?.message || err || "unknown error")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const first = lines[0] || "unknown error";
+  // Surface the actual Python failure when the stderr tail captured one.
+  const detail = lines.find((l) => /^(ModuleNotFoundError|ImportError|SyntaxError|AttributeError)/.test(l));
+  return detail && !first.includes(detail) ? `${first} | ${detail}` : first;
+}
+
 /** Record a failed auto-restart; after MAX_RESTART_FAILURES start a cooldown. */
 function recordRestartFailure(key: string, err: any): void {
   const tracker = restartFailures[key];
   if (!tracker) return;
   tracker.count += 1;
+  const summary = summarizeStartupError(err);
   if (tracker.count >= MAX_RESTART_FAILURES) {
     tracker.suppressedUntil = Date.now() + RESTART_COOLDOWN_MS;
-    addLog("main", "error", `Auto-restart failed ${tracker.count}× (${err?.message}) — pausing restarts for ${RESTART_COOLDOWN_MS / 1000}s`);
+    addLog("main", "error", `Auto-restart failed ${tracker.count}× (${summary}) — pausing restarts for ${RESTART_COOLDOWN_MS / 1000}s`);
   } else {
-    addLog("main", "error", `Failed to auto-restart: ${err?.message}`);
+    addLog("main", "error", `Failed to auto-restart: ${summary}`);
   }
 }
 
@@ -1759,6 +1853,13 @@ export function startHealthMonitoring(): void {
     if (!pythonOk && !pythonProcess) {
       if (restartSuppressed("python")) {
         console.log(`[health] Python auto-restart suppressed (cooldown) — port 5001 may be held by a stale process`);
+        // The bridge branch below already logs its suppressed state to the UI; without
+        // this the user sees the backend silently stop trying, with no reason given.
+        addLog(
+          "main",
+          "error",
+          "Python auto-restart paused — the backend keeps failing to start. A stale process may be holding port 5001, or python-backend/venv is missing its dependencies — check the error above, then run 'npm run transcribe:setup' from the repo root to repair the venv.",
+        );
       } else {
         console.log(`[health] Python backend is down — restarting...`);
         addLog("main", "warn", "Python backend is down — restarting...");

@@ -519,3 +519,35 @@ The diarization helper now re-enables line buffering on its own output as soon a
 | Component | Affected | Platforms |
 | --- | --- | --- |
 | Diarization startup progress (late single burst) | all packaged builds before 0.9.8 | Windows |
+
+## Dev backend won't start — `ModuleNotFoundError: No module named 'soundfile'` after `python-backend/venv` disappears
+
+### Symptom
+
+- Dev run (`npm run electron:dev`): the Python backend exits immediately at `main.py:59` → `patches.py:18` `import soundfile` with `ModuleNotFoundError: No module named 'soundfile'`.
+- The bridge then logs `← Python NETWORK ERROR ... fetch failed` and `Error (502): Python backend unreachable: fetch failed` on every `GET /transcribe/models/status` (about every 5s), while `[main] Python backend is down — restarting...` fires every 30s until `Auto-restart failed 3× ... pausing restarts for 60s`.
+- The window stays usable but every backend action fails; `{userData}/logs/startup-error.log` contains the traceback.
+
+### Root Cause
+
+`python-backend/venv` was gone, so the main process' `resolvePythonBin()` fell back to the bare `python3` on `PATH`. On macOS that is `/usr/bin/python3` (3.9.6), which has none of `requirements.txt` installed — so the very first import in `patches.py` failed. Because the fallback was silent and the failure surfaced as a single import error rather than a "no virtualenv" message, the real cause was buried under the 502 retry loop.
+
+`venv/` is gitignored, so anything that removes ignored files (a repo-wide `git clean -xfd`, a manual `rm -rf`) deletes it — which is how a previously working dev setup breaks.
+
+### Fix (0.9.12)
+
+**1. `electron/src/main/backend-manager.ts`** — `resolvePythonBin()` now fails fast in dev when `python-backend/venv` is missing, with a message naming the path and pointing at `npm run transcribe:setup`. The silent fall back to the system Python is gone; the packaged branch keeps its fallback but logs a warning instead of failing quietly.
+
+**2. `electron/src/main/backend-manager.ts`** — new `assertPythonDeps()` runs a cheap `python -c "import soundfile"` probe against the resolved interpreter before spawning, so a half-installed venv reports exactly which import is missing.
+
+**3. Repair the environment** — `npm run transcribe:setup` from the repo root (or `python3.11 -m venv venv` + `pip install -r requirements.txt` inside `python-backend/`), using a Python **>= 3.10**.
+
+### Verify
+
+`python-backend/venv/bin/python3 -c "import soundfile, torch, pyannote.audio"` succeeds, then the app logs `[backend] Using: <repo>/python-backend/venv/bin/python3 main.py (dev venv)` and `[backend] Python backend is ready`.
+
+### Affected Versions
+
+| Component | Affected | Platforms |
+| --- | --- | --- |
+| Dev backend startup (silent interpreter fallback) | all dev builds before 0.9.12 | macOS, Linux, Windows |

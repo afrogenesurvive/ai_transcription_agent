@@ -15,12 +15,12 @@
  *   auto-update:install    → install downloaded update and restart (packaged mode only)
  */
 
-import { execSync } from "child_process";
+import { execFileSync, execSync } from "child_process";
 import path from "path";
 import fs from "fs";
 import { app, ipcMain, Notification } from "electron";
 import { addLog } from "./logger";
-import { stopAll } from "./backend-manager";
+import { stopAll, venvPythonPath } from "./backend-manager";
 import { getConfig } from "./config";
 
 const IS_WIN = process.platform === "win32";
@@ -305,10 +305,26 @@ function installDeps(dir: string): boolean {
 
 function installPythonDeps(backendDir: string): boolean {
   if (!fs.existsSync(path.join(backendDir, "requirements.txt"))) return true;
+
+  // Install into the SAME interpreter the backend is spawned with. The old
+  // implementation shelled out to the system `pip3` (Windows: `python -m pip`), so the
+  // venv the dev backend actually runs from was never updated.
+  const venvPython = venvPythonPath(backendDir);
+  if (!venvPython) {
+    updateLog(
+      "warn",
+      `Python deps skipped — no virtualenv at ${path.join(backendDir, "venv")}. Run 'npm run transcribe:setup' from the repo root to create it.`,
+    );
+    return true;
+  }
+
   try {
-    updateLog("info", "Installing Python deps...");
-    const pipCmd = IS_WIN ? "python -m pip install -r requirements.txt" : "pip3 install -r requirements.txt";
-    execSync(pipCmd, { cwd: backendDir, stdio: "pipe", timeout: BUILD_TIMEOUT_MS });
+    updateLog("info", `Installing Python deps into ${venvPython}...`);
+    execFileSync(venvPython, ["-m", "pip", "install", "-r", "requirements.txt"], {
+      cwd: backendDir,
+      stdio: "pipe",
+      timeout: BUILD_TIMEOUT_MS,
+    });
     return true;
   } catch (err: any) {
     updateLog("info", "Python deps skipped (non-blocking): " + err.message);

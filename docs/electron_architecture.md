@@ -144,6 +144,17 @@ Exposes a safe `window.electronAPI` object to the renderer via `contextBridge.ex
   - Process termination (`SIGTERM` vs `taskkill /F /PID`)
   - Path resolution (bundled binaries / embedded runtime in production)
 
+**Dev interpreter resolution (not packaged):** the backend is spawned with
+`python-backend/venv/bin/python3` (`venv\Scripts\python.exe` on Windows). If the venv is
+missing, startup **fails fast** with an actionable error (run `npm run transcribe:setup`)
+instead of falling back to the system `python3` — which on macOS is 3.9 and has none of
+`requirements.txt`. A deleted venv (it is gitignored, so `git clean -xfd` removes it) is the
+usual cause of the startup `ModuleNotFoundError: No module named 'soundfile'`. Before
+spawning, `assertPythonDeps()` probes `import soundfile` so a partially-installed venv
+reports the exact missing import. Packaged builds use the PyInstaller binary instead, and the
+dev auto-updater's `installPythonDeps()` installs with that same venv interpreter rather than
+the system `pip3`.
+
 **Production mode (packaged):**
 
 - The bridge server, agent runner, and bot test scripts run on **Electron's own embedded Node**
